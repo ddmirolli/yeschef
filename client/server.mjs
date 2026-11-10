@@ -2897,7 +2897,7 @@ ${BAR_HTML}
   applyPrefs(); applyScope(); sizeRail(); restoreDrafts(document);
   setView(state.view); setFolder('pass');
   fades();
-  // The Cmd+K action bar (client/bar.mjs). View: You and View: Your team read and set the same scope as the footer
+  // The Cmd+K action bar (client/bar.mjs). View: You and View: Team read and set the same scope as the footer
   // chip's switch; with no reports (#yc-team absent) views() says so and their rows stay hidden (Dan, 2026-11-10).
   ${barCore}
   ${installBar}
