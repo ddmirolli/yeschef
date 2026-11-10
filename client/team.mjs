@@ -167,7 +167,20 @@ export class Team {
     } catch { this.lost(1006); return; }
     this.ws = ws;
     let opened = false;
-    ws.addEventListener('open', () => { if (this.ws !== ws) return; opened = true; this.startBeat(); });
+    ws.addEventListener('open', () => {
+      if (this.ws !== ws) return;
+      opened = true;
+      this.startBeat();
+      // The relay's hello has a deadline: a socket that answers pings and never says hello is retried, not kept
+      // connecting for ever (PR-Agent r2 on public #7).
+      this.timers.setTimeout(() => {
+        if (this.ws !== ws || this.link !== 'connecting') return;
+        this.ws = null;
+        this.stopBeat();
+        try { ws.close(4000, 'No hello from the relay.'); } catch { /* already closed */ }
+        this.lost(1006, true);
+      }, ASK_MS);
+    });
     ws.addEventListener('message', (ev) => { if (this.ws === ws) this.heard(ev.data); });
     ws.addEventListener('close', (ev) => {
       if (this.ws !== ws) return;
@@ -432,7 +445,12 @@ export class Team {
       let body;
       try { body = await openSigned(key, blob, aad.send(this.state.team, from, me.id), sender.sign); }
       catch { if (this.isLead) await this.takeKeyAsk(sender, blob); return; }
-      if (body?.k === 'act') await this.intake(sender, body);
+      // The team may have changed while the blob was opened: this Mac removed or stopped, or the sender removed or
+      // given another role. Only the roster as it is now counts (PR-Agent r2 on public #7).
+      if (this.stopped || this.state.status !== 'member') { ack = false; return; }
+      const now = this.people.get(from);
+      if (!now) return;
+      if (body?.k === 'act') await this.intake(now, body);
       else if (body?.k === 'result') {
         const result = { status: Number(body.status) || 500, text: clean(body.text, 300) };
         const o = this.out.get(body.re);
@@ -477,7 +495,7 @@ export class Team {
     const action = body.action || {};
     const kind = String(action.kind || '');
     if (!allows(sender, kind)) return answer(403, refusal(sender, kind));
-    if (!shares(this.me?.role)) return answer(409, 'Not run: this teammate shares no tickets.');
+    if (!this.me || !shares(this.me.role)) return answer(409, 'Not run: this teammate shares no tickets.');
     if (!this.run || !this.boardOf) return answer(409, 'Not checked: this teammate\'s Yes Chef cannot act yet.');
     const b = this.boardOf();
     if (!b?.ok || !b.board || now - b.at > BOARD_FRESH_MS) return answer(409, 'Not checked: this teammate\'s board is not fresh. Try again in a minute.');
@@ -486,6 +504,10 @@ export class Team {
     const ticket = b.board.tickets.find((k) => k.thread.threadId === thread || k.asks.some((a) => a.thread.threadId === thread));
     const shared = new Set(this.state.shared || []);
     if (!ticket || !shared.has(ticket.thread.projectId)) return answer(409, 'Not run: that ticket is not on this teammate\'s shared board.');
+    // The id is saved before T3 hears the action: if this Mac stops mid-run, the relay's copy that comes back gets
+    // "not confirmed", never a second run (PR-Agent r2 on public #7).
+    this.seen.set(seenKey, { at: now, status: 502, text: 'Not confirmed: this teammate\'s Yes Chef stopped while it ran the action. Check the thread before you send again.' });
+    this.save();
     let out;
     try {
       // The nonce T3 sees names the sender too, so one teammate's ids never collide with another's or with the dev's.
@@ -504,11 +526,14 @@ export class Team {
     const body = { k: 'act', nonce, at: this.now(), action: { ...action } };
     const blob = await sealSigned(await this.teamKey(), me, body, aad.send(this.state.team, me.id, to));
     if (blob.length > this.limits.sendMax) return { status: 400, text: 'That note is too long to send.' };
+    let got = null;
     const result = new Promise((resolve) => {
       const timer = this.timers.setTimeout(() => { this.out.delete(nonce); resolve({ status: 504, text: 'Not checked: no answer from their Yes Chef yet. It runs the action when it comes online, within 15 minutes.' }); }, ASK_MS * 2);
-      this.out.set(nonce, { to, resolve, timer });
+      this.out.set(nonce, { to, resolve: (r) => { got = r; resolve(r); }, timer });
     });
     const sent = await this.say({ t: 'send', to, blob, ttl: ACT_TTL });
+    // Their answer can beat the relay's own: a known result wins over a missing ack (PR-Agent r2 on public #7).
+    if (sent.t !== 'ok' && got) return got;
     if (sent.t !== 'ok') { const o = this.out.get(nonce); this.timers.clearTimeout(o?.timer); this.out.delete(nonce); return { status: 503, text: sent.text }; }
     return result;
   }

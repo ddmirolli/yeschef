@@ -729,3 +729,63 @@ test('a full list of recent actions refuses new ones rather than forget one that
   assert.equal(ran.length, 1, 'the first one still never runs twice');
   lead.stop(); dev.stop();
 });
+
+test('an action opened after this Mac was removed does not run', async () => {
+  const { relay, lead, dev, ran } = await crew();
+  const me = await lead.member();
+  const key = await teamKey(lead.state.key);
+  const blob = await sealSigned(key, me, { k: 'act', nonce: 'DDDDDDDDDDDDDDDDDDDDDD', at: relay.now(), action: { kind: 'reply', thread: 'th-parser', note: 'late' } }, aad.send(lead.state.team, me.id, dev.meId));
+  // The removal lands while the blob is being opened.
+  const got = dev.teamKey.bind(dev);
+  dev.teamKey = async () => { const k = await got(); dev.end('removed'); return k; };
+  await dev.take({ item: 'i1', from: me.id, blob });
+  assert.equal(ran.length, 0);
+  lead.stop();
+});
+
+test('an action\'s id is saved before it runs, so a crash mid-run never runs it twice', async () => {
+  const { relay, lead, dev, saved } = await crew();
+  const me = await lead.member();
+  const key = await teamKey(lead.state.key);
+  const nonce = 'EEEEEEEEEEEEEEEEEEEEEE';
+  const blob = await sealSigned(key, me, { k: 'act', nonce, at: relay.now(), action: { kind: 'reply', thread: 'th-parser', note: 'once' } }, aad.send(lead.state.team, me.id, dev.meId));
+  let onDisk = null;
+  dev.run = async () => { onDisk = saved.dev.at(-1).seen.find(([k]) => k === `${me.id}:${nonce}`); return { status: 200, text: 'Reply sent.' }; };
+  await dev.take({ item: 'i1', from: me.id, blob });
+  assert.ok(onDisk, 'the id was on disk while the action ran');
+  assert.match(onDisk[1].text, /Not confirmed/);
+  lead.stop(); dev.stop();
+});
+
+test('a relay that opens the socket and never says hello is left and retried', async () => {
+  const { relay, net, timers, lead, dev } = await crew();
+  dev.stop();
+  // The hello never comes; pings still get their pong.
+  const quiet = { ...net, socket(url) {
+    const s = net.socket(url);
+    const add = s.addEventListener;
+    s.addEventListener = (type, fn) => add(type, type === 'message' ? (ev) => { if (!String(ev.data).includes('"hello"')) fn(ev); } : fn);
+    return s;
+  } };
+  const again = new Team({ state: structuredClone(dev.state), net: quiet, now: () => relay.now(), timers, random: () => 1 });
+  again.start();
+  await until(() => again.ws?.readyState === 1, 'the socket open');
+  assert.equal(again.link, 'connecting');
+  await timers.advance(15000);
+  assert.equal(again.link, 'waiting');
+  again.stop(); lead.stop();
+});
+
+test('their answer that comes before the relay\'s slow ack is the answer', async () => {
+  const { lead, dev } = await crew();
+  const say = lead.say.bind(lead);
+  lead.say = async (msg) => {
+    if (msg.t !== 'send') return say(msg);
+    await say(msg);
+    await until(() => lead.out.size === 0, 'their answer');
+    return { t: 'err', code: 'closed', text: 'Not sent: the relay did not answer.' };
+  };
+  const out = await lead.act(dev.meId, { kind: 'reply', thread: 'th-parser', note: 'Rebase on main first.' });
+  assert.deepEqual(out, { status: 200, text: 'Reply sent.' });
+  lead.stop(); dev.stop();
+});
