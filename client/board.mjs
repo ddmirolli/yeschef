@@ -635,7 +635,7 @@ function callWords(c, { name, now, people }) {
       const facts = kvs([
         f.cause ? ['PR', `#${n} ${f.cause.ticket.title || ''}`.trim()] : ['Repo', f.repo],
         ['By', f.cause ? `${pos(by)} agent, merged ${hm(cut)}` : NC_V],
-        ['Size', size && Number.isFinite(size.files) ? `${plural(size.files, 'file')}, +${nf(size.added)} −${nf(size.removed)}` : NC_V],
+        ['Size', size && [size.files, size.added, size.removed].every(Number.isFinite) ? `${plural(size.files, 'file')}, +${nf(size.added)} −${nf(size.removed)}` : NC_V],
         [f.failing.length > 1 ? 'Failing checks' : 'Failing check', f.failing.length ? f.failing.join(', ') : NC_V, 'mono'],
       ]);
       return {
@@ -654,11 +654,11 @@ function callWords(c, { name, now, people }) {
     }
     case 'overlap': {
       const top = f.files[0], [A, B] = f.sides, R = name(f.rebaser.person), K = name(f.keeper.person);
-      const kpr = (f.keeper.ticket.prs || []).find((p) => p.state === 'open'), rpr = (f.rebaser.ticket.prs || []).find((p) => p.state === 'open');
+      const kpr = f.keeper.pr, rpr = f.rebaser.pr;
       const same = A.person === B.person;
       const names = same ? `${pos(name(A.person))} two threads` : `${name(A.person)} and ${name(B.person)}`;
       const both = kpr && rpr;
-      const card = (s) => { const p = (s.ticket.prs || []).find((x) => x.state === 'open');
+      const card = (s) => { const p = s.pr;
         return `<div class="tcard"><div class="h">${face(people.get(s.person))}${e(name(s.person))}<span class="lb"><i class="gd c-${DOT[s.ticket.place] || 'gray'}"></i>${e(s.ticket.place || NC_V)}</span></div>`
           + `<div class="t">${e(s.ticket.title || 'Untitled thread')}</div><div class="m">${e([p ? `PR #${p.n}` : 'No PR yet', s.ticket.working ? plural(s.ticket.working, 'agent') : '', s.ticket.startedAt != null ? `started ${hm(s.ticket.startedAt)}` : ''].filter(Boolean).join(', '))}</div></div>`; };
       // The file's line map: each side's changed ranges, the shared lines boxed in red.

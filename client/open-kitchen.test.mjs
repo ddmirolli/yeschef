@@ -385,3 +385,24 @@ test('review r4: a picked project narrows the team’s calls; a red base with no
   assert.equal(m.project, 'Fernpay', 'the team’s work on that base names the project');
   assert.match(page({ view: v, now: NOW }), /main is red in acme\/fernpay/);
 });
+
+test('review r5: done work is not an Overlap; the rebase target is the PR in the diff’s repo; @ in a branch; partial sizes', () => {
+  let v = view(); ticket(v, 'kai').place = 'Verified';
+  assert.ok(!read(v).pass.some((c) => c.kind === 'overlap'));
+  v = view(); ticket(v, 'kai').place = 'toString';
+  assert.ok(!read(v).pass.some((c) => c.kind === 'overlap'));
+  v = view();
+  const kai = ticket(v, 'kai');
+  kai.prs.unshift({ ...kai.prs[0], repo: 'acme/other', n: 10, url: 'https://github.com/acme/other/pull/10' });
+  const ov = read(v).pass.find((c) => c.kind === 'overlap');
+  assert.equal(ov.facts.keeper.pr.n, 412);
+  assert.deepEqual(ov.prs.map((p) => p.n), [412, 415]);
+  assert.match(page({ view: v, now: NOW }), /rebase on #412/);
+  v = view();
+  const b = who(v, 'ravi').summary.bases[0];
+  b.branch = 'release@v2';
+  for (const p of v.people) for (const k of p.summary?.tickets || []) for (const pr of k.prs) pr.base = 'release@v2';
+  assert.equal(read(v).pass.find((c) => c.kind === 'main').facts.cause.pr.n, 431);
+  v = view(); delete ticket(v, 'ravi').prs[0].size.added;
+  assert.doesNotMatch(page({ view: v, now: NOW }), /5 files, \+0/);
+});

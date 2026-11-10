@@ -113,7 +113,7 @@ function mainBroken(people, tickets) {
   for (const [key, b] of bases) {
     if (b.requiredResult !== 'failing') continue; // null is not checked, never a guess
     const red = b.redSince;
-    const repo = key.slice(0, key.lastIndexOf('@'));
+    const repo = b.repo.toLowerCase(); // a branch name may hold an @, so never split the key
     // A PR counts against this base only when it targets this branch (proposed `pr.base`); a PR with no base is left out.
     const inRepo = tickets.flatMap(({ k, p, live }) => arr(k.prs).map((pr) => ({ pr, k, p, live })))
       .filter(({ pr }) => pr.repo.toLowerCase() === repo && pr.base === b.branch);
@@ -146,7 +146,8 @@ const rng = (r) => Array.isArray(r) && Number.isInteger(r[0]) && Number.isIntege
  *  call (they show in the shared files list). A file with no ranges read (`r: null`) is not checked, never "different".
  *  Lockfiles and generated files (`x`) are left out of calls. */
 function overlap(tickets) {
-  const live = tickets.filter(({ k, live: on }) => on && k.changes?.state === 'checked' && k.place !== 'Merged' && Array.isArray(k.changes.files));
+  // Only work still before its merge: Merged, Verified and the held places (Stopped, Failed, Snoozed) are not compared.
+  const live = tickets.filter(({ k, live: on }) => on && k.changes?.state === 'checked' && Object.hasOwn(STAGE_RANK, k.place ?? '') && k.place !== 'Merged');
   const out = [];
   for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) {
     const A = live[i], B = live[j], ca = A.k.changes, cb = B.k.changes;
@@ -171,13 +172,15 @@ function overlap(tickets) {
     const rebaser = ra[0] !== rb[0] ? (ra[0] < rb[0] ? A : B) : (ra[1] < rb[1] ? A : B);
     const keeper = rebaser === A ? B : A;
     const since = Math.max(ms(A.k.startedAt) ?? 0, ms(B.k.startedAt) ?? 0) || null;
+    // Each side's PR is its open one in the diff's repo and base, never a PR of the same thread in another repo.
+    const prOf = (t) => t.k.prs.find((pr) => pr.state === 'open' && pr.repo.toLowerCase() === ca.repo.toLowerCase() && pr.base === ca.base) || null;
     const [first, second] = [A, B].sort((x, y) => String(x.k.thread).localeCompare(String(y.k.thread)));
     out.push({
       id: callId('overlap', `${first.k.thread}+${second.k.thread}`, since), kind: 'overlap', subject: `${first.k.thread}+${second.k.thread}`, since,
       who: [...new Set([A.p.id, B.p.id])], thread: rebaser.k.thread, project: A.k.project,
-      prs: [...arr(keeper.k.prs), ...arr(rebaser.k.prs)].filter((pr) => pr.state === 'open').slice(0, 2), holds: 2,
+      prs: [prOf(keeper), prOf(rebaser)].filter(Boolean), holds: 2,
       // Ranges are base-side lines; from two different merge bases they are near, not exact (lines merged between move them).
-      facts: { near: !ca.mergeBase || ca.mergeBase !== cb.mergeBase, files, sides: [A, B].map(({ k, p }) => ({ person: p.id, ticket: k })), rebaser: { person: rebaser.p.id, ticket: rebaser.k }, keeper: { person: keeper.p.id, ticket: keeper.k } },
+      facts: { near: !ca.mergeBase || ca.mergeBase !== cb.mergeBase, files, sides: [A, B].map((t) => ({ person: t.p.id, ticket: t.k, pr: prOf(t) })), rebaser: { person: rebaser.p.id, ticket: rebaser.k, pr: prOf(rebaser) }, keeper: { person: keeper.p.id, ticket: keeper.k, pr: prOf(keeper) } },
     });
   }
   return out;
