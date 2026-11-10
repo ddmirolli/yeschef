@@ -3,7 +3,8 @@
 # npm run release -- nightly    a Nightly release
 #
 # Yes Chef's release, on Dan's Mac (docs/desktop-release-plan-v0_1.md, section 7, steps 1 to 5; the site is PR D).
-# Dan runs it himself, from a clean main, in a new Terminal window opened only for it, and locks 1Password when the
+# Releases build in GitHub Actions (.github/workflows/release.yml); this is the local fallback, with the same plan,
+# build and publish steps. Dan runs it himself, from a clean main, in a new Terminal window opened only for it, and locks 1Password when the
 # key is deleted (his rule, 2026-11-09: the Touch ID approval serves only this release, and nothing in ReviewWheel
 # can use it). Agents never run it: it refuses to run without a terminal.
 #
@@ -28,9 +29,10 @@ if [[ ! -t 0 || ! -t 1 ]]; then
   print -u2 "Run this in your own Terminal window, not from an agent."
   exit 1
 fi
-if (( $# != 1 )); then
+if (( $# != 1 )) || [[ "$1" == dry-run || "$1" == -* ]]; then
   print -u2 "Usage: npm run release -- <version>   a Stable release, such as 0.2.0"
   print -u2 "       npm run release -- nightly     a Nightly release"
+  print -u2 "A dry run needs no key: npm run dist -- --dry-run"
   exit 1
 fi
 

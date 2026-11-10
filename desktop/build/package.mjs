@@ -5,7 +5,9 @@
 //   npm run app -- --install     the same, then put it in /Applications (quit Yes Chef first)
 //   npm run dist                 the release files in out/builder: Yes-Chef-<version>-arm64.dmg and .zip, latest-mac.yml
 //   npm run dist -- --dry-run    the same files signed with this Mac's certificate and not notarized, to test the build.
-//                                Never publish them: Gatekeeper rejects them on any other Mac.
+//                                Never publish them: Gatekeeper rejects them on any other Mac. With no certificate
+//                                (the GitHub runner's dry run) they are signed ad hoc, and the checks only a
+//                                certificate build can pass print as skip.
 //   --version <version>          build that version instead of package.json's: 0.2.0 for Stable, or
 //                                0.2.1-nightly.20261110.1 for Nightly (desktop/channels.mjs). `npm run release` passes it.
 //
@@ -71,6 +73,10 @@ if (RELEASE && !identity) fail(`No Developer ID Application certificate from tea
 if (RELEASE && !notaryArgs()) fail('No notarization credentials: set APPLE_API_KEY, APPLE_API_KEY_ID and APPLE_API_ISSUER, or APPLE_KEYCHAIN_PROFILE (see the top of this file).');
 if (!identity) console.warn('No Developer ID or Apple Development certificate from team ' + TEAM_ID + ': signing ad hoc. macOS will ask for the Keychain again after every update.');
 console.log(`Signing with ${identity ? identity.name : 'ad hoc'}.`);
+// On a pull request build (GITHUB_BASE_REF is set) electron-builder skips all signing, to keep a fork's build away
+// from signing secrets, and leaves the bundle unsealed. An ad hoc signature uses no secret, so it may sign then. A
+// certificate build never gets this: on a pull request it stays unsigned and fails its checks.
+if (!identity) process.env.CSC_FOR_PULL_REQUEST = 'true';
 
 // The Dock icon as .icns, from the channel's PNG (build/icon.png or build/icon-nightly.png), with the macOS tools.
 const work = mkdtempSync(join(tmpdir(), 'yeschef-build-'));
@@ -180,13 +186,16 @@ if (DRY) {
   // The feed rewrite on the real file: with the DMG unchanged it must give back the same feed.
   const before = readFileSync(feed, 'utf8');
   if (rewriteFeed(before, basename(dmg), { sha512: sha512(dmg), size: statSync(dmg).size }) !== before) fail(`${basename(feed)} does not match the DMG.`);
+  // With no certificate (a GitHub runner before the signing secrets exist) the build is ad hoc: the checks only a
+  // certificate build can pass are reported as skipped, and every other check still has to pass.
+  const signed = !!identity;
   const unzipped = mkdtempSync(join(tmpdir(), 'yeschef-check-'));
   run('/usr/bin/ditto', ['-x', '-k', zip, unzipped]);
-  const ok = report([...(await checkApp(appIn(unzipped))), ...checkBuild(appIn(unzipped), expected), ...checkFeed(feed, expected), ...smoke(appIn(unzipped)),
-    ...checkDmg(dmg, { release: false })]);
+  const ok = report([...(await checkApp(appIn(unzipped), { signed })), ...checkBuild(appIn(unzipped), expected), ...checkFeed(feed, expected), ...smoke(appIn(unzipped)),
+    ...checkDmg(dmg, { release: false, signed })]);
   rmSync(unzipped, { recursive: true, force: true });
   if (!ok) fail('The dry run failed its checks.');
-  console.log(`Dry run: files in ${OUT}, not notarized. Never publish them.`);
+  console.log(`Dry run${signed ? '' : ', unsigned'}: files in ${OUT}, not notarized. Never publish them.`);
   process.exit(0);
 }
 
@@ -227,8 +236,13 @@ function smoke(bundle) {
     { env: { ...env, YESCHEF_USER_DATA: join(tmp, 'data'), YESCHEF_CAPTURE_DIR: join(tmp, 'out') }, encoding: 'utf8', timeout: 120000 });
   const shot = ['no-sign-in.png', 'no-t3.png'].find((f) => existsSync(join(tmp, 'out', f)));
   rmSync(tmp, { recursive: true, force: true });
-  const tail = `${r.stdout || ''}${r.stderr || ''}`.trim().split('\n').slice(-4).join(' | ');
-  return [{ name: 'hidden --capture start, empty data folder', ok: r.status === 0 && !!shot, detail: shot ? `stopped at ${shot}` : `exit ${r.status}${r.error ? ` (${r.error.message})` : ''}: ${tail}` }];
+  // Chromium's own log lines ([pid:date/time:ERROR:file.cc:line] ...) are left out: on a runner with no GPU they come
+  // last and push the app's own message out of the tail.
+  const chromium = /^\[\d+:\d+\/\d+\.\d+:[A-Z]+:/;
+  const tail = `${r.stdout || ''}\n${r.stderr || ''}`.split('\n').filter((l) => l.trim() && !chromium.test(l)).slice(-6).join(' | ');
+  const retries = (r.stdout || '').split('\n').filter((l) => l.startsWith('capturePage failed')).length;
+  const again = retries ? `, after ${retries} failed capturePage ${retries === 1 ? 'try' : 'tries'}` : '';
+  return [{ name: 'hidden --capture start, empty data folder', ok: r.status === 0 && !!shot, detail: shot ? `stopped at ${shot}${again}` : `exit ${r.status}${r.error ? ` (${r.error.message})` : ''}: ${tail}` }];
 }
 
 /**

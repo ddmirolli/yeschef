@@ -1,0 +1,277 @@
+# Yes Chef's releases, built the way T3 Code builds its own (pingdotgg/t3code, .github/workflows/release.yml and
+# release-desktop.yml). docs/desktop-release-plan-v0_1.md, section 7, is the plan; desktop/build/publish.mjs does the
+# work in three parts, the same parts `npm run release` runs on a Mac:
+#
+#   plan     Linux, no secrets. Picks the version and the commit, or decides the scheduled Nightly has nothing to do.
+#   approve  A Stable only: waits for Dan's approval in the `stable` Environment (Dan, 2026-11-10). No secrets, no code.
+#   build    macOS arm64. The one job that loads the signing secrets (desktop/build/ci-signing.sh load), and the only
+#            one with code from npm. It can read the repo, not write to it.
+#   publish  Linux, no signing secrets. The one job that can write: a draft release, every file checked, then published.
+#
+# The signing secrets live only in the "Yes Chef Release" 1Password vault (Dan, 2026-11-10). GitHub holds one secret,
+# OP_SERVICE_ACCOUNT_TOKEN, the token of a read-only service account on that vault, in the `release` Environment, whose
+# branch rule allows main only, so a run from any other ref, a pull request included, cannot read it. `build` and
+# `publish` name that Environment only for a real release. A pull request and a dispatched dry-run name none: they
+# build unsigned, prove the CLI and keychain steps with a throwaway identity, and publish nothing. Never add a
+# pull_request_target trigger here.
+name: Release
+
+on:
+  # Nightly, once a day at 08:23 UTC (03:23 in New York in winter), away from the busy top of the hour. The plan job
+  # stops before any secret is read when main has nothing new since the newest published Nightly. Once a day because
+  # every Nightly is a notarization round trip and an update prompt for Nightly users; a dispatch ships one sooner.
+  schedule:
+    - cron: "23 8 * * *"
+  # Start a release by hand: github.com, Actions, Release, Run workflow, from main.
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "nightly: main now. stable: the newest Nightly's commit, as the version below, after Dan approves. dry-run: unsigned, never published. signing-check: reads the signing secrets and asks Apple to accept the key; builds nothing."
+        type: choice
+        options: [nightly, stable, dry-run, signing-check]
+        default: nightly
+      version:
+        description: "Stable only, such as 0.2.0 (its section in desktop/CHANGELOG.md becomes the notes). A dry run may take any version."
+        type: string
+        required: false
+  # The dry run on every pull request that touches what ships.
+  pull_request:
+    paths:
+      - "desktop/**"
+      - "client/**"
+      - "pass.py"
+      - ".github/workflows/release.yml"
+
+# One release at a time, in order. queue: max keeps every waiting run; GitHub's default keeps one waiting run per
+# group and cancels the rest, which could drop a Stable queued behind a Nightly. Each pull request has its own group.
+# A Stable waiting for Dan's approval holds the queue: a Nightly behind it starts once he approves or rejects it.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('release-dry-run-{0}', github.event.pull_request.number) || 'release' }}
+  cancel-in-progress: false
+  queue: max
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  plan:
+    name: Plan
+    if: github.event_name != 'workflow_dispatch' || inputs.channel != 'signing-check'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      due: ${{ steps.plan.outputs.due }}
+      plan: ${{ steps.plan.outputs.plan }}
+      head: ${{ steps.plan.outputs.head }}
+      channel: ${{ steps.plan.outputs.channel }}
+    steps:
+      # The ref that started the run: main for the schedule and for a dispatch from main. publish.mjs refuses any
+      # other branch for a release.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - id: plan
+        name: Plan the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          CHANNEL: ${{ inputs.channel }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          file="$RUNNER_TEMP/plan.json"
+          case "$EVENT" in
+            schedule) args=(nightly "$file" --if-changed) ;;
+            pull_request) args=(dry-run "$file") ;;
+            workflow_dispatch)
+              case "$CHANNEL" in
+                nightly)
+                  [[ -z "$VERSION" ]] || { echo "::error::A Nightly takes no version: its version is computed. Leave the version empty."; exit 1; }
+                  args=(nightly "$file") ;;
+                stable)
+                  [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::A Stable needs a version such as 0.2.0."; exit 1; }
+                  args=("$VERSION" "$file") ;;
+                dry-run)
+                  args=(dry-run "$file")
+                  [[ -z "$VERSION" ]] || args+=(--version "$VERSION") ;;
+                *) echo "::error::Unknown channel."; exit 1 ;;
+              esac ;;
+            *) echo "::error::Unexpected event $EVENT."; exit 1 ;;
+          esac
+          node desktop/build/publish.mjs plan "${args[@]}" --ci
+          {
+            echo "due=$(jq -r '.due' "$file")"
+            echo "plan=$(jq -c . "$file")"
+            echo "head=$(git rev-parse HEAD)"
+            echo "channel=$(jq -r '.channel // ""' "$file")"
+          } >> "$GITHUB_OUTPUT"
+          jq -r 'if .due then "### \(.title)\n\n\(if .dryRun then "Dry run: unsigned, never published" else "Release" end), tag `\(.tag)` at `\(.commit[0:12])`\(if .from then ", the commit of \(.from)" else "" end)." else "### No Nightly\n\n\(.reason)" end' "$file" >> "$GITHUB_STEP_SUMMARY"
+
+  # Dan's approval for a signed Stable (Dan, 2026-11-10). The `stable` Environment holds no secret: its rules are Dan
+  # as the required reviewer, his own runs allowed, and the branch main. It fails closed: every signed build whose
+  # plan is not a Nightly waits here (a Stable's channel is `latest`, desktop/channels.mjs). Nightly and dry runs skip it.
+  approve:
+    name: Approve the Stable
+    needs: plan
+    if: needs.plan.outputs.due == 'true' && needs.plan.outputs.channel != 'nightly' && github.event_name != 'pull_request' && inputs.channel != 'dry-run'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    environment:
+      name: stable
+    steps:
+      - name: Approved
+        env:
+          PLAN: ${{ needs.plan.outputs.plan }}
+        run: |
+          jq -r '"Approved: \(.title), tag \(.tag) at \(.commit[0:12])."' <<<"$PLAN"
+
+  # The gate, in Build and Publish: a signed build that is not a Nightly runs only after `approve` succeeded.
+  # !cancelled() lets Nightly run when `approve` is skipped. release.test.mjs evaluates these conditions.
+  build:
+    name: Build (macOS arm64)
+    needs: [plan, approve]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.due == 'true' && (needs.plan.outputs.channel == 'nightly' || github.event_name == 'pull_request' || inputs.channel == 'dry-run' || needs.approve.result == 'success') }}
+    runs-on: macos-26
+    timeout-minutes: 90
+    # A release only. An empty name is no Environment, so a dry run can read none of its secrets.
+    environment:
+      name: ${{ github.event_name != 'pull_request' && inputs.channel != 'dry-run' && 'release' || '' }}
+    env:
+      SIGNED: ${{ github.event_name != 'pull_request' && inputs.channel != 'dry-run' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.head }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Runner
+        run: |
+          # sed reads to the end: head would close the pipe early, and xcodebuild crashes on the broken pipe.
+          echo "macOS $(sw_vers -productVersion) ($(uname -m)), $(xcodebuild -version | sed -n 1p), Node $(node --version)"
+          echo "Gatekeeper: $(spctl --status 2>&1 || true)"
+          echo "notarytool: $(xcrun notarytool --version 2>&1 | sed -n 1p)"
+
+      # The dry run's proof of the CLI and keychain steps, with a throwaway identity and no secret.
+      - name: Rehearse the signing keychain
+        if: env.SIGNED != 'true'
+        timeout-minutes: 5
+        run: bash desktop/build/ci-signing.sh rehearse
+
+      # The only step that reads the vault, and only when a build runs. Everything after it gets the key's path and
+      # the two IDs from $GITHUB_ENV, and the certificate from the temporary keychain.
+      - name: Load the signing secrets
+        if: env.SIGNED == 'true'
+        timeout-minutes: 5
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+        run: bash desktop/build/ci-signing.sh load
+
+      - name: Build, notarize and check
+        env:
+          PLAN: ${{ needs.plan.outputs.plan }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/release"
+          printf '%s' "$PLAN" > "$RUNNER_TEMP/release/plan.json"
+          node desktop/build/publish.mjs build "$RUNNER_TEMP/release/plan.json" --ci
+
+      - name: Delete the signing keychain and key
+        if: always() && env.SIGNED == 'true'
+        run: bash desktop/build/ci-signing.sh cleanup
+
+      - name: Hand the files to the publishing job
+        if: env.SIGNED == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-files
+          path: ${{ runner.temp }}/release/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish
+    needs: [plan, approve, build]
+    if: ${{ !cancelled() && needs.build.result == 'success' && github.event_name != 'pull_request' && inputs.channel != 'dry-run' && (needs.plan.outputs.channel == 'nightly' || needs.approve.result == 'success') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: release
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.head }}
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Fetch the built files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+          path: ${{ runner.temp }}/release
+
+      # What is released comes from the Plan job, the plan the Stable gate saw. The artifact comes from the build job,
+      # which runs npm's install scripts: publish.mjs takes only its time and files, and stops on any other change.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_PLAN: ${{ needs.plan.outputs.plan }}
+        run: |
+          set -euo pipefail
+          node desktop/build/publish.mjs publish "$RUNNER_TEMP/release/plan.json" --ci
+          jq -r '"### Published \(.title)\n\nhttps://github.com/\(.repo)/releases/tag/\(.tag)"' <<<"$RELEASE_PLAN" >> "$GITHUB_STEP_SUMMARY"
+
+  # Proves the signing secrets without building: dispatch with channel signing-check, from main. It reads the vault
+  # as a release does, imports the certificate, asks Apple whether it accepts the notarization key, and deletes it all.
+  signing-check:
+    name: Signing check
+    if: github.event_name == 'workflow_dispatch' && inputs.channel == 'signing-check'
+    runs-on: macos-26
+    timeout-minutes: 15
+    environment:
+      name: release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Load the signing secrets
+        timeout-minutes: 5
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+        run: bash desktop/build/ci-signing.sh load
+
+      - name: Ask Apple about the notarization key
+        timeout-minutes: 5
+        run: bash desktop/build/ci-signing.sh check
+
+      - name: Delete the signing keychain and key
+        if: always()
+        run: bash desktop/build/ci-signing.sh cleanup
