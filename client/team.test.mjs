@@ -976,12 +976,21 @@ test('a project dropped while the list saves is out of the waiting summary at on
   let release;
   const saveFn = dev.saveFn;
   dev.saveFn = (s) => new Promise((r) => { release = r; }).then(() => saveFn(s));
+  // Nothing sent after the drop carries Q, even while the list saves; the summary waits for its revision on disk
+  // (PR-Agent r14 on public #7).
+  const sealed = [];
+  const seal = dev.sealSummary.bind(dev);
+  dev.sealSummary = async (body, at) => { sealed.push(JSON.stringify(body)); return seal(body, at); };
   const saving = dev.share([P]);
   await timers.advance(10000);
   await settle();
-  assert.doesNotMatch(JSON.stringify(lead.summaries.get(dev.meId).body), /Private work/);
+  for (const j of sealed) assert.doesNotMatch(j, /Private work/);
+  dev.saveFn = saveFn;
   release();
   assert.equal(await saving, true);
+  await timers.advance(10000);
+  await until(() => !JSON.stringify(lead.summaries.get(dev.meId).body).includes('Private work'), 'Q gone at the lead');
+  for (const j of sealed) assert.doesNotMatch(j, /Private work/);
   lead.stop(); dev.stop();
 });
 
@@ -1248,5 +1257,44 @@ test('a teammate whose clock went back still replaces their summary: a dropped p
   await dev.share([P]);
   await timers.advance(10000);
   await until(() => !lead.summaries.get(dev.meId)?.body.tickets.some((k) => k.title === 'Private work'), 'Q dropped at the lead');
+  lead.stop(); dev.stop();
+});
+
+test('an action whose relay answer was lost is not called unsent: it may still run', async () => {
+  const { timers, lead, dev } = await crew();
+  dev.stop();
+  const say = lead.say.bind(lead);
+  lead.say = async (msg) => { if (msg.t !== 'send') return say(msg); await say(msg); return { t: 'err', code: 'closed', text: 'Not sent: the team connection dropped.' }; };
+  const out = lead.act(dev.meId, { kind: 'reply', thread: 'th-parser', note: 'Rebase on main first.' });
+  await settle(); await settle(); await settle();
+  await timers.advance(30000);
+  const r = await out;
+  assert.notEqual(r.status, 503);
+  assert.match(r.text, /^Not confirmed/);
+  lead.stop();
+});
+
+test('a teammate\'s withdrawn summary is not taken again when the relay replays it', async () => {
+  const { relay, timers, lead, dev } = await crew();
+  dev.board(boardNow(relay.now()));
+  await until(() => lead.summaries.size === 1);
+  const old = relay.sql.exec('SELECT blob FROM summary WHERE m = ?', dev.meId).one().blob;
+  await dev.share([]);
+  await timers.advance(10000);
+  await until(() => lead.summaries.size === 0, 'the summary gone');
+  await lead.takeSummary(dev.meId, old, relay.now());
+  assert.equal(lead.summaries.size, 0);
+  lead.stop(); dev.stop();
+});
+
+test('a summary whose revision did not reach the disk does not go out', async () => {
+  const { relay, timers, lead, dev } = await crew();
+  dev.saveFn = async () => { throw new Error('disk full'); };
+  dev.board(boardNow(relay.now()));
+  await settle(); await settle(); await settle();
+  await timers.advance(10000);
+  await settle();
+  assert.equal(lead.summaries.size, 0);
+  assert.equal(relay.sql.exec('SELECT COUNT(*) AS n FROM summary WHERE m = ? AND blob IS NOT NULL', dev.meId).one().n, 0);
   lead.stop(); dev.stop();
 });
