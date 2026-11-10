@@ -236,7 +236,10 @@ function smoke(bundle) {
     { env: { ...env, YESCHEF_USER_DATA: join(tmp, 'data'), YESCHEF_CAPTURE_DIR: join(tmp, 'out') }, encoding: 'utf8', timeout: 120000 });
   const shot = ['no-sign-in.png', 'no-t3.png'].find((f) => existsSync(join(tmp, 'out', f)));
   rmSync(tmp, { recursive: true, force: true });
-  const tail = `${r.stdout || ''}${r.stderr || ''}`.trim().split('\n').slice(-4).join(' | ');
+  // Chromium's own log lines ([pid:date/time:ERROR:file.cc:line] ...) are left out: on a runner with no GPU they come
+  // last and push the app's own message out of the tail.
+  const chromium = /^\[\d+:\d+\/\d+\.\d+:[A-Z]+:/;
+  const tail = `${r.stdout || ''}\n${r.stderr || ''}`.split('\n').filter((l) => l.trim() && !chromium.test(l)).slice(-6).join(' | ');
   return [{ name: 'hidden --capture start, empty data folder', ok: r.status === 0 && !!shot, detail: shot ? `stopped at ${shot}` : `exit ${r.status}${r.error ? ` (${r.error.message})` : ''}: ${tail}` }];
 }
 
