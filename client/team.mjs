@@ -97,7 +97,7 @@ export class Team {
     this.roster = null;          // the verified roster body
     this.people = new Map();     // id -> { id, sign, dh, invite, name, role, perms }
     this.summaries = new Map();  // id -> { at, body } (opened)
-    this.summaryFloor = new Map(); // id -> the newest signed time taken, kept across reconnects
+    this.summaryFloor = new Map(); // id -> the newest summary revision taken, kept across reconnects
     this.areas = [];             // [{ id, name }] from the roster the lead signed: names only until Rules gives them projects
     this.online = new Set();
     this.pending = new Map();    // asks to join, for inviters: m -> { m, invite, at, name, projects }
@@ -482,15 +482,16 @@ export class Team {
       const body = await openSigned(key, blob, aad.summary(this.state.team, m), p.sign);
       // The time shown is the one the dev's Mac signed, not the relay's: a relay that replays an old summary cannot
       // make it look new, and an older one never replaces a newer one (PR-Agent r1 on #79).
-      const signed = Number(body?.at);
-      if (!Number.isFinite(signed)) { this.summaries.delete(m); this.emit('team'); return; }
+      const signed = Number(body?.at), rev = Number(body?.rev);
+      if (!Number.isFinite(signed) || !Number.isFinite(rev)) { this.summaries.delete(m); this.emit('team'); return; }
       // A teammate's clock far ahead would set a floor no right-dated summary passes: not taken (PR-Agent r10 on
       // public #7).
       if (signed - this.now() > AUTH_SKEW_MS) return;
-      // The floor outlives the shown summary: a reconnect clears what is shown, never the newest time taken, so a
-      // relay cannot hand back an older summary after it (PR-Agent r1 on public #7).
-      if (signed < (this.summaryFloor.get(m) || 0)) return;
-      this.summaryFloor.set(m, signed);
+      // The floor outlives the shown summary: a reconnect clears what is shown, never the newest revision taken, so a
+      // relay cannot hand back an older summary after it (PR-Agent r1 on public #7). The revision, not the time: a
+      // teammate whose clock went back still gets through (PR-Agent r13 on public #7).
+      if (rev < (this.summaryFloor.get(m) || 0)) return;
+      this.summaryFloor.set(m, rev);
       this.summaries.set(m, { at: Math.min(signed, this.now()), body });
     } catch { this.summaries.delete(m); }
     this.emit('team');
@@ -741,14 +742,16 @@ export class Team {
   async sealSummary(body, at = this.now()) {
     const me = await this.member();
     const key = await this.teamKey();
-    // Each summary signed is dated after the last one: a replacement built from the same board (a dropped project) is
-    // still newer, so the relay cannot hand back the one it replaced (PR-Agent r11 on public #7).
-    // A clock that went back below the last one starts again from now: a date far ahead is never carried on.
-    const now = this.now(), high = this.signedHigh || 0;
-    const read = Math.max(Math.min(Number.isFinite(at) ? at : now, now), high < now ? high + 1 : 0);
-    this.signedHigh = read;
+    const now = this.now();
+    const read = Math.min(Number.isFinite(at) ? at : now, now);
+    // The order is a revision, apart from the time shown: kept on disk and only going up, even when the clock goes
+    // back, so a replacement built from the same board (a dropped project) is always newer and the relay cannot hand
+    // back the one it replaced (PR-Agent r11 and r13 on public #7).
+    const rev = Math.max(now, (Number(this.state.summaryRev) || 0) + 1);
+    this.state.summaryRev = rev;
+    this.save();
     for (let b = body; ; ) {
-      const blob = await sealSigned(key, me, { ...b, at: read }, aad.summary(this.state.team, me.id));
+      const blob = await sealSigned(key, me, { ...b, at: read, rev }, aad.summary(this.state.team, me.id));
       if (blob.length <= this.limits.summaryMax || !b.tickets.length) return blob;
       const n = Math.floor(b.tickets.length / 2);
       b = { ...b, tickets: b.tickets.slice(0, n), more: (b.more || 0) + b.tickets.length - n };
