@@ -1306,3 +1306,17 @@ test('a Mac with no key asks again on its heartbeat once a day has passed', asyn
   await until(() => dev.state.key, 'a new welcome');
   lead.stop(); dev.stop();
 });
+
+test('a Mac waiting for its key keeps a bounded inbox: no copies, nothing past an action\'s age', async () => {
+  const { relay, lead, dev } = await crew();
+  dev.key = null; dev.state.key = null;
+  const inbox = () => dev.later.filter((x) => x.t === 'inbox');
+  for (let i = 0; i < 3; i++) await dev.take({ item: `old${i}`, from: lead.meId, blob: 'x', at: relay.now() - ACT_TTL - 1 });
+  await dev.take({ item: 'new', from: lead.meId, blob: 'x', at: relay.now() });
+  await dev.take({ item: 'new', from: lead.meId, blob: 'x', at: relay.now() });
+  assert.deepEqual(inbox().map((x) => x.item), ['new']);
+  for (let i = 0; i < 250; i++) await dev.take({ item: `n${i}`, from: lead.meId, blob: 'x', at: relay.now() });
+  assert.equal(inbox().length, 100);
+  assert.equal(inbox().at(-1).item, 'n249');
+  lead.stop(); dev.stop();
+});

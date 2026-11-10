@@ -25,7 +25,7 @@ export const ACT_TTL = 15 * 60000;
 export const BOARD_FRESH_MS = 60000;
 // A member without the team key asks the lead for another welcome at most this often.
 export const KEY_ASK_MS = 86400000;
-const SUMMARY_TICKETS = 100, SEEN_MAX = 500, STATE_V = 1;
+const LATER_INBOX = 100, SUMMARY_TICKETS = 100, SEEN_MAX = 500, STATE_V = 1;
 // A seen id is kept past the last moment its action could still be taken: its age limit plus the clock skew allowed.
 const SEEN_KEEP_MS = ACT_TTL + AUTH_SKEW_MS + 60000;
 
@@ -461,6 +461,15 @@ export class Team {
     return true;
   }
 
+  /** Keep an inbox item for when the key comes. It is not taken, so the relay keeps its copy and sends it again with
+   *  the next hello: one copy per item, none past an action's age, and at most LATER_INBOX of them (PR-Agent r12 on
+   *  public #7). */
+  defer(msg) {
+    const t = this.now();
+    const inbox = this.later.filter((x) => x.t === 'inbox' && x.item !== msg.item && t - (Number(x.at) || 0) <= ACT_TTL);
+    this.later = [...this.later.filter((x) => x.t !== 'inbox'), ...inbox.slice(-(LATER_INBOX - 1)), msg];
+  }
+
   async takeSummary(m, blob, at) {
     const p = this.people.get(m);
     const key = await this.teamKey();
@@ -524,7 +533,7 @@ export class Team {
         // came first) waits here, not taken, and runs once the welcome brings the key (PR-Agent r1 on #79).
         let w = null;
         if (from === this.roster?.lead) { try { w = await openFrom(me, sender.dh, blob, aad.welcome(this.state.team, from, me.id)); } catch { w = null; } }
-        if (typeof w?.teamKey !== 'string') { ack = false; this.later.push({ t: 'inbox', item, from, blob, at }); return; }
+        if (typeof w?.teamKey !== 'string') { ack = false; this.defer({ t: 'inbox', item, from, blob, at }); return; }
         // Removed, declined or stopped while the welcome was opened: the key is not kept (PR-Agent r5 on public #7).
         if (this.stopped || (this.state.status !== 'member' && this.state.status !== 'pending')) { ack = false; return; }
         this.state.key = w.teamKey; this.key = null;
