@@ -58,6 +58,8 @@ export class Room {
     this.onCreate = onCreate;
     this.onDelete = onDelete;
     this.written = 0;     // rows the current request or message wrote, before the usage row's own write
+    this.creating = false; // true while a new team waits on the registry: nothing else may use it yet
+    this.held = 0;        // requests and messages taken under the cap and still running, so a burst cannot pass it
     this.team = undefined; // the team row, read once per wake
     this.members = null;  // id -> roster entry, from the team row
     this.today = null;    // { day, n }: requests and messages taken so far today, for the daily cap
@@ -130,8 +132,12 @@ export class Room {
       const u = this.one('SELECT requests, messages FROM usage WHERE day = ?', day);
       this.today = { day, n: u ? u.requests + u.messages : 0 };
     }
-    return this.today.n >= this.cfg.maxDaily;
+    return this.today.n + this.held >= this.cfg.maxDaily;
   }
+  /** Take one place under today's cap for work that waits before it is counted. False when the cap is reached.
+   *  Every true is given back with release(), just before that work is tallied (PR-Agent r3 on public #6). */
+  reserve() { if (this.overCap()) return false; this.held++; return true; }
+  release() { this.held = Math.max(0, this.held - 1); }
 
   /** Expired invites, the asks on them, and messages nobody took in time. An ask that ends with its invite goes
    *  through drop(), so a dev still waiting hears it and their socket closes, and the inviters hear it is gone
@@ -158,7 +164,7 @@ export class Room {
   expireAt(until) { if (this.wakeAt) this.wakeAt(until + 1000); }
   /** The alarm: drop what expired, then set the next one. */
   async alarm() {
-    if (!this.teamRow()) return null;
+    if (!this.teamRow() || this.creating) return null;
     this.prune();
     this.tally(0, 0, 0, { refused: true });
     const next = this.nextExpiry();
@@ -186,6 +192,9 @@ export class Room {
     try {
       if (v !== 'v1' || teams !== 'teams' || !isId(team)) out = fail(404, 'Not a relay address.');
       else if (this.teamRow() && this.team.id !== team) out = fail(500, 'This room holds another team.');
+      // A team the registry has not taken yet may still be undone: nobody asks to join it or opens a socket on it
+      // until it is made (PR-Agent r3 on public #6).
+      else if (this.creating) out = fail(503, 'This team is still being made. Try again in a moment.');
       else out = await this.route(request, url, team, rest.join('/'));
     } catch (ex) {
       out = fail(ex.status || 500, ex.status === 413 ? 'That request is too large.' : ex.status === 400 ? 'The relay could not read that request.' : 'The relay failed on that request.');
@@ -226,26 +235,24 @@ export class Room {
     if (rest === 'ws' && method === 'GET') {
       if ((request.headers.get('upgrade') || '').toLowerCase() !== 'websocket') return fail(426, 'Open this address as a WebSocket.');
       this.prune();
-      const m = await checkAuth(url.searchParams.get('auth'), { team, method, path: url.pathname, now: this.now(),
-        signPubOf: (id) => this.member(id)?.sign || this.one('SELECT sign FROM pending WHERE m = ?', id)?.sign || null });
+      const m = await this.signedIn(url.searchParams.get('auth'), { team, method, path: url.pathname });
       if (!m) return fail(401, 'The relay does not know this member, or the sign-in token is old.');
       if (this.overCap()) return this.capped();
-      const role = this.member(m) ? 'member' : 'pending';
+      const role = this.member(m.id) ? 'member' : 'pending';
       // One Mac may hold a few sockets (a restart before the old one closed). Past the limit the oldest gives way.
-      const mine = this.socketsOf(m, { pending: true });
+      const mine = this.socketsOf(m.id, { pending: true });
       for (const ws of mine.slice(0, Math.max(0, mine.length - this.cfg.maxSockets + 1))) this.sockets.close(ws, 4005, 'Replaced by a newer connection.');
-      return { upgrade: { m, role } };
+      return { upgrade: { m: m.id, role } };
     }
     // A Mac whose socket keeps failing asks what the relay knows of it. A socket that fails to open shows no status, so
     // without this a declined or removed dev would retry forever. The relay's clock comes back on a 401, so the app can
     // tell a wrong Mac clock from a dropped member.
     if (rest === 'me' && method === 'GET') {
       const auth = (request.headers.get('authorization') || '').replace(/^YesChef\s+/i, '');
-      const m = await checkAuth(auth, { team, method, path: url.pathname, now: this.now(),
-        signPubOf: (id) => this.member(id)?.sign || this.one('SELECT sign FROM pending WHERE m = ?', id)?.sign || null });
+      const m = await this.signedIn(auth, { team, method, path: url.pathname });
       if (!m) return json(401, { error: 'The relay does not know this member, or the sign-in token is old.', now: this.now() });
       if (this.overCap()) return this.capped();
-      return json(200, { m, role: this.member(m) ? 'member' : 'pending', now: this.now() });
+      return json(200, { m: m.id, role: this.member(m.id) ? 'member' : 'pending', now: this.now() });
     }
     if (rest === '' && method === 'DELETE') {
       const auth = (request.headers.get('authorization') || '').replace(/^YesChef\s+/i, '');
@@ -262,6 +269,17 @@ export class Room {
     return fail(404, 'Not a relay address.');
   }
 
+  /** The member or waiting dev a token signs in, or null. The key is looked up again after the signature check: a
+   *  dev removed, declined or given a new key while it ran is refused, not let in on the old key (PR-Agent r3 on
+   *  public #6). */
+  async signedIn(auth, { team, method, path }) {
+    const keyOf = (id) => this.member(id)?.sign || this.one('SELECT sign FROM pending WHERE m = ?', id)?.sign || null;
+    let used = null;
+    const id = await checkAuth(auth, { team, method, path, now: this.now(), signPubOf: (x) => (used = keyOf(x)) });
+    if (!id || !used || !this.teamRow() || keyOf(id) !== used) return null;
+    return { id };
+  }
+
   async create(team, body) {
     if (this.teamRow()) return fail(409, 'That team already exists.');
     const r = await readRoster(body?.roster, { team });
@@ -273,6 +291,7 @@ export class Room {
     this.rows('INSERT INTO team (k, id, lead, lead_sign, roster, ver, created) VALUES (1, ?, ?, ?, ?, ?, ?)', team, r.lead, lead.sign, JSON.stringify(body.roster), 1, now);
     this.team = undefined;
     this.teamRow();
+    this.creating = true;
     try {
       await this.onCreate?.(team, now);
     } catch (ex) {
@@ -281,6 +300,8 @@ export class Room {
       for (const t of TABLES) this.sql.exec(`DROP TABLE IF EXISTS ${t}`);
       this.team = undefined; this.members = null; this.today = null;
       throw ex;
+    } finally {
+      this.creating = false;
     }
     return json(201, { team, ver: 1 });
   }
@@ -294,8 +315,9 @@ export class Room {
     if (!(await proofMatches(proof, inv.verifier))) return fail(403, 'This invite link is not valid.');
     // The signing key must sign the ask: proof the asker holds it, bound to the key agreement key and the sealed ask.
     if (!(await verify(sign, sig, joinText(this.team.id, invite, dh, blob)))) return fail(403, 'That ask to join is not signed by its key.');
-    if (this.overCap()) return this.capped();
     const m = await memberId(sign);
+    // The cap after the last wait, so asks that arrive together cannot all pass it (PR-Agent r3 on public #6).
+    if (this.overCap()) return this.capped();
     // The invite again, after the last wait: a revoke that landed while the keys were checked ends this ask too
     // (PR-Agent r2 on public #6).
     if (!this.one('SELECT id FROM invite WHERE id = ? AND until >= ?', invite, this.now())) return fail(410, 'This invite has ended. Ask the lead for a new link.');
@@ -347,12 +369,12 @@ export class Room {
     // object's memory and drop every socket on the team. The socket closes (1009, too big) and the frame counts as
     // refused (PR-Agent r2 on #78).
     if (bytes > this.cfg.frameMax) { this.sockets.close(ws, 1009, 'That message is too large.'); this.tally(0, 1, bytes, { refused: true }); return; }
-    let msg = null, refused = true;
+    let msg = null, refused = true, held = false;
     try {
       // Parsed before the cap check, so a capped reply carries the request's id and the app stops waiting on it
       // (PR-Agent r3 on #78). The frame is already within the limit above.
       try { msg = JSON.parse(typeof data === 'string' ? data : new TextDecoder().decode(data)); } catch { msg = null; }
-      if (this.overCap()) { this.send(ws, { t: 'err', id: msg?.id, code: 'cap', text: 'This team reached its daily cap on the relay. It resets at 00:00 UTC.' }); return; }
+      if (!(held = this.reserve())) { this.send(ws, { t: 'err', id: msg?.id, code: 'cap', text: 'This team reached its daily cap on the relay. It resets at 00:00 UTC.' }); return; }
       if (!msg || typeof msg.t !== 'string') { this.send(ws, { t: 'err', id: msg?.id, code: 'bad', text: 'The relay could not read that message.' }); return; }
       const a = this.sockets.info(ws);
       if (a.role !== 'member' || !this.member(a.m)) { this.send(ws, { t: 'err', id: msg.id, code: 'wait', text: 'The lead has not let you in yet.' }); return; }
@@ -362,6 +384,7 @@ export class Room {
     } catch {
       this.send(ws, { t: 'err', id: msg?.id, code: 'fail', text: 'The relay failed on that message.' });
     } finally {
+      if (held) this.release();
       this.tally(0, 1, bytes, { refused });
     }
   }
