@@ -965,3 +965,55 @@ test('a shared list that does not reach the disk is reported, and is in use all 
   assert.equal(dev.view().unsaved, false);
   lead.stop(); dev.stop();
 });
+
+test('a project dropped while the list saves is out of the waiting summary at once', async () => {
+  const { relay, timers, lead, dev } = await crew();
+  await dev.share([P, Q]);
+  dev.board(boardNow(relay.now()));
+  await until(() => lead.summaries.get(dev.meId)?.body.tickets.some((k) => k.title === 'Private work'), 'both projects shared');
+  const b2 = boardNow(relay.now()); b2.tickets.find((k) => k.thread.threadId === 'th-secret').place = 'In review';
+  dev.board(b2);
+  let release;
+  const saveFn = dev.saveFn;
+  dev.saveFn = (s) => new Promise((r) => { release = r; }).then(() => saveFn(s));
+  const saving = dev.share([P]);
+  await timers.advance(10000);
+  await settle();
+  assert.doesNotMatch(JSON.stringify(lead.summaries.get(dev.meId).body), /Private work/);
+  release();
+  assert.equal(await saving, true);
+  lead.stop(); dev.stop();
+});
+
+test('writes land in order: an older one never lands after a newer one', async () => {
+  const { lead, dev } = await crew();
+  let stored = null, n = 0;
+  dev.saveFn = (s) => { const c = structuredClone(s); const slow = ++n === 1; return new Promise((r) => setTimeout(r, slow ? 30 : 1)).then(() => { stored = c; }); };
+  dev.state.mark = 1; dev.save();
+  dev.state.mark = 2; assert.equal(await dev.saveNow(), true);
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(stored.mark, 2);
+  lead.stop(); dev.stop();
+});
+
+test('the lead keeps the signed roster until its version is on disk', async () => {
+  const { lead, dev } = await crew();
+  const snaps = [];
+  const saveFn = lead.saveFn;
+  lead.saveFn = (s) => { snaps.push(structuredClone(s)); return saveFn(s); };
+  const ver = lead.roster.ver + 1;
+  assert.equal((await lead.setRole(dev.meId, 'viewer')).t, 'ok');
+  const from = snaps.findIndex((s) => s.unsent);
+  assert.ok(from >= 0, 'the signed roster was kept');
+  for (const s of snaps.slice(from)) assert.ok(s.unsent || s.rosterVer >= ver, 'never without both');
+  lead.stop(); dev.stop();
+});
+
+test('an invite another inviter revoked leaves this Mac\'s open links', async () => {
+  const { lead, dev } = await crew();
+  const { id } = await lead.invite({ site: 'https://yeschef.codes' });
+  assert.ok(lead.invites.has(id));
+  await lead.handle({ t: 'invite-gone', invite: id });
+  assert.equal(lead.invites.has(id), false);
+  lead.stop(); dev.stop();
+});
