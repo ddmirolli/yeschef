@@ -5,7 +5,7 @@ import { Team, createTeam, joinTeam, summarize, chartUnder, RETRY, ACT_TTL, BOAR
 import { grant, allows, refusal, signature, DEFAULTS, PERMS, shares } from './roles.mjs';
 import { buildBoard } from './board.mjs';
 import { act } from './actions.mjs';
-import { sealSigned, aad, teamKey, newMember, signRoster } from './seal.mjs';
+import { sealSigned, sealTo, aad, teamKey, newMember, signRoster } from './seal.mjs';
 
 const MIN = 60000;
 const P = 'proj-app', Q = 'proj-private';
@@ -367,7 +367,7 @@ test('stop sharing: an empty list drops the relay\'s copy of this dev\'s summary
   dev.board(boardNow(relay.now()));
   await until(() => lead.summaries.size === 1);
   const { timers } = dev;
-  dev.share([]);
+  await dev.share([]);
   // A forget waits out the same limit as a summary.
   await settle();
   assert.equal(lead.summaries.size, 1);
@@ -432,13 +432,13 @@ test('a roster the relay took but whose answer was lost still owes the welcome',
 
 test('dropping a project rebuilds the waiting summary: the dropped project\'s tickets never go out', async () => {
   const { relay, timers, lead, dev } = await crew();
-  dev.share([P, Q]);
+  await dev.share([P, Q]);
   dev.board(boardNow(relay.now()));
   await until(() => lead.summaries.get(dev.meId)?.body.tickets.some((k) => k.title === 'Private work'), 'both projects shared');
   // A change waits out the limit. The dev stops sharing Q before it goes.
   const b2 = boardNow(relay.now()); b2.tickets.find((k) => k.thread.threadId === 'th-secret').place = 'In review';
   dev.board(b2);
-  dev.share([P]);
+  await dev.share([P]);
   await timers.advance(10000);
   await until(() => !lead.summaries.get(dev.meId).body.tickets.some((k) => k.thread === 'th-secret'), 'the rebuilt summary');
   assert.doesNotMatch(JSON.stringify(lead.summaries.get(dev.meId).body), /Private work/);
@@ -587,7 +587,7 @@ test('a roster the lead signed without this Mac ends it, even when the relay nev
 
 test('a summary sealed while its project was dropped never goes out', async () => {
   const { relay, lead, dev } = await crew();
-  dev.share([P, Q]);
+  await dev.share([P, Q]);
   const say = dev.say.bind(dev);
   const sent = [];
   dev.say = (msg) => { if (msg.t === 'summary') sent.push(msg.blob); return say(msg); };
@@ -600,7 +600,7 @@ test('a summary sealed while its project was dropped never goes out', async () =
   await settle();
   assert.equal(dev.flushing, true);
   dev.sealSummary = seal;
-  dev.share([P]);
+  await dev.share([P]);
   release();
   await until(() => lead.summaries.size === 1, 'the rebuilt summary');
   assert.equal(sent.length, 1, 'only the rebuilt summary went');
@@ -862,7 +862,7 @@ test('a second roster the lead signed at a version this Mac took is refused', as
 });
 
 test('a roster whose answer was lost goes again as it was, never signed anew', async () => {
-  const { lead, dev } = await crew();
+  const { lead, dev, timers } = await crew();
   const sent = [];
   const say = lead.say.bind(lead);
   let lose = true;
@@ -878,7 +878,13 @@ test('a roster whose answer was lost goes again as it was, never signed anew', a
   const again = await lead.setRole(dev.meId, 'deputy');
   assert.equal(again.code, 'stale');
   assert.equal(sent[1].body, sent[0].body, 'the same roster went again');
-  assert.equal(lead.state.unsent, undefined);
+  // The relay had it: the lead reads the team again, and only then signs the next version.
+  const read = () => lead.state.unsent === undefined && lead.roster.ver === JSON.parse(sent[0].body).ver && lead.link === 'online';
+  for (let i = 0; i < 30 && !read(); i++) await timers.advance(5000);
+  assert.ok(read(), 'the roster read again');
+  assert.equal((await lead.setRole(dev.meId, 'deputy')).t, 'ok');
+  const vers = sent.map((r) => JSON.parse(r.body).ver);
+  assert.equal(new Set(sent.map((r) => r.body)).size, new Set(vers).size, 'one roster per version');
   lead.stop(); dev.stop();
 });
 
@@ -913,6 +919,51 @@ test('a clock set right while /me was out is not read as a removal', async () =>
   assert.equal(await again.probe(), null);
   assert.equal(again.state.status, 'member');
   again.stop(); lead.stop();
+});
+
+test('a dev removed while the welcome is opened keeps no team key', async () => {
+  const { lead, dev } = await crew();
+  const me = await lead.member();
+  const devDh = dev.people.get(dev.meId).dh;
+  const blob = await sealTo(me, devDh, { teamKey: lead.state.key }, aad.welcome(lead.state.team, me.id, dev.meId));
+  dev.state.key = null; dev.key = null;
+  const member = dev.member.bind(dev);
+  let ended = false;
+  dev.member = async () => { const x = await member(); if (!ended) { ended = true; dev.end('removed'); } return x; };
+  await dev.take({ item: 'w2', from: me.id, blob });
+  assert.equal(dev.state.status, 'removed');
+  assert.equal(dev.state.key, null);
+  lead.stop();
+});
+
+test('a clock set forward and back again does not run an action twice', async () => {
+  const { relay, lead, dev, ran, setBoard } = await crew();
+  const me = await lead.member();
+  const key = await teamKey(lead.state.key);
+  const seal1 = (nonce, at) => sealSigned(key, me, { k: 'act', nonce, at, action: { kind: 'reply', thread: 'th-parser', note: 'once' } }, aad.send(lead.state.team, me.id, dev.meId));
+  const first = await seal1('JJJJJJJJJJJJJJJJJJJJJJ', relay.now());
+  await dev.take({ item: 'a1', from: me.id, blob: first });
+  assert.equal(ran.length, 1);
+  let off = 60 * MIN;
+  dev.now = () => relay.now() + off;
+  await dev.take({ item: 'a2', from: me.id, blob: await seal1('KKKKKKKKKKKKKKKKKKKKKK', relay.now() + off) });
+  off = 0;
+  setBoard({ board: boardNow(relay.now()), ok: true, at: relay.now() });
+  await dev.take({ item: 'a1', from: me.id, blob: first });
+  assert.equal(ran.length, 1, 'the first action did not run again');
+  lead.stop(); dev.stop();
+});
+
+test('a shared list that does not reach the disk is reported, and is in use all the same', async () => {
+  const { lead, dev } = await crew();
+  dev.saveFn = () => Promise.reject(new Error('the Keychain said no'));
+  assert.equal(await dev.share([]), false);
+  assert.deepEqual(dev.state.shared, []);
+  assert.equal(dev.view().unsaved, true);
+  dev.saveFn = () => Promise.resolve();
+  assert.equal(await dev.share([P]), true);
+  assert.equal(dev.view().unsaved, false);
+  lead.stop(); dev.stop();
 });
 
 // PR 3: the match code and the areas (Dan's 1b and 2a, 2026-11-10).

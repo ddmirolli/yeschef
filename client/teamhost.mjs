@@ -99,7 +99,10 @@ export function teamHost({ store, run, boardOf, projectsOf = () => [], t3Ok = ()
     if (op === 'forgetLink') return ok();
     if (!team) return no('This Mac is not on a team.', 409);
     if (op === 'leave') { team.stop(); live(null); save(null); return ok('Left.'); }
-    if (op === 'share') { team.share(list(input.shared)); return ok('Saved.'); }
+    if (op === 'share') {
+      if (!(await team.share(list(input.shared)))) return no('Not saved: Yes Chef could not save the shared projects on this Mac. They are in use now; try again shortly.', 503);
+      return ok('Saved.');
+    }
     const m = String(input.m || '');
     const area = String(input.area || '') || null;
     switch (op) {

@@ -186,9 +186,14 @@ export class Room {
    *  removed or an ask declined after route() said yes gets no socket (PR-Agent r4 on public #6). Null: refuse it. */
   admit(up) {
     if (!up || !this.teamRow() || this.creating) return null;
-    if (this.member(up.m)) return { m: up.m, role: 'member' };
-    if (this.one('SELECT m FROM pending WHERE m = ?', up.m)) return { m: up.m, role: 'pending' };
-    return null;
+    const role = this.member(up.m) ? 'member' : this.one('SELECT m FROM pending WHERE m = ?', up.m) ? 'pending' : null;
+    if (!role) return null;
+    // One Mac may hold a few sockets (a restart before the old one closed). Past the limit the oldest gives way. Done
+    // here, where the socket is accepted with no wait, so upgrades that arrive together cannot pass the limit
+    // (PR-Agent r5 on public #6).
+    const mine = this.socketsOf(up.m, { pending: true });
+    for (const ws of mine.slice(0, Math.max(0, mine.length - this.cfg.maxSockets + 1))) this.sockets.close(ws, 4005, 'Replaced by a newer connection.');
+    return { m: up.m, role };
   }
   broadcast(value, { except = null, to = null } = {}) {
     for (const ws of this.socketsOf()) {
@@ -252,11 +257,7 @@ export class Room {
       const m = await this.signedIn(url.searchParams.get('auth'), { team, method, path: url.pathname });
       if (!m) return fail(401, 'The relay does not know this member, or the sign-in token is old.');
       if (!this.hold(request)) return this.capped();
-      const role = this.member(m.id) ? 'member' : 'pending';
-      // One Mac may hold a few sockets (a restart before the old one closed). Past the limit the oldest gives way.
-      const mine = this.socketsOf(m.id, { pending: true });
-      for (const ws of mine.slice(0, Math.max(0, mine.length - this.cfg.maxSockets + 1))) this.sockets.close(ws, 4005, 'Replaced by a newer connection.');
-      return { upgrade: { m: m.id, role } };
+      return { upgrade: { m: m.id, role: this.member(m.id) ? 'member' : 'pending' } };
     }
     // A Mac whose socket keeps failing asks what the relay knows of it. A socket that fails to open shows no status, so
     // without this a declined or removed dev would retry forever. The relay's clock comes back on a 401, so the app can
@@ -277,7 +278,8 @@ export class Room {
       // halfway leaves a team that still answers, so the lead can retry it and /v1/usage keeps it listed (PR-Agent r1
       // on public #6).
       try { await this.onDelete?.(team); }
-      finally { this.team = undefined; this.members = null; this.today = null; }
+      // armedDay too: a team made again under this id the same day arms its own alarm (PR-Agent r5 on public #6).
+      finally { this.team = undefined; this.members = null; this.today = null; this.armedDay = null; this.prunedDay = null; }
       return json(200, { deleted: team });
     }
     return fail(404, 'Not a relay address.');
@@ -312,7 +314,7 @@ export class Room {
       // The registry did not take the team: undo it, so the app's retry makes it again and /v1/usage never misses a team
       // that exists (PR-Agent r2 on #78).
       for (const t of TABLES) this.sql.exec(`DROP TABLE IF EXISTS ${t}`);
-      this.team = undefined; this.members = null; this.today = null;
+      this.team = undefined; this.members = null; this.today = null; this.armedDay = null; this.prunedDay = null;
       throw ex;
     } finally {
       this.creating = false;
