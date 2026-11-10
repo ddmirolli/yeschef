@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760">
+<rect width="1200" height="760" fill="#FFFFFF"/>
+<rect x="60" y="60" width="1080" height="70" rx="14" fill="#1D1D1F" opacity="0.08"/>
+<text x="90" y="105" font-family="-apple-system,Helvetica" font-size="28" fill="#1D1D1F" font-weight="600">Lost review alerts (after)</text>
+<rect x="60" y="170" width="520" height="300" rx="18" fill="#1D1D1F" opacity="0.06"/>
+<rect x="620" y="170" width="520" height="300" rx="18" fill="#1D1D1F" opacity="0.06"/>
+<rect x="90" y="210" width="300" height="22" rx="6" fill="#1D1D1F" opacity="0.5"/>
+<rect x="90" y="250" width="420" height="16" rx="6" fill="#1D1D1F" opacity="0.25"/>
+<rect x="90" y="280" width="380" height="16" rx="6" fill="#1D1D1F" opacity="0.25"/>
+<rect x="90" y="390" width="180" height="48" rx="12" fill="#0A84FF"/>
+<rect x="650" y="210" width="460" height="230" rx="12" fill="#0A84FF" opacity="0.18"/>
+<rect x="60" y="510" width="1080" height="190" rx="18" fill="#1D1D1F" opacity="0.06"/>
+<text x="90" y="620" font-family="-apple-system,Helvetica" font-size="24" fill="#1D1D1F" opacity="0.6">After: one alert card, one action</text>
+</svg>

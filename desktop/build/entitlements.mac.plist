@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Yes Chef's hardened-runtime entitlements (release plan, section 2), for the app and every helper.
+     electron-builder's default also allows unsigned executable memory and turns off library validation.
+     Yes Chef loads no native module and no third-party library, so it keeps only allow-jit, which V8 needs. -->
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+  </dict>
+</plist>

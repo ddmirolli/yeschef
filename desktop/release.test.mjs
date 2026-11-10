@@ -1,0 +1,251 @@
+// The release build's rules (build/release.mjs): which certificate signs, which fuses ship, and the feed rewrite.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { spawn } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { FUSES, FUSE_WIRE, TEAM_ID, appUpdateProblems, entitlementKeys, feedProblems, fuseProblems, identities, literalPattern, machOFiles, pickIdentity, rewriteFeed, runningFrom, targetsFor, topLevel, writesAppUpdate } from './build/release.mjs';
+import { assetProblems, changelogEntry, ghArgs, pickRelease, releaseFiles, releaseNotes, releaseTitle } from './build/publish.mjs';
+
+const DEV = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const DEVID = 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
+const OTHER = 'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC';
+const SELF = 'DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD';
+const listing = (...lines) => `  ${lines.map((l, i) => `${i + 1}) ${l}`).join('\n  ')}\n     ${lines.length} valid identities found\n`;
+const dev = `${DEV} "Apple Development: someone@example.com (ABCDE12345)"`;
+const devId = `${DEVID} "Developer ID Application: Someone (${TEAM_ID})"`;
+const otherTeam = `${OTHER} "Developer ID Application: Someone Else (ZZZZZZZZZZ)"`;
+const selfSigned = `${SELF} "Yes Chef Local"`;
+const teams = { [DEV]: TEAM_ID, [DEVID]: TEAM_ID, [OTHER]: 'ZZZZZZZZZZ', [SELF]: null };
+const teamOf = (hash) => teams[hash];
+
+test('identities keeps Developer ID Application and Apple Development only', () => {
+  assert.deepEqual(identities(listing(dev, selfSigned, devId)).map((i) => i.kind), ['development', 'developer-id']);
+});
+
+test('a build for this Mac prefers Developer ID, then Apple Development, from our team only', () => {
+  assert.equal(pickIdentity(listing(dev, devId), { teamOf }).hash, DEVID);
+  assert.equal(pickIdentity(listing(dev), { teamOf }).hash, DEV);
+  // Another team's Developer ID never signs: the Keychain would stop trusting Yes Chef.
+  assert.equal(pickIdentity(listing(otherTeam, dev), { teamOf }).hash, DEV);
+  assert.equal(pickIdentity(listing(selfSigned), { teamOf }), null);
+});
+
+test('a release takes only Developer ID Application from our team', () => {
+  assert.equal(pickIdentity(listing(dev, devId), { release: true, teamOf }).hash, DEVID);
+  assert.equal(pickIdentity(listing(dev), { release: true, teamOf }), null);
+  assert.equal(pickIdentity(listing(otherTeam), { release: true, teamOf }), null);
+});
+
+test('YESCHEF_SIGN_IDENTITY narrows the choice and cannot pick another team', () => {
+  assert.equal(pickIdentity(listing(dev, devId), { want: DEV.toLowerCase(), teamOf }).hash, DEV);
+  assert.equal(pickIdentity(listing(dev, devId), { want: 'Apple Development', teamOf }).hash, DEV);
+  assert.equal(pickIdentity(listing(otherTeam), { want: OTHER, teamOf }), null);
+  assert.equal(pickIdentity(listing(dev), { want: 'Apple Development', release: true, teamOf }), null);
+});
+
+test('the fuse settings and the wire check agree', () => {
+  const index = { runAsNode: 0, enableCookieEncryption: 1, enableNodeOptionsEnvironmentVariable: 2, enableNodeCliInspectArguments: 3,
+    enableEmbeddedAsarIntegrityValidation: 4, onlyLoadAppFromAsar: 5, grantFileProtocolExtraPrivileges: 7 };
+  assert.deepEqual(Object.keys(FUSES).sort(), Object.keys(index).sort());
+  for (const [name, on] of Object.entries(FUSES)) assert.equal(FUSE_WIRE[index[name]], on ? 49 : 48, name);
+  // RunAsNode stays off above all: it would let anyone run the signed binary as Node.
+  assert.equal(FUSES.runAsNode, false);
+});
+
+test('fuseProblems names each fuse that is wrong', () => {
+  const stock = { 0: 49, 1: 48, 2: 49, 3: 49, 4: 48, 5: 48, 6: 48, 7: 49, 8: 49, version: '1' };
+  assert.equal(fuseProblems(stock).length, 7);
+  assert.match(fuseProblems(stock)[0], /^RunAsNode is on, should be off$/);
+  assert.deepEqual(fuseProblems({ ...stock, ...FUSE_WIRE }), []);
+});
+
+// electron-builder 26.16.1's latest-mac.yml, as a dry run wrote it (2026-11-09).
+const FEED = `version: 0.1.0
+files:
+  - url: Yes-Chef-0.1.0-arm64.zip
+    sha512: ZIPSUM==
+    size: 116320257
+  - url: Yes-Chef-0.1.0-arm64.dmg
+    sha512: OLDDMG==
+    size: 120342277
+path: Yes-Chef-0.1.0-arm64.zip
+sha512: ZIPSUM==
+releaseDate: '2026-11-09T23:16:51.850Z'
+`;
+
+test('rewriteFeed changes only the DMG entry', () => {
+  const out = rewriteFeed(FEED, 'Yes-Chef-0.1.0-arm64.dmg', { sha512: 'NEWDMG==', size: 120400000 });
+  assert.equal(out, FEED.replace('OLDDMG==', 'NEWDMG==').replace('size: 120342277', 'size: 120400000'));
+  // The ZIP, which the updater downloads, and the top-level entry for it are untouched.
+  assert.match(out, /^path: Yes-Chef-0\.1\.0-arm64\.zip\nsha512: ZIPSUM==$/m);
+});
+
+test('rewriteFeed updates the top-level sha512 when the first file is the one rewritten', () => {
+  const out = rewriteFeed(FEED, 'Yes-Chef-0.1.0-arm64.zip', { sha512: 'NEWZIP==', size: 1 });
+  assert.equal((out.match(/NEWZIP==/g) || []).length, 2);
+  assert.doesNotMatch(out, /ZIPSUM/);
+});
+
+test('rewriteFeed refuses a file the feed does not list, or an entry without both fields', () => {
+  assert.throws(() => rewriteFeed(FEED, 'Yes-Chef-0.2.0-arm64.dmg', { sha512: 'X', size: 1 }), /lists no/);
+  assert.throws(() => rewriteFeed(FEED.replace('    size: 120342277\n', ''), 'Yes-Chef-0.1.0-arm64.dmg', { sha512: 'X', size: 1 }), /needs one sha512 and one size/);
+});
+
+test('machOFiles finds Mach-O files by their magic number and skips symlinks', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'yeschef-macho-'));
+  try {
+    mkdirSync(join(dir, 'A', 'MacOS'), { recursive: true });
+    writeFileSync(join(dir, 'A', 'MacOS', 'Helper'), Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0, 0, 0, 0])); // 64-bit Mach-O
+    writeFileSync(join(dir, 'A', 'lib.dylib'), Buffer.from([0xca, 0xfe, 0xba, 0xbe, 0, 0, 0, 2])); // universal
+    writeFileSync(join(dir, 'A', 'notes.txt'), 'not code');
+    writeFileSync(join(dir, 'tiny'), 'ab');
+    symlinkSync('A', join(dir, 'Current'));
+    assert.deepEqual(machOFiles(dir).map((p) => p.slice(dir.length + 1)).sort(), ['A/MacOS/Helper', 'A/lib.dylib']);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('entitlementKeys reads every key in codesign\'s XML', () => {
+  const xml = '<plist><dict><key>com.apple.security.cs.allow-jit</key><true/><key>com.apple.security.cs.disable-library-validation</key><true/></dict></plist>';
+  assert.deepEqual(entitlementKeys(xml), ['com.apple.security.cs.allow-jit', 'com.apple.security.cs.disable-library-validation']);
+  assert.deepEqual(entitlementKeys(''), []);
+});
+
+// electron-builder 26.16.1's app-update.yml, as the 0.0.8 dry run wrote it (2026-11-10).
+const APP_UPDATE = `owner: ddmirolli
+repo: yeschef
+provider: github
+channel: latest
+releaseType: release
+updaterCacheDirName: yeschef-desktop-updater
+`;
+const STABLE_BUILD = { feed: { provider: 'github', owner: 'ddmirolli', repo: 'yeschef' }, pkg: 'yeschef-desktop', channel: 'latest' };
+
+test('topLevel reads electron-builder\'s simple YAML', () => {
+  assert.deepEqual(topLevel(APP_UPDATE).updaterCacheDirName, 'yeschef-desktop-updater');
+  assert.equal(topLevel(FEED).releaseDate, '2026-11-09T23:16:51.850Z');
+  assert.equal(topLevel(FEED).version, '0.1.0');
+});
+
+test('the app\'s update settings must name the source repo, its channel and its own cache', () => {
+  assert.deepEqual(appUpdateProblems(APP_UPDATE, STABLE_BUILD), []);
+  // A Nightly build that kept Stable's cache or channel would share Stable's updates.
+  const nightly = { ...STABLE_BUILD, pkg: 'yeschef-desktop-nightly', channel: 'nightly' };
+  assert.deepEqual(appUpdateProblems(APP_UPDATE, nightly), [
+    'updaterCacheDirName is yeschef-desktop-updater, should be yeschef-desktop-nightly-updater',
+    'channel is latest, should be nightly',
+  ]);
+  assert.deepEqual(appUpdateProblems(APP_UPDATE.replace('repo: yeschef', 'repo: agent-brigade'), STABLE_BUILD), ['repo is agent-brigade, should be yeschef']);
+  assert.match(appUpdateProblems('', STABLE_BUILD).join(), /provider is missing/);
+});
+
+test('every build, npm run app too, gets app-update.yml: electron-builder writes it on the Mac only for a dmg or zip target', () => {
+  assert.deepEqual(targetsFor({ dist: true }), ['dmg', 'zip']);
+  assert.deepEqual(targetsFor({ dist: false }), ['zip']);
+  assert.ok(writesAppUpdate(targetsFor({ dist: false })), 'npm run app must build a target that writes the updater settings');
+  assert.ok(!writesAppUpdate(['dir']), 'a dir build has no app-update.yml, so its updates are off');
+  // The rule, as the pinned electron-builder has it. If an upgrade changes it, check writesAppUpdate again.
+  const source = readFileSync(createRequire(import.meta.url).resolve('app-builder-lib/out/publish/PublishManager.js'), 'utf8');
+  assert.match(source, /if \(!event\.targets\.some\(it => it\.name === "dmg" \|\| it\.name === "zip"\)\) \{\s*return;/);
+});
+
+test('the feed must offer this version\'s ZIP and list its DMG', () => {
+  const want = { version: '0.1.0', zip: 'Yes-Chef-0.1.0-arm64.zip', dmg: 'Yes-Chef-0.1.0-arm64.dmg' };
+  assert.deepEqual(feedProblems(FEED, want), []);
+  assert.deepEqual(feedProblems(FEED, { ...want, version: '0.1.1' }), ['version is 0.1.0, should be 0.1.1']);
+  assert.deepEqual(feedProblems(FEED.replace(/^path: .*$/m, 'path: Yes-Chef-0.1.0-arm64.dmg'), want), ['path is Yes-Chef-0.1.0-arm64.dmg, should be Yes-Chef-0.1.0-arm64.zip']);
+});
+
+// gh release list --json tagName,isDraft,isPrerelease
+const rel = (tagName, { draft = false, pre = tagName.includes('-') } = {}) => ({ tagName, isDraft: draft, isPrerelease: pre });
+const NOW = new Date('2026-11-12T10:00:00Z');
+
+test('a Nightly release numbers itself after the newest Stable and the day\'s runs', () => {
+  assert.deepEqual(pickRelease({ arg: 'nightly', pkgVersion: '0.1.0', releases: [], date: NOW }),
+    { version: '0.1.1-nightly.20261112.1', channel: 'nightly', tag: 'v0.1.1-nightly.20261112.1', from: null });
+  const releases = [rel('v0.2.0'), rel('v0.2.1-nightly.20261112.1'), rel('v0.2.1-nightly.20261111.4')];
+  assert.equal(pickRelease({ arg: 'nightly', pkgVersion: '0.1.0', releases, date: NOW }).version, '0.2.1-nightly.20261112.2');
+});
+
+test('a Stable release builds the newest Nightly and must be newer than every Stable', () => {
+  const releases = [rel('v0.2.0'), rel('v0.2.1-nightly.20261111.1'), rel('v0.2.1-nightly.20261112.2'), rel('v0.2.1-nightly.20261112.1')];
+  assert.deepEqual(pickRelease({ arg: '0.2.1', pkgVersion: '0.2.0', releases, date: NOW }),
+    { version: '0.2.1', channel: 'latest', tag: 'v0.2.1', from: 'v0.2.1-nightly.20261112.2' });
+  assert.throws(() => pickRelease({ arg: '0.2.0', pkgVersion: '0.2.0', releases, date: NOW }), /already a release/);
+  assert.throws(() => pickRelease({ arg: '0.1.9', pkgVersion: '0.2.0', releases, date: NOW }), /Stable 0\.2\.0 is already out/);
+  assert.throws(() => pickRelease({ arg: '0.3.0', pkgVersion: '0.2.0', releases: [rel('v0.2.0')], date: NOW }), /No Nightly is published yet/);
+  for (const bad of ['v0.3.0', '0.3', '0.3.1-nightly.20261112.1', '']) assert.throws(() => pickRelease({ arg: bad, pkgVersion: '0.2.0', releases, date: NOW }), /not a Stable version/);
+});
+
+test('a draft left from an earlier run stops the release', () => {
+  const releases = [rel('v0.2.0'), rel('v0.2.1-nightly.20261112.1', { draft: true })];
+  assert.throws(() => pickRelease({ arg: 'nightly', pkgVersion: '0.2.0', releases, date: NOW }), /draft release is left.*v0\.2\.1-nightly\.20261112\.1/);
+});
+
+test('a prerelease never counts as a Stable, even with a Stable-looking tag', () => {
+  const releases = [rel('v0.2.1-nightly.20261112.1'), rel('v0.3.0', { pre: true })];
+  assert.equal(pickRelease({ arg: '0.2.1', pkgVersion: '0.2.0', releases, date: NOW }).from, 'v0.2.1-nightly.20261112.1');
+  // Its tag is taken all the same.
+  assert.throws(() => pickRelease({ arg: '0.3.0', pkgVersion: '0.2.0', releases, date: NOW }), /v0\.3\.0 is already a release/);
+});
+
+test('the release carries the DMG, the ZIP, its blockmap and the channel\'s feed', () => {
+  assert.deepEqual(releaseFiles('0.2.0'), ['Yes-Chef-0.2.0-arm64.dmg', 'Yes-Chef-0.2.0-arm64.zip', 'Yes-Chef-0.2.0-arm64.zip.blockmap', 'latest-mac.yml']);
+  assert.deepEqual(releaseFiles('0.2.1-nightly.20261112.1').slice(-1), ['nightly-mac.yml']);
+  assert.equal(releaseTitle('0.2.0'), 'Yes Chef 0.2.0');
+  assert.equal(releaseTitle('0.2.1-nightly.20261112.1'), 'Yes Chef (Nightly) 0.2.1-nightly.20261112.1');
+});
+
+test('the draft must hold exactly the built files, fully uploaded', () => {
+  const local = [{ name: 'a.zip', size: 10 }, { name: 'latest-mac.yml', size: 2 }];
+  assert.deepEqual(assetProblems(local, [{ name: 'a.zip', size: 10, state: 'uploaded' }, { name: 'latest-mac.yml', size: 2, state: 'uploaded' }]), []);
+  assert.deepEqual(assetProblems(local, [{ name: 'a.zip', size: 9, state: 'uploaded' }, { name: 'x.dmg', size: 1, state: 'uploaded' }]),
+    ['a.zip is 9 bytes on GitHub, 10 here', 'latest-mac.yml is not attached', 'x.dmg should not be attached']);
+  assert.deepEqual(assetProblems([{ name: 'a.zip', size: 10 }], [{ name: 'a.zip', size: 10, state: 'starter' }]), ['a.zip is starter']);
+});
+
+test('gh makes a draft at the built commit, then publishes Nightly as a prerelease and Stable as latest', () => {
+  const nightly = ghArgs({ tag: 'v0.2.1-nightly.20261112.1', version: '0.2.1-nightly.20261112.1', channel: 'nightly', commit: 'abc123' }, 'notes.md');
+  assert.deepEqual(nightly.create, ['release', 'create', 'v0.2.1-nightly.20261112.1', '--repo', 'ddmirolli/yeschef', '--draft', '--target', 'abc123',
+    '--title', 'Yes Chef (Nightly) 0.2.1-nightly.20261112.1', '--notes-file', 'notes.md', '--prerelease']);
+  assert.deepEqual(nightly.publish, ['release', 'edit', 'v0.2.1-nightly.20261112.1', '--repo', 'ddmirolli/yeschef', '--draft=false', '--prerelease', '--latest=false']);
+  const stable = ghArgs({ tag: 'v0.2.1', version: '0.2.1', channel: 'latest', commit: 'def456' }, 'notes.md');
+  assert.deepEqual(stable.create.slice(-4), ['--title', 'Yes Chef 0.2.1', '--notes-file', 'notes.md']);
+  assert.deepEqual(stable.publish.slice(-2), ['--draft=false', '--latest']);
+  assert.equal(releaseNotes({ channel: 'latest', notes: '- Updates itself.', from: 'v0.2.1-nightly.20261112.1', commit: 'def4567890abcdef' }),
+    '- Updates itself.\n\nBuilt from v0.2.1-nightly.20261112.1 (def4567890ab), the Nightly build it ships.\n');
+});
+
+test('a Stable release\'s notes are its CHANGELOG section', () => {
+  const log = '# Changes\n\nIntro.\n\n## 0.2.1\n\n- One.\n- Two.\n\n## 0.2.0\n\n- Zero.\n\n## 0.1.9\n';
+  assert.equal(changelogEntry(log, '0.2.1'), '- One.\n- Two.');
+  assert.equal(changelogEntry(log, '0.2.0'), '- Zero.');
+  assert.equal(changelogEntry(log, '0.1.9'), null, 'an empty section is no notes');
+  assert.equal(changelogEntry(log, '0.2'), null);
+  assert.equal(changelogEntry(log, '0.3.0'), null);
+});
+
+test('literalPattern escapes every extended regular expression character', () => {
+  assert.equal(literalPattern('/Applications/Yes Chef (Nightly).app/Contents/MacOS/'), '/Applications/Yes Chef \\(Nightly\\)\\.app/Contents/MacOS/');
+  assert.equal(literalPattern('a.b*c+d?e^f$g|h[i]j{k}l\\m'), 'a\\.b\\*c\\+d\\?e\\^f\\$g\\|h\\[i\\]j\\{k\\}l\\\\m');
+});
+
+test('runningFrom sees a running Nightly, whose path holds parentheses (PR-Agent r1 on #66)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'yeschef-running-'));
+  const nightly = join(dir, 'Yes Chef (Nightly).app');
+  const stable = join(dir, 'Yes Chef.app');
+  // A shell that stays alive with the bundle's executable folder in its command line, as the app's processes have.
+  const child = spawn('/bin/sh', ['-c', 'sleep 30; :', `${nightly}/Contents/MacOS/Yes Chef (Nightly)`], { stdio: 'ignore' });
+  try {
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(runningFrom(nightly), true);
+    assert.equal(runningFrom(stable), false);
+  } finally {
+    child.kill();
+    await new Promise((r) => child.once('exit', r));
+    rmSync(dir, { recursive: true, force: true });
+  }
+  assert.equal(runningFrom(nightly), false);
+});

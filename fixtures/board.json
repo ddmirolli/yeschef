@@ -1,0 +1,238 @@
+{
+ "repo": "reviewwheel/reviewwheel",
+ "service": {
+  "opened": "2026-11-05T09:02",
+  "expoThread": "mcp:demo-thread-expo",
+  "closed": null
+ },
+ "dishes": [
+  {
+   "id": "REV-901",
+   "outcome": "Owners get one weekly digest of new reviews, in plain words.",
+   "components": []
+  },
+  {
+   "id": "REV-902",
+   "outcome": "A contractor connects Google in one tap from the welcome screen.",
+   "components": [
+    {
+     "station": "app-ui",
+     "thread": "mcp:demo-thread-902",
+     "prep": "docs/briefs/connect-google-v1_0.md"
+    }
+   ]
+  },
+  {
+   "id": "REV-903",
+   "outcome": "Reply drafts arrive within a minute of a new review.",
+   "components": [
+    {
+     "station": "backend",
+     "thread": "mcp:demo-thread-903",
+     "pr": 3101,
+     "base": "staging"
+    },
+    {
+     "station": "words",
+     "thread": "mcp:demo-thread-903w",
+     "pr": 3102,
+     "base": "staging"
+    }
+   ]
+  },
+  {
+   "id": "REV-904",
+   "outcome": "The pricing page loads in under a second on a phone.",
+   "components": [
+    {
+     "station": "website",
+     "thread": "mcp:demo-thread-904",
+     "pr": 3110,
+     "base": "main"
+    }
+   ]
+  },
+  {
+   "id": "REV-905",
+   "outcome": "An owner sees a lost review and recovers it in one tap.",
+   "plating": {"at": "2026-11-05T13:20"},
+   "components": [
+    {
+     "station": "app-ui",
+     "thread": "mcp:demo-thread-905",
+     "pr": 3120,
+     "base": "staging"
+    },
+    {
+     "station": "design",
+     "thread": "mcp:demo-thread-905d",
+     "pr": 3121,
+     "base": "staging"
+    }
+   ],
+   "calls": [
+    {
+     "question": "Lost review alerts: send it out or refire?",
+     "options": [
+      "a. Send it out",
+      "b. Refire"
+     ],
+     "recommend": "a",
+     "thread": "mcp:demo-thread-905",
+     "asked": "2026-11-05T13:40",
+     "context": "The council scored the alert card 9, 9 and 10. The card now leads with the reviewer's name and one Recover button.\n\nWhat changed since your last look:\n- The alert copy moved above the fold.\n- Dark mode uses the elevated gray, not black.\n- The phone layout keeps the button in thumb reach.\n\nSend it out merges both PRs to staging. Refire sends your note back to the app-ui station.",
+     "images": [
+      {
+       "path": "demo/alerts-before-light.svg",
+       "caption": "before, light, 1440"
+      },
+      {
+       "path": "demo/alerts-after-light.svg",
+       "caption": "after, light, 1440"
+      },
+      {
+       "path": "demo/alerts-after-dark.svg",
+       "caption": "after, dark, 1440"
+      }
+     ],
+     "links": [
+      {
+       "label": "Council scores",
+       "url": "https://example.com/council/905"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "DSP-12",
+   "repo": "ddmirolli/dispatcher",
+   "outcome": "Dispatch board shows each tech's next job at a glance.",
+   "components": [
+    {
+     "station": "app-ui",
+     "thread": "mcp:demo-thread-d12",
+     "pr": 88,
+     "base": "main"
+    }
+   ],
+   "calls": [
+    {
+     "question": "Tech cards: show drive time or arrival window?",
+     "options": [
+      "a. Drive time",
+      "b. Arrival window",
+      "c. Both, drive time first"
+     ],
+     "recommend": "b",
+     "thread": "mcp:demo-thread-d12",
+     "asked": "2026-11-05T14:55",
+     "context": "Dispatchers asked for one number per card. Drive time changes every minute. The arrival window is what the customer was promised.\n\n- a keeps the card live but noisy.\n- b matches what the customer sees.\n- c puts two numbers on a small card."
+    }
+   ]
+  },
+  {
+   "id": "REV-906",
+   "outcome": "Review requests skip contacts who opted out, on every channel.",
+   "components": [
+    {
+     "station": "backend",
+     "thread": "mcp:demo-thread-906",
+     "pr": 3090,
+     "base": "staging"
+    }
+   ]
+  },
+  {
+   "id": "REV-907",
+   "outcome": "The help center answers billing questions without a ticket.",
+   "components": [
+    {
+     "station": "words",
+     "thread": "mcp:demo-thread-907",
+     "pr": 3080,
+     "base": "main"
+    }
+   ]
+  },
+  {
+   "id": "REV-908",
+   "outcome": "Signup asks for the business once, not twice.",
+   "components": [
+    {
+     "station": "app-ui",
+     "thread": "mcp:demo-thread-908",
+     "pr": 3050,
+     "base": "staging"
+    }
+   ],
+   "plated": {
+    "receipt": "https://example.com/receipts/908",
+    "at": "2026-11-05T11:20"
+   }
+  },
+  {
+   "id": "REV-909",
+   "outcome": "A second onboarding video.",
+   "close": "86",
+   "components": []
+  },
+  {
+   "id": "REV-910",
+   "outcome": "Ads report shows cost per booked job.",
+   "close": "carry",
+   "components": [
+    {
+     "station": "data",
+     "thread": "mcp:demo-thread-910",
+     "pr": 3060,
+     "base": "staging"
+    }
+   ]
+  },
+  {
+   "id": "REV-911",
+   "outcome": "Owners can pause review requests during a slow week.",
+   "close": "blocked",
+   "components": [
+    {
+     "station": "backend",
+     "thread": "mcp:demo-thread-911",
+     "prep": "docs/briefs/pause-requests-v1_0.md"
+    }
+   ],
+   "calls": [
+    {
+     "question": "Pause: per location or for the whole account?",
+     "options": [
+      "a. Per location",
+      "b. Whole account"
+     ],
+     "recommend": "a",
+     "thread": "mcp:demo-thread-911",
+     "asked": "2026-11-05T10:05",
+     "context": "An owner with three locations asked to pause one shop during a remodel. Per location matches how requests already run.\n\nWhole account is one switch, but it pauses shops that are busy.",
+     "links": [
+      {
+       "label": "Brief",
+       "url": "https://example.com/briefs/pause"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "DSP-14",
+   "repo": "ddmirolli/dispatcher",
+   "outcome": "Dispatch texts the customer when the tech leaves the last job.",
+   "components": [
+    {
+     "station": "backend",
+     "thread": "mcp:demo-thread-d14",
+     "pr": 91,
+     "base": "main"
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,26 @@
+{
+  "name": "yeschef-desktop",
+  "productName": "Yes Chef",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Yes Chef for the desktop: The Pass, signed in to the T3 Code on this machine.",
+  "type": "module",
+  "main": "main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "capture": "electron . --capture",
+    "app": "node build/package.mjs",
+    "dist": "node build/package.mjs --dist",
+    "check": "node build/check.mjs",
+    "release": "zsh build/release.zsh",
+    "test": "node --test *.test.mjs"
+  },
+  "devDependencies": {
+    "@electron/fuses": "1.8.0",
+    "electron": "45.2.3",
+    "electron-builder": "26.16.1"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.9"
+  }
+}

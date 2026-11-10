@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The Pass: v2 structure mock</title>
+<style>
+:root{color-scheme:light dark;
+--bg:#F2F2F7;--well:#E5E5EA;--card:#FFFFFF;--inset:#F2F2F7;
+--label:#1D1D1F;--label2:#636366;--sep:rgba(60,60,67,.16);--fill:rgba(118,118,128,.12);--fill2:rgba(118,118,128,.24);
+--accent:#0071E3;--link:#0066CC;
+--green:#1F7A35;--orange:#B24C00;--red:#C8001A;--gray:#636366;--blue:#005CBF;
+--green-t:rgba(52,199,89,.15);--orange-t:rgba(255,149,0,.15);--red-t:rgba(255,59,48,.10);--blue-t:rgba(0,122,255,.10);--indigo:#4B44C8;--indigo-t:rgba(88,86,214,.12);--pass:#0071E3;--pass-t:rgba(0,113,227,.10);--gray-t:rgba(118,118,128,.13);
+--lamp:rgba(255,159,10,.16);--mat:rgba(242,242,247,.8);
+--sh1:0 0 0 .5px rgba(0,0,0,.05),0 1px 3px rgba(0,0,0,.08);
+--sh2:0 0 0 .5px rgba(0,0,0,.05),0 6px 18px rgba(0,0,0,.10);
+--sh3:0 0 0 .5px rgba(0,0,0,.05),0 18px 50px rgba(0,0,0,.10);
+--sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue","Segoe UI",Roboto,system-ui,sans-serif;
+--mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace}
+@media (prefers-color-scheme:dark){:root{
+--bg:#1C1C1E;--well:#161618;--card:#2C2C2E;--inset:#242426;
+--label:#F5F5F7;--label2:#AEAEB2;--sep:rgba(235,235,245,.13);--fill:rgba(118,118,128,.24);--fill2:rgba(118,118,128,.36);
+--link:#5AA9FF;--green:#30D158;--orange:#FF9F0A;--red:#FF938A;--gray:#C7C7CC;--blue:#7CBBFF;
+--green-t:rgba(48,209,88,.15);--orange-t:rgba(255,159,10,.15);--red-t:rgba(255,69,58,.13);--blue-t:rgba(10,132,255,.14);--indigo:#A5A2FF;--indigo-t:rgba(94,92,230,.2);--pass:#3B9BFF;--pass-t:rgba(10,132,255,.16);--gray-t:rgba(118,118,128,.2);
+--lamp:rgba(255,159,10,.11);--mat:rgba(28,28,30,.8);
+--sh1:0 0 0 .5px rgba(255,255,255,.07),0 1px 3px rgba(0,0,0,.45);
+--sh2:0 0 0 .5px rgba(255,255,255,.09),0 8px 22px rgba(0,0,0,.5);
+--sh3:0 0 0 .5px rgba(255,255,255,.08),0 18px 50px rgba(0,0,0,.45)}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--label);font:15px/1.45 var(--sans);letter-spacing:-.006em;-webkit-font-smoothing:antialiased}
+h1,h2,h3,p{margin:0}
+button{font:inherit;color:inherit}
+.ic{width:1em;height:1em;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.id{font-family:var(--mono);font-size:11px;color:var(--label2)}
+.muted{color:var(--label2)}
+.chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;line-height:1.3;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.c-gray{color:var(--gray);background:var(--gray-t)}.c-green{color:var(--green);background:var(--green-t)}
+.c-amber{color:var(--orange);background:var(--orange-t)}.c-red{color:var(--red);background:var(--red-t)}
+.c-blue{color:var(--blue);background:var(--blue-t)}.c-indigo{color:var(--indigo);background:var(--indigo-t)}.c-pass{color:var(--pass);background:var(--pass-t)}
+kbd{font:500 11px/1 var(--sans);color:var(--label2)}
+
+/* Bar */
+.bar{display:flex;align-items:center;gap:14px;height:64px;padding:0 24px}
+.logo{display:grid;place-items:center;width:34px;height:34px;border-radius:9px;color:#fff;background:linear-gradient(180deg,#3B9BFF,#0066D6)}
+.logo .ic{width:22px;height:22px}
+.bar h1{margin:0}
+.proj{position:relative;margin-left:auto}
+.proj summary{list-style:none;display:flex;align-items:center;gap:8px;height:32px;padding:0 10px 0 12px;border-radius:8px;background:var(--fill);font-size:14px;font-weight:600;cursor:pointer}
+.proj summary::-webkit-details-marker{display:none}
+.proj summary .n{font-weight:500;color:var(--label2)}
+.proj summary .ic{width:12px;height:12px;color:var(--label2)}
+.menu{position:absolute;top:40px;right:0;width:280px;padding:6px;border-radius:12px;background:var(--card);box-shadow:var(--sh3)}
+.menu a{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:7px;color:var(--label);text-decoration:none;font-size:14px}
+.menu a:hover{background:var(--fill)}
+.menu a .n{margin-left:auto;font-size:12px;color:var(--label2)}
+.menu a.on{font-weight:600}
+.menu a.on::after{content:"\2713";margin-left:8px;color:var(--accent)}
+.menu hr{border:0;border-top:.5px solid var(--sep);margin:6px 4px}
+.pb{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:4px;color:#fff;font-size:10px;font-weight:700;flex:none}
+.p-rw{background:#1F8A4C}.p-mt{background:#7A4CD9}.p-ab{background:#0A6FE0}.p-ds{background:#D9480F}.p-all{background:var(--label2)}
+.foot{position:sticky;bottom:0;z-index:5;display:flex;align-items:center;gap:18px;height:34px;padding:0 24px;background:var(--mat);-webkit-backdrop-filter:saturate(1.8) blur(20px);backdrop-filter:saturate(1.8) blur(20px);border-top:.5px solid var(--sep);font-size:12px;color:var(--label2)}
+.foot .live{display:flex;align-items:center;gap:6px;font-weight:600;color:var(--label)}
+.foot .live i{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px var(--green-t)}
+.lamps{display:flex;gap:14px;margin:0;padding:0;list-style:none}
+.lamps li{display:flex;align-items:center;gap:6px}
+.lamps i{width:6px;height:6px;border-radius:50%;background:var(--green)}
+.foot .r{margin-left:auto}
+
+/* Layout: the columns and Hands share one row, so they share a top and a bottom edge. */
+.page{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px 24px;padding:4px 24px 32px}
+.sec{display:flex;align-items:baseline;gap:10px;font-size:22px;font-weight:700;letter-spacing:-.02em}
+.sec .muted{font-size:13px;font-weight:500;letter-spacing:0}
+.stats{display:flex;gap:8px}
+.stat{display:inline-flex;align-items:baseline;gap:6px;padding:4px 10px;border-radius:8px;background:var(--fill);font-size:12.5px;font-weight:500;color:var(--label2);letter-spacing:0}
+.stat b{font-size:13px;font-weight:700;color:var(--label)}
+.flow{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;align-items:stretch}
+.col{display:flex;flex-direction:column;gap:8px;padding:10px;border-radius:14px;background:var(--well)}
+.col-h{padding:2px 4px 6px}
+.col-h .t{display:flex;align-items:center;gap:7px;font-size:14px;font-weight:600}
+.col-h .t .n{margin-left:auto;font-weight:500;color:var(--label2)}
+.col-h .t i{width:8px;height:8px;border-radius:50%}
+.col-h .h{font-size:11.5px;line-height:1.35;color:var(--label2);margin-top:2px}
+.d-gray{background:var(--gray)}.d-amber{background:var(--orange)}.d-blue{background:var(--pass)}.d-indigo{background:var(--indigo)}.d-green{background:var(--green)}
+
+.tk{position:relative;display:flex;flex-direction:column;gap:6px;padding:10px 11px;border-radius:11px;background:var(--card);box-shadow:var(--sh1)}
+.tk .top{display:flex;align-items:center;gap:6px;min-width:0;font-size:11.5px;color:var(--label2)}
+.tk .top .pn{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tk .top .id{margin-left:auto;white-space:nowrap}
+.tk .top .hi{width:16px;height:16px;color:var(--pass)}
+.tk .ttl{font-size:13.5px;font-weight:600;line-height:1.3}
+.tk .row{display:flex;flex-wrap:wrap;gap:4px}
+.tk.hand{box-shadow:inset 3px 0 0 var(--pass),var(--sh1)}
+.tk.walk{background:linear-gradient(90deg,var(--indigo-t),transparent 70%),var(--card)}
+.spike{margin-top:auto;display:flex;align-items:center;gap:10px;padding:10px 11px;border-radius:11px;border:1px dashed var(--fill2);font-size:12.5px;color:var(--label2)}
+.spike .ic{width:20px;height:20px;color:var(--label)}
+.spike b{color:var(--label);font-size:13px}
+
+/* Hands */
+.hands{grid-column:2;display:flex;flex-direction:column;border-radius:18px;background:var(--card);box-shadow:var(--sh3);overflow:hidden}
+.hands-h{display:flex;align-items:center;gap:10px;padding:16px 18px 4px;background:linear-gradient(180deg,var(--pass-t),transparent)}
+.hands-h h2{font-size:20px;font-weight:700;letter-spacing:-.02em}
+.hands-h .ic{width:24px;height:24px;color:var(--pass)}
+.hands-h .cnt{display:grid;place-items:center;min-width:22px;height:22px;padding:0 6px;border-radius:11px;background:var(--pass-t);color:var(--pass);font-size:12px;font-weight:700}
+.hands-sub{padding:0 18px 10px 52px;font-size:13px;color:var(--label2)}
+.call{padding:12px 18px 14px;border-top:.5px solid var(--sep)}
+.call .top{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--label2)}
+.call .top .t{margin-left:auto}
+.call .q{font-size:14.5px;font-weight:600;line-height:1.3;margin:5px 0 8px}
+.acts{display:flex;gap:6px}
+.btn{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 11px;border:0;border-radius:8px;background:var(--fill);font-size:13px;font-weight:500;cursor:pointer}
+.btn.go{background:var(--accent);color:#fff;font-weight:600}
+.btn.go kbd{color:rgba(255,255,255,.8)}
+.btn.on{background:var(--orange-t);color:var(--orange);font-weight:600}
+.refire{margin-top:10px;padding:10px;border-radius:12px;background:var(--inset)}
+.refire label{display:block;font-size:12px;font-weight:600;color:var(--label2);margin-bottom:6px}
+.refire textarea{width:100%;min-height:64px;padding:8px 10px;border:.5px solid var(--sep);border-radius:8px;background:var(--card);color:var(--label);font:13px/1.4 var(--sans);resize:vertical}
+.refire .acts{margin-top:8px;justify-content:flex-end}
+.keys{margin-top:auto;display:flex;gap:16px;padding:10px 18px;border-top:.5px solid var(--sep);font-size:12px;color:var(--label2)}
+
+/* Held */
+.held{grid-column:1/-1;margin-top:8px}
+.held .groups{display:flex;gap:28px;margin-top:10px}
+.held h3{font-size:13px;font-weight:600;margin-bottom:8px}
+.held .tk{width:230px;box-shadow:none;border:.5px solid var(--sep)}
+
+/* Notes for Dan */
+.notes{grid-column:1/-1;margin-top:8px;padding:16px 18px;border-radius:14px;border:1px dashed var(--fill2);font-size:13px;color:var(--label2)}
+.notes h3{font-size:13px;color:var(--label);margin-bottom:6px}
+.notes ol{margin:0;padding-left:18px;columns:2;column-gap:32px}
+.notes li{margin-bottom:4px;break-inside:avoid}
+.notes b{color:var(--label)}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="cloche" viewBox="0 0 24 24"><path d="M4.25 17.4a7.75 7.75 0 0 1 15.5 0" stroke-width="1.5" stroke-linecap="butt"/><circle cx="12" cy="7.4" r="1.75" fill="currentColor" stroke="none"/><path d="M2.75 19h18.5l-1.5 1.5H4.25z" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="spike" viewBox="0 0 24 24"><path d="M12 2.5v15"/><path d="M5 21.5h14"/><path d="M8 17.5h8l1 4H7z"/><path d="M8.5 7.5h7M8 10.5h8M8.5 13.5h7"/></symbol>
+  <symbol id="chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+</svg>
+
+<header class="bar">
+  <h1 class="logo" aria-label="Agent Brigade"><svg class="ic"><use href="#cloche"/></svg></h1>
+  <div class="stats"><span class="stat">Active <b>12</b></span><span class="stat">Done today <b>3</b></span><span class="stat">Held <b>2</b></span></div>
+  <details class="proj">
+    <summary><span class="pb p-all">&#9679;</span>Full service <span class="n">14</span><svg class="ic"><use href="#chev"/></svg></summary>
+    <nav class="menu" aria-label="Projects">
+      <a class="on" href="#"><span class="pb p-all">&#9679;</span>Full service<span class="n">14</span></a>
+      <hr>
+      <a href="#"><span class="pb p-rw">R</span>reviewwheel<span class="n">9</span></a>
+      <a href="#"><span class="pb p-mt">M</span>Model Topography<span class="n">3</span></a>
+      <a href="#"><span class="pb p-ab">A</span>Agent Brigade<span class="n">1</span></a>
+      <a href="#"><span class="pb p-ds">D</span>Dispatcher<span class="n">1</span></a>
+      <a href="#"><span class="pb p-all">Y</span>YAI<span class="n">0</span></a>
+      <a href="#"><span class="pb p-all">d</span>ddmirolli<span class="n">0</span></a>
+    </nav>
+  </details>
+</header>
+
+<main class="page">
+  
+  <section class="flow" aria-label="In flight">
+    <div class="col">
+      <div class="col-h"><div class="t"><i class="d-gray"></i>Order<span class="n">1</span></div><div class="h">No brief yet</div></div>
+      <article class="tk"><div class="top"><span class="pb p-mt">M</span><span class="pn">Model Topography</span><span class="id">MT-12</span></div><p class="ttl">Weekly digest email</p></article>
+    </div>
+    <div class="col">
+      <div class="col-h"><div class="t"><i class="d-gray"></i>Prep<span class="n">2</span></div><div class="h">Brief locked</div></div>
+      <article class="tk hand"><div class="top"><span class="pb p-rw">R</span><span class="pn">reviewwheel</span><span class="id">REV-175</span><svg class="ic hi" aria-label="At the pass"><use href="#cloche"/></svg></div><p class="ttl">Website engine: reconcile remaining slices</p><div class="row"><span class="chip c-pass">2 calls at the pass</span></div></article>
+      <article class="tk"><div class="top"><span class="pb p-ab">A</span><span class="pn">Agent Brigade</span><span class="id">AB-9</span></div><p class="ttl">Project menu from T3</p></article>
+    </div>
+    <div class="col">
+      <div class="col-h"><div class="t"><i class="d-amber"></i>Fire<span class="n">3</span></div><div class="h">Agents building</div></div>
+      <article class="tk"><div class="top"><span class="pb p-rw">R</span><span class="pn">reviewwheel</span><span class="id">REV-707</span></div><p class="ttl">Move 49 text fields to the shared Input</p><div class="row"><span class="chip c-gray">checks running</span></div></article>
+      <article class="tk"><div class="top"><span class="pb p-rw">R</span><span class="pn">reviewwheel</span><span class="id">REV-704</span></div><p class="ttl">Dark-mode climb</p><div class="row"><span class="chip c-amber">Refire</span><span class="chip c-green">Heard 2 min</span></div></article>
+      <article class="tk"><div class="top"><span class="pb p-ds">D</span><span class="pn">Dispatcher</span><span class="id">DSP-4</span></div><p class="ttl">Driver roster import</p><div class="row"><span class="chip c-indigo">Your call: b</span><span class="chip c-red">Not heard 6 min</span></div></article>
+    </div>
+    <div class="col">
+      <div class="col-h"><div class="t"><i class="d-indigo"></i>Tasting<span class="n">2</span></div><div class="h">In review</div></div>
+      <article class="tk"><div class="top"><span class="pb p-rw">R</span><span class="pn">reviewwheel</span><span class="id">REV-705</span></div><p class="ttl">Intercom launcher and Fin avatar</p><div class="row"><span class="chip c-indigo">On deck</span><span class="chip c-gray">Walking in 5</span></div></article>
+      <article class="tk"><div class="top"><span class="pb p-mt">M</span><span class="pn">Model Topography</span><span class="id">MT-7</span></div><p class="ttl">Glyph set, dark variants</p><div class="row"><span class="chip c-gray">council 2 of 3</span></div></article>
+    </div>
+    <div class="col">
+      <div class="col-h"><div class="t"><i class="d-blue"></i>Plating<span class="n">2</span></div><div class="h">Your look</div></div>
+      <article class="tk hand"><div class="top"><span class="pb p-rw">R</span><span class="pn">reviewwheel</span><span class="id">REV-711</span><svg class="ic hi" aria-label="At the pass"><use href="#cloche"/></svg></div><p class="ttl">Pricing page FAQ rewrite</p></article>
+      <article class="tk hand"><div class="top"><span class="pb p-rw">R</span><span class="pn">reviewwheel</span><span class="id">REV-709</span><svg class="ic hi" aria-label="At the pass"><use href="#cloche"/></svg></div><p class="ttl">Review request SMS, shorter</p></article>
+    </div>
+    <div class="col">
+      <div class="col-h"><div class="t"><i class="d-green"></i>Sent<span class="n">2</span></div><div class="h">On staging</div></div>
+      <article class="tk walk"><div class="top"><span class="pb p-rw">R</span><span class="pn">reviewwheel</span><span class="id">REV-706</span></div><p class="ttl">Revoke the expired Stripe CLI key</p><div class="row"><span class="chip c-indigo">Walking out</span><span class="chip c-gray">Runner: backend</span></div></article>
+      <article class="tk"><div class="top"><span class="pb p-rw">R</span><span class="pn">reviewwheel</span><span class="id">REV-700</span></div><p class="ttl">Lost Review Alerts: free monitor</p><div class="row"><span class="chip c-amber">receipt pending</span></div></article>
+      <div class="spike"><svg class="ic"><use href="#spike"/></svg><div><b>3 done today</b><br>REV-703, REV-698, MT-5</div></div>
+    </div>
+  </section>
+
+  <aside class="hands" aria-labelledby="hands-t">
+    <div class="hands-h"><svg class="ic"><use href="#cloche"/></svg><h2 id="hands-t">The Pass</h2><span class="cnt">4</span></div>
+    <p class="hands-sub">Needs your focus. Oldest first.</p>
+    <div class="call">
+      <div class="top"><span class="pb p-rw">R</span><span class="id">REV-175</span><span class="chip c-gray">Prep</span><span class="t">5:56 AM</span></div>
+      <p class="q">A11 social: hold A11 until your Meta screenshot, or build the fallback now?</p>
+      <div class="acts"><button class="btn go">a. Hold <kbd>1</kbd></button><button class="btn">b. Fallback <kbd>2</kbd></button></div>
+    </div>
+    <div class="call">
+      <div class="top"><span class="pb p-rw">R</span><span class="id">REV-175</span><span class="chip c-gray">Prep</span><span class="t">5:58 AM</span></div>
+      <p class="q">AI trade photos break your locked rule. Keep the rule, or change it?</p>
+      <div class="acts"><button class="btn go">a. Keep <kbd>1</kbd></button><button class="btn">b. Change <kbd>2</kbd></button></div>
+    </div>
+    <div class="call">
+      <div class="top"><span class="pb p-rw">R</span><span class="id">REV-711</span><span class="chip c-pass">Plating</span><span class="t">6:00 AM</span></div>
+      <p class="q">Pricing page FAQ rewrite</p>
+      <div class="acts"><button class="btn go">Go <kbd>G</kbd></button><button class="btn">Refire <kbd>R</kbd></button><button class="btn">Hold <kbd>H</kbd></button></div>
+    </div>
+    <div class="call">
+      <div class="top"><span class="pb p-rw">R</span><span class="id">REV-709</span><span class="chip c-pass">Plating</span><span class="t">6:01 AM</span></div>
+      <p class="q">Review request SMS, shorter</p>
+      <div class="acts"><button class="btn go">Go <kbd>G</kbd></button><button class="btn on">Refire <kbd>R</kbd></button><button class="btn">Hold <kbd>H</kbd></button></div>
+      <div class="refire">
+        <label for="rf">What should the agent fix?</label>
+        <textarea id="rf">Still 4 lines on an iPhone SE. Cut it to 2. Keep the business name first.</textarea>
+        <div class="acts"><button class="btn">Cancel</button><button class="btn go">Send refire <kbd>&#8984;&#8617;</kbd></button></div>
+      </div>
+    </div>
+    <div class="keys"><span><kbd>&#8593;&#8595;</kbd> Move</span><span><kbd>&#8617;</kbd> Open</span><span><kbd>1-9</kbd> Pick</span><span><kbd>?</kbd> All keys</span></div>
+  </aside>
+
+  <section class="held" aria-labelledby="held-t">
+    <h2 class="sec" id="held-t">Held <span class="muted">2</span></h2>
+    <div class="groups">
+      <div><h3>Blocked <span class="muted">1</span></h3><article class="tk"><div class="top"><span class="pb p-mt">M</span><span class="pn">Model Topography</span><span class="id">MT-8</span></div><p class="ttl">Waits on the domain verification</p></article></div>
+      <div><h3>Killed <span class="muted">1</span></h3><article class="tk"><div class="top"><span class="pb p-rw">R</span><span class="pn">reviewwheel</span><span class="id">REV-690</span></div><p class="ttl">Old onboarding tour</p></article></div>
+    </div>
+  </section>
+
+  <section class="notes">
+    <h3>Changes in this round (mock notes, not product copy)</h3>
+    <ol>
+      <li><b>Counts</b> moved into the header, right of the logo.</li>
+      <li><b>No "In flight" label.</b> The columns start right under the header.</li>
+      <li><b>No bar line.</b> The header sits on the page, with no border or material.</li>
+    </ol>
+  </section>
+</main>
+<footer class="foot"><span class="live"><i></i>Live</span><ul class="lamps"><li><i></i>Board</li><li><i></i>T3 live</li><li><i></i>GitHub 12s ago</li><li><i></i>Linear 40s ago</li></ul><span class="r">No refresh needed. Changes slide in as they happen.</span></footer>
+</body>
+</html>
