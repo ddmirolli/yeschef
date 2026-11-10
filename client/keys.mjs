@@ -56,9 +56,11 @@ export function keysCore(mac) {
     tab: 'moves the focus', 'shift+tab': 'moves the focus', 'mod+r': 'refreshes Yes Chef'
   });
   // What the system keeps for itself. ⇧⌘Tab and ⇧⌘~ switch back, as ⌘Tab and the key left of 1 with ⌘ switch on.
+  // ⇧⌘Q and ⌥⇧⌘Q log out, ⌥⌘D shows or hides the Dock, ⌥⌘Space opens a Finder search, ⌥⇧⌘Esc force quits.
   var RESERVED = Object.create(null);
-  ['mod+q', 'mod+w', 'mod+h', 'mod+alt+h', 'mod+m', 'mod+c', 'mod+v', 'mod+x', 'mod+a', 'mod+z', 'mod+shift+z', 'mod+tab', 'mod+shift+tab',
-    'mod+space', 'mod+`', 'mod+~', 'mod+shift+3', 'mod+shift+4', 'mod+shift+5', 'mod+alt+escape'].forEach(function (k) { RESERVED[k] = 1; });
+  ['mod+q', 'mod+shift+q', 'mod+alt+shift+q', 'mod+w', 'mod+h', 'mod+alt+h', 'mod+m', 'mod+c', 'mod+v', 'mod+x', 'mod+a', 'mod+z', 'mod+shift+z',
+    'mod+tab', 'mod+shift+tab', 'mod+space', 'mod+alt+space', 'mod+`', 'mod+~', 'mod+alt+d', 'mod+shift+3', 'mod+shift+4', 'mod+shift+5',
+    'mod+alt+escape', 'mod+alt+shift+escape'].forEach(function (k) { RESERVED[k] = 1; });
 
   var NAMED = dict({ enter: 1, escape: 1, space: 1, tab: 1, backspace: 1, 'delete': 1, arrowup: 1, arrowdown: 1, arrowleft: 1, arrowright: 1, home: 1, end: 1, pageup: 1, pagedown: 1 });
   var ALIAS = dict({ esc: 'escape', 'return': 'enter', up: 'arrowup', down: 'arrowdown', left: 'arrowleft', right: 'arrowright', del: 'delete' });

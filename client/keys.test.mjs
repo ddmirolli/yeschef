@@ -123,6 +123,14 @@ test('clashes: the system, fixed keys, the send key needs ⌘ or ⌥, and only w
   const back = K.build([{ key: 'mod+k', command: '-commandPalette.toggle' }, { key: 'mod+shift+tab', command: 'commandPalette.toggle' }]);
   assert.deepEqual(back.notes, ['Entry 2 is not used: ⇧⌘⇥ belongs to macOS.', 'Action bar always has a key, so it keeps ⌘K.']);
   assert.deepEqual(K.keysOf(back, 'commandPalette.toggle'), ['mod+k']);
+  // Logging out, the Dock, a Finder search and force quit are macOS's too, and the Action bar keeps ⌘K.
+  for (const k of ['mod+shift+q', 'mod+alt+shift+q', 'mod+alt+d', 'mod+alt+space', 'mod+alt+shift+escape']) {
+    assert.equal(K.clash(st, 'view.you', k).reserved, true, k);
+    const out = K.build([{ command: '-commandPalette.toggle' }, { key: k, command: 'commandPalette.toggle' }]);
+    assert.deepEqual(out.notes, ['Entry 2 is not used: ' + K.label(k) + ' belongs to macOS.', 'Action bar always has a key, so it keeps ⌘K.'], k);
+    assert.deepEqual(K.keysOf(out, 'commandPalette.toggle'), ['mod+k'], k);
+  }
+  assert.equal(K.label('mod+shift+q'), '⇧⌘Q');
   assert.equal(K.clash(st, 'ticket.reply', 'j').fixed, true);
   assert.match(K.clash(st, 'ticket.reply', 'mod+r').text, /refreshes Yes Chef/);
   assert.equal(K.clash(st, 'ticket.suggested', 'x').fixed, true);
