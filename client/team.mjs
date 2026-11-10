@@ -108,7 +108,9 @@ export class Team {
   // ---- state and events ----
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
   emit(type, data = {}) { for (const fn of [...this.listeners]) { try { fn({ type, ...data }); } catch { /* a listener's fault is its own */ } } }
-  save() { this.state.seen = [...this.seen]; try { this.saveFn(this.state); } catch { /* the caller reports its own errors */ } }
+  save() { this.state.seen = [...this.seen]; try { this.saveFn(this.state); return true; } catch { return false; } }
+  /** Save and wait until the store says it is written. False when it failed: whatever needed it does not go ahead. */
+  async saveNow() { this.state.seen = [...this.seen]; try { await this.saveFn(this.state); return true; } catch { return false; } }
   setLink(link) { if (this.link !== link) { this.link = link; this.linkAt = this.now(); this.emit('link', { link }); } }
   async member() { return this.meCache || (this.meCache = await loadMember(this.state.me)); }
   async teamKey() { if (!this.key && this.state.key) this.key = await teamKey(this.state.key); return this.key; }
@@ -362,11 +364,14 @@ export class Team {
     const myId = this.meId || (await this.member()).id;
     if (!body.members.some((x) => x.id === myId)) { this.end('removed'); return 'removed'; }
     const sharedBefore = this.me ? shares(this.me.role) : null;
-    this.roster = body;
-    this.rosterSigned = roster;
     const key = await this.teamKey();
     let detail = {};
     if (key) { try { detail = await open(key, body.detail, aad.detail(this.state.team, body.ver)); } catch { detail = {}; } }
+    // The roster, its people and their grants change together, after the waits above, and never back to an older
+    // version: an edit never reads a new version with the old grants (PR-Agent r3 on public #7).
+    if (body.ver < (this.roster?.ver || 0)) return false;
+    this.roster = body;
+    this.rosterSigned = roster;
     // The areas and each member's area travel sealed in the roster the lead signs, as roles do: the relay never sees them.
     this.areas = readAreas(detail?.areas);
     const people = detail?.people && typeof detail.people === 'object' ? detail.people : {};
@@ -462,7 +467,9 @@ export class Team {
       if (this.stopped || this.state.status !== 'member') { ack = false; return; }
       const now = this.people.get(from);
       if (!now) return;
-      if (body?.k === 'act') await this.intake(now, body);
+      // The action stays on the relay until its answer is queued: a lost answer comes again from the seen ids, and
+      // nothing runs twice (PR-Agent r3 on public #7).
+      if (body?.k === 'act') { if (!(await this.intake(now, body))) ack = false; }
       else if (body?.k === 'result') {
         const result = { status: Number(body.status) || 500, text: clean(body.text, 300) };
         const o = this.out.get(body.re);
@@ -477,30 +484,30 @@ export class Team {
 
   async reply(to, re, status, text) {
     const p = this.people.get(to);
-    if (!p) return;
+    if (!p) return true; // nobody left to tell
     const me = await this.member();
     const blob = await sealSigned(await this.teamKey(), me, { k: 'result', re, status, text, at: this.now() }, aad.send(this.state.team, me.id, to));
-    await this.say({ t: 'send', to, blob, ttl: ACT_TTL });
+    return (await this.say({ t: 'send', to, blob, ttl: ACT_TTL })).t === 'ok';
   }
 
   /** A teammate's action on this dev's threads. Every check here holds before anything reaches T3. */
   async intake(sender, body) {
     const nonce = String(body.nonce || '');
-    if (!isId(nonce)) return;
+    if (!isId(nonce)) return true;
     const seenKey = `${sender.id}:${nonce}`;
     const now = this.now();
     // Seen ones get their first answer again; nothing runs twice.
     const had = this.seen.get(seenKey);
-    if (had) { await this.reply(sender.id, nonce, had.status, had.text); return; }
+    if (had) return this.reply(sender.id, nonce, had.status, had.text);
     // An id leaves only once its action is too old to run anyway. A full list of live ids refuses new work rather than
     // forget one, so a replay never runs twice (PR-Agent r1 on public #7). The refusal is not kept: nothing ran.
     for (const [k, v] of this.seen) { if (now - v.at < SEEN_KEEP_MS) break; this.seen.delete(k); }
-    if (this.seen.size >= SEEN_MAX) { await this.reply(sender.id, nonce, 429, 'Not run: too many teammate actions in the last few minutes. Try again shortly.'); return; }
+    if (this.seen.size >= SEEN_MAX) return this.reply(sender.id, nonce, 429, 'Not run: too many teammate actions in the last few minutes. Try again shortly.');
     const answer = async (status, text) => {
       this.seen.set(seenKey, { at: now, status, text });
       this.save();
       this.emit('acted', { from: sender.id, name: sender.name, kind: body.action?.kind, thread: body.action?.thread, status, text });
-      await this.reply(sender.id, nonce, status, text);
+      return this.reply(sender.id, nonce, status, text);
     };
     const at = Number(body.at);
     if (!Number.isFinite(at) || now - at > ACT_TTL || at - now > AUTH_SKEW_MS) return answer(409, 'Not run: that action is too old. Look again and send it fresh.');
@@ -519,7 +526,8 @@ export class Team {
     // The id is saved before T3 hears the action: if this Mac stops mid-run, the relay's copy that comes back gets
     // "not confirmed", never a second run (PR-Agent r2 on public #7).
     this.seen.set(seenKey, { at: now, status: 502, text: 'Not confirmed: this teammate\'s Yes Chef stopped while it ran the action. Check the thread before you send again.' });
-    this.save();
+    // The reservation must be on disk first. If it is not, nothing runs (PR-Agent r3 on public #7).
+    if (!(await this.saveNow())) { this.seen.delete(seenKey); return this.reply(sender.id, nonce, 503, 'Not run: this teammate\'s Yes Chef could not save. Try again shortly.'); }
     let out;
     try {
       // The nonce T3 sees names the sender too, so one teammate's ids never collide with another's or with the dev's.
@@ -676,13 +684,17 @@ export class Team {
       detail.people[id] = { name: clean(p.name, 60), role: g.role, perms: g.perms, area: g.area, ...(under.has(id) ? { under: under.get(id) } : {}) };
       members.push({ id, sign: p.sign, dh: p.dh, ...(g.perms.includes('invite') ? { invite: true } : {}) });
     }
+    if ((people.ver !== undefined && people.ver !== this.roster.ver) || ver !== this.roster.ver + 1) return { t: 'err', code: 'stale', text: 'The team changed while you edited it. Look again and try once more.' };
     const roster = await signRoster(me, { team: this.state.team, ver, lead: me.id, at: this.now(), members, detail: await seal(await this.teamKey(), detail, aad.detail(this.state.team, ver)) });
     const r = await this.say({ t: 'roster', roster });
     if (r.t === 'ok') await this.takeRoster(roster);
     return r;
   }
 
-  current() { return new Map([...this.people].map(([id, p]) => [id, { sign: p.sign, dh: p.dh, name: p.name, role: p.role, perms: p.perms, area: p.area }])); }
+  /** The people as this Mac has them now, marked with the roster version they came from: pushRoster refuses a list
+   *  read from an older version, so two edits that cross never undo each other (PR-Agent r3 on public #7). */
+  current() { const out = this._current(); out.ver = this.roster?.ver; return out; }
+  _current() { return new Map([...this.people].map(([id, p]) => [id, { sign: p.sign, dh: p.dh, name: p.name, role: p.role, perms: p.perms, area: p.area }])); }
 
   /** Approve an ask: the dev joins the roster with a role, then gets the team key sealed to their own key. */
   async approve(m, role = 'engineer', perms, area = null) {

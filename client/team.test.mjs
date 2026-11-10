@@ -790,6 +790,52 @@ test('their answer that comes before the relay\'s slow ack is the answer', async
   lead.stop(); dev.stop();
 });
 
+test('an edit read from an older roster is refused, so it never undoes a newer one', async () => {
+  const { lead, dev } = await crew();
+  const before = lead.current();
+  assert.equal((await lead.setRole(dev.meId, 'viewer')).t, 'ok');
+  const late = await lead.pushRoster(before);
+  assert.equal(late.code, 'stale');
+  await until(() => dev.me?.role === 'viewer', 'the dev a Viewer');
+  assert.equal(lead.people.get(dev.meId).role, 'viewer', 'the older list did not put the old role back');
+  lead.stop(); dev.stop();
+});
+
+test('an action whose id cannot be saved does not run, and the lead hears why', async () => {
+  const { relay, lead, dev, ran } = await crew();
+  const me = await lead.member();
+  const key = await teamKey(lead.state.key);
+  const blob = await sealSigned(key, me, { k: 'act', nonce: 'FFFFFFFFFFFFFFFFFFFFFF', at: relay.now(), action: { kind: 'reply', thread: 'th-parser', note: 'no disk' } }, aad.send(lead.state.team, me.id, dev.meId));
+  dev.saveFn = async () => { throw new Error('disk full'); };
+  const sent = [];
+  const say = dev.say.bind(dev);
+  dev.say = async (msg) => { sent.push(msg); return say(msg); };
+  await dev.take({ item: 'i1', from: me.id, blob });
+  assert.equal(ran.length, 0);
+  assert.ok(sent.some((m) => m.t === 'send'), 'an answer went back');
+  assert.equal(dev.seen.has(`${me.id}:FFFFFFFFFFFFFFFFFFFFFF`), false, 'a later try may run it');
+  lead.stop(); dev.stop();
+});
+
+test('an answer the relay did not take leaves the action on the relay, so it comes again', async () => {
+  const { relay, lead, dev, ran } = await crew();
+  const me = await lead.member();
+  const key = await teamKey(lead.state.key);
+  const blob = await sealSigned(key, me, { k: 'act', nonce: 'GGGGGGGGGGGGGGGGGGGGGG', at: relay.now(), action: { kind: 'reply', thread: 'th-parser', note: 'lost answer' } }, aad.send(lead.state.team, me.id, dev.meId));
+  const sent = [];
+  const say = dev.say.bind(dev);
+  dev.say = async (msg) => { sent.push(msg); return msg.t === 'send' ? { t: 'err', code: 'closed', text: 'Not sent.' } : say(msg); };
+  await dev.take({ item: 'i1', from: me.id, blob });
+  assert.equal(ran.length, 1);
+  assert.equal(sent.some((m) => m.t === 'done'), false, 'no ack: the relay keeps it');
+  // It comes again: the seen id answers with the same result, and nothing runs twice.
+  dev.say = async (msg) => { sent.push(msg); return say(msg); };
+  await dev.take({ item: 'i1', from: me.id, blob });
+  assert.equal(ran.length, 1);
+  assert.ok(sent.some((m) => m.t === 'done'));
+  lead.stop(); dev.stop();
+});
+
 // PR 3: the match code and the areas (Dan's 1b and 2a, 2026-11-10).
 
 test('the match code: the dev\'s waiting screen and the lead\'s ask show the same six digits', async () => {

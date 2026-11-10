@@ -127,15 +127,20 @@ async function loadTeam() {
   } catch (e) { return { state: null, error: String(e.message || e).slice(0, 120) }; }
 }
 let teamWrites = Promise.resolve();
+/** Seal and write the team state, one write at a time. Resolves to null when it is on disk, or the reason it is not:
+ *  the team client runs a teammate's action only once its id is saved (PR-Agent r3 on public #7). */
 function saveTeam(state) {
-  if (!KEEP) return;
-  teamWrites = teamWrites.then(async () => {
+  if (!KEEP) return Promise.resolve(null);
+  const done = teamWrites.then(async () => {
     if (!state) { rmSync(teamFile(), { force: true }); return; }
     mkdirSync(app.getPath('userData'), { recursive: true });
     const tmp = teamFile() + '.saving';
     writeFileSync(tmp, await keychain(() => safeStorage.encryptStringAsync(JSON.stringify(state))), { mode: 0o600 });
     renameSync(tmp, teamFile());
-  }).catch((e) => console.error('Could not save the team:', e.message));
+    return null;
+  }).catch((e) => { console.error('Could not save the team:', e.message); return String(e.message || e).slice(0, 120); });
+  teamWrites = done;
+  return done;
 }
 
 // Invite links: the site's /join page hands the invite to the app as yeschef://join#<invite>. The invite stays in the
@@ -180,7 +185,7 @@ function startServer() {
       return;
     }
     if (m.type === 'team-please') { loadTeam().then((t) => { if (serverUp) server.postMessage({ type: 'team', ...t }); }); return; }
-    if (m.type === 'team-save') { saveTeam(m.state || null); return; }
+    if (m.type === 'team-save') { saveTeam(m.state || null).then((error) => { if (serverUp) server.postMessage({ type: 'team-saved', id: m.id, error }); }); return; }
     if (m.type === 'auth-new') { saveSignIn(m.auth); return; }
     if (m.type === 'auth-lost') { forgetSignIn(); return; }
     if (m.type === 'tick') { tick(m.data); return; }

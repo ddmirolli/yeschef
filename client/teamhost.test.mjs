@@ -153,3 +153,14 @@ test('each state has its screen', () => {
   assert.match(teamPage({ join: { leadName: 'Sam', teamName: 'F', until: Date.UTC(2026, 10, 17), leadSignPub: 'k', raw: 'abc' }, t3: { ok: false } }), /Not checked[\s\S]*Ask to join<\/button>/);
   assert.match(teamPage({ join: { leadName: 'Sam', teamName: 'F', until: 0, leadSignPub: 'k', raw: 'abc' }, t3: { ok: false } }), /btn primary" disabled>Ask to join/);
 });
+
+test('a save the store refused reaches the team client, so an action that needs its id saved does not run', async () => {
+  const { lead } = await pair();
+  const t = lead.h._team();
+  assert.equal(await t.saveNow(), true);
+  lead.store.save = () => Promise.reject(new Error('the Keychain said no'));
+  assert.equal(await t.saveNow(), false);
+  lead.store.save = () => { throw new Error('disk full'); };
+  assert.equal(await t.saveNow(), false);
+  lead.h.stop();
+});

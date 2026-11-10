@@ -25,7 +25,13 @@ export function relayUrl(text) {
  *  boardOf(): { board, ok, at }. projectsOf(): T3 Code's projects. t3Ok(): whether the board reads T3 Code now. */
 export function teamHost({ store, run, boardOf, projectsOf = () => [], t3Ok = () => false, net = webNet, now = Date.now, timers = globalThis, site = SITE }) {
   let team = null, state = null, ready = null, busy = Promise.resolve(), lost = '';
-  const save = (s) => { state = s; try { store.save(s); } catch { /* the store reports its own errors */ } };
+  // The store's answer goes back to the team client: a save it awaits (an action's id) fails when the store did.
+  const save = (s) => {
+    state = s;
+    const done = Promise.resolve().then(() => store.save(s));
+    done.catch((ex) => console.error('The team did not save:', String(ex?.message || ex).slice(0, 120)));
+    return done;
+  };
 
   function live(s) {
     team?.stop();
@@ -116,6 +122,8 @@ export function teamHost({ store, run, boardOf, projectsOf = () => [], t3Ok = ()
     wake() { team?.wake(); },
     stop() { team?.stop(); },
     view: () => team?.view() || null,
+    /** For tests: the live team client. */
+    _team: () => team,
     body: (opts) => teamBody(opts),
   };
 }

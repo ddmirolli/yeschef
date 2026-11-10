@@ -2773,6 +2773,7 @@ const audit = (line) => { try { appendFileSync(join(OUT, 'actions.jsonl'), JSON.
 // The team (step 3b, client/teamhost.mjs). Its state holds private keys: the desktop app seals it with the Keychain-held
 // key (desktop/main.mjs, team-please and team-save); the web prototype keeps it in memory only.
 let teamMem = null;
+let teamSaves = 0;
 const teamStore = DESKTOP ? {
   load: () => new Promise((resolve, reject) => {
     const timer = setTimeout(() => { pipe.off(hear); reject(new Error('the Keychain did not answer')); }, 120000);
@@ -2780,7 +2781,15 @@ const teamStore = DESKTOP ? {
     pipe.on(hear);
     pipe.send({ type: 'team-please' });
   }),
-  save: (state) => pipe.send({ type: 'team-save', state }),
+  // Resolves once the app has sealed and written it, and rejects when it did not, so a teammate's action waits for its
+  // saved id (PR-Agent r3 on public #7).
+  save: (state) => new Promise((resolve, reject) => {
+    const id = ++teamSaves;
+    const timer = setTimeout(() => { pipe.off(hear); reject(new Error('the Keychain did not answer')); }, 120000);
+    function hear(m) { if (m && m.type === 'team-saved' && m.id === id) { clearTimeout(timer); pipe.off(hear); if (m.error) reject(new Error(m.error)); else resolve(); } }
+    pipe.on(hear);
+    pipe.send({ type: 'team-save', id, state });
+  }),
 } : { load: () => teamMem, save: (state) => { teamMem = state; } };
 const team = teamHost({
   store: teamStore,
