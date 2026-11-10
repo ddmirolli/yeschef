@@ -73,7 +73,8 @@ has_g2() {
   while IFS= read -r kc; do
     # Captured first: under pipefail a grep -q that stops reading early can fail the pipe it ends.
     found=$("$SECURITY" find-certificate -a -Z -c "Developer ID Certification Authority" "$kc" 2>/dev/null || true)
-    [[ "$(tr 'A-F' 'a-f' <<<"$found")" == *"sha-256 hash: $G2_SHA256"* ]] && return 0
+    # Whole lines lowercased: security prints "SHA-256 hash: F16C...", so lowercasing only A-F would leave "SHa-256".
+    [[ "$(tr '[:upper:]' '[:lower:]' <<<"$found")" == *"sha-256 hash: $G2_SHA256"* ]] && return 0
   done < <(search_list; echo /Library/Keychains/System.keychain)
   return 1
 }
