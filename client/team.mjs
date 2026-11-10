@@ -198,19 +198,19 @@ export class Team {
     } catch { this.lost(1006); return; }
     this.ws = ws;
     let opened = false;
+    // The relay's hello has a deadline, counted from when the socket is made: a socket that never opens, or opens and
+    // never says hello, is retried, not kept connecting for ever (PR-Agent r2 and r7 on public #7).
+    this.timers.setTimeout(() => {
+      if (this.ws !== ws || this.link !== 'connecting') return;
+      this.ws = null;
+      this.stopBeat();
+      try { ws.close(4000, 'No hello from the relay.'); } catch { /* already closed */ }
+      this.lost(1006, opened);
+    }, ASK_MS);
     ws.addEventListener('open', () => {
       if (this.ws !== ws) return;
       opened = true;
       this.startBeat();
-      // The relay's hello has a deadline: a socket that answers pings and never says hello is retried, not kept
-      // connecting for ever (PR-Agent r2 on public #7).
-      this.timers.setTimeout(() => {
-        if (this.ws !== ws || this.link !== 'connecting') return;
-        this.ws = null;
-        this.stopBeat();
-        try { ws.close(4000, 'No hello from the relay.'); } catch { /* already closed */ }
-        this.lost(1006, true);
-      }, ASK_MS);
     });
     ws.addEventListener('message', (ev) => { if (this.ws === ws) this.heard(ev.data); });
     ws.addEventListener('close', (ev) => {
@@ -584,7 +584,9 @@ export class Team {
       if (!this.me || !shares(this.me.role)) return [409, 'Not run: this teammate shares no tickets.'];
       if (!this.run || !this.boardOf) return [409, 'Not checked: this teammate\'s Yes Chef cannot act yet.'];
       const b = this.boardOf();
-      if (!b?.ok || !b.board || t - b.at > BOARD_FRESH_MS) return [409, 'Not checked: this teammate\'s board is not fresh. Try again in a minute.'];
+      // A board read "later" than now means the clock went back: its age is unknown, so it is not fresh (PR-Agent r7 on
+      // public #7).
+      if (!b?.ok || !b.board || !(b.at <= t) || t - b.at > BOARD_FRESH_MS) return [409, 'Not checked: this teammate\'s board is not fresh. Try again in a minute.'];
       // The thread must sit in a project this dev shares. A thread id from anywhere else is refused, whoever sends it.
       const ticket = b.board.tickets.find((k) => k.thread.threadId === thread || k.asks.some((a) => a.thread.threadId === thread));
       if (!ticket || !new Set(this.state.shared || []).has(ticket.thread.projectId)) return [409, 'Not run: that ticket is not on this teammate\'s shared board.'];

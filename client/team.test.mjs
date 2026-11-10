@@ -1100,3 +1100,27 @@ test('under from a roster that loops or names a stranger reads as not checked', 
   readUnderForTest(people, 'L');
   assert.deepEqual(Object.fromEntries([...people].map(([id, x]) => [id, x.under])), { L: null, A: null, B: null, C: null, D: null, E: 'L', F: 'E' });
 });
+
+test('a socket that never opens is left and retried, not kept connecting', async () => {
+  const { relay, timers, lead, dev } = await crew();
+  dev.stop();
+  // A relay or proxy that takes the connection and never finishes the upgrade: no open, no close.
+  const hung = { http: async () => ({ status: 503, body: {} }), socket: () => ({ readyState: 0, addEventListener() {}, close() {} }) };
+  const again = new Team({ state: structuredClone(dev.state), net: hung, now: () => relay.now(), timers, random: () => 1 });
+  again.start();
+  await until(() => again.ws, 'the socket made');
+  assert.equal(again.link, 'connecting');
+  await timers.advance(15000);
+  assert.equal(again.link, 'waiting');
+  again.stop(); lead.stop();
+});
+
+test('a board read before the clock went back is not fresh', async () => {
+  const { relay, lead, dev, ran, setBoard } = await crew();
+  setBoard({ board: boardNow(relay.now()), ok: true, at: relay.now() + 5 * 60000 });
+  const out = await lead.act(dev.meId, { kind: 'reply', thread: 'th-parser', note: 'x' });
+  assert.equal(out.status, 409);
+  assert.match(out.text, /^Not checked/);
+  assert.equal(ran.length, 0);
+  lead.stop(); dev.stop();
+});
