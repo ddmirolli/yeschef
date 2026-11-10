@@ -553,11 +553,11 @@ test('a summary shows the time the dev\'s Mac signed, and an older one never rep
   const key = await teamKey(dev.state.key);
   const where = aad.summary(dev.state.team, dev.meId);
   const t1 = relay.now() - 3600000;
-  const oldBlob = await sealSigned(key, me, { v: 1, tickets: [], more: 0, at: t1 }, where);
+  const oldBlob = await sealSigned(key, me, { v: 1, tickets: [], more: 0, at: t1, rev: t1 }, where);
   // A relay replays an hour-old summary with a fresh outer time.
   await lead.takeSummary(dev.meId, oldBlob, relay.now());
   assert.equal(lead.view().people.find((p) => p.id === dev.meId).at, t1);
-  const newBlob = await sealSigned(key, me, { v: 1, tickets: [], more: 0, at: relay.now() }, where);
+  const newBlob = await sealSigned(key, me, { v: 1, tickets: [], more: 0, at: relay.now(), rev: relay.now() }, where);
   await lead.takeSummary(dev.meId, newBlob, relay.now());
   await lead.takeSummary(dev.meId, oldBlob, relay.now() + 5000);
   assert.equal(lead.summaries.get(dev.meId).at, relay.now());
@@ -703,8 +703,8 @@ test('a reconnect does not let a relay hand back an older summary', async () => 
   const me = await dev.member();
   const key = await teamKey(dev.state.key);
   const where = aad.summary(dev.state.team, dev.meId);
-  const oldBlob = await sealSigned(key, me, { v: 1, tickets: [], more: 0, at: relay.now() - 3600000 }, where);
-  const newBlob = await sealSigned(key, me, { v: 1, tickets: [], more: 0, at: relay.now() }, where);
+  const oldBlob = await sealSigned(key, me, { v: 1, tickets: [], more: 0, at: relay.now() - 3600000, rev: relay.now() - 3600000 }, where);
+  const newBlob = await sealSigned(key, me, { v: 1, tickets: [], more: 0, at: relay.now(), rev: relay.now() }, where);
   await lead.takeSummary(dev.meId, newBlob, relay.now());
   // The lead's socket comes back, and the relay's hello carries the hour-old summary.
   await lead.hello({ t: 'hello', me: lead.meId, role: 'member', roster: lead.rosterSigned, online: [], inbox: [], summaries: [{ m: dev.meId, blob: oldBlob, at: relay.now() }] });
@@ -1235,5 +1235,18 @@ test('a Mac waiting for its key keeps a bounded inbox: no copies, nothing past a
   for (let i = 0; i < 250; i++) await dev.take({ item: `n${i}`, from: lead.meId, blob: 'x', at: relay.now() });
   assert.equal(inbox().length, 100);
   assert.equal(inbox().at(-1).item, 'n249');
+  lead.stop(); dev.stop();
+});
+
+test('a teammate whose clock went back still replaces their summary: a dropped project leaves', async () => {
+  const { relay, timers, lead, dev } = await crew();
+  await dev.share([P, Q]);
+  dev.board(boardNow(relay.now()));
+  await until(() => lead.summaries.get(dev.meId)?.body.tickets.some((k) => k.title === 'Private work'), 'both projects shared');
+  dev.now = () => relay.now() - 3600000;
+  dev.board(boardNow(dev.now()));
+  await dev.share([P]);
+  await timers.advance(10000);
+  await until(() => !lead.summaries.get(dev.meId)?.body.tickets.some((k) => k.title === 'Private work'), 'Q dropped at the lead');
   lead.stop(); dev.stop();
 });
