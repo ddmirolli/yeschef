@@ -141,7 +141,8 @@ export class Team {
   get isLead() { return !!this.roster && this.roster.lead === this.meId; }
 
   /** What the screens show. Health and freshness are apart: a summary carries its own time, and nobody reads as
-   *  online, nor any summary as live, while this Mac's socket is not. */
+   *  online, nor any summary as live, while this Mac's socket is not. A teammate who is offline has a cached summary,
+   *  not a live one (PR-Agent r15 on public #7). */
   view() {
     const live = this.link === 'online';
     return {
@@ -153,7 +154,7 @@ export class Team {
       people: [...this.people.values()].map((p) => {
         const s = this.summaries.get(p.id);
         return { id: p.id, name: p.name, role: p.role, perms: p.perms, area: p.area, under: p.under, online: live && this.online.has(p.id),
-          summary: s?.body || null, at: s?.at || null, live: live && !!s };
+          summary: s?.body || null, at: s?.at || null, live: live && !!s && this.online.has(p.id) };
       }),
       pending: [...this.pending.values()].map(({ m, at, code, name, projects }) => ({ m, at, code, name, projects })),
       invites: [...this.invites.values()].map(({ id, until, by }) => ({ id, until, by })),
@@ -600,7 +601,9 @@ export class Team {
     if (this.seen.size >= SEEN_MAX) return this.reply(sender.id, nonce, 429, 'Not run: too many teammate actions in the last few minutes. Try again shortly.');
     const answer = async (status, text) => {
       this.seen.set(seenKey, { at: now, status, text });
-      this.save();
+      // On disk before the answer goes and the relay's copy is let go: a crash after a refusal never runs the same
+      // action later, once the board is fresh (PR-Agent r15 on public #7).
+      await this.saveNow();
       this.emit('acted', { from: sender.id, name: sender.name, kind: body.action?.kind, thread: body.action?.thread, status, text });
       return this.reply(sender.id, nonce, status, text);
     };

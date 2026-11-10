@@ -1381,3 +1381,28 @@ test('a summary whose revision did not reach the disk does not go out', async ()
   assert.equal(relay.sql.exec('SELECT COUNT(*) AS n FROM summary WHERE m = ? AND blob IS NOT NULL', dev.meId).one().n, 0);
   lead.stop(); dev.stop();
 });
+
+test('a refused action\'s id is on disk before the refusal goes', async () => {
+  const { relay, lead, dev, saved, setBoard } = await crew();
+  setBoard({ board: boardNow(relay.now()), ok: true, at: relay.now() - BOARD_FRESH_MS - 1 });
+  let onDisk = null;
+  const reply = dev.reply.bind(dev);
+  dev.reply = async (...args) => { onDisk = (saved.dev.at(-1)?.seen || []).some(([, v]) => v?.status === 409); return reply(...args); };
+  const out = await lead.act(dev.meId, { kind: 'reply', thread: 'th-parser', note: 'x' });
+  assert.equal(out.status, 409);
+  assert.equal(onDisk, true, 'the refused id was on disk when the refusal went');
+  lead.stop(); dev.stop();
+});
+
+test('an offline teammate\'s summary shows as cached, not live', async () => {
+  const { relay, lead, dev } = await crew();
+  dev.board(boardNow(relay.now()));
+  await until(() => lead.summaries.size === 1);
+  const person = () => lead.view().people.find((p) => p.id === dev.meId);
+  assert.equal(person().live, true);
+  dev.stop();
+  await until(() => !lead.online.has(dev.meId), 'the dev offline');
+  assert.ok(person().summary, 'the summary is still shown');
+  assert.equal(person().live, false);
+  lead.stop();
+});
