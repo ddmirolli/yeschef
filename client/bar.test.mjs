@@ -18,6 +18,17 @@ test('every word typed must appear in the row, in any case and any order', () =>
   assert.deepEqual(core.filter(rows, 'x').map((r) => r.t), []);
 });
 
+test('a step\'s choice shows at the top once a typed word starts its name', () => {
+  const hay = 'Change appearance: Dark mode theme';
+  assert.equal(core.nestedHit('dark', hay, 'Dark'), true);
+  assert.equal(core.nestedHit('appearance da', hay, 'Dark'), true);
+  assert.equal(core.nestedHit('DARK', hay, 'Dark'), true);
+  assert.equal(core.nestedHit('appearance', hay, 'Dark'), false, 'the step\'s own name finds the step, not every choice');
+  assert.equal(core.nestedHit('ark', hay, 'Dark'), false, 'inside a word is not enough');
+  assert.equal(core.nestedHit('dark sepia', hay, 'Dark'), false, 'every word must still match');
+  assert.equal(core.nestedHit('  ', hay, 'Dark'), false);
+});
+
 test('recent actions: newest first, no copies, five at most, malformed entries dropped', () => {
   let l = [];
   for (let i = 1; i <= 7; i++) l = core.pushRecent(l, 'a' + i, 'Action ' + i, i);
