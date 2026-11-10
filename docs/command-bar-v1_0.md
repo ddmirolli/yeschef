@@ -248,7 +248,8 @@ own Send stay ⌘↵: the suggested action's `!dialog` keeps them apart.
   one first when there is none.
 - **Shape.** T3 Code's: a list of `{ "key": "mod+shift+u", "command": "view.team", "when": "ticket" }`. A key names
   `mod`, `alt`, `shift`, then the key, joined with `+`. `mod` is ⌘ on a Mac and Ctrl elsewhere. A sign carries its
-  own Shift (`?`), except a shifted digit's, which reads as the digit: `!` is `shift+1`. With ⌥, a key reads as its
+  own Shift (`?`), except a shifted digit's, which reads as the digit: `!` is `shift+1`. Written with `shift`, a US
+  sign is the sign Shift types: `shift+/` is `?`, and `alt+shift+/` is `alt+?`. With ⌥, a key reads as its
   US key, whatever the Mac types: ⌥/ is `alt+/`, not ÷, and ⌥E is `alt+e`. `when` joins names
   with `&&`, each with an optional `!`: `ticket` (a ticket is open) and `dialog` (the bar, Settings, New thread or a
   screenshot is open). No chords.
@@ -257,7 +258,8 @@ own Send stay ⌘↵: the suggested action's `!dialog` keeps them apart.
   `when` takes its command's; `"when": ""` applies everywhere, and is written out when the command's own is not
   empty. An empty list is every default.
 - **Edits by hand.** The app reads the file at start and each time the window comes back, so an edit applies when
-  you return. An entry Yes Chef cannot use is named under the buttons and skipped: a key it cannot read, a when it
+  you return. An entry Yes Chef cannot use is named under the buttons and skipped: a key it cannot read or that is
+  not text, a when it
   cannot read or that can never hold (`ticket && !ticket`), or a key Settings would refuse (macOS's, a fixed key, a suggested-action key with no ⌘ or ⌥). Where
   two commands get one key and both can apply, the later entry has it, and an entry beats a default, as in VS Code.
   An entry for a command Yes Chef does not have is kept as written, with every field (an `args` too). A file that is not valid JSON is named and not

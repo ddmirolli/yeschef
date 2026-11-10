@@ -64,6 +64,9 @@ export function keysCore(mac) {
   var ALIAS = dict({ esc: 'escape', 'return': 'enter', up: 'arrowup', down: 'arrowdown', left: 'arrowleft', right: 'arrowright', del: 'delete' });
   // A shifted digit's sign, as on a US keyboard: a keydown names the digit with ⇧ (comboOf), so the file's "!" does too.
   var SHIFT_DIGIT = dict({ '!': '1', '@': '2', '#': '3', '$': '4', '%': '5', '^': '6', '&': '7', '*': '8', '(': '9', ')': '0' });
+  // A sign's shifted sign, as on a US keyboard: the file's "shift+/" is "?", the sign ⇧/ types.
+  var SHIFT_SIGN = dict({ '/': '?', '.': '>', ',': '<', ';': ':', '\'': '"', '[': '{', ']': '}', '\\': '|', '-': '_', '=': '+' });
+  SHIFT_SIGN[String.fromCharCode(96)] = '~';
   var MOD_ALIAS = dict({ mod: 'mod', cmd: 'mod', command: 'mod', meta: 'mod', ctrl: 'mod', control: 'mod', alt: 'alt', option: 'alt', opt: 'alt', shift: 'shift' });
   // The key alone, from the key's own name ("mod++" is mod and the plus key).
   function parse(s) {
@@ -84,8 +87,9 @@ export function keysCore(mac) {
     if (!(key.length === 1 || NAMED[key] || /^f([1-9]|1[0-9]|20)$/.test(key))) return null;
     if (/\s/.test(key)) return null;
     if (SHIFT_DIGIT[key]) { key = SHIFT_DIGIT[key]; m.shift = true; }
-    // A sign carries its own Shift: "?" is the key, never "shift+/".
-    if (key.length === 1 && !/^[a-z0-9]$/.test(key)) m.shift = false;
+    // A sign carries its own Shift: "?" is the key. Written with Shift, a US sign names the sign ⇧ types, as a keydown
+    // does: "shift+/" is "?", and "alt+shift+/" is "alt+?", never "alt+/". Any other sign keeps its name.
+    if (key.length === 1 && !/^[a-z0-9]$/.test(key)) { if (m.shift && SHIFT_SIGN[key]) key = SHIFT_SIGN[key]; m.shift = false; }
     return { mod: m.mod, alt: m.alt, shift: m.shift, key: key };
   }
   function str(p) { return (p.mod ? 'mod+' : '') + (p.alt ? 'alt+' : '') + (p.shift ? 'shift+' : '') + p.key; }
@@ -108,7 +112,9 @@ export function keysCore(mac) {
     else if (/^(Shift|Meta|Control|Alt|AltGraph|CapsLock|Fn|FnLock|Hyper|Super|OS|Dead|Unidentified|Process)$/.test(k)) return null;
     else if (k === ' ') name = 'space';
     else name = k.toLowerCase();
-    return norm((ev.metaKey || ev.ctrlKey ? 'mod+' : '') + (ev.altKey ? 'alt+' : '') + (ev.shiftKey ? 'shift+' : '') + (name === '+' ? '+' : name));
+    // A sign as typed already carries its Shift (⇧/ types ?, and ⇧: types / on a French keyboard), so it takes none.
+    var sh = ev.shiftKey && !(name.length === 1 && !/^[a-z0-9]$/.test(name));
+    return norm((ev.metaKey || ev.ctrlKey ? 'mod+' : '') + (ev.altKey ? 'alt+' : '') + (sh ? 'shift+' : '') + (name === '+' ? '+' : name));
   }
   var GLYPH = dict({ enter: '↵', escape: 'esc', space: 'Space', tab: '⇥', backspace: '⌫', 'delete': '⌦', arrowup: '↑', arrowdown: '↓', arrowleft: '←', arrowright: '→', home: '↖', end: '↘', pageup: '⇞', pagedown: '⇟' });
   /** The keys of one key, in the order a Mac menu shows them: ["⌥", "⇧", "⌘", "A"]. */
@@ -186,7 +192,8 @@ export function keysCore(mac) {
       var w = e.when == null ? (c.when || '') : lits(e.when).join(' && ');
       if (off && (e.key == null || e.key === '')) { by[id] = []; return; }
       var k = norm(e.key);
-      if (!k) { notes.push(at + ': “' + String(e.key).slice(0, 40) + '” is not a key Yes Chef can read.'); return; }
+      // The key is shown only when it is text: converting anything else could run code the file names, or throw.
+      if (!k) { notes.push(at + (typeof e.key === 'string' ? ': “' + e.key.slice(0, 40) + '” is not a key Yes Chef can read.' : e.key == null ? ' has no key.' : ': its key is not text.')); return; }
       if (off) { by[id] = by[id].filter(function (b) { return b.key !== k; }); return; }
       var no = refuse(id, k);
       if (no) { notes.push(at + ' is not used: ' + no.why); return; }

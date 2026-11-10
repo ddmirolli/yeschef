@@ -276,6 +276,36 @@ test('a default key is off wherever its command applies, unless a key that holds
   assert.deepEqual(K.route(m, 'm', { ticket: true }), { off: 'ticket.merge' });
 });
 
+test('a US sign written with Shift is the sign Shift types, in the file and from a keydown', () => {
+  assert.equal(K.norm('shift+/'), '?');
+  assert.equal(K.norm('alt+shift+/'), 'alt+?', 'never alt+/');
+  assert.equal(K.norm('mod+shift+['), 'mod+{');
+  assert.equal(K.norm('shift+='), '+');
+  assert.equal(K.norm("shift+'"), '"');
+  assert.equal(K.norm('shift+\\'), '|');
+  assert.equal(K.norm('shift+' + String.fromCharCode(96)), '~');
+  assert.equal(K.norm('shift+?'), '?');
+  assert.equal(K.norm('shift+ä'), 'ä', 'a sign with no US Shift keeps its name, as before');
+  // The file's alt+shift+/ is the key ⌥⇧/ names, and ⌥/ stays free.
+  const st = K.build([{ key: 'alt+shift+/', command: 'ticket.suggested' }]);
+  assert.deepEqual(st.notes, []);
+  assert.ok(K.keysOf(st, 'ticket.suggested').includes('alt+?'));
+  assert.deepEqual(K.route(st, K.comboOf(ev('¿', { code: 'Slash', altKey: true, shiftKey: true })), {}), { as: 'mod+enter', id: 'ticket.suggested' });
+  const slash = K.route(st, K.comboOf(ev('÷', { code: 'Slash', altKey: true })), {});
+  assert.ok(!slash || slash.id !== 'ticket.suggested', '⌥/ is not the suggested action: ' + JSON.stringify(slash));
+  // A sign as typed carries its own Shift: ⇧: types / on a French keyboard, and reads as /, not ?.
+  assert.equal(K.comboOf(ev('/', { code: 'Period', shiftKey: true })), '/');
+  assert.equal(K.comboOf(ev('?', { code: 'Slash', shiftKey: true, metaKey: true })), 'mod+?');
+});
+
+test('the file: a key that is not text is named and skipped, and never throws', () => {
+  const odd = JSON.parse('[{"command":"ticket.hold","key":{"toString":null}},{"command":"ticket.hold","key":5},{"command":"ticket.hold"},{"command":"ticket.hold","key":"kk"}]');
+  const st = K.build(odd);
+  assert.deepEqual(st.notes, ['Entry 1: its key is not text.', 'Entry 2: its key is not text.', 'Entry 3 has no key.', 'Entry 4: “kk” is not a key Yes Chef can read.']);
+  assert.deepEqual(K.keysOf(st, 'ticket.hold'), ['h']);
+  assert.equal(st.changed, false);
+});
+
 test('a sign under ⌥ reads as its US key, whatever the Mac types', () => {
   assert.equal(K.comboOf(ev('÷', { code: 'Slash', altKey: true })), 'alt+/');
   assert.equal(K.comboOf(ev('¿', { code: 'Slash', altKey: true, shiftKey: true })), 'alt+?');
