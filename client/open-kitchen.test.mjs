@@ -653,3 +653,22 @@ test('r5: checked changes with no repo are not checked, never counted as read', 
   assert.deepEqual([F.compared, F.unread], [B0.compared - 1, B0.unread + 1]);
   assert.ok(!F.rows.some((f) => f.path === 'web/src/sidebar.tsx'));
 });
+
+// ---- PR B, PR-Agent round 6 ----
+test('r6: in a picked project, a Mac out whose summary left threads out still counts as not counted', () => {
+  const v = viewL();
+  assert.equal(board(v, new Set(['Fernpay'])).review.gap.away, 0, 'Lee works in Quillo only');
+  who(v, 'lee').summary.more = 3;
+  assert.equal(board(v, new Set(['Fernpay'])).review.gap.away, 1);
+});
+
+test('r6: a merge with a known time in any copy is never counted as having no time', () => {
+  const v = viewL();
+  const merged = who(v, 'maya').summary.tickets.find((k) => k.place === 'Merged');
+  // Kai's thread holds a copy of Maya's PR with no time; Maya's copy has one.
+  ticket(v, 'kai').prs.push({ ...merged.prs[0], mergedAt: null });
+  assert.equal(board(v).merged.untimed, 0);
+  // Moved before today, the known copy still settles it: not today's, and not untimed.
+  merged.prs[0].mergedAt = new Date(NOWL - 30 * 60 * MIN).toISOString();
+  assert.equal(board(v).merged.untimed, 0);
+});

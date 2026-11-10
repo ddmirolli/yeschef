@@ -359,7 +359,8 @@ export function kitchenBoard(ok, { now, want = null }) {
     merges.push({ n: pr.n, repo: pr.repo, branch: pr.base, at: pr.mergedAt, sha: pr.mergeSha, person, thread: k.thread });
   }
   merges.sort((a, z) => a.at - z.at || a.n - z.n);
-  for (const key of seenPr) untimed.delete(key);
+  // A PR is untimed only when no copy of it, in any summary, says when it merged (that copy may be from another day).
+  for (const { k } of ok.tickets) for (const pr of k.prs) if (pr.state === 'merged' && pr.mergedAt !== null) untimed.delete(prKey(pr.repo, pr.n));
 
   // The base instrument: the bases Macs online now read, narrowed to the picked projects' repos.
   const repos = new Set(all.flatMap(({ k }) => [...k.prs.map((pr) => pr.repo), k.changes?.repo].filter(Boolean).map((r) => r.toLowerCase())));
@@ -383,8 +384,9 @@ export function kitchenBoard(ok, { now, want = null }) {
     merges: merges.map((m) => ({ n: m.n, repo: m.repo, at: m.at, person: m.person, tone: tone(m) })),
   };
 
-  // What the team counts cannot see: Macs not reporting, and reporting Macs whose summary left threads out.
-  const away = ok.people.filter((p) => p.reporting !== true && (!want || !okSummary(p.summary) || all.some((t) => t.person === p.id))).length;
+  // What the team counts cannot see: Macs not reporting, and reporting Macs whose summary left threads out. In a picked
+  // project, a Mac out counts when its old summary has work there, sent none, or left threads out (they may be there).
+  const away = ok.people.filter((p) => p.reporting !== true && (!want || !okSummary(p.summary) || (num(p.summary?.more) ?? 0) > 0 || all.some((t) => t.person === p.id))).length;
   const capped = ok.people.filter((p) => p.reporting === true && (num(p.summary?.more) ?? 0) > 0).length;
   const gap = { away, capped };
 
