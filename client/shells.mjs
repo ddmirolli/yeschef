@@ -99,3 +99,30 @@ export function changeTargets(rows, shells, project = () => null) {
     return s ? [{ id: t.threadId, folder: threadFolder(s, project(s.projectId)), branch: prBase(s), stamp: s.updatedAt ?? null }] : [];
   });
 }
+
+const openLinks = (shell) => (shell?.pullRequests || []).filter((l) => l.source !== 'stack-dismissed' && l.snapshot?.state === 'open');
+
+/** What GitHub is asked about the followed threads (client/github.mjs), read only.
+ *  base: per thread, the repo and base branch of its open pull request, or else the repo and base its local read
+ *  found (client/changes.mjs `remote` and `base.branch`), as [{ id, host, repo, branch }] or [{ id, why }].
+ *  prs: every open pull request of those threads, once each, [{ host, repo, number, stamp }], stamped with the
+ *  thread's last move. */
+export function githubTargets(targets, shells, local = () => null) {
+  const base = [], prs = new Map();
+  for (const { id } of targets) {
+    const s = shells.get(id);
+    const links = openLinks(s);
+    for (const l of links) {
+      if (!l.repository || !Number.isInteger(l.number)) continue;
+      const k = `${hostOf(l)}/${l.repository}#${l.number}`;
+      const stamp = s.updatedAt ?? null;
+      if (!prs.has(k) || String(stamp ?? '') > String(prs.get(k).stamp ?? '')) prs.set(k, { host: hostOf(l), repo: l.repository, number: l.number, stamp });
+    }
+    const pr = links.find((l) => l.repository && l.snapshot?.baseBranch);
+    if (pr) { base.push({ id, host: hostOf(pr), repo: pr.repository, branch: pr.snapshot.baseBranch }); continue; }
+    const r = local(id);
+    if (r?.state === 'checked' && r.remote && r.base?.branch) base.push({ id, host: r.remote.host, repo: r.remote.repo, branch: r.base.branch });
+    else base.push({ id, why: r?.state === 'checked' ? 'the folder has no remote named origin' : `its folder is not checked: ${r?.why || 'not read yet'}` });
+  }
+  return { base, prs: [...prs.values()] };
+}
