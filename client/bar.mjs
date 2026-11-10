@@ -61,6 +61,15 @@ export const BAR_CSS = `
 .cb-k{margin-left:auto;display:flex;align-items:center;gap:8px;flex:none}
 .cb-tag{padding:2px 7px;border-radius:6px;background:var(--pass-t);color:var(--pass);font-size:12px;font-weight:600}
 .cb-tag.now{background:var(--fill);color:var(--label2)}
+/* A choice found from the top shows the picture Settings shows (theme.mjs) on its right. */
+#bar .cb-mini{display:block;width:56px;flex:none}#bar .cb-mini .mini{border-radius:5px}
+/* Inside its step, each choice is its picture, as in Settings: the highlight is the fill, the current one the ring. */
+.cb-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:4px 2px 6px}
+.cb-it.cb-tile{flex-direction:column;align-items:stretch;gap:8px;min-height:0;padding:6px 6px 8px;border-radius:12px;box-shadow:inset 0 0 0 .5px var(--sep)}
+.cb-it.cb-tile.now{box-shadow:inset 0 0 0 2px var(--accent)}
+.cb-pic{display:block}.cb-pic .mini{border-radius:7px}
+.cb-tile .cb-t{align-items:center}
+.cb-tile .cb-t b{font-size:13px}
 .cb-st{display:inline-flex;align-items:center;gap:6px;color:var(--label2);font-size:12px;white-space:nowrap}
 .cb-foot{display:flex;align-items:center;gap:16px;padding:10px 16px;border-top:.5px solid var(--sep);background:var(--cb-foot);color:var(--label2);font-size:12px}
 .cb-foot span{display:inline-flex;align-items:center;gap:6px}
@@ -110,7 +119,7 @@ const ICONS = {
   rows: '<path d="M3 4.5h10M3 8h10M3 11.5h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
   sun: '<circle cx="8" cy="8" r="2.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M3.6 12.4l1.1-1.1M11.3 4.7l1.1-1.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>',
   moon: '<path d="M12.8 9.6A5.2 5.2 0 0 1 6.4 3.2a5.2 5.2 0 1 0 6.4 6.4z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>',
-  auto: '<circle cx="8" cy="8" r="5.4" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 2.6a5.4 5.4 0 0 1 0 10.8z" fill="currentColor"/>',
+  monitor: '<rect x="2" y="2.8" width="12" height="8.4" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M5.6 13.6h4.8M8 11.2v2.4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>',
   key: '<rect x="1.8" y="4" width="12.4" height="8" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M4.5 6.7h.01M7 6.7h.01M9.5 6.7h.01M12 6.7h.01M5 9.4h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>',
   gear: '<circle cx="8" cy="8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M3.6 12.4 5 11M11 5l1.4-1.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>',
   rules: '<path d="M4 2.5h8v11H4z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M6 5.5h4M6 8h4M6 10.5h2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>',
@@ -207,6 +216,9 @@ export function barCore() {
       { id: 'view:team', scope: 'team', g: 'View', t: 'View: Your team', d: name + ', ' + count, kw: VIEW_KW, icon: 'team', now: views.current === 'team' },
     ];
   }
+  // A step's choice joins the typed search, as "Change appearance: Dark", only when a word you type starts its name: "dark"
+  // finds it, and "appearance" finds just the row that opens the step (T3 Code's palette lists a submenu's options so).
+  function nestedHit(q, hay, name) { var n = norm(name), ws = words(q); return ws.length > 0 && match(q, hay) && ws.some(function (w) { return atStart(n, w); }); }
   // Send a note: every thread, the ones that take a note first. why(id) says why one takes none now, else ''.
   function notePick(all, why) {
     var rows = all.map(function (k) { return { k: k, why: why(k.id) || '' }; });
@@ -217,7 +229,7 @@ export function barCore() {
   function tkId(pid, sig, fi, kind) { return 'tk:' + pid + ':' + encodeURIComponent(sig || '-') + ':' + fi + ':' + kind; }
   // When the last of n popping rows has landed: the lead, the stagger and one spring (BAR_CSS).
   function popEnd(n) { return 150 + Math.max(0, n - 1) * 40 + 735; }
-  return { MAX: MAX, SINK_MS: 250, COUNT_MS: 5000, match: match, score: score, filter: filter, fp: fp, readRecent: readRecent, pushRecent: pushRecent, readNoted: readNoted, ago: ago, after: after, viewRows: viewRows, tkId: tkId, popEnd: popEnd, notePick: notePick };
+  return { MAX: MAX, SINK_MS: 250, COUNT_MS: 5000, match: match, score: score, filter: filter, fp: fp, readRecent: readRecent, pushRecent: pushRecent, readNoted: readNoted, ago: ago, after: after, viewRows: viewRows, nestedHit: nestedHit, tkId: tkId, popEnd: popEnd, notePick: notePick };
 }
 
 /** The bar in the page. app: the page script's own functions and state (client/server.mjs); core: barCore(). */
@@ -368,6 +380,37 @@ export function installBar(app, core) {
     return pass.filter(function (k) { return k.id === id; })[0] || null;
   }
   var NOT_CHECKED = { id: 'pass:nc', t: 'Next in The Pass: not checked', d: 'T3 did not answer, so the Pass cannot say what waits on you.', icon: ic('cloche'), off: true };
+  // The bar's steps: what the field asks, and the line in front of it.
+  var STEPS = {
+    goto: { crumb: 'Go to a thread', ask: 'Which thread? Type its name' },
+    note: { crumb: 'Send a note', ask: 'Which thread? Type its name' },
+    appearance: { crumb: 'Change appearance', ask: 'Which appearance?', kw: 'theme mode light dark system match auto color night day' },
+    density: { crumb: 'Change density', ask: 'Which density?', kw: 'list rows size dense spacing default comfortable compact' },
+  };
+  var THEMES = [['system', 'System', 'Light or dark, as your Mac is set', 'monitor'], ['light', 'Light', 'Always light', 'sun'], ['dark', 'Dark', 'Always dark', 'moon']];
+  var DENSITIES = [['default', 'Default', 'Title and the agent’s summary'], ['comfortable', 'Comfortable', 'Title and one summary line'], ['compact', 'Compact', 'Titles only, the most tickets on screen']];
+  function pic(k) { return typeof app.mini === 'function' ? app.mini(k) || '' : ''; }
+  function mini(k) { var h = pic(k); return h ? '<span class="cb-mini" aria-hidden="true">' + h + '</span>' : ''; }
+  function stepRows(step) {
+    if (step === 'appearance') return typeof app.setTheme !== 'function' ? [] : THEMES.map(function (a) {
+      return { id: 'theme:' + a[0], g: 'Appearance', t: a[1], hist: 'Appearance: ' + a[1], d: a[2], kw: 'mode theme', icon: ic(a[3]), now: app.prefs.theme === a[0], pic: pic(a[0]), right: mini(a[0]), run: function () { app.setTheme(a[0]); } };
+    });
+    if (step === 'density') return DENSITIES.map(function (d) {
+      return { id: 'density:' + d[0], g: 'Density', t: d[1], hist: 'Density: ' + d[1], d: d[2], kw: 'rows list', icon: ic('rows'), now: app.prefs.density === d[0], pic: pic(d[0]), right: mini(d[0]), run: function () { app.setDensity(d[0]); } };
+    });
+    return [];
+  }
+  // Typed at the top: a step's choices whose names you typed, under the row that opens the step.
+  function nested(q) {
+    var out = [];
+    ['appearance', 'density'].forEach(function (step) {
+      stepRows(step).forEach(function (r) {
+        var t = STEPS[step].crumb + ': ' + r.t;
+        if (core.nestedHit(q, t + ' ' + r.kw, r.t)) out.push(Object.assign({}, r, { g: 'View', t: t, hay: t + ' ' + r.kw, pic: '' }));
+      });
+    });
+    return out;
+  }
   function commands(all) {
     var out = [], m = app.mounted();
     if (m) out = out.concat(ticketActions(m));
@@ -381,13 +424,10 @@ export function installBar(app, core) {
     core.viewRows(app.views(), typeof app.setScope === 'function').forEach(function (v) {
       out.push({ id: v.id, g: v.g, t: v.t, d: v.d, kw: v.kw, icon: ic(v.icon), now: v.now, run: function () { app.setScope(v.scope); } });
     });
-    // Appearance (PR 3): the three choices of Settings → Layout. ⌥⇧⌘A steps through them, as in T3 Code.
-    if (typeof app.setTheme === 'function') [['system', 'Match system', 'Light or dark, as your system is set', 'auto'], ['light', 'Light', 'Always light', 'sun'], ['dark', 'Dark', 'Always dark', 'moon']].forEach(function (a) {
-      out.push({ id: 'theme:' + a[0], g: 'View', t: 'Appearance: ' + a[1], d: a[2], kw: 'theme mode light dark system auto color night day', icon: ic(a[3]), now: app.prefs.theme === a[0], run: function () { app.setTheme(a[0]); } });
-    });
-    [['default', 'Default', 'Title and the agent’s summary'], ['comfortable', 'Comfortable', 'Title and one summary line'], ['compact', 'Compact', 'Titles only, the most tickets on screen']].forEach(function (d) {
-      out.push({ id: 'density:' + d[0], g: 'View', t: 'Density: ' + d[1], d: d[2], kw: 'list rows size dense spacing', icon: ic('rows'), now: app.prefs.density === d[0], run: function () { app.setDensity(d[0]); } });
-    });
+    // Appearance and Density: one row each, opening a step with the three choices and their pictures, as T3 Code's
+    // "Change appearance" does (Dan, 2026-11-10). ⌥⇧⌘A steps through the appearances without opening anything.
+    if (typeof app.setTheme === 'function') out.push({ id: 'appearance', g: 'View', t: 'Change appearance', d: 'System, Light or Dark', kw: STEPS.appearance.kw, icon: ic('monitor'), k: ['⌥', '⇧', '⌘', 'A'], step: 'appearance' });
+    out.push({ id: 'density', g: 'View', t: 'Change density', d: 'Default, Comfortable or Compact', kw: STEPS.density.kw, icon: ic('rows'), step: 'density' });
     out.push({ id: 'rules', g: 'Settings', t: 'Rules', d: 'Sent with every thread Yes Chef starts', kw: 'brief reviewer browser tracker council screenshots house notes', icon: ic('rules'), run: function () { app.openSettings('rules'); } });
     out.push({ id: 'keys', g: 'Settings', t: 'Keyboard shortcuts', d: 'Every key in one list', kw: 'keys hotkeys keybindings', icon: ic('key'), k: ['?'], run: function () { app.openSettings('keys'); } });
     out.push({ id: 'settings', g: 'Settings', t: 'Settings', d: 'Layout, rules and shortcuts', kw: 'preferences options layout', icon: ic('gear'), k: ['⌘', ','], run: function () { app.openSettings('layout'); } });
@@ -398,7 +438,7 @@ export function installBar(app, core) {
     if (p[0] === 'tk') return ic(p[2] === 'open' ? 'ext' : ICON[p[4]] || 'check');
     if (p[0] === 'go') return ic('jump');
     if (p[0] === 'note') return ic('note');
-    if (p[0] === 'theme') return ic({ light: 'sun', dark: 'moon' }[p[1]] || 'auto');
+    if (p[0] === 'theme') return ic({ light: 'sun', dark: 'moon' }[p[1]] || 'monitor');
     return ic({ 'new': 'plus', view: p[1] === 'you' || p[1] === 'team' ? p[1] : 'expand', density: 'rows', rules: 'rules', keys: 'key', settings: 'gear' }[p[0]] || 'check');
   }
   function histRow(r, i, n) {
@@ -428,9 +468,10 @@ export function installBar(app, core) {
     var all = tickets();
     if (S.step === 'goto') return core.filter(all.map(function (k) { return ticketRow(k, 'Go to a thread'); }), S.q);
     if (S.step === 'note') return core.filter(core.notePick(all, noteBlock).map(function (x) { return noteRow(x.k, x.why); }), S.q, true);
+    if (STEPS[S.step] && STEPS[S.step].kw) return core.filter(stepRows(S.step), S.q, true);
     if (S.hist >= 0) { var r = recent(); return r[S.hist] ? [histRow(r[S.hist], S.hist, r.length)] : []; }
     if (!S.q.trim()) return S.sug ? suggestions(all) : [];
-    var out = core.filter(commands(all), S.q), ids = {};
+    var out = core.filter(commands(all).concat(nested(S.q)), S.q), ids = {};
     out.forEach(function (x) { ids[x.id] = 1; });
     // Threads match only once you type, after the actions.
     var th = core.filter(all.map(function (k) { return ticketRow(k, 'Threads: on the board'); }), S.q).filter(function (x) { return !ids[x.id]; });
@@ -450,6 +491,8 @@ export function installBar(app, core) {
     var all = tickets();
     if (id.indexOf('go:') === 0) { var k = all.filter(function (x) { return 'go:' + x.id === id; })[0]; return k ? ticketRow(k, '') : null; }
     if (id.indexOf('note:') === 0) { var kn = all.filter(function (x) { return 'note:' + x.id === id; })[0]; return kn ? noteRow(kn, '') : null; }
+    var p = id.split(':')[0], step = p === 'theme' ? 'appearance' : p === 'density' ? 'density' : '';
+    if (step) return stepRows(step).filter(function (x) { return x.id === id; })[0] || null;
     return commands(all).filter(function (x) { return x.id === id && !x.off && !x.step; })[0] || null;
   }
   // Open a ticket where the view shows it: in the list it is in (the open one if it is there, else The Pass, else its
@@ -473,10 +516,10 @@ export function installBar(app, core) {
   function render() {
     var r = recent(), waiting = blank() && !S.sug;
     var writing = S.step === 'compose';
-    input.placeholder = writing ? '' : S.step ? 'Which thread? Type its name' : 'Search actions, threads and settings';
+    input.placeholder = writing ? '' : S.step ? STEPS[S.step].ask : 'Search actions, threads and settings';
     input.disabled = writing;
     crumb.hidden = !S.step;
-    crumb.innerHTML = S.step === 'goto' ? 'Go to a thread' : S.step === 'note' ? 'Send a note' : writing ? 'Send a note<svg viewBox="0 0 16 16" aria-hidden="true"><use href="#cb-jump"/></svg><span class="cb-ct">' + esc(toTitle()) + '</span>' : '';
+    crumb.innerHTML = STEPS[S.step] ? esc(STEPS[S.step].crumb) : writing ? 'Send a note<svg viewBox="0 0 16 16" aria-hidden="true"><use href="#cb-jump"/></svg><span class="cb-ct">' + esc(toTitle()) + '</span>' : '';
     res.hidden = writing; compose.hidden = !writing;
     if (writing) {
       hint.hidden = true; input.setAttribute('aria-expanded', 'false'); input.removeAttribute('aria-activedescendant');
@@ -489,16 +532,26 @@ export function installBar(app, core) {
     // Empty and not suggesting: the list folds away with what it last held, so the fold has something to fold.
     if (waiting) { S.rows = []; input.removeAttribute('aria-activedescendant'); return; }
     var rows = S.rows = items();
+    if (S.toNow) { S.toNow = false; rows.some(function (x, i) { return x.pic && x.now && !x.off ? ((S.sel = i), true) : false; }); }
     S.sel = Math.max(0, Math.min(S.sel, rows.length - 1));
     if (rows[S.sel] && rows[S.sel].off) S.sel = live(S.sel, 1);
-    var html = '', g = null, n = 0;
+    var html = '', g = null, n = 0, tiles = false;
     rows.forEach(function (x, i) {
+      if (tiles && (x.g !== g || !x.pic)) { html += '</div>'; tiles = false; }
       if (x.g !== g) { g = x.g; var parts = String(g).split(': '); html += '<div class="cb-gh" role="presentation" style="--i:' + (n++) + '">' + esc(parts[0]) + (parts.length > 1 ? '<span>' + esc(parts.slice(1).join(': ')) + '</span>' : '') + '</div>'; }
+      if (x.pic) {
+        if (!tiles) { html += '<div class="cb-tiles" role="presentation">'; tiles = true; }
+        html += '<div class="cb-it cb-tile' + (i === S.sel ? ' sel' : '') + (x.off ? ' off' : '') + (x.now ? ' now' : '') + '" role="option" id="cb-o' + i + '" aria-selected="' + (i === S.sel) + '"' + (x.now ? ' aria-current="true"' : '') + (x.off ? ' aria-disabled="true"' : '') + ' data-i="' + i + '" style="--i:' + (n++) + '">'
+          + '<span class="cb-pic" aria-hidden="true">' + x.pic + '</span><span class="cb-t"><b>' + esc(x.t) + '</b></span></div>';
+        return;
+      }
       html += '<div class="cb-it' + (i === S.sel ? ' sel' : '') + (x.off ? ' off' : '') + '" role="option" id="cb-o' + i + '" aria-selected="' + (i === S.sel) + '"' + (x.off ? ' aria-disabled="true"' : '') + ' data-i="' + i + '" style="--i:' + (n++) + '">'
         + x.icon + '<span class="cb-t"><b>' + esc(x.t) + '</b>' + (x.d ? '<small>' + esc(x.d) + '</small>' : '') + '</span>'
         + '<span class="cb-k">' + (x.tag ? '<span class="cb-tag">' + esc(x.tag) + '</span>' : '') + (x.now ? '<span class="cb-tag now">Now</span>' : '') + (x.right || '') + keys(x.k) + '</span></div>';
     });
+    if (tiles) html += '</div>';
     var empty = S.sug && !S.q ? 'Nothing to suggest yet. Type to search every action.'
+      : STEPS[S.step] && STEPS[S.step].kw ? 'Nothing matches “' + esc(S.q.trim()) + '”.'
       : S.step && !S.q.trim() ? 'No thread on the board yet.'
       : S.step ? 'No thread on the board matches “' + esc(S.q.trim()) + '”.'
       : 'Nothing matches “' + esc(S.q.trim()) + '”. Try a thread’s name, an action or a setting.';
@@ -512,7 +565,7 @@ export function installBar(app, core) {
     var f;
     if (S.hist >= 0) f = '<span>' + keys(['↑']) + 'Earlier</span><span>' + keys(['↓']) + 'Later</span><span>' + keys(['↵']) + 'Run again</span><span class="r cb-note">Like ↑ in a terminal</span>';
     else if (S.sug && !S.q && !S.step) f = '<span class="cb-move">' + keys(['↑', '↓']) + 'Move</span><span>' + keys(['↵']) + 'Run</span>' + (r.length || noted() ? '<span class="r"><button type="button" data-cb-clear>Clear recent actions</button></span>' : '');
-    else f = '<span class="cb-move">' + keys(['↑', '↓']) + 'Move</span><span>' + keys(['↵']) + 'Run</span>' + (S.step ? '<span>' + keys(['⌫']) + 'Back</span>' : '<span class="r cb-note">Each action shows its key on the right</span>');
+    else f = '<span class="cb-move">' + keys(rows.some(function (x) { return x.pic; }) ? ['←', '→'] : ['↑', '↓']) + 'Move</span><span>' + keys(['↵']) + 'Run</span>' + (S.step ? '<span>' + keys(['⌫']) + 'Back</span>' : '<span class="r cb-note">Each action shows its key on the right</span>');
     foot.innerHTML = f;
     mark(false);
   }
@@ -557,7 +610,8 @@ export function installBar(app, core) {
   function showSug() { clearTimeout(sinkT); stopCount(); S.sug = true; S.sel = 0; S.pop = true; render(); place(true); }
   // After the field changes. Text: up now. Empty: wait a beat so a quick retype does not bounce it, then down and count.
   function changed() {
-    S.sel = 0; clearTimeout(sinkT);
+    // A step of pictures opens on the current one, as a picker does. Typing in it goes back to the best match.
+    S.sel = 0; S.toNow = !!S.step && !S.q; clearTimeout(sinkT);
     if (!blank()) { stopCount(); S.sug = false; render(); place(true); return; }
     S.sug = false; render();
     sinkT = setTimeout(function () { if (dlg.open && blank() && !S.sug) { place(false); startCount(); } }, core.SINK_MS);
@@ -659,6 +713,11 @@ export function installBar(app, core) {
     if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); escape(); return; }
     // Everything else belongs to the field. Tab moves between the field and the footer's button, as anywhere else.
     if (ev.target !== input) return;
+    // Tiles sit side by side, so ← and → move along them too. The field is empty, so the caret has nowhere to go.
+    if ((ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') && !input.value && n && S.rows[S.sel] && S.rows[S.sel].pic) {
+      ev.preventDefault(); ev.stopPropagation();
+      var dir = ev.key === 'ArrowLeft' ? -1 : 1; S.sel = live(S.sel + dir, dir); mark(); return;
+    }
     if (ev.key === 'ArrowUp') {
       ev.preventDefault(); ev.stopPropagation();
       if (S.hist >= 0) { if (S.hist < recent().length - 1) recall(S.hist + 1); return; }
