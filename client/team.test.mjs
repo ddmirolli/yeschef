@@ -801,7 +801,7 @@ test('an edit read from an older roster is refused, so it never undoes a newer o
   lead.stop(); dev.stop();
 });
 
-test('an action whose id cannot be saved does not run, and the lead hears why', async () => {
+test('an action whose id cannot be saved does not run, sends no answer, and stays on the relay', async () => {
   const { relay, lead, dev, ran } = await crew();
   const me = await lead.member();
   const key = await teamKey(lead.state.key);
@@ -812,7 +812,8 @@ test('an action whose id cannot be saved does not run, and the lead hears why', 
   dev.say = async (msg) => { sent.push(msg); return say(msg); };
   await dev.take({ item: 'i1', from: me.id, blob });
   assert.equal(ran.length, 0);
-  assert.ok(sent.some((m) => m.t === 'send'), 'an answer went back');
+  assert.equal(sent.some((m) => m.t === 'send'), false, 'no "not run" goes: a lost ack would let it run later');
+  assert.equal(sent.some((m) => m.t === 'done'), false, 'the relay keeps it');
   assert.equal(dev.seen.has(`${me.id}:FFFFFFFFFFFFFFFFFFFFFF`), false, 'a later try may run it');
   lead.stop(); dev.stop();
 });
@@ -1490,5 +1491,14 @@ test('a repeated withdrawal does not raise the summary floor again', async () =>
   lead.summaryFloor.set(dev.meId, 1000);
   for (let i = 0; i < 3; i++) await lead.handle({ t: 'gone', m: dev.meId });
   assert.equal(lead.summaryFloor.get(dev.meId), 1000.5);
+  lead.stop(); dev.stop();
+});
+
+test('a clock set a day ahead and then right again does not shut out teammate actions for a day', async () => {
+  const { relay, lead, dev, ran, setBoard } = await crew();
+  dev.state.clockHigh = relay.now() + 86400000;
+  setBoard({ board: boardNow(relay.now()), ok: true, at: relay.now() });
+  const out = await lead.act(dev.meId, { kind: 'reply', thread: 'th-parser', note: 'x' });
+  assert.equal(ran.length, 1, out.text);
   lead.stop(); dev.stop();
 });

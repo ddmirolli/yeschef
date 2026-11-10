@@ -605,10 +605,16 @@ export class Team {
     // An id leaves only once its action is too old to run anyway. A full list of live ids refuses new work rather than
     // forget one, so a replay never runs twice (PR-Agent r1 on public #7). The refusal is not kept: nothing ran.
     // Against the latest time this Mac has seen, so a clock set forward and back again cannot drop an id and then take
-    // its action again (PR-Agent r5 on public #7).
+    // its action again (PR-Agent r5 on public #7). The time of the newest id let go is kept: an action from then or
+    // before may be one of them, so it does not run. A clock set right again shuts out only those minutes, not a day
+    // (PR-Agent r19 on public #7).
     const high = Math.max(now, Number(this.state.clockHigh) || 0);
     this.state.clockHigh = high;
-    for (const [k, v] of this.seen) { if (high - v.at < SEEN_KEEP_MS) break; this.seen.delete(k); }
+    for (const [k, v] of this.seen) {
+      if (high - v.at < SEEN_KEEP_MS) break;
+      this.seen.delete(k);
+      this.state.seenFloor = Math.max(Number(this.state.seenFloor) || 0, v.at);
+    }
     if (this.seen.size >= SEEN_MAX) return this.reply(sender.id, nonce, 429, 'Not run: too many teammate actions in the last few minutes. Try again shortly.');
     let ran = false;
     const answer = async (status, text) => {
@@ -629,7 +635,7 @@ export class Team {
     const gate = (t) => {
       const at = Number(body.at);
       if (!Number.isFinite(at) || t - at > ACT_TTL || at - t > AUTH_SKEW_MS) return [409, 'Not run: that action is too old. Look again and send it fresh.'];
-      if (high - at > ACT_TTL) return [409, 'Not run: this teammate\'s Mac clock went back. Send it again once their clock is right.'];
+      if (at <= (Number(this.state.seenFloor) || 0) + AUTH_SKEW_MS) return [409, 'Not run: this teammate\'s Mac clock went back. Send it again once their clock is right.'];
       if (this.stopped || this.state.status !== 'member') return [409, 'Not run: this Mac is no longer on the team.'];
       const from = this.people.get(sender.id);
       if (!from) return [403, 'Not run: the sender is no longer on the team.'];
@@ -651,7 +657,13 @@ export class Team {
     // "not confirmed", never a second run (PR-Agent r2 on public #7).
     this.seen.set(seenKey, { at: now, status: 502, text: 'Not confirmed: this teammate\'s Yes Chef stopped while it ran the action. Check the thread before you send again.' });
     // The reservation must be on disk first. If it is not, nothing runs (PR-Agent r3 on public #7).
-    if (!(await this.saveNow())) { this.seen.delete(seenKey); return this.reply(sender.id, nonce, 503, 'Not run: this teammate\'s Yes Chef could not save. Try again shortly.'); }
+    // No answer goes either: a "not run" whose ack was lost would let the relay's copy run later, beside the sender's
+    // retry. The relay keeps it and it is judged again; the sender sees "not confirmed" (PR-Agent r19 on public #7).
+    if (!(await this.saveNow())) {
+      this.seen.delete(seenKey);
+      this.emit('error', { text: 'Yes Chef could not save, so a teammate\'s action did not run. It runs on the next try once saving works.' });
+      return false;
+    }
     const late = gate(this.now());
     if (late) return answer(...late);
     const from = this.people.get(sender.id);
