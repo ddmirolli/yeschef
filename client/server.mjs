@@ -1957,6 +1957,34 @@ ${BAR_HTML}
   function ownRetry(){ return !!(mounted && unconfirmed[mounted.id] && $('.retry', mounted)); }
   // The open ticket's form the keys go to: the free form you are in, else the free form you last picked in, else the
   // first free one. A pick in question 2 makes Cmd+Enter send question 2 (r14, Sol and Astra).
+  // What an option letter does from target, as onKey does it, and as the router asks before it routes the letter:
+  // { radio }, the option it picks; { held }, a question waiting on its Retry that has that letter; or null.
+  function letterAt(target, k){
+    if (!mounted) return null;
+    var here = target && target.closest ? target.closest('form.act') : null, form = keyForm(here);
+    if (!form) return null;
+    // Letters go to the form Cmd+Enter sends (keyForm), the one that shows the keys (r15, Opus). In it: the question
+    // you are in, else the first unanswered, else the last one you picked in.
+    // Only a question whose form can send takes a letter: a form waiting on its send or Retry keeps what it sent
+    // (hill climb 2 r11, Astra).
+    var free = function(fs){ var ff = fs && fs.closest('form.act'); return !!fs && !fs.disabled && !(ff && ff.dataset.busy); };
+    var inSet = target && target.closest ? target.closest('fieldset.q-set') : null; if (!free(inSet)) inSet = null;
+    // The last question you picked in is waiting on its Retry: a letter meant for it does not spill into another
+    // question; the held form says why (hill climb 2 r12, Opus). Only the form that holds the Retry: one waiting out
+    // its Undo lets the letter go to the next free question, as before (r13, Opus).
+    // Focus anywhere in a free form (its Send button too) means the letter is for that form (r16, Astra).
+    var uc = unconfirmed[mounted.id];
+    var held = !inSet && form !== here && uc && mounted._lastSet && mounted.contains(mounted._lastSet) && !free(mounted._lastSet) && mounted._lastSet.closest('form.act') === uc.form ? mounted._lastSet : null;
+    if (held && $('input[type=radio][data-key="' + k + '"]', held)) return { held: held };
+    var lastSet = mounted._lastSet && form.contains(mounted._lastSet) && free(mounted._lastSet) ? mounted._lastSet : null;
+    if (inSet && !form.contains(inSet)) inSet = null;
+    var sets = $$('fieldset.q-set', form).filter(free);
+    // With the questions as cards, a letter answers the card in front (Dan, 2026-11-08).
+    var shown = sets.filter(function(fs){ return fs.classList.contains('q-on'); })[0];
+    var open = inSet || shown || sets.filter(function(fs){ return !$('input[type=radio]:checked', fs); })[0] || lastSet || sets[0];
+    var r = open && $('input[type=radio][data-key="' + k + '"]', open);
+    return r && !r.disabled ? { radio: r } : null;
+  }
   function keyForm(here){
     if (!mounted) return null;
     var ok = function(f){ return !!f && mounted.contains(f) && !f.dataset.busy; };
@@ -2903,27 +2931,9 @@ ${BAR_HTML}
     // While a question waits, its option letters come first (an option "e" beats Settle).
     // A key that stands in for a changed one (ev.synthetic) is never an option's letter.
     if (/^[a-i]$/.test(k) && mounted && !ev.synthetic) {
-      // Letters go to the form Cmd+Enter sends (keyForm), the one that shows the keys (r15, Opus). In it: the question
-      // you are in, else the first unanswered, else the last one you picked in.
-      // Only a question whose form can send takes a letter: a form waiting on its send or Retry keeps what it sent
-      // (hill climb 2 r11, Astra).
-      var free = function(fs){ var ff = fs && fs.closest('form.act'); return !!fs && !fs.disabled && !(ff && ff.dataset.busy); };
-      var inSet = ev.target.closest && ev.target.closest('fieldset.q-set'); if (!free(inSet)) inSet = null;
-      // The last question you picked in is waiting on its Retry: a letter meant for it does not spill into another
-      // question; the held form says why (hill climb 2 r12, Opus). Only the form that holds the Retry: one waiting out
-      // its Undo lets the letter go to the next free question, as before (r13, Opus).
-      // Focus anywhere in a free form (its Send button too) means the letter is for that form (r16, Astra).
-      var uc = unconfirmed[mounted.id];
-      var held = !inSet && form !== here && uc && mounted._lastSet && mounted.contains(mounted._lastSet) && !free(mounted._lastSet) && mounted._lastSet.closest('form.act') === uc.form ? mounted._lastSet : null;
-      if (held && $('input[type=radio][data-key="' + k + '"]', held)) { say(held.closest('form.act'), 'This answer is waiting on its Retry, so a letter does not change it.', ''); return; }
-      var lastSet = mounted._lastSet && form.contains(mounted._lastSet) && free(mounted._lastSet) ? mounted._lastSet : null;
-      if (inSet && !form.contains(inSet)) inSet = null;
-      var sets = $$('fieldset.q-set', form).filter(free);
-      // With the questions as cards, a letter answers the card in front (Dan, 2026-11-08).
-      var shown = sets.filter(function(fs){ return fs.classList.contains('q-on'); })[0];
-      var open = inSet || shown || sets.filter(function(fs){ return !$('input[type=radio]:checked', fs); })[0] || lastSet || sets[0];
-      var r = open && $('input[type=radio][data-key="' + k + '"]', open);
-      if (r && !r.disabled) { r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true })); return; }
+      var ls = letterAt(ev.target, k);
+      if (ls && ls.held) { say(ls.held.closest('form.act'), 'This answer is waiting on its Retry, so a letter does not change it.', ''); return; }
+      if (ls) { ls.radio.checked = true; ls.radio.dispatchEvent(new Event('change', { bubbles: true })); return; }
     }
     // A key with no button here says why instead of doing nothing (Opus).
     // A T3 question has no Reply: point to answering it, or opening it in T3 Code (Astra).
@@ -2961,7 +2971,7 @@ ${BAR_HTML}
     var c = K.comboOf(ev), t = ev.target;
     var typing = !!(t && t.closest && t.closest('textarea, input[type=text], input[type=search], [contenteditable]'));
     var dialog = [barDlg, setDlg, launchDlg, viewer].some(function(d){ return d && d.open; });
-    if (!c || (K.plain(c) && typing) || (dialog && K.dialogKey(c)) || (/^[a-i]$/.test(c) && optionTakes(c))) { onKey(ev); return; }
+    if (!c || (K.plain(c) && typing) || (dialog && K.dialogKey(c)) || (/^[a-i]$/.test(c) && letterAt(t, c))) { onKey(ev); return; }
     var r = K.route(KST, c, { ticket: !!mounted, dialog: dialog });
     if (!r) { onKey(ev); return; }
     // A changed key is the shortcut's alone, so the browser never also acts on it (Hold on ⌘F opens no Find).
@@ -2969,7 +2979,6 @@ ${BAR_HTML}
     ev.preventDefault();
     if (r.run && !ev.repeat) RUN[r.run]();
   });
-  function optionTakes(k){ return !!mounted && $$('fieldset.q-set:not([disabled]) input[type=radio][data-key="' + k + '"]', mounted).length > 0; }
   // The commands with no default key: the router runs them, in a dialog too. The two that open the bar close the other
   // dialogs first, as ⌘K does.
   function barAt(step){ if (!bar) return; if (setDlg.open) setDlg.close(); if (launchDlg.open) launchDlg.close(); if (viewer.open) viewer.close(); bar.openAt(step); }
