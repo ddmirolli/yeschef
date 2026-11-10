@@ -346,8 +346,38 @@ test('--ci runs only where GitHub Actions says it runs, and drops only the termi
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+// The release workflow's safety rules, read from the file: a later edit that loosens one fails here.
+test('release.yml: one secret, read only in the release Environment, and no signed Stable without Dan\'s approval', () => {
+  const yml = readFileSync(join(HERE, '..', '.github', 'workflows', 'release.yml'), 'utf8');
+  const code = yml.split('\n').filter((l) => !l.trimStart().startsWith('#')).join('\n');
+  const jobs = Object.fromEntries(code.split('\njobs:\n')[1].split(/\n(?=  [a-z][a-z-]*:\n)/).map((b) => [b.match(/^ {2}([a-z-]+):/)[1], b]));
+  assert.deepEqual(Object.keys(jobs), ['plan', 'approve', 'build', 'publish', 'signing-check']);
+  assert.doesNotMatch(code, /pull_request_target|workflow_run/);
+  for (const line of code.split('\n').filter((l) => /\buses:/.test(l))) assert.match(line, /@[0-9a-f]{40} # v\d/, line);
+  // The token is the only secret, and only the two load steps get it.
+  assert.deepEqual(code.match(/secrets\.[A-Za-z_]+/g), ['secrets.OP_SERVICE_ACCOUNT_TOKEN', 'secrets.OP_SERVICE_ACCOUNT_TOKEN']);
+  for (const name of ['build', 'signing-check']) assert.match(jobs[name], /OP_SERVICE_ACCOUNT_TOKEN: \$\{\{ secrets\.OP_SERVICE_ACCOUNT_TOKEN \}\}\n\s+run: bash desktop\/build\/ci-signing\.sh load/);
+  for (const name of ['plan', 'approve', 'publish']) assert.doesNotMatch(jobs[name], /secrets\./, name);
+  // Build names `release` only off pull requests and dry runs; signing-check always names it; approve names `stable`.
+  assert.match(jobs.build, /name: \$\{\{ github\.event_name != 'pull_request' && inputs\.channel != 'dry-run' && 'release' \|\| '' \}\}/);
+  assert.match(jobs['signing-check'], /environment:\n\s+name: release\n/);
+  assert.match(jobs['signing-check'], /if: github\.event_name == 'workflow_dispatch' && inputs\.channel == 'signing-check'/);
+  assert.match(jobs.approve, /environment:\n\s+name: stable\n/);
+  assert.match(jobs.approve, /if: needs\.plan\.outputs\.due == 'true' && needs\.plan\.outputs\.channel == 'stable' && github\.event_name != 'pull_request' && inputs\.channel != 'dry-run'/);
+  assert.match(jobs.approve, /permissions: \{\}/);
+  // The gate: a signed Stable builds and publishes only after `approve` succeeded.
+  assert.match(jobs.build, /needs: \[plan, approve\]/);
+  assert.match(jobs.build, /\(needs\.plan\.outputs\.channel != 'stable' \|\| github\.event_name == 'pull_request' \|\| inputs\.channel == 'dry-run' \|\| needs\.approve\.result == 'success'\)/);
+  assert.match(jobs.publish, /needs: \[plan, approve, build\]/);
+  assert.match(jobs.publish, /needs\.build\.result == 'success' && github\.event_name != 'pull_request' && inputs\.channel != 'dry-run' && \(needs\.plan\.outputs\.channel != 'stable' \|\| needs\.approve\.result == 'success'\)/);
+  // Only Publish can write.
+  assert.match(code, /\npermissions:\n {2}contents: read\n/);
+  assert.deepEqual(code.match(/contents: write/g), ['contents: write']);
+  assert.match(jobs.publish, /contents: write/);
+});
+
 test('ci-signing.sh refuses to run outside GitHub Actions, so it never touches this Mac\'s keychains', () => {
-  for (const mode of ['load', 'rehearse', 'cleanup']) {
+  for (const mode of ['load', 'check', 'rehearse', 'cleanup']) {
     const r = spawnSync('/bin/bash', [join(HERE, 'build', 'ci-signing.sh'), mode], { encoding: 'utf8', env: { ...process.env, GITHUB_ACTIONS: '', RUNNER_TEMP: '', GITHUB_ENV: '' } });
     assert.equal(r.status, 1, mode);
     assert.match(r.stderr, /runs only in GitHub Actions on macOS/);

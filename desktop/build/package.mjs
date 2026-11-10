@@ -73,6 +73,10 @@ if (RELEASE && !identity) fail(`No Developer ID Application certificate from tea
 if (RELEASE && !notaryArgs()) fail('No notarization credentials: set APPLE_API_KEY, APPLE_API_KEY_ID and APPLE_API_ISSUER, or APPLE_KEYCHAIN_PROFILE (see the top of this file).');
 if (!identity) console.warn('No Developer ID or Apple Development certificate from team ' + TEAM_ID + ': signing ad hoc. macOS will ask for the Keychain again after every update.');
 console.log(`Signing with ${identity ? identity.name : 'ad hoc'}.`);
+// On a pull request build (GITHUB_BASE_REF is set) electron-builder skips all signing, to keep a fork's build away
+// from signing secrets, and leaves the bundle unsealed. An ad hoc signature uses no secret, so it may sign then. A
+// certificate build never gets this: on a pull request it stays unsigned and fails its checks.
+if (!identity) process.env.CSC_FOR_PULL_REQUEST = 'true';
 
 // The Dock icon as .icns, from the channel's PNG (build/icon.png or build/icon-nightly.png), with the macOS tools.
 const work = mkdtempSync(join(tmpdir(), 'yeschef-build-'));
