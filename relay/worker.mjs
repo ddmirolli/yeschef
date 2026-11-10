@@ -30,7 +30,7 @@ export class Team extends DurableObject {
         close: (ws, code, reason) => { try { ws.close(code, reason); } catch { /* already closed */ } },
       },
       onCreate: (team, at) => registry(env).add(team, at),
-      onDelete: async (team) => { await ctx.storage.deleteAlarm(); await ctx.storage.deleteAll(); await registry(env).remove(team); },
+      onDelete: async (team, created) => { await ctx.storage.deleteAlarm(); await ctx.storage.deleteAll(); await registry(env).remove([{ id: team, created }]); },
       // One alarm per team, at the next expiry: an idle team keeps nothing past its time.
       wakeAt: (at) => ctx.storage.getAlarm().then((cur) => (cur === null || at < cur ? ctx.storage.setAlarm(at) : null)).catch(() => {}),
     });

@@ -33,8 +33,8 @@ export function fakeRelay({ env = {}, start = Date.UTC(2026, 10, 10, 12), regist
     },
     // register(team, at): the Worker's registry call, so a test can make it fail.
     onCreate: async (team, at) => { if (register) await register(team, at); created.push([team, at]); },
-    // unregister(team): runs first, so a test can make the delete fail before anything goes.
-    onDelete: async (team) => { if (unregister) await unregister(team); deleted.push(team); for (const t of ['team', 'summary', 'invite', 'pending', 'inbox', 'usage']) sql.exec(`DROP TABLE IF EXISTS ${t}`); },
+    // unregister(team, created): runs first, so a test can make the delete fail before anything goes.
+    onDelete: async (team, created) => { if (unregister) await unregister(team, created); deleted.push(team); for (const t of ['team', 'summary', 'invite', 'pending', 'inbox', 'usage']) sql.exec(`DROP TABLE IF EXISTS ${t}`); },
   });
   const base = 'https://relay.test';
   const relay = {
