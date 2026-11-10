@@ -267,11 +267,29 @@ test('a default key is off wherever its command applies, unless a key that holds
   assert.deepEqual(K.route(m, 'm', { ticket: true }), { off: 'ticket.merge' });
 });
 
+test('a sign under ⌥ reads as its US key, whatever the Mac types', () => {
+  assert.equal(K.comboOf(ev('÷', { code: 'Slash', altKey: true })), 'alt+/');
+  assert.equal(K.comboOf(ev('¿', { code: 'Slash', altKey: true, shiftKey: true })), 'alt+?');
+  assert.equal(K.comboOf(ev('≠', { code: 'Equal', altKey: true })), 'alt+=');
+  assert.equal(K.comboOf(ev('±', { code: 'Equal', altKey: true, shiftKey: true })), 'alt++');
+  assert.equal(K.comboOf(ev('«', { code: 'Backslash', altKey: true })), 'alt+\\');
+  assert.equal(K.comboOf(ev('Dead', { code: 'Backquote', altKey: true })), 'alt+`');
+  assert.equal(K.comboOf(ev('æ', { code: 'Quote', altKey: true, metaKey: true })), "mod+alt+'");
+  for (const k of ['alt+/', 'alt+?', 'alt+=', 'alt++', 'alt+\\', 'alt+`', "mod+alt+'"]) assert.equal(K.norm(k), k, k);
+  const st = K.build([{ key: 'alt+/', command: 'ticket.suggested' }]);
+  assert.deepEqual(K.route(st, K.comboOf(ev('÷', { code: 'Slash', altKey: true })), {}), { as: 'mod+enter', id: 'ticket.suggested' });
+  // Without ⌥ a sign reads as typed, as before.
+  assert.equal(K.comboOf(ev('/', { code: 'Slash' })), '/');
+  assert.equal(K.comboOf(ev('Shift', { code: 'ShiftLeft', shiftKey: true, altKey: true })), null);
+  assert.equal(K.comboOf(ev('Alt', { code: 'AltLeft', altKey: true })), null);
+});
+
 test('a Mac dead key under ⌥ reads as its physical key', () => {
   assert.equal(K.comboOf(ev('Dead', { code: 'KeyE', altKey: true })), 'alt+e');
   assert.equal(K.comboOf(ev('Dead', { code: 'KeyU', altKey: true, metaKey: true })), 'mod+alt+u');
   assert.equal(K.comboOf(ev('Dead', { code: 'KeyE' })), null, 'a dead key alone is not a key yet');
-  assert.equal(K.comboOf(ev('Dead', { code: 'Quote', altKey: true })), null);
+  assert.equal(K.comboOf(ev('Dead', { code: 'Quote', altKey: true })), "alt+'", 'a sign under ⌥ too');
+  assert.equal(K.comboOf(ev('Dead', { code: 'Quote' })), null, 'a dead sign alone is not a key yet');
   const st = K.build([{ key: 'alt+e', command: 'ticket.suggested' }]);
   assert.deepEqual(K.route(st, K.comboOf(ev('Dead', { code: 'KeyE', altKey: true })), {}), { as: 'mod+enter', id: 'ticket.suggested' });
 });

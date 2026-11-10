@@ -248,7 +248,8 @@ own Send stay ⌘↵: the suggested action's `!dialog` keeps them apart.
   one first when there is none.
 - **Shape.** T3 Code's: a list of `{ "key": "mod+shift+u", "command": "view.team", "when": "ticket" }`. A key names
   `mod`, `alt`, `shift`, then the key, joined with `+`. `mod` is ⌘ on a Mac and Ctrl elsewhere. A sign carries its
-  own Shift (`?`), except a shifted digit's, which reads as the digit: `!` is `shift+1`. `when` joins names
+  own Shift (`?`), except a shifted digit's, which reads as the digit: `!` is `shift+1`. With ⌥, a key reads as its
+  US key, whatever the Mac types: ⌥/ is `alt+/`, not ÷, and ⌥E is `alt+e`. `when` joins names
   with `&&`, each with an optional `!`: `ticket` (a ticket is open) and `dialog` (the bar, Settings, New thread or a
   screenshot is open). No chords.
 - **Changes only.** The list holds what differs from the defaults, as VS Code's does. An entry adds a key to its

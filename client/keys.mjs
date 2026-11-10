@@ -91,17 +91,21 @@ export function keysCore(mac) {
   function str(p) { return (p.mod ? 'mod+' : '') + (p.alt ? 'alt+' : '') + (p.shift ? 'shift+' : '') + p.key; }
   /** A key as written anywhere ("Cmd+Option+A", "esc"), in T3 Code's form, or null. */
   function norm(s) { var p = parse(s); return p ? str(p) : null; }
+  // A sign key's US character, without and with ⇧, by its physical key.
+  var CODE_SIGN = dict({ Slash: '/?', Period: '.>', Comma: ',<', Semicolon: ';:', Quote: '\'"', BracketLeft: '[{', BracketRight: ']}',
+    Backslash: '\\|', Minus: '-_', Equal: '=+', Backquote: String.fromCharCode(96) + '~' });
   /** The key a keydown names, or null for a modifier alone. Letters and digits read from the key, so another layout
-   *  keeps its letters; with ⌥ or ⇧ they read from the physical key, as the page did for ⌥⇧⌘A. */
+   *  keeps its letters. ⌥ and ⇧ change what a key types (⌥/ is ÷, ⇧1 is !, ⌥E is a dead key that starts é), so then
+   *  the physical key names it, as on a US keyboard: letters and digits with ⌥ or ⇧, signs with ⌥. The page did
+   *  this for ⌥⇧⌘A, and a file's keys read the same way (norm). */
   function comboOf(ev) {
-    var k = ev && ev.key;
-    // On a Mac, ⌥ with some letters is a dead key (⌥E starts é): the physical key names it, as Settings records it.
-    if (k === 'Dead' && ev.altKey && /^(Key[A-Z]|Digit[0-9])$/.test(ev.code || '')) k = ev.code.charAt(0) === 'K' ? ev.code.slice(3).toLowerCase() : ev.code.slice(5);
-    if (!k || /^(Shift|Meta|Control|Alt|AltGraph|CapsLock|Fn|FnLock|Hyper|Super|OS|Dead|Unidentified|Process)$/.test(k)) return null;
-    var code = ev.code || '', name;
+    var k = ev && ev.key, code = (ev && ev.code) || '', name;
+    if (!k) return null;
     if (k.length === 1 && /^[a-z0-9]$/i.test(k)) name = k.toLowerCase();
     else if ((ev.altKey || ev.shiftKey) && /^Key[A-Z]$/.test(code)) name = code.slice(3).toLowerCase();
     else if ((ev.altKey || ev.shiftKey) && /^Digit[0-9]$/.test(code)) name = code.slice(5);
+    else if (ev.altKey && CODE_SIGN[code]) name = CODE_SIGN[code].charAt(ev.shiftKey ? 1 : 0);
+    else if (/^(Shift|Meta|Control|Alt|AltGraph|CapsLock|Fn|FnLock|Hyper|Super|OS|Dead|Unidentified|Process)$/.test(k)) return null;
     else if (k === ' ') name = 'space';
     else name = k.toLowerCase();
     return norm((ev.metaKey || ev.ctrlKey ? 'mod+' : '') + (ev.altKey ? 'alt+' : '') + (ev.shiftKey ? 'shift+' : '') + (name === '+' ? '+' : name));
