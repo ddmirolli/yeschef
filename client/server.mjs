@@ -1,6 +1,7 @@
 // The Pass web prototype (docs/pass-product-brief-v1_0.md, Dan's 1a and 2a, 2026-11-06).
-// Read-only. It signs in to one T3 environment as an outside MCP client, polls it, and pushes each change
-// to the page. It stores nothing: the token lives in this process, and every fact comes from T3.
+// Read-only. It follows one T3 environment's live stream (client/t3live.mjs) and reads the rest as an outside MCP
+// client, and pushes each change to the page. It stores nothing: the keys live in this process, and every fact
+// comes from T3.
 // Run: BRIGADE_PASS_ORIGIN=<this page's https address> BRIGADE_ALLOW=<allow-list file> node client/server.mjs <t3-origin> [port]
 // The desktop app (desktop/main.mjs) starts it with the T3 origin only: it opens no port and takes actions over its pipe.
 import { createServer } from 'node:http';
@@ -10,6 +11,8 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, extname, isAbsolute, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { signIn, connect } from './t3mcp.mjs';
+import { createKeys, createLive } from './t3live.mjs';
+import { boardThreads } from './shells.mjs';
 import { buildBoard, renderApp, kitchenPane } from './board.mjs';
 import { readRuns, dayStart, trackWaits, mayRunToday } from './you.mjs';
 import { normalize as normalRules, change as changeRule } from './kitchen.mjs';
@@ -37,7 +40,9 @@ const pipe = process.env.YESCHEF_DESKTOP === '1' ? appPipe() : null;
 const DESKTOP = !!pipe;
 const ORIGIN = (process.argv[2] || '').replace(/\/$/, '');
 const PORT = Number(process.argv[3] || 8620);
-const POLL_MS = 3000;
+// The page hears from the board at least this often, live or not: each beat rebuilds the board from what the
+// stream holds (no T3 call unless a thread changed) and says whether that data is live.
+const BEAT_MS = 5000;
 // Actions on the web prototype: only through the tailnet, from an allowed device, on this page (client/guard.mjs).
 // The page's address and the allow list come from the environment: the code carries nobody's address or files.
 const PAGE_ORIGIN = process.env.BRIGADE_PASS_ORIGIN || '';
@@ -145,27 +150,37 @@ const SHOT_ROOTS = [homedir(), '/tmp', tmpdir()].map(real).filter(Boolean);
 let status = { ok: false, error: 'signing in to T3', at: Date.now(), ms: 0 };
 const clients = new Set();
 
+// The thread address T3 gives this sign-in (its hosted link), without the thread id, which T3 URL-encodes in it.
+// Read once at start.
+let linkBase = null;
 const link = (t) => (t.link && t.link.startsWith('http') ? t.link : `${ORIGIN}/${envId}/${t.threadId}`);
+const linkFor = (id) => (linkBase ? linkBase + encodeURIComponent(id) : null);
 
-// Newest first. `since` stops paging once a page reaches threads older than it.
-async function allThreads(args, since = 0) {
-  const out = [];
-  for (let cursor = 0, i = 0; i < 50; i++) {
-    const page = await t3.call('t3_thread_list', { allProjects: true, includeSubagents: true, limit: 100, cursor, ...args });
-    const rows = page.threads || [];
-    out.push(...rows);
-    if (page.nextCursor == null || (since && rows.length && Date.parse(rows[rows.length - 1].updatedAt) < since)) break;
-    cursor = page.nextCursor;
-  }
-  return out;
-}
+// The live stream: a read-only key of its own, T3 Code's /ws, and the shell it keeps current (client/t3live.mjs).
+const keys = createKeys({ origin: ORIGIN, ...(process.env.YESCHEF_T3_BIN ? { bin: process.env.YESCHEF_T3_BIN } : {}) });
+// Reads the stream does not carry, kept until what they depend on changes: a parent the stream does not have
+// (until the next snapshot, or until the stream names it), and a thread's waiting questions (until its pending
+// request or its update time moves).
+const parentCache = new Map();
+// How often the stream has named each thread: a parent read that the stream named while it was on its way is used
+// once, never cached (PR-Agent r2 on #76).
+const parentMoves = new Map();
+const live = createLive({ origin: ORIGIN, keys, log: (m) => console.log(m), onChange: (change) => {
+  // A parent the stream names again has moved (restored, edited, archived), so its cached read is old (PR-Agent r1 on #76).
+  for (const id of change.ids) { parentCache.delete(id); parentMoves.set(id, (parentMoves.get(id) || 0) + 1); }
+  // The board stops being current the moment the stream does, even while a refresh is still reading.
+  if (!change.live && status.ok) { status = { ok: false, at: Date.now(), ms: 0, error: String(live.why()).slice(0, 200) }; tick(); }
+  refreshSoon();
+} });
+let parentGeneration = -1, projectsRev = -1;
+const questionCache = new Map();
 
 // Run times for the You view (Dan, 2026-11-10): each thread that ran today, read once per run state. t3_thread_read
 // lists a thread's recent runs with their start and end times (runLimit, read on 2026-11-10). A read that fails, or
-// more threads than one poll reads, leaves run times "not checked" for this poll; the board itself stays good, and
-// the next poll carries on from what it already has.
+// more threads than one update reads, leaves run times "not checked" for this update; the board itself stays good,
+// and the next update carries on from what it already has.
 const runCache = new Map();
-// Today's waits on questions, seen poll by poll: T3's run times hold them (client/you.mjs trackWaits).
+// Today's waits on questions, seen update by update: T3's run times hold them (client/you.mjs trackWaits).
 const waitLog = new Map();
 const RUN_READS = 40;
 async function runTimes(threads, now) {
@@ -194,45 +209,76 @@ async function runTimes(threads, now) {
   return short ? null : out;
 }
 
-async function poll() {
+async function refresh() {
   const t0 = Date.now();
   try {
-    if (t0 - projectsAt > 60000) { projects = withIcons((await t3.call('t3_project_list', { limit: 100 })).projects || []); projectsAt = t0; }
-    const open = await allThreads({ settled: false });
-    // Settled threads from the last two weeks: today's Verified, and settled tickets that still have open work.
-    const settled = await allThreads({ settled: true }, t0 - 14 * 86400000);
-    const byId = new Map([...open, ...settled].map((t) => [t.threadId, t]));
-    // A running or waiting station needs its ticket even when that ticket settled long ago. Read every
-    // missing ancestor; if any stays unresolved, the poll is incomplete and the page says "not checked".
+    // A cache is never shown as live: without a live, synchronized stream the board says "Not checked".
+    if (!live.live()) throw new Error(live.why());
+    if (live.projectsRev() !== projectsRev) {
+      const rev = live.projectsRev();
+      projects = withIcons((await t3.call('t3_project_list', { limit: 100 })).projects || []);
+      projectsRev = rev;
+    }
+    // The board is built from one snapshot generation. If the stream resynchronizes while the reads below wait,
+    // this board is from the old one and is not published (PR-Agent r2 on #76).
+    const generation = live.generation();
+    if (generation !== parentGeneration) { parentCache.clear(); parentMoves.clear(); parentGeneration = generation; }
+    const shells = new Map(live.threads().map((s) => [s.id, s]));
+    const picked = boardThreads([...shells.values()], { now: t0, link: linkFor });
+    const byId = new Map(picked.threads.map((t) => [t.threadId, t]));
+    // A running or waiting station needs its ticket even when that ticket settled long ago. The stream carries
+    // every active thread; a parent it lacks is read over MCP, as before. If any stays unresolved, the board
+    // is incomplete and the page says "not checked".
     for (let reads = 0; ; ) {
       const missing = [...new Set([...byId.values()].map((t) => t.parentThreadId).filter((id) => id && !byId.has(id)))];
       if (!missing.length) break;
       if (reads + missing.length > 200) throw new Error(`${missing.length} parent threads still unread after ${reads} reads`);
       for (const threadId of missing) {
-        const read = await t3.call('t3_thread_read', { threadId, limit: 1, maxCharsPerItem: 1 });
-        reads++;
-        if (!read?.thread) throw new Error(`parent thread ${threadId} could not be read`);
-        byId.set(threadId, read.thread);
+        let row = parentCache.get(threadId);
+        if (!row) {
+          const moves = parentMoves.get(threadId) || 0;
+          const read = await t3.call('t3_thread_read', { threadId, limit: 1, maxCharsPerItem: 1 });
+          reads++;
+          if (!read?.thread) throw new Error(`parent thread ${threadId} could not be read`);
+          row = read.thread;
+          if ((parentMoves.get(threadId) || 0) === moves) parentCache.set(threadId, row);
+        }
+        byId.set(threadId, row);
       }
     }
     const threads = [...byId.values()];
     // Pending questions: T3 lists them per thread, and a thread that waits on one still reads "running".
-    // Ask for every top-level thread that is not settled and has a run going, plus any marked waiting.
+    // Ask for every top-level thread that is not settled and has a run going, plus any marked waiting, but only
+    // when its shell says a request is pending, and only again when that request or the thread changes.
     const questions = new Map();
     for (const t of threads.filter((x) => x.status === 'waiting' || (!x.parentThreadId && !x.settled && ['running', 'starting', 'queued', 'preparing'].includes(x.status)))) {
-      const ids = (await t3.call('t3_pending_request', { action: 'list', threadId: t.threadId })).requestIds || [];
-      const items = [];
-      for (const requestId of ids.slice(0, 3)) items.push(...((await t3.call('t3_pending_request', { action: 'read', threadId: t.threadId, requestId })).questions || []).map((q) => ({ ...q, requestId })));
-      if (items.length) questions.set(t.threadId, items);
+      const shell = shells.get(t.threadId);
+      if (shell && !shell.pendingRuntimeRequest) { questionCache.delete(t.threadId); continue; }
+      const key = shell ? `${shell.pendingRuntimeRequest.id}|${shell.updatedAt}` : null;
+      let hit = key && questionCache.get(t.threadId);
+      if (!hit || hit.key !== key) {
+        const ids = (await t3.call('t3_pending_request', { action: 'list', threadId: t.threadId })).requestIds || [];
+        const items = [];
+        for (const requestId of ids.slice(0, 3)) items.push(...((await t3.call('t3_pending_request', { action: 'read', threadId: t.threadId, requestId })).questions || []).map((q) => ({ ...q, requestId })));
+        hit = { key, items };
+        if (key) questionCache.set(t.threadId, hit);
+      }
+      if (hit.items.length) questions.set(t.threadId, hit.items);
     }
+    for (const id of questionCache.keys()) if (!shells.has(id)) questionCache.delete(id);
     const words = new Map();
     // A ticket waiting on Dan's answer to a T3 question also gets its last message, so the question has its
     // context (hill climb r4, Opus and Fable). The walk stops at the last user message, as for hand-backs.
     for (const t of threads.filter((x) => !x.parentThreadId && !x.settled && !x.snoozed && x.latestRunId && (['completed', 'interrupted', 'idle'].includes(x.status) || questions.has(x.threadId)))) {
       words.set(t.threadId, await handback(t));
     }
+    const runs = await runTimes(threads, t0);
+    // The stream may have dropped, or dropped and come back with a new snapshot, while the reads above waited:
+    // then this board is not current either. The refresh that change queued builds the next one.
+    if (!live.live()) throw new Error(live.why());
+    if (live.generation() !== generation) throw new Error('T3 Code sent a new snapshot during this update; reading it again');
     const waits = trackWaits(waitLog, threads, questions, t0);
-    board = buildBoard({ projects, threads, questions, lastWords: words, runs: await runTimes(threads, t0), waits });
+    board = buildBoard({ projects, threads, questions, lastWords: words, runs, waits });
     shotFiles = new Map(board.tickets.flatMap((k) => [k.lastWords, k.call?.text]).filter(Boolean)
       .flatMap((text) => imagesIn(text)).filter((im) => !/^https:/i.test(im.src)).map((im) => [imageId(im.src), im.src]));
     status = { ok: true, at: Date.now(), ms: Date.now() - t0 };
@@ -240,10 +286,22 @@ async function poll() {
     status = { ok: false, at: Date.now(), ms: Date.now() - t0, error: String(ex.message).slice(0, 200) };
     if (ex.auth && DESKTOP && !authLost) { authLost = true; pipe.send({ type: 'auth-lost' }); }
   }
-  const tick = JSON.stringify({ ok: status.ok, at: status.at, error: status.error || null });
-  for (const res of clients) res.write(`event: tick\ndata: ${tick}\n\n`);
-  if (DESKTOP) pipe.send({ type: 'tick', data: tick });
+  tick();
 }
+function tick() {
+  const data = JSON.stringify({ ok: status.ok, at: status.at, error: status.error || null });
+  for (const res of clients) res.write(`event: tick\ndata: ${data}\n\n`);
+  if (DESKTOP) pipe.send({ type: 'tick', data });
+}
+
+// Never two refreshes at once: a change during one queues one more. A burst of changes is gathered for 150 ms.
+let refreshing = null, again = false, soonTimer = null;
+function kick() {
+  if (!t3) return;  // still signing in: the first refresh runs once the MCP sign-in is ready
+  if (refreshing) { again = true; return; }
+  refreshing = refresh().finally(() => { refreshing = null; if (again) { again = false; kick(); } });
+}
+function refreshSoon() { if (!soonTimer) soonTimer = setTimeout(() => { soonTimer = null; kick(); }, 150); }
 
 // The prototype's own rules, after the shared pass.py ones.
 const APP_CSS = `
@@ -2826,12 +2884,19 @@ async function runAct(input, line) {
     return { status: 200, text: JSON.stringify(rulesNow()) };
   }
   if (input.kind === 'launch' && rulesError) return { status: 409, text: `Not launched: ${rulesError} Change any rule in Settings → Rules to save them again.` };
-  if (!status.ok) return { status: 503, text: 'The board is not checked right now, so the Pass will not act. Try again after the next update.' };
+  if (!status.ok || !live.live()) return { status: 503, text: 'The board is not checked right now, so the Pass will not act. Try again after the next update.' };
   // A read-only sign-in holds no operate scope: T3 Code would refuse every action, so say why up front.
   if (!canOperate) { audit({ ...line, refused: 'read-only' }); return { status: 403, text: 'Yes Chef is signed in read only. To act, quit, start it again and approve a level that covers your threads.' }; }
   let out;
   try { out = await act({ board, t3, input, holds, answered, projects, rules }); }
   catch (ex) {
+    // T3 Code refused the sign-in itself (401) before any tool ran. The board no longer polls MCP, so this is
+    // often where a revoked sign-in shows first: the app asks for a new one, as a failed poll used to.
+    if (ex.auth) {
+      audit({ ...line, refused: 'signed-out' });
+      if (DESKTOP && !authLost) { authLost = true; pipe.send({ type: 'auth-lost' }); }
+      return { status: 401, text: 'T3 Code ended Yes Chef\'s sign-in, so nothing was sent. Sign in again, then send it.' };
+    }
     // T3 Code checks its limits before it changes anything: a typed denial means nothing happened.
     if (/capability_denied/.test(ex.message)) {
       audit({ ...line, refused: 'capability_denied' });
@@ -2935,6 +3000,31 @@ const web = createServer(async (req, res) => {
 // (desktop/main.mjs, the yeschef:// scheme). The web prototype keeps its local address.
 if (!DESKTOP) web.listen(PORT, '127.0.0.1', () => console.log(`The Pass prototype on http://127.0.0.1:${PORT} (T3: ${ORIGIN})`));
 
+// Stop: end the stream and revoke its key, so no read-only key outlives Yes Chef. The app asks over the pipe before
+// it quits (desktop/main.mjs); Ctrl-C or a kill does the same here. A run that dies without it leaves a key that the
+// next start revokes (keys.sweep).
+let stopping = null;
+function stopLive() {
+  return (stopping ??= (async () => {
+    await live.stop();
+    try { console.log(`Revoked ${await keys.revokeMine()} read-only stream key(s).`); }
+    catch (ex) { console.log(`Could not revoke the stream key: ${String(ex.message).slice(0, 120)}`); }
+  })());
+}
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.once(sig, () => { const t = setTimeout(() => process.exit(0), 5000); stopLive().finally(() => { clearTimeout(t); process.exit(0); }); });
+}
+if (DESKTOP) {
+  pipe.on((m) => {
+    if (m?.type === 'stop') stopLive().finally(() => pipe.send({ type: 'stopped' }));
+    else if (m?.type === 'wake') live.probe('woke from sleep');
+  });
+}
+// The stream starts before the MCP sign-in: it needs no approval, only T3 Code's CLI on this Mac.
+keys.sweep().then((n) => { if (n) console.log(`Revoked ${n} read-only stream key(s) left by an earlier run.`); })
+  .catch((ex) => console.log(`Could not look for old stream keys: ${String(ex.message).slice(0, 120)}`))
+  .finally(() => { if (!stopping) live.start(); });
+
 // The desktop app keeps a sign-in in the macOS Keychain (desktop/main.mjs) and hands it over this pipe on request.
 // The request goes out after the listener is set, so the answer cannot arrive before anything hears it.
 // Two minutes: after an update macOS may ask Dan to let Yes Chef use its Keychain key before main can answer.
@@ -2976,7 +3066,13 @@ else {
 canOperate = String(auth.scope || '').split(' ').includes('orchestration:operate');
 t3 = connect(auth);
 envId = (await t3.call('t3_environment_read', {})).environmentId;
-await poll();
-// Never overlap polls: the next one starts POLL_MS after the last one ends, or at once after an action.
-var wake = null;
-(async function loop() { for (;;) { await new Promise((r) => { wake = r; setTimeout(r, POLL_MS); }); wake = null; await poll(); } })();
+// The address T3 gives this sign-in for a thread, so the board links where it linked when it read threads over MCP.
+try {
+  const row = (await t3.call('t3_thread_list', { allProjects: true, includeSubagents: true, limit: 1 })).threads?.[0];
+  const tail = row ? encodeURIComponent(row.threadId) : '';
+  if (row && typeof row.link === 'string' && /^https?:/.test(row.link) && row.link.endsWith(tail)) linkBase = row.link.slice(0, -tail.length);
+} catch (ex) { console.log(`Thread links fall back to ${ORIGIN}: ${String(ex.message).slice(0, 120)}`); }
+// An action or a saved rule asks for a refresh at once; the stream brings T3's side of it.
+var wake = kick;
+kick();
+setInterval(kick, BEAT_MS);
