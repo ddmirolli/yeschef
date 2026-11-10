@@ -312,6 +312,9 @@ export class Team {
   }
   stopBeat() { this.timers.clearInterval(this.beat); this.beat = null; this.timers.clearTimeout(this.pongTimer); this.pongTimer = null; }
   ping() {
+    // On the roster with no key: ask the lead again, at most once a day, so an ask that expired while the lead was away
+    // is sent again without a reconnect (PR-Agent r11 on public #7).
+    if (this.link === 'online' && this.state.status === 'member' && !this.state.key && !this.isLead) this.askKey().catch(() => {});
     if (!this.ws || this.pongTimer) return;
     try { this.ws.send('ping'); } catch { return; }
     // No pong in time: the socket is dead even if it never said so. Close it and let the retry owner take over.
@@ -346,7 +349,9 @@ export class Team {
       case 'hello': return this.hello(msg);
       case 'roster': return this.takeRoster(msg.roster);
       case 'summary': return this.takeSummary(msg.m, msg.blob, msg.at);
-      case 'gone': this.summaries.delete(msg.m); this.emit('team'); return;
+      // Their summary still waiting for the key goes too, so the welcome does not bring back what they unshared
+      // (PR-Agent r11 on public #7).
+      case 'gone': this.summaries.delete(msg.m); this.later = this.later.filter((x) => !(x.t === 'summary' && x.m === msg.m)); this.emit('team'); return;
       case 'presence': if (msg.on) this.online.add(msg.m); else this.online.delete(msg.m); this.emit('team'); return;
       case 'inbox': return this.take(msg);
       case 'pending': return this.takePending(msg.pending);
@@ -685,7 +690,7 @@ export class Team {
     try {
       let blob = null;
       if (!next.forget) {
-        try { blob = await this.sealSummary(next.body, next.at); } catch (ex) {
+        try { blob = next.blob || (next.blob = await this.sealSummary(next.body, next.at)); } catch (ex) {
           // A key or member that does not load fails the same way every time: wait as for a failed send, so the
           // re-flush below does not spin (own review on the public PR).
           this.flushFails = (this.flushFails || 0) + 1;
@@ -727,7 +732,12 @@ export class Team {
   async sealSummary(body, at = this.now()) {
     const me = await this.member();
     const key = await this.teamKey();
-    const read = Math.min(Number.isFinite(at) ? at : this.now(), this.now());
+    // Each summary signed is dated after the last one: a replacement built from the same board (a dropped project) is
+    // still newer, so the relay cannot hand back the one it replaced (PR-Agent r11 on public #7).
+    // A clock that went back below the last one starts again from now: a date far ahead is never carried on.
+    const now = this.now(), high = this.signedHigh || 0;
+    const read = Math.max(Math.min(Number.isFinite(at) ? at : now, now), high < now ? high + 1 : 0);
+    this.signedHigh = read;
     for (let b = body; ; ) {
       const blob = await sealSigned(key, me, { ...b, at: read }, aad.summary(this.state.team, me.id));
       if (blob.length <= this.limits.summaryMax || !b.tickets.length) return blob;
