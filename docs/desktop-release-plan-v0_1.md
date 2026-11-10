@@ -235,6 +235,7 @@ None open. The last two, where the signing secrets live and whether each Stable 
 - The vault items' exact shape. The CLI path is the one `npm run release` used on 2026-11-09 for the key; the certificate item has not been read by any script yet. A wrong shape fails with the item's field labels and file names, never its values.
 - `OP_CONFIG_DIR` and `OP_CACHE` on the runner. Both are named in the CLI 2.41.1 binary's help text; their effect on a runner is not checked.
 - Approving a Stable from the GitHub app on a phone, and its notification. The approval itself is GitHub's documented "Review deployments".
+- That three tries cure the hidden `--capture` start on a runner. In four pull request dry runs on 2026-11-10 it failed twice: the app started and showed its page, then `capturePage` rejected with `UnknownVizError` (the runners have no GPU). The capture now tries three times and the check names any failed tries. If it still fails a release build, the run stops before publishing and can be started again.
 - The schedule. It first runs the day after the workflow lands on main.
 - Starting a release from the GitHub app on a phone. The web page's Run workflow button is the documented route; the app's is not checked.
 - That GitHub drops the redirect when the old name is reused (section 8, step 4). This is from GitHub's docs, not tried here.

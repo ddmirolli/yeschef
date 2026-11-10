@@ -240,7 +240,9 @@ function smoke(bundle) {
   // last and push the app's own message out of the tail.
   const chromium = /^\[\d+:\d+\/\d+\.\d+:[A-Z]+:/;
   const tail = `${r.stdout || ''}\n${r.stderr || ''}`.split('\n').filter((l) => l.trim() && !chromium.test(l)).slice(-6).join(' | ');
-  return [{ name: 'hidden --capture start, empty data folder', ok: r.status === 0 && !!shot, detail: shot ? `stopped at ${shot}` : `exit ${r.status}${r.error ? ` (${r.error.message})` : ''}: ${tail}` }];
+  const retries = (r.stdout || '').split('\n').filter((l) => l.startsWith('capturePage failed')).length;
+  const again = retries ? `, after ${retries} failed capturePage ${retries === 1 ? 'try' : 'tries'}` : '';
+  return [{ name: 'hidden --capture start, empty data folder', ok: r.status === 0 && !!shot, detail: shot ? `stopped at ${shot}${again}` : `exit ${r.status}${r.error ? ` (${r.error.message})` : ''}: ${tail}` }];
 }
 
 /**

@@ -433,7 +433,18 @@ async function waitForT3() {
 // Capture mode saves what the hidden window shows.
 async function capture(name) {
   await new Promise((r) => setTimeout(r, 500));
-  const image = await win.webContents.capturePage();
+  // On GitHub's macOS runners, which have no GPU, capturePage sometimes rejects with UnknownVizError while the page
+  // itself is fine (2 of 4 pull request dry runs, 2026-11-10). It is tried three times; each failure is logged.
+  let image;
+  for (let tries = 1; !image; tries++) {
+    try {
+      image = await win.webContents.capturePage();
+    } catch (e) {
+      if (tries === 3) throw e;
+      console.log(`capturePage failed (${e.message}); trying again.`);
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
   const outDir = process.env.YESCHEF_CAPTURE_DIR || join(HERE, 'out');
   mkdirSync(outDir, { recursive: true });
   writeFileSync(join(outDir, name), image.toPNG());
