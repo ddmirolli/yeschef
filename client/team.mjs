@@ -352,9 +352,11 @@ export class Team {
       case 'presence': if (msg.on) this.online.add(msg.m); else this.online.delete(msg.m); this.emit('team'); return;
       case 'inbox': return this.take(msg);
       case 'pending': return this.takePending(msg.pending);
-      case 'pending-gone': this.pending.delete(msg.m); this.emit('team'); return;
+      // What waits for the key goes too, so the welcome does not bring back an answered ask or a revoked invite
+      // (PR-Agent r16 on public #7).
+      case 'pending-gone': this.pending.delete(msg.m); this.later = this.later.filter((x) => !(x.t === 'pending' && x.pending?.m === msg.m)); this.emit('team'); return;
       case 'invite': return this.takeInvite(msg.invite);
-      case 'invite-gone': this.invites.delete(msg.invite); this.emit('team'); return;
+      case 'invite-gone': this.invites.delete(msg.invite); this.later = this.later.filter((x) => !(x.t === 'invite' && x.invite?.id === msg.invite) && !(x.t === 'pending' && x.pending?.invite === msg.invite)); this.emit('team'); return;
       case 'declined': return; // the close (4002) that follows ends it
       default: return;
     }
@@ -587,11 +589,14 @@ export class Team {
     this.state.clockHigh = high;
     for (const [k, v] of this.seen) { if (high - v.at < SEEN_KEEP_MS) break; this.seen.delete(k); }
     if (this.seen.size >= SEEN_MAX) return this.reply(sender.id, nonce, 429, 'Not run: too many teammate actions in the last few minutes. Try again shortly.');
+    let ran = false;
     const answer = async (status, text) => {
       this.seen.set(seenKey, { at: now, status, text });
       // On disk before the answer goes and the relay's copy is let go: a crash after a refusal never runs the same
-      // action later, once the board is fresh (PR-Agent r15 on public #7).
-      await this.saveNow();
+      // action later, once the board is fresh (PR-Agent r15 on public #7). A refusal that did not reach the disk does
+      // not go: the relay keeps the action and it is judged again, so the sender is never told "refused" for an action
+      // that later runs (PR-Agent r16 on public #7). Once it ran, its reservation is on disk and the answer goes.
+      if (!(await this.saveNow()) && !ran) { this.seen.delete(seenKey); return false; }
       this.emit('acted', { from: sender.id, name: sender.name, kind: body.action?.kind, thread: body.action?.thread, status, text });
       return this.reply(sender.id, nonce, status, text);
     };
@@ -630,6 +635,7 @@ export class Team {
     if (late) return answer(...late);
     const from = this.people.get(sender.id);
     let out;
+    ran = true;
     try {
       // The nonce T3 sees names the sender too, so one teammate's ids never collide with another's or with the dev's.
       out = await this.run({ ...action, kind, thread, nonce: `t-${sender.id}-${nonce}` }, signature(from), { holds: this.holds, answered: this.answered });
