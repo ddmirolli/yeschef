@@ -79,3 +79,23 @@ export function boardThreads(shells, { now = Date.now(), link, days = 14 } = {})
   const sorted = [...rows.values()].sort((a, b) => (ms(b.updatedAt) ?? 0) - (ms(a.updatedAt) ?? 0) || String(b.threadId).localeCompare(String(a.threadId)));
   return { threads: sorted, missing: [...missing] };
 }
+
+/** The folder a thread works in, as T3 Code picks it: its worktree, or else its project's root (T3 Code's
+ *  Orchestrator.ts: `thread.worktreePath ?? project.workspaceRoot`). */
+export const threadFolder = (shell, project) => shell?.worktreePath ?? project?.workspaceRoot ?? null;
+
+/** The base branch an open pull request of the thread names, or null. */
+export function prBase(shell) {
+  const open = (shell?.pullRequests || []).find((l) => l.source !== 'stack-dismissed' && l.snapshot?.state === 'open');
+  return open?.snapshot?.baseBranch ?? null;
+}
+
+/** The board threads whose changed files Yes Chef follows: every one not settled, and any with an open pull request,
+ *  as [{ id, folder, branch, stamp }] for createChanges().want (client/changes.mjs). A thread the stream does not
+ *  carry is left out, so its changes read "not checked". */
+export function changeTargets(rows, shells, project = () => null) {
+  return rows.filter((t) => !t.settled || (t.pullRequests || []).some((p) => p.state === 'open')).flatMap((t) => {
+    const s = shells.get(t.threadId);
+    return s ? [{ id: t.threadId, folder: threadFolder(s, project(s.projectId)), branch: prBase(s), stamp: s.updatedAt ?? null }] : [];
+  });
+}
