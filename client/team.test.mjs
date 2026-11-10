@@ -1190,3 +1190,36 @@ test('a Mac waiting for its key keeps one summary per teammate, the latest', asy
   assert.equal(held[0].blob, 'blob-4');
   lead.stop(); dev.stop();
 });
+
+test('a teammate who unshares while this Mac waits for its key stays unshared once the key comes', async () => {
+  const { lead, dev } = await crew();
+  dev.key = null; dev.state.key = null;
+  await dev.takeSummary(lead.meId, 'blob', 1);
+  await dev.heard(JSON.stringify({ t: 'gone', m: lead.meId }));
+  assert.equal(dev.later.filter((x) => x.t === 'summary' && x.m === lead.meId).length, 0);
+  lead.stop(); dev.stop();
+});
+
+test('a replacement built from the same board is newer, so the relay cannot hand back the one it replaced', async () => {
+  const { relay, timers, lead, dev } = await crew();
+  await dev.share([P, Q]);
+  dev.board(boardNow(relay.now()));
+  await until(() => lead.summaries.get(dev.meId)?.body.tickets.some((k) => k.title === 'Private work'), 'both projects shared');
+  const old = relay.sql.exec('SELECT blob FROM summary WHERE m = ?', dev.meId).one().blob;
+  await dev.share([P]);
+  await timers.advance(10000);
+  await until(() => !lead.summaries.get(dev.meId)?.body.tickets.some((k) => k.title === 'Private work'), 'Q dropped');
+  // The relay replays the summary from before the drop.
+  await lead.takeSummary(dev.meId, old, relay.now());
+  assert.ok(!lead.summaries.get(dev.meId).body.tickets.some((k) => k.title === 'Private work'), 'the replay is not taken');
+  lead.stop(); dev.stop();
+});
+
+test('a Mac with no key asks again on its heartbeat once a day has passed', async () => {
+  const { relay, timers, lead, dev } = await crew();
+  dev.key = null; dev.state.key = null;
+  dev.state.keyAskAt = relay.now() - 86400000 - 1;
+  await timers.advance(30000);
+  await until(() => dev.state.key, 'a new welcome');
+  lead.stop(); dev.stop();
+});
