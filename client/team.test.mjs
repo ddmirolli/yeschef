@@ -1,0 +1,639 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { fakeRelay, fakeNet } from '../relay/fake.mjs';
+import { Team, createTeam, joinTeam, summarize, RETRY, ACT_TTL, BOARD_FRESH_MS } from './team.mjs';
+import { grant, allows, refusal, signature, DEFAULTS, PERMS, shares } from './roles.mjs';
+import { buildBoard } from './board.mjs';
+import { act } from './actions.mjs';
+import { sealSigned, aad, teamKey, newMember } from './seal.mjs';
+
+const MIN = 60000;
+const P = 'proj-app', Q = 'proj-private';
+
+/** Timers on the relay's clock: nothing fires until the test moves time. */
+function clock(relay) {
+  let n = 0;
+  const jobs = new Map();
+  const t = {
+    setTimeout: (fn, ms) => { jobs.set(++n, { fn, at: relay.now() + ms }); return n; },
+    clearTimeout: (id) => { jobs.delete(id); },
+    setInterval: (fn, ms) => { jobs.set(++n, { fn, at: relay.now() + ms, every: ms }); return n; },
+    clearInterval: (id) => { jobs.delete(id); },
+    async advance(ms) {
+      const end = relay.now() + ms;
+      for (;;) {
+        const due = [...jobs].filter(([, j]) => j.at <= end).sort((a, b) => a[1].at - b[1].at)[0];
+        if (!due) break;
+        const [id, j] = due;
+        if (j.at > relay.now()) relay.tick(j.at - relay.now());
+        if (j.every) j.at += j.every; else jobs.delete(id);
+        j.fn();
+        await settle();
+      }
+      if (end > relay.now()) relay.tick(end - relay.now());
+      await settle();
+    },
+    count: () => jobs.size,
+  };
+  return t;
+}
+const settle = () => new Promise((r) => setTimeout(r, 5));
+async function until(cond, what = 'the condition') {
+  for (let i = 0; i < 2000; i++) { if (await cond()) return; await new Promise((r) => setTimeout(r, 5)); }
+  throw new Error(`timed out waiting for ${what}`);
+}
+
+/** Threads in two projects: one this dev shares, one it does not. */
+function threads(now = Date.UTC(2026, 10, 10, 12)) {
+  const at = new Date(now).toISOString();
+  const t = (threadId, projectId, title, extra = {}) => ({ threadId, projectId, title, status: 'completed', latestRunId: 'r1', settled: false, snoozed: false, updatedAt: at, pullRequests: [], ...extra });
+  return [
+    t('th-parser', P, 'Fix the parser', { pullRequests: [{ repository: 'acme/app', number: 12, state: 'open', url: 'https://github.com/acme/app/pull/12' }] }),
+    t('th-docs', P, 'Write the docs', { status: 'running' }),
+    t('th-secret', Q, 'Private work'),
+    t('th-atc', P, 'ATC board'),
+  ];
+}
+const projects = [{ id: P, title: 'app' }, { id: Q, title: 'private' }];
+const boardNow = (now) => buildBoard({ projects, threads: threads(now), questions: new Map(), today: new Date(now) });
+
+/** A lead and a dev on one fake relay, each with their own Yes Chef. */
+async function crew({ role = 'engineer', perms } = {}) {
+  const relay = fakeRelay();
+  const net = fakeNet(relay);
+  const timers = clock(relay);
+  const now = () => relay.now();
+  const saved = { lead: [], dev: [] };
+  const leadState = await createTeam({ relay: 'https://relay.test', teamName: 'Fernpay', name: 'Sam Lead', net, now });
+  const lead = new Team({ state: leadState, save: (s) => saved.lead.push(structuredClone(s)), net, now, timers, random: () => 1 });
+  lead.start();
+  await until(() => lead.link === 'online', 'the lead online');
+  const { link } = await lead.invite({ site: 'https://yeschef.codes' });
+  const devState = await joinTeam({ link, name: 'Ada Lovelace', projects: ['app'], shared: [P], net, now });
+  const ran = [];
+  let devBoard = { board: boardNow(now()), ok: true, at: now() };
+  const t3calls = [];
+  const dev = new Team({ state: devState, save: (s) => saved.dev.push(structuredClone(s)), net, now, timers, random: () => 1,
+    board: () => devBoard,
+    run: async (input, prefix, maps) => { ran.push({ input, prefix }); return act({ board: devBoard.board, t3: { call: async (name, args) => { t3calls.push({ name, args }); return {}; } }, input, prefix, ...maps }); } });
+  dev.start();
+  await until(() => dev.link === 'online' && lead.pending.size === 1, 'the ask at the lead');
+  const r = await lead.approve(dev.meId, role, perms);
+  assert.equal(r.t, 'ok');
+  await until(() => dev.state.status === 'member' && dev.state.key && dev.me?.name === 'Ada Lovelace', 'the dev let in');
+  return { relay, net, timers, lead, dev, ran, t3calls, saved, setBoard: (b) => { devBoard = b; } };
+}
+
+test('roles: the lead has every box, the Deputy has S4\'s, see is never off, and unknown roles fall to Viewer', () => {
+  assert.deepEqual(grant('lead', []).perms, PERMS.map((p) => p.key));
+  assert.deepEqual(grant('deputy').perms, ['see', 'reply', 'projects', 'invite']);
+  assert.deepEqual(grant('engineer', ['merge']).perms, ['see', 'merge']);
+  assert.deepEqual(grant('owner', ['nonsense', 'reply']).perms, ['see', 'reply']);
+  assert.equal(grant('chef').role, 'viewer');
+  assert.deepEqual(DEFAULTS.viewer, ['see']);
+  assert.equal(shares('viewer'), false);
+  assert.equal(allows({ role: 'deputy', perms: ['see', 'reply'] }, 'reply'), true);
+  assert.equal(allows({ role: 'deputy', perms: ['see', 'reply'] }, 'go'), false);
+  assert.equal(allows({ role: 'lead' }, 'go'), true);
+  // Settle and New thread stay the dev's own, even for the lead.
+  assert.equal(allows({ role: 'lead' }, 'settle'), false);
+  assert.equal(allows({ role: 'lead' }, 'launch'), false);
+  assert.match(refusal({ role: 'engineer' }, 'go'), /Engineer.*Merge, Request changes or Hold/);
+  assert.equal(signature({ name: '  Sam\n Lead ', role: 'lead' }), 'Sam Lead (Lead), from Yes Chef: ');
+});
+
+test('summarize keeps only shared projects, no coordinators, waiting tickets first, and fits the limit', () => {
+  const now = Date.UTC(2026, 10, 10, 12);
+  const s = summarize(boardNow(now), [P]);
+  assert.deepEqual(s.tickets.map((k) => k.thread), ['th-parser', 'th-docs']);
+  assert.equal(s.tickets[0].atPass, true);
+  assert.deepEqual(s.tickets[0].prs, [{ repo: 'acme/app', n: 12, state: 'open', url: 'https://github.com/acme/app/pull/12' }]);
+  assert.doesNotMatch(JSON.stringify(s), /Private work|ATC/);
+  assert.equal(summarize(boardNow(now), []).tickets.length, 0);
+  const many = { tickets: Array.from({ length: 300 }, (_, i) => ({ thread: { threadId: `t${i}`, projectId: P, title: 'x'.repeat(150) }, project: 'app', place: 'In review', atPass: false, working: 0, asks: [], call: null, prs: [], updatedAt: '' })) };
+  const fit = summarize(many, [P], 65536);
+  assert.ok(fit.tickets.length <= 100 && fit.more >= 200);
+  assert.ok((JSON.stringify(fit.tickets).length * 4) / 3 + 600 <= 65536);
+});
+
+test('make a team, invite, ask, approve: the dev gets the key, the names and their own role', async () => {
+  const { lead, dev, saved } = await crew();
+  const v = dev.view();
+  assert.equal(v.status, 'member');
+  assert.equal(v.me.role, 'engineer');
+  assert.deepEqual(v.people.map((p) => [p.name, p.role]).sort(), [['Ada Lovelace', 'engineer'], ['Sam Lead', 'lead']]);
+  assert.equal(lead.view().people.find((p) => p.name === 'Ada Lovelace').role, 'engineer');
+  assert.equal(lead.pending.size, 0);
+  // The dev's saved state holds the key from the welcome; the first save waited without one.
+  assert.equal(saved.dev.at(-1).status, 'member');
+  assert.ok(saved.dev.at(-1).key);
+  lead.stop(); dev.stop();
+});
+
+test('the lead reads only what the dev shares, coalesced to one summary per limit, never shown live while offline', async () => {
+  const { relay, net, timers, lead, dev, setBoard } = await crew();
+  dev.board(boardNow(relay.now()));
+  await until(() => lead.summaries.size === 1, 'the first summary');
+  const seen = lead.view().people.find((p) => p.name === 'Ada Lovelace');
+  assert.equal(seen.live, true);
+  assert.deepEqual(seen.summary.tickets.map((k) => k.title), ['Fix the parser', 'Write the docs']);
+  // Two quick changes: the relay gets only the newest, after the limit.
+  const b2 = boardNow(relay.now()); b2.tickets[1].place = 'In review';
+  dev.board(b2);
+  const b3 = boardNow(relay.now()); b3.tickets[1].place = 'Merged';
+  dev.board(b3);
+  setBoard({ board: b3, ok: true, at: relay.now() });
+  await settle();
+  assert.equal(lead.summaries.get(dev.meId).body.tickets[1].place, 'In progress');
+  await timers.advance(10000);
+  await until(() => lead.summaries.get(dev.meId).body.tickets.find((k) => k.thread === 'th-docs').place === 'Merged', 'the newest summary');
+  // The same board again sends nothing.
+  const writes = relay.sql.exec('SELECT rows_written FROM usage').one().rows_written;
+  dev.board(b3);
+  await timers.advance(10000);
+  assert.equal(relay.sql.exec('SELECT rows_written FROM usage').one().rows_written, writes);
+  // The lead's Mac loses the network: the cached summary stays, but nothing reads as live or online.
+  net.down = true;
+  net.drop();
+  await until(() => lead.link === 'waiting', 'the lead waiting');
+  const off = lead.view().people.find((p) => p.name === 'Ada Lovelace');
+  assert.ok(off.summary);
+  assert.equal(off.live, false);
+  assert.equal(off.online, false);
+  lead.stop(); dev.stop();
+});
+
+test('a lead\'s reply runs on the dev\'s thread through the dev\'s own T3, signed with the lead\'s name', async () => {
+  const { lead, dev, ran, t3calls } = await crew();
+  const out = await lead.act(dev.meId, { kind: 'reply', thread: 'th-parser', note: 'Rebase on main first.' });
+  assert.deepEqual(out, { status: 200, text: 'Reply sent.' });
+  assert.equal(ran.length, 1);
+  assert.equal(t3calls[0].name, 't3_thread_send');
+  assert.equal(t3calls[0].args.message, 'Sam Lead (Lead), from Yes Chef: Rebase on main first.');
+  assert.match(t3calls[0].args.clientRequestId, /^pass-t-[\w-]{22}-[\w-]{22}$/);
+  lead.stop(); dev.stop();
+});
+
+test('the dev\'s Yes Chef refuses what the sender\'s role, the shared projects or the board do not allow', async () => {
+  const { relay, lead, dev, ran, setBoard } = await crew();
+  // A thread in a project the dev does not share: refused, even for the lead.
+  assert.equal((await lead.act(dev.meId, { kind: 'reply', thread: 'th-secret', note: 'x' })).status, 409);
+  // Settle and New thread never come from a teammate.
+  assert.equal((await lead.act(dev.meId, { kind: 'settle', thread: 'th-parser' })).status, 403);
+  // A board that is not fresh: not checked, nothing runs.
+  setBoard({ board: boardNow(relay.now()), ok: true, at: relay.now() - BOARD_FRESH_MS - 1 });
+  const stale = await lead.act(dev.meId, { kind: 'reply', thread: 'th-parser', note: 'x' });
+  assert.equal(stale.status, 409);
+  assert.match(stale.text, /^Not checked/);
+  setBoard({ board: boardNow(relay.now()), ok: false, at: relay.now() });
+  assert.equal((await lead.act(dev.meId, { kind: 'reply', thread: 'th-parser', note: 'x' })).status, 409);
+  assert.equal(ran.length, 0);
+  lead.stop(); dev.stop();
+});
+
+test('an engineer who forges a bigger role on their own Mac is still refused: the dev reads the lead\'s roster', async () => {
+  const { relay, net, timers, lead, dev, ran } = await crew();
+  // A second dev joins as an engineer.
+  const { link } = await lead.invite();
+  const evState = await joinTeam({ link, name: 'Eve', shared: [P], net, now: () => relay.now() });
+  const eve = new Team({ state: evState, net, now: () => relay.now(), timers });
+  eve.start();
+  await until(() => lead.pending.size === 1, 'Eve\'s ask');
+  await lead.approve([...lead.pending.keys()][0], 'engineer');
+  await until(() => eve.state.key && eve.me?.role === 'engineer', 'Eve let in');
+  assert.equal((await eve.act(dev.meId, { kind: 'go', thread: 'th-parser' })).status, 403, 'her own Mac refuses first');
+  // Eve edits her own copy of the roster to say Lead. The dev's Mac does not believe it.
+  eve.people.get(eve.meId).role = 'lead';
+  eve.people.get(eve.meId).perms = PERMS.map((p) => p.key);
+  const forged = await eve.act(dev.meId, { kind: 'go', thread: 'th-parser' });
+  assert.equal(forged.status, 403);
+  assert.match(forged.text, /Engineer/);
+  assert.equal(ran.length, 0);
+  eve.stop(); lead.stop(); dev.stop();
+});
+
+test('an action runs once: a replay gets the first answer, and an old one does not run', async () => {
+  const { relay, lead, dev, ran } = await crew();
+  const me = await lead.member();
+  const key = await teamKey(lead.state.key);
+  const where = aad.send(lead.state.team, me.id, dev.meId);
+  const nonce = 'AAAAAAAAAAAAAAAAAAAAAA';
+  const blob = await sealSigned(key, me, { k: 'act', nonce, at: relay.now(), action: { kind: 'reply', thread: 'th-parser', note: 'once' } }, where);
+  // The relay (or anyone in the middle) hands the same blob over twice.
+  await dev.take({ item: 'i1', from: me.id, blob });
+  await dev.take({ item: 'i2', from: me.id, blob });
+  assert.equal(ran.length, 1);
+  // The memory of it survives a restart: it is in the saved state.
+  assert.ok(dev.state.seen.some(([k]) => k === `${me.id}:${nonce}`));
+  const old = await sealSigned(key, me, { k: 'act', nonce: 'BBBBBBBBBBBBBBBBBBBBBB', at: relay.now() - ACT_TTL - 1, action: { kind: 'reply', thread: 'th-parser', note: 'late' } }, where);
+  await dev.take({ item: 'i3', from: me.id, blob: old });
+  assert.equal(ran.length, 1);
+  // A blob sealed for another receiver does not open here.
+  const other = await sealSigned(key, me, { k: 'act', nonce: 'CCCCCCCCCCCCCCCCCCCCCC', at: relay.now(), action: { kind: 'reply', thread: 'th-parser', note: 'x' } }, aad.send(lead.state.team, me.id, me.id));
+  await dev.take({ item: 'i4', from: me.id, blob: other });
+  assert.equal(ran.length, 1);
+  lead.stop(); dev.stop();
+});
+
+test('reconnects: one retry owner, doubling backoff capped at five minutes, a probe on wake', async () => {
+  const { net, timers, lead, dev } = await crew();
+  net.down = true;
+  net.drop();
+  await until(() => dev.link === 'waiting', 'dev waiting');
+  const waits = [dev.retryMs];
+  for (let i = 0; i < 10; i++) {
+    await timers.advance(dev.retryMs);
+    await until(() => dev.link === 'waiting', 'the next wait');
+    waits.push(dev.retryMs);
+  }
+  assert.deepEqual(waits.slice(0, 4), [RETRY.base, 2 * RETRY.base, 4 * RETRY.base, 8 * RETRY.base]);
+  assert.equal(Math.max(...waits), RETRY.cap);
+  // A Mac that wakes probes now instead of waiting out five minutes.
+  net.down = false;
+  dev.wake();
+  await until(() => dev.link === 'online', 'dev back online');
+  assert.equal(dev.attempts, 0);
+  lead.stop(); dev.stop();
+});
+
+test('a socket that answers no ping is closed and retried', async () => {
+  const { timers, lead, dev } = await crew();
+  const links = [];
+  dev.on((e) => e.type === 'link' && links.push(e.link));
+  // Swallow the ping: the socket looks open but is dead.
+  const dead = dev.ws;
+  dead.send = () => {};
+  await timers.advance(30000);
+  assert.deepEqual(links, [], 'still waiting on the pong');
+  await timers.advance(10000);
+  assert.equal(links[0], 'waiting');
+  assert.notEqual(dev.ws, dead);
+  await timers.advance(dev.retryMs);
+  await until(() => dev.link === 'online', 'a new socket');
+  assert.notEqual(dev.ws, dead);
+  lead.stop(); dev.stop();
+});
+
+test('removed: the dev\'s Yes Chef drops the team key and stops', async () => {
+  const { lead, dev, saved } = await crew();
+  const r = await lead.remove(dev.meId);
+  assert.equal(r.t, 'ok');
+  await until(() => dev.state.status === 'removed', 'dev removed');
+  assert.equal(dev.link, 'stopped');
+  assert.equal(saved.dev.at(-1).key, null);
+  assert.equal(dev.view().people.length, 0);
+  assert.equal(lead.view().people.length, 1);
+  lead.stop();
+});
+
+test('declined while offline: the socket fails, the probe asks the relay, and the dev stops', async () => {
+  const relay = fakeRelay();
+  const net = fakeNet(relay);
+  const timers = clock(relay);
+  const now = () => relay.now();
+  const lead = new Team({ state: await createTeam({ relay: 'https://relay.test', teamName: 'T', name: 'L', net, now }), net, now, timers, random: () => 1 });
+  lead.start();
+  await until(() => lead.link === 'online');
+  const { link } = await lead.invite();
+  const dev = new Team({ state: await joinTeam({ link, name: 'D', net, now }), net, now, timers, random: () => 1 });
+  await until(() => lead.pending.size === 1);
+  // The dev is not connected when the lead declines.
+  await lead.decline([...lead.pending.keys()][0]);
+  dev.start();
+  for (let i = 0; i < 4 && dev.state.status === 'pending'; i++) { await until(() => dev.link === 'waiting' || dev.state.status !== 'pending'); if (dev.state.status === 'pending') await timers.advance(dev.retryMs); }
+  await until(() => dev.state.status === 'declined', 'the probe');
+  assert.equal(dev.link, 'stopped');
+  lead.stop();
+});
+
+test('a relay that sends a roster the pinned lead did not sign is dropped', async () => {
+  const { relay, net, timers, lead, dev } = await crew();
+  const other = await newMember();
+  const fooled = new Team({ state: { ...dev.state, leadSign: other.signPub }, net, now: () => relay.now(), timers });
+  const errors = [];
+  fooled.on((e) => e.type === 'error' && errors.push(e.text));
+  fooled.start();
+  await until(() => fooled.link === 'stopped', 'the client to stop');
+  assert.match(errors[0], /did not sign/);
+  lead.stop(); dev.stop();
+});
+
+test('a deputy invites; the lead reads the ask made on the deputy\'s invite', async () => {
+  const { relay, net, timers, lead, dev } = await crew({ role: 'deputy' });
+  assert.equal(dev.me.invite, true);
+  const { link } = await dev.invite();
+  assert.ok(link);
+  const joined = new Team({ state: await joinTeam({ link, name: 'New Person', projects: ['web'], net, now: () => relay.now() }), net, now: () => relay.now(), timers });
+  joined.start();
+  await until(() => lead.pending.size === 1 && dev.pending.size === 1, 'the ask at both');
+  assert.deepEqual([...lead.pending.values()].map((p) => [p.name, p.projects]), [['New Person', ['web']]]);
+  // Only the lead answers asks.
+  assert.equal((await dev.decline([...dev.pending.keys()][0])).t, 'err');
+  joined.stop(); lead.stop(); dev.stop();
+});
+
+test('a welcome the relay did not take goes again on the lead\'s next connect', async () => {
+  const relay = fakeRelay();
+  const net = fakeNet(relay);
+  const timers = clock(relay);
+  const now = () => relay.now();
+  const lead = new Team({ state: await createTeam({ relay: 'https://relay.test', teamName: 'T', name: 'L', net, now }), net, now, timers, random: () => 1 });
+  lead.start();
+  await until(() => lead.link === 'online');
+  const { link } = await lead.invite();
+  const dev = new Team({ state: await joinTeam({ link, name: 'D', shared: [P], net, now }), net, now, timers, random: () => 1 });
+  dev.start();
+  await until(() => lead.pending.size === 1 && dev.link === 'online');
+  // The roster goes through; the welcome's send fails.
+  const say = lead.say.bind(lead);
+  lead.say = (msg) => (msg.t === 'send' ? Promise.resolve({ t: 'err', code: 'timeout', text: 'x' }) : say(msg));
+  const r = await lead.approve(dev.meId, 'engineer');
+  assert.equal(r.welcome, 'later');
+  assert.deepEqual(lead.state.welcomes, [dev.meId]);
+  await until(() => dev.state.status === 'member');
+  assert.equal(dev.state.key, null);
+  // The lead's Mac reconnects: the welcome goes, and the dev gets the key.
+  lead.say = say;
+  net.drop();
+  await until(() => lead.link === 'waiting');
+  await timers.advance(lead.retryMs);
+  await until(() => dev.state.key && dev.me?.name === 'D', 'the late welcome');
+  assert.deepEqual(lead.state.welcomes, []);
+  lead.stop(); dev.stop();
+});
+
+test('stop sharing: an empty list drops the relay\'s copy of this dev\'s summary', async () => {
+  const { relay, lead, dev } = await crew();
+  dev.board(boardNow(relay.now()));
+  await until(() => lead.summaries.size === 1);
+  const { timers } = dev;
+  dev.share([]);
+  // A forget waits out the same limit as a summary.
+  await settle();
+  assert.equal(lead.summaries.size, 1);
+  await timers.advance(10000);
+  await until(() => lead.summaries.size === 0, 'the summary gone');
+  // Boards after that send nothing.
+  dev.board(boardNow(relay.now()));
+  await timers.advance(10000);
+  assert.equal(lead.summaries.size, 0);
+  assert.equal(relay.sql.exec('SELECT COUNT(*) AS n FROM summary WHERE blob IS NOT NULL').one().n, 0);
+  lead.stop(); dev.stop();
+});
+
+// PR-Agent r1 on #79.
+
+test('after a restart, a relay cannot hand back an older roster: the highest version taken is saved', async () => {
+  const { relay, net, timers, lead, dev } = await crew();
+  const old = lead.rosterSigned; // version 2: the dev as an Engineer
+  assert.equal((await lead.setRole(dev.meId, 'viewer')).t, 'ok');
+  await until(() => dev.state.rosterVer === 3 && dev.me?.role === 'viewer', 'the new roster saved');
+  dev.stop();
+  // The dev's Mac restarts. A relay replays version 2, which still gave the dev an Engineer's role.
+  const again = new Team({ state: structuredClone(dev.state), net, now: () => relay.now(), timers });
+  const errors = [];
+  again.on((e) => e.type === 'error' && errors.push(e.text));
+  await again.hello({ t: 'hello', me: dev.meId, role: 'member', roster: old, online: [], inbox: [], summaries: [] });
+  assert.match(errors[0] || '', /older one/);
+  assert.equal(await again.takeRoster(old), false);
+  assert.equal(await again.takeRoster(lead.rosterSigned), true);
+  lead.stop();
+});
+
+test('a roster the relay took but whose answer was lost still owes the welcome', async () => {
+  const relay = fakeRelay();
+  const net = fakeNet(relay);
+  const timers = clock(relay);
+  const now = () => relay.now();
+  const lead = new Team({ state: await createTeam({ relay: 'https://relay.test', teamName: 'T', name: 'L', net, now }), net, now, timers, random: () => 1 });
+  lead.start();
+  await until(() => lead.link === 'online');
+  const { link } = await lead.invite();
+  const dev = new Team({ state: await joinTeam({ link, name: 'D', shared: [P], net, now }), net, now, timers, random: () => 1 });
+  dev.start();
+  await until(() => lead.pending.size === 1 && dev.link === 'online');
+  // The relay takes the roster, but its answer never reaches the lead.
+  const say = lead.say.bind(lead);
+  lead.say = (msg) => (msg.t === 'roster' ? say(msg).then(() => ({ t: 'err', code: 'timeout', text: 'The relay did not answer.' })) : say(msg));
+  assert.equal((await lead.approve(dev.meId, 'engineer')).t, 'err');
+  assert.deepEqual(lead.state.welcomes, [dev.meId], 'owed from before the roster went');
+  lead.say = say;
+  net.drop();
+  await until(() => lead.link === 'waiting');
+  await timers.advance(lead.retryMs);
+  await until(() => dev.state.key && dev.me?.name === 'D', 'the welcome after the reconnect');
+  assert.deepEqual(lead.state.welcomes, []);
+  // A roster the relay refused owes nothing: the next connect drops it.
+  lead.state.welcomes = ['AAAAAAAAAAAAAAAAAAAAAA'];
+  await lead.sendWelcomes();
+  assert.deepEqual(lead.state.welcomes, []);
+  lead.stop(); dev.stop();
+});
+
+test('dropping a project rebuilds the waiting summary: the dropped project\'s tickets never go out', async () => {
+  const { relay, timers, lead, dev } = await crew();
+  dev.share([P, Q]);
+  dev.board(boardNow(relay.now()));
+  await until(() => lead.summaries.get(dev.meId)?.body.tickets.some((k) => k.title === 'Private work'), 'both projects shared');
+  // A change waits out the limit. The dev stops sharing Q before it goes.
+  const b2 = boardNow(relay.now()); b2.tickets.find((k) => k.thread.threadId === 'th-secret').place = 'In review';
+  dev.board(b2);
+  dev.share([P]);
+  await timers.advance(10000);
+  await until(() => !lead.summaries.get(dev.meId).body.tickets.some((k) => k.thread === 'th-secret'), 'the rebuilt summary');
+  assert.doesNotMatch(JSON.stringify(lead.summaries.get(dev.meId).body), /Private work/);
+  lead.stop(); dev.stop();
+});
+
+test('made a Viewer: a queued summary does not go, and the relay\'s copy is dropped', async () => {
+  const { relay, timers, lead, dev } = await crew();
+  dev.board(boardNow(relay.now()));
+  await until(() => lead.summaries.size === 1);
+  const b2 = boardNow(relay.now()); b2.tickets[1].place = 'Merged';
+  dev.board(b2);
+  assert.equal((await lead.setRole(dev.meId, 'viewer')).t, 'ok');
+  await until(() => dev.me?.role === 'viewer');
+  await timers.advance(10000);
+  await until(() => lead.summaries.size === 0, 'the summary gone');
+  assert.equal(relay.sql.exec('SELECT COUNT(*) AS n FROM summary WHERE blob IS NOT NULL').one().n, 0);
+  // Boards after that send nothing, and a summary queued by any path is checked again at send time.
+  dev.board(b2);
+  dev.next = { json: '{}', body: summarize(b2, [P]) };
+  dev.flush();
+  await timers.advance(10000);
+  assert.equal(lead.summaries.size, 0);
+  assert.equal(dev.next, null);
+  lead.stop(); dev.stop();
+});
+
+test('a summary the relay refuses is dropped, and a failing relay is retried with a growing wait, not in a loop', async () => {
+  const { relay, timers, lead, dev } = await crew();
+  const say = dev.say.bind(dev);
+  let sent = 0, answer = { t: 'err', code: 'bad', text: 'That summary is empty or too large.' };
+  dev.say = (msg) => (msg.t === 'summary' ? (sent++, Promise.resolve(answer)) : say(msg));
+  const errors = [];
+  dev.on((e) => e.type === 'error' && errors.push(e.text));
+  dev.board(boardNow(relay.now()));
+  await settle(); await settle();
+  assert.equal(sent, 1);
+  assert.equal(dev.next, null, 'a refused summary is not sent again');
+  assert.match(errors[0], /refused/);
+  // A relay that times out: the next try waits 20 s, then 40 s.
+  answer = { t: 'err', code: 'timeout', text: 'The relay did not answer.' };
+  const b2 = boardNow(relay.now()); b2.tickets[1].place = 'Merged';
+  dev.board(b2);
+  await settle(); await settle();
+  assert.equal(sent, 2);
+  await timers.advance(19000);
+  assert.equal(sent, 2);
+  await timers.advance(1000);
+  assert.equal(sent, 3);
+  await timers.advance(39000);
+  assert.equal(sent, 3);
+  await timers.advance(1000);
+  assert.equal(sent, 4);
+  lead.stop(); dev.stop();
+});
+
+test('a summary in any script fits the relay\'s limit once sealed', async () => {
+  const many = { tickets: Array.from({ length: 300 }, (_, i) => ({ thread: { threadId: `t${i}`, projectId: P, title: '漢字'.repeat(75) }, project: 'アプリ', place: 'In review', atPass: false, working: 0, asks: [], call: null, prs: [], updatedAt: '' })) };
+  const fit = summarize(many, [P], 65536);
+  assert.ok((new TextEncoder().encode(JSON.stringify(fit.tickets)).length * 4) / 3 + 600 <= 65536);
+  const { relay, timers, lead, dev } = await crew();
+  dev.limits.summaryMax = 6000; // a relay with a smaller limit than the estimate assumed
+  dev.board(many);
+  await until(() => lead.summaries.size === 1, 'a summary that fits');
+  const blob = relay.sql.exec('SELECT blob FROM summary WHERE m = ?', dev.meId).one().blob;
+  assert.ok(blob.length <= 6000, `sealed ${blob.length}`);
+  assert.ok(lead.summaries.get(dev.meId).body.more > 0);
+  // Sealing checks the real size even when the estimate was made for a larger limit.
+  const sealed = await dev.sealSummary(summarize(many, [P], 65536));
+  assert.ok(sealed.length <= 6000, `sealed ${sealed.length}`);
+  await timers.advance(0);
+  lead.stop(); dev.stop();
+});
+
+test('a teammate\'s action that comes before the welcome waits for the key, then runs', async () => {
+  const relay = fakeRelay();
+  const net = fakeNet(relay);
+  const timers = clock(relay);
+  const now = () => relay.now();
+  const lead = new Team({ state: await createTeam({ relay: 'https://relay.test', teamName: 'T', name: 'Sam Lead', net, now }), net, now, timers, random: () => 1 });
+  lead.start();
+  await until(() => lead.link === 'online');
+  const { link } = await lead.invite();
+  const ran = [];
+  const board = () => ({ board: boardNow(relay.now()), ok: true, at: relay.now() });
+  const dev = new Team({ state: await joinTeam({ link, name: 'D', shared: [P], net, now }), net, now, timers, random: () => 1, board,
+    run: async (input, prefix) => { ran.push({ input, prefix }); return { status: 200, text: 'Reply sent.' }; } });
+  dev.start();
+  await until(() => lead.pending.size === 1 && dev.link === 'online');
+  // The welcome is held back; the lead's reply goes first.
+  const say = lead.say.bind(lead);
+  lead.say = (msg) => (msg.t === 'send' && msg.ttl > ACT_TTL ? Promise.resolve({ t: 'err', code: 'timeout', text: 'x' }) : say(msg));
+  await lead.approve(dev.meId, 'engineer');
+  await until(() => dev.state.status === 'member' && dev.link === 'online');
+  const out = lead.act(dev.meId, { kind: 'reply', thread: 'th-parser', note: 'first' });
+  await until(() => dev.later.some((m) => m.t === 'inbox'), 'the action kept');
+  assert.equal(ran.length, 0);
+  assert.equal(relay.sql.exec('SELECT COUNT(*) AS n FROM inbox WHERE to_m = ?', dev.meId).one().n, 1, 'not taken off the relay');
+  // The welcome arrives: the key, then the action.
+  lead.say = say;
+  await lead.sendWelcomes();
+  assert.deepEqual(await out, { status: 200, text: 'Reply sent.' });
+  assert.equal(ran.length, 1);
+  assert.equal(ran[0].prefix, 'Sam Lead (Lead), from Yes Chef: ');
+  await until(() => relay.sql.exec('SELECT COUNT(*) AS n FROM inbox WHERE to_m = ?', dev.meId).one().n === 0, 'both taken');
+  lead.stop(); dev.stop();
+});
+
+test('a summary shows the time the dev\'s Mac signed, and an older one never replaces a newer one', async () => {
+  const { relay, lead, dev } = await crew();
+  const me = await dev.member();
+  const key = await teamKey(dev.state.key);
+  const where = aad.summary(dev.state.team, dev.meId);
+  const t1 = relay.now() - 3600000;
+  const oldBlob = await sealSigned(key, me, { v: 1, tickets: [], more: 0, at: t1 }, where);
+  // A relay replays an hour-old summary with a fresh outer time.
+  await lead.takeSummary(dev.meId, oldBlob, relay.now());
+  assert.equal(lead.view().people.find((p) => p.id === dev.meId).at, t1);
+  const newBlob = await sealSigned(key, me, { v: 1, tickets: [], more: 0, at: relay.now() }, where);
+  await lead.takeSummary(dev.meId, newBlob, relay.now());
+  await lead.takeSummary(dev.meId, oldBlob, relay.now() + 5000);
+  assert.equal(lead.summaries.get(dev.meId).at, relay.now());
+  lead.stop(); dev.stop();
+});
+
+// PR-Agent r2 on #79.
+
+test('a roster the lead signed without this Mac ends it, even when the relay never closes the socket', async () => {
+  const { relay, net, timers, lead, dev } = await crew();
+  dev.stop();
+  assert.equal((await lead.remove(dev.meId)).t, 'ok');
+  // The dev's Mac connects to a relay that hands over the new roster but sends no close.
+  const again = new Team({ state: structuredClone(dev.state), net, now: () => relay.now(), timers });
+  const errors = [];
+  again.on((e) => e.type === 'error' && errors.push(e.text));
+  await again.hello({ t: 'hello', me: dev.meId, role: 'member', roster: lead.rosterSigned, online: [], inbox: [], summaries: [] });
+  assert.equal(again.state.status, 'removed');
+  assert.equal(again.state.key, null);
+  assert.equal(again.link, 'stopped');
+  assert.deepEqual(errors, []);
+  // Nothing goes out after: no summary, and no action runs.
+  again.board(boardNow(relay.now()));
+  assert.equal(again.next, null);
+  lead.stop();
+});
+
+test('a summary sealed while its project was dropped never goes out', async () => {
+  const { relay, lead, dev } = await crew();
+  dev.share([P, Q]);
+  const say = dev.say.bind(dev);
+  const sent = [];
+  dev.say = (msg) => { if (msg.t === 'summary') sent.push(msg.blob); return say(msg); };
+  // The seal is held until the dev drops Q.
+  const seal = dev.sealSummary.bind(dev);
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  dev.sealSummary = async (body) => { await gate; return seal(body); };
+  dev.board(boardNow(relay.now()));
+  await settle();
+  assert.equal(dev.flushing, true);
+  dev.sealSummary = seal;
+  dev.share([P]);
+  release();
+  await until(() => lead.summaries.size === 1, 'the rebuilt summary');
+  assert.equal(sent.length, 1, 'only the rebuilt summary went');
+  assert.doesNotMatch(JSON.stringify(lead.summaries.get(dev.meId).body), /Private work/);
+  lead.stop(); dev.stop();
+});
+
+test('a dev whose welcome expired unread asks the lead for another, at most once a day', async () => {
+  const relay = fakeRelay();
+  const net = fakeNet(relay);
+  const timers = clock(relay);
+  const now = () => relay.now();
+  const lead = new Team({ state: await createTeam({ relay: 'https://relay.test', teamName: 'T', name: 'L', net, now }), net, now, timers, random: () => 1 });
+  lead.start();
+  await until(() => lead.link === 'online');
+  const { link } = await lead.invite();
+  const dev = new Team({ state: await joinTeam({ link, name: 'D', shared: [P], net, now }), net, now, timers, random: () => 1 });
+  dev.start();
+  await until(() => lead.pending.size === 1 && dev.link === 'online');
+  // The dev's Mac goes away; the lead approves, and the relay takes the welcome.
+  dev.stop();
+  assert.equal((await lead.approve(dev.meId, 'engineer')).t, 'ok');
+  assert.deepEqual(lead.state.welcomes, []);
+  assert.equal(relay.sql.exec('SELECT COUNT(*) AS n FROM inbox WHERE to_m = ?', dev.meId).one().n, 1);
+  // Eight days later the welcome has expired unread. The dev comes back: on the roster, with no key.
+  relay.tick(8 * 86400000);
+  dev.start();
+  await until(() => dev.state.key && dev.me?.name === 'D', 'a new welcome');
+  assert.equal(dev.state.keyAskAt, relay.now());
+  assert.deepEqual(lead.state.welcomes, []);
+  // A second ask within the day sends nothing.
+  dev.state.key = null;
+  await dev.askKey();
+  assert.equal(relay.sql.exec('SELECT COUNT(*) AS n FROM inbox WHERE to_m = ?', lead.meId).one().n, 0);
+  lead.stop(); dev.stop();
+});

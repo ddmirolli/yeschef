@@ -17,7 +17,8 @@ export function tomorrowMorning(now = new Date()) {
  *  answered: optional Map of call key to { picks, at, nonce }, so a call is answered once (a retry of the same send passes). */
 /** projects: T3's project list ({ id, title }); only a launch uses it, and only into one of these projects.
  *  rules: the rules (client/kitchen.mjs); a launch carries the project's rules in its brief. */
-export async function act({ board, t3, input, now = new Date(), holds, answered, projects = [], rules = null }) {
+/** prefix: who the message is from. A teammate's action names the teammate and their role (client/roles.mjs). */
+export async function act({ board, t3, input, now = new Date(), holds, answered, projects = [], rules = null, prefix = PREFIX }) {
   const kind = String(input.kind || '');
   const thread = String(input.thread || '');
   const note = String(input.note || '').trim().slice(0, MAX_NOTE);
@@ -85,7 +86,7 @@ export async function act({ board, t3, input, now = new Date(), holds, answered,
     if (picks.length < call.calls.length) return { status: 400, text: call.calls.length > 1 ? 'Answer every decision first.' : 'Pick an answer first.' };
     // "1a. Yes, merge." with the question after it: the agent asked by number and letter, and gets both back.
     const lines = picks.map(({ n, c, o }) => `${n}${o.letter}. ${o.text}` + (c.question !== 'Your call' ? ` (${c.question})` : ''));
-    const message = PREFIX + 'my call.\n' + lines.join('\n') + (note ? `\n\n${note}` : '');
+    const message = prefix + 'my call.\n' + lines.join('\n') + (note ? `\n\n${note}` : '');
     const summary = picks.map(({ n, o }) => `${n}${o.letter}`).join(', ');
     // One answer per call. The call is reserved before the send, so two tabs never both send (PR-Agent r1 on #17).
     // Only a retry of the same send, byte for byte, passes again; T3 drops its repeat by the request id.
@@ -128,7 +129,7 @@ export async function act({ board, t3, input, now = new Date(), holds, answered,
   if (kind === 'go' && input.pr && (input.pr === 'open') !== merge) {
     return { status: 409, text: merge ? 'A pull request opened since you looked. Review it, then merge.' : 'The pull request is no longer open. Look again before you act.' };
   }
-  const message = PREFIX + (kind === 'go' ? (merge ? 'Merge it.' : 'Approved. Go ahead.') + (note ? `\n\n${note}` : '')
+  const message = prefix + (kind === 'go' ? (merge ? 'Merge it.' : 'Approved. Go ahead.') + (note ? `\n\n${note}` : '')
     : kind === 'refire' ? `Request changes. ${note}` : note);
   await t3.call('t3_thread_send', { threadId: thread, message, mode: 'queue', clientRequestId: `pass-${nonce}` });
   return { status: 200, text: kind === 'go' ? (merge ? 'Sent: Merge.' : 'Sent: Approve.') : kind === 'refire' ? 'Sent: Request changes, with your note.' : 'Reply sent.' };
