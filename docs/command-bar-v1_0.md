@@ -1,7 +1,7 @@
 # The ⌘K action bar, v1.0
 
 Status: PR 1 built (the bar, its motion, search, history and suggestions). PR 2 built (Send a note to any thread).
-PR 3 built (Appearance), its choices redrawn as pictures after Dan's look. PR 4 is below and not built.
+PR 3 built (Appearance), its choices redrawn as pictures after Dan's look. PR 4 built (editable shortcuts).
 Approved look and motion: [mocks/command-bar-v3.html](mocks/command-bar-v3.html) (mock v3, Dan, 2026-11-10: "Then yes, build").
 Code: `client/bar.mjs`, tested in `client/bar.test.mjs`, wired into the page in `client/server.mjs`.
 Words: the developer words of `pass-definitions-v1_0.md`. Where the mock uses an older word, the definitions win.
@@ -15,7 +15,8 @@ Words: the developer words of `pass-definitions-v1_0.md`. Where the mock uses an
 | ⌘, | Opens Settings. |
 
 Each of the three closes whichever of the others is open, so only one is up at a time. In a browser tab (the web
-prototype), the browser keeps ⌘T and ⌘N for itself, so there ⌘K, then New thread, is the way in.
+prototype), the browser keeps ⌘T and ⌘N for itself, so there ⌘K, then New thread, is the way in. These are the default
+keys. Settings → Shortcuts changes them (see Shortcuts below).
 
 Inside the bar:
 
@@ -177,7 +178,7 @@ Scope addition, Dan, 2026-11-10: "also add switching to a quick action in the co
   "not checked".
 - The current view shows **Now**, as Density does.
 - Keywords: switch, team, me, mine, solo, lead, reports, scope.
-- No default key. PR 4 lets you bind one in Keyboard shortcuts.
+- No default key. Settings → Shortcuts gives each one a key (`view.you`, `view.team`).
 - **Mode names.** A row that names a team mode uses the full name: **Open kitchen** or **French Brigade**, never
   "Open" or "Brigade" alone (Dan, 2026-11-10). "open" and "brigade" stay in its keywords, so either word still
   finds it.
@@ -185,6 +186,83 @@ Scope addition, Dan, 2026-11-10: "also add switching to a quick action in the co
   `setScope: null`, and `barCore().viewRows()` returns nothing. When the views land, `views()` returns
   `{ hasReports, current: 'you' | 'team', team: { name, below } }` and `setScope(scope)` switches. The rows then
   show with no other change.
+
+## Shortcuts
+
+PR 4. Settings → Shortcuts, as in mock v3's Shortcuts tab. Code: `client/keys.mjs` (the commands, key names, routing
+and clashes), tested in `client/keys.test.mjs`. The Mac app's file: `desktop/keybindings.mjs`.
+
+- **The list.** One row per command, in two groups: App and On a call. Each row shows its keys as keycaps, with
+  Change on the right. The search field on top filters by name, line or key. A third group, Fixed, lists the keys that
+  never change.
+- **Record.** Change turns the row blue and waits for a key. Modifiers show in the row while you hold them. The next
+  full key is the new key. Esc keeps the old key, and Settings stays open. Tab or a click outside the row stops
+  recording.
+- **Refused keys.** A key macOS keeps (⌘Q, ⌘W, ⌘H, ⌘M, ⌘Tab and the like) or a fixed key says why in the row, and
+  recording goes on. The suggested action's key also works while you write a note, so it needs ⌘ or ⌥.
+- **Clash.** A key another command has, where both can apply, turns the row orange: "Taken. H is already Hold until
+  8:00 tomorrow." **Swap them** gives each command the other's key. **Keep R** leaves both as they were. A command
+  with no key offers **Take it** and **Cancel**. The Action bar always keeps a key, so a command with none cannot take
+  ⌘K from it.
+- **Reset.** A changed row shows the Rules dot and Reset, which gives that command its default back. **Reset all**
+  gives every command its default and empties the list.
+- **Labels.** Every key label shows the key now in use: the action bar's tooltips, the More menu, the ⌘K rows, toasts
+  and the lines that say why a key did nothing. A command with no key shows none. Outside a Mac the labels read Ctrl,
+  Alt and Shift.
+
+| Command | Name | Default | When |
+| --- | --- | --- | --- |
+| `commandPalette.toggle` | Action bar | ⌘K | Always. It always keeps a key. |
+| `chat.new` | New thread in T3 Code | ⌘T, ⌘N | Always |
+| `thread.note` | Send a note to a thread | None | Always. Opens the bar at that step. |
+| `thread.goto` | Go to a thread | None | Always. Opens the bar at that step. |
+| `settings.open` | Settings | ⌘, | Always |
+| `shortcuts.open` | Shortcuts | ? | Always |
+| `appearance.cycle` | Appearance: next | ⌥⇧⌘A | Always |
+| `view.toggle` | Expand or collapse the view | V | Always |
+| `view.you` | View: You | None | Always |
+| `view.team` | View: Team | None | Always. With no team, a toast says so. |
+| `send.undo` | Undo the send | Z | Always |
+| `ticket.suggested` | The suggested action | ⌘↵ | `!dialog`. Keeps a key, with ⌘ or ⌥. |
+| `ticket.merge` | Merge | M | `ticket` |
+| `ticket.approve` | Approve | A | `ticket` |
+| `ticket.requestChanges` | Request changes | F | `ticket` |
+| `ticket.reply` | Reply | R | `ticket` |
+| `ticket.addNote` | Add a note | N | `ticket` |
+| `ticket.hold` | Hold until 8:00 tomorrow | H | `ticket` |
+| `ticket.settle` | Settle | E | `ticket` |
+| `ticket.more` | More | . | `ticket` |
+| `ticket.open` | Open in T3 Code | O | `ticket` |
+
+Fixed: J and K (next and previous ticket, ↓ and ↑ too), Space and ⇧Space (page the message), the option letters A to I
+while a question waits, ← and → (questions and screenshots), Esc, ⌘R (refresh). The launch dialog's ⌘↵ and the bar's
+own Send stay ⌘↵: the suggested action's `!dialog` keeps them apart.
+
+**The file.**
+
+- **Where.** The Mac app keeps the list in `keybindings.json` in its data folder. A browser keeps it in
+  `localStorage` (`yc.keys`). Open the file (Mac app only) opens it in your editor for `.json`, and makes an empty
+  one first when there is none.
+- **Shape.** T3 Code's: a list of `{ "key": "mod+shift+u", "command": "view.team", "when": "ticket" }`. A key names
+  `mod`, `alt`, `shift`, then the key, joined with `+`. `mod` is ⌘ on a Mac and Ctrl elsewhere. `when` joins names
+  with `&&`, each with an optional `!`: `ticket` (a ticket is open) and `dialog` (the bar, Settings, New thread or a
+  screenshot is open). No chords.
+- **Changes only.** The list holds what differs from the defaults, as VS Code's does. An entry adds a key to its
+  command. `-command` with a key takes that key away. `-command` with no key takes every key away. An entry with no
+  `when` takes its command's. An empty list is every default.
+- **Edits by hand.** The app reads the file at start and each time the window comes back, so an edit applies when
+  you return. An entry Yes Chef cannot use is named under the buttons and skipped. An entry for a command Yes Chef
+  does not have is kept as written. A file that is not valid JSON is named and not read. The next change in Settings
+  writes it again.
+
+**Routing.**
+
+- With nothing changed, every key works exactly as before PR 4.
+- With a change, a new key reaches the page as its command's default key, so each action keeps one code path.
+- A command with no default key runs from the router.
+- A default key its command gave up does nothing where that command applies, and keeps its meaning elsewhere.
+- A plain key typed in a field, or pressed while a dialog is open, is never a shortcut.
+- While a question waits, its option letters come before any shortcut.
 
 ## PR split
 
@@ -196,5 +274,5 @@ Each PR is small, goes into main, and waits for Dan's look.
    the note path (`reply`, sent with mode `queue`, as T3 Code's queue does).
 3. **Appearance (built).** System, Light and Dark, as pictures of the home view in Settings and in the bar, and
    ⌥⇧⌘A. Density's choices are pictures too.
-4. **Editable shortcuts.** Settings → Shortcuts: record a key, resolve a clash (Swap them or Keep), and Reset all.
-   Saved in the shape of T3 Code's `keybindings.json`: a key, a command, and when it applies.
+4. **Editable shortcuts (built).** Settings → Shortcuts: record a key, resolve a clash (Swap them or Keep), and Reset
+   all. Saved in the shape of T3 Code's `keybindings.json`: a key, a command, and when it applies.

@@ -267,44 +267,47 @@ const VERB = { go: 'Merging {t}', refire: 'Requesting changes on {t}', reply: 'R
 // the rest. New actions go in More, not the row. Keys show only in a tooltip, on hover or keyboard focus.
 // The blue button is what Cmd+Enter sends: Merge, Approve, Send, or Settle once merged. Dan's tooltip for Merge reads
 // "M or ⌘↵", so it replaces council 1b's "Merge never takes Cmd+Enter"; the Undo still holds every send four seconds.
-// Each button keeps its form value, so the keys and sends find it. Its first key is the one the page script reads (M or
-// A tells Merge from Approve); Cmd+Enter comes second.
+// Each button keeps its form value, so the keys and sends find it. Its first key names its command (data-cmd, from
+// client/keys.mjs), which the page script reads to tell Merge from Approve and relabels when the key is changed in
+// Settings → Shortcuts; Cmd+Enter comes second.
 const ACT = {
-  go: { ic: 'merge', word: 'Merge', name: 'Merge: the agent merges it', key: 'M' },
+  go: { ic: 'merge', word: 'Merge', name: 'Merge: the agent merges it', key: 'M', cmd: 'ticket.merge' },
   // A ticket with no open pull request has nothing to merge: there the same button is Approve, with A, and the agent
   // goes ahead with what it handed back, a plan or a finding (Pass call 1a, Dan, 2026-11-10). A question's option
   // letters never meet it: a ticket with a question shows no Approve.
-  approve: { ic: 'approve', word: 'Approve', name: 'Approve: the agent goes ahead', key: 'A', toast: 'Approving {t}' },
+  approve: { ic: 'approve', word: 'Approve', name: 'Approve: the agent goes ahead', key: 'A', cmd: 'ticket.approve', toast: 'Approving {t}' },
   // Call 1a (Dan, 2026-11-10): the button says Changes; its tooltip, the keys sheet and the toasts keep the full name.
-  refire: { ic: 'changes', word: 'Changes', name: 'Request changes: say what to fix', key: 'F' },
-  reply: { ic: 'reply', word: 'Reply', name: 'Reply to the agent', key: 'R' },
-  hold: { ic: 'hold', name: 'Hold until 8:00 tomorrow', key: 'H' },
-  settle: { ic: 'settle', name: 'Settle: it leaves the pass', key: 'E' },
-  shipped: { ic: 'settle', word: 'Settle', name: 'Settle: it moves to Verified', key: 'E' },
+  refire: { ic: 'changes', word: 'Changes', name: 'Request changes: say what to fix', key: 'F', cmd: 'ticket.requestChanges' },
+  reply: { ic: 'reply', word: 'Reply', name: 'Reply to the agent', key: 'R', cmd: 'ticket.reply' },
+  hold: { ic: 'hold', name: 'Hold until 8:00 tomorrow', key: 'H', cmd: 'ticket.hold' },
+  settle: { ic: 'settle', name: 'Settle: it leaves the pass', key: 'E', cmd: 'ticket.settle' },
+  shipped: { ic: 'settle', word: 'Settle', name: 'Settle: it moves to Verified', key: 'E', cmd: 'ticket.settle' },
   send: { ic: 'send', word: 'Send answer', name: 'Send your answer', key: '' },
   again: { ic: 'send', word: 'Send again', name: 'Send the same answer again', key: '' },
 };
-const keys = (list) => list.filter(Boolean).map((k, i) => `${i ? '<span class="or">or</span>' : ''}<kbd>${k}</kbd>`).join('');
+// Each key is [label, command] (or a label alone, for a key no one can change).
+const kbd = (label, cmd) => `<kbd${cmd ? ` data-cmd="${cmd}"` : ''}>${label}</kbd>`;
+const keys = (list) => list.map((k) => (Array.isArray(k) ? k : [k])).filter((k) => k[0]).map((k, i) => `${i ? '<span class="or">or</span>' : ''}${kbd(k[0], k[1])}`).join('');
 // The tooltip: the full name, then the keys. Screen readers get the button's own name; the keys are for the eye.
 const tip = (name, list) => `<span class="tip" aria-hidden="true"><span class="tn">${name}</span>${keys(list)}</span>`;
 /** One action. a: an ACT entry, labelled when it has a word, else an icon; lead: the blue recommended action. */
 const btn = (kind, a, lead = false, extra = '') => `<button type="submit" name="kind" value="${kind}" class="${a.word ? 'ab' : 'ib'}${lead ? ' fill primary' : ''}"`
-  + ` data-toast="${a.toast || VERB[kind] || 'Sending {t}'}"${a.word ? '' : ` aria-label="${a.name}"`}${extra}>${svg(a.ic)}${a.word ? `<span class="bl">${a.word}</span>` : ''}${tip(a.name, [a.key, lead ? '⌘↵' : ''])}</button>`;
+  + ` data-toast="${a.toast || VERB[kind] || 'Sending {t}'}"${a.word ? '' : ` aria-label="${a.name}"`}${extra}>${svg(a.ic)}${a.word ? `<span class="bl">${a.word}</span>` : ''}${tip(a.name, [[a.key, a.cmd], lead ? ['⌘↵', 'ticket.suggested'] : ''])}</button>`;
 const noteField = (need, value = '') => `<label class="note"><span>Note to the agent <span class="muted">${need}</span></span><textarea name="note" rows="2" maxlength="4000" placeholder="What should the agent know?">${e(value)}</textarea></label>`;
 // More's rows: an icon, a word and its key. The note stays folded away until R, F, N or Add a note asks for it (council 1b).
-const MORE_NOTE = `<button type="button" class="mi" role="menuitem" data-addnote>${svg('note')}<span>Add a note</span><kbd>N</kbd></button>`;
-const MORE_T3 = `<button type="button" class="mi" role="menuitem" data-open-t3>${svg('out')}<span>Open in T3</span><kbd>O</kbd></button>`;
+const MORE_NOTE = `<button type="button" class="mi" role="menuitem" data-addnote>${svg('note')}<span>Add a note</span>${kbd('N', 'ticket.addNote')}</button>`;
+const MORE_T3 = `<button type="button" class="mi" role="menuitem" data-open-t3>${svg('out')}<span>Open in T3</span>${kbd('O', 'ticket.open')}</button>`;
 // On a phone the row has four slots, so Hold and Settle move into More, which opens as a sheet (call 2a); a narrow
 // ticket in a wide window does the same, and there the card shows their keys. These rows press the row's own button,
 // which keeps the form value.
-const phoneRow = (kind, word) => `<button type="button" class="mi ph" role="menuitem" data-press="${kind}">${svg(ACT[kind].ic)}<span>${word}</span><kbd>${ACT[kind].key}</kbd></button>`;
+const phoneRow = (kind, word) => `<button type="button" class="mi ph" role="menuitem" data-press="${kind}">${svg(ACT[kind].ic)}<span>${word}</span>${kbd(ACT[kind].key, ACT[kind].cmd)}</button>`;
 /** The bar: the labelled buttons, a divider and the icon buttons, then More and its card. The hint line sits above the
  *  row, so a hint never moves the buttons. More is a popover: the card floats above the ticket, never cut off by it. */
 function bar(labelled, icons, rows) {
   const id = `m-${randomUUID()}`, ic = icons.filter(Boolean);
   return `<div class="act-foot"><p class="result" role="status"></p><div class="abar">${labelled.filter(Boolean).join('')}`
     + (ic.length ? `<span class="vr" aria-hidden="true"></span>${ic.join('')}` : '')
-    + `<button type="button" class="ib more-b" data-more popovertarget="${id}" aria-label="More" aria-haspopup="menu">${svg('more')}<span class="mw">More</span>${tip('More', ['.'])}</button>`
+    + `<button type="button" class="ib more-b" data-more popovertarget="${id}" aria-label="More" aria-haspopup="menu">${svg('more')}<span class="mw">More</span>${tip('More', [['.', 'ticket.more']])}</button>`
     + `<div class="menu" id="${id}" popover role="menu" aria-label="More actions">${rows.filter(Boolean).join('')}`
     + `<button type="button" class="mi-x" popovertarget="${id}" popovertargetaction="hide">Cancel</button></div></div></div>`;
 }
@@ -486,7 +489,7 @@ function plate(k, link, origin, answered, rules) {
   const flag = shotsMissing ? `<p class="kr-flag"><span class="kr-k">No screenshots</span><span class="kr-t">This call asks about something you can see.</span>`
     + `<button type="button" class="btn quiet kr-ask" data-ask-shots="${e(ASK_SHOTS)}"><span class="bl">Ask for them</span></button></p>` : '';
   return `<article class="plate" id="${e(id)}" data-thread="${e(k.thread.threadId)}" data-latest="${e(k.latestId || '')}"${k.atPass ? ' data-at' : ''} aria-labelledby="${e(id)}-t">`
-    + `<div class="plate-bar"><span class="proj" data-project="${e(k.project)}">${mark(k.project, k.icon)}${e(k.project)}</span><span class="stg"><i class="gd c-${DOT[k.place] || 'gray'}"></i>${e(k.place)}</span>${model(k.thread.model) ? `<span class="mdl">${e(model(k.thread.model))}</span>` : ''}<a class="open-t3" href="${e(link(k.thread))}" target="_blank" rel="noopener">Open in T3${svg('out')}<kbd>O</kbd></a>`
+    + `<div class="plate-bar"><span class="proj" data-project="${e(k.project)}">${mark(k.project, k.icon)}${e(k.project)}</span><span class="stg"><i class="gd c-${DOT[k.place] || 'gray'}"></i>${e(k.place)}</span>${model(k.thread.model) ? `<span class="mdl">${e(model(k.thread.model))}</span>` : ''}<a class="open-t3" href="${e(link(k.thread))}" target="_blank" rel="noopener">Open in T3${svg('out')}${kbd('O', 'ticket.open')}</a>`
     + `<button type="button" class="close" data-close aria-label="Close"><kbd>esc</kbd>${svg('x')}</button></div>`
     // The title, the ask, the pull requests and the screenshots stay pinned while the message scrolls (Dan, 2026-11-08).
     + `<div class="plate-main"><div class="plate-scroll" tabindex="-1"><header class="plate-head"><h2 class="plate-t" id="${e(id)}-t">${e(k.thread.title)}</h2>`
@@ -688,11 +691,11 @@ export function renderApp({ board, picked = null, link, status, origin, answered
   // list (Dan, 2026-11-08), pinned to the bottom of the column with no rule above them: the space does the separating
   // (Dan, 2026-11-09). With no stage list (phones) they stay in the top bar. The Shortcuts button went: ? and Settings open them.
   const lamps = `<ul class="lamps" aria-label="Sources"><li class="${lamp}" title="${e(detail)}"><i></i>${status.ok ? 'Live' : 'Not checked'}</li></ul>`;
-  const gear = `<button type="button" class="gear" data-settings aria-label="Settings" title="Settings (⌘,)">${svg('sliders')}</button>`;
+  const gear = `<button type="button" class="gear" data-settings data-tcmd="settings.open" aria-label="Settings" title="Settings (⌘,)">${svg('sliders')}</button>`;
   const navFoot = `<div class="nav-foot">${footMenu}<div class="nav-foot-row">${lamps}${gear}</div></div></div></nav>`;
   const strip = status.ok ? '' : `<div class="strip" role="status"><b>T3</b> not checked: ${e(status.error)}</div>`;
   // The logo is the view switch: white on blue for the focused pass, blue on white for You, expanded.
-  const logo = `<button type="button" class="logo" data-view-toggle aria-label="Show the full kitchen" title="Switch view (V)"><span class="flip"><span class="face f-pass">${svg('cloche')}</span><span class="face f-kitchen">${svg('cloche')}</span></span><span class="vh">Yes Chef</span></button>`;
+  const logo = `<button type="button" class="logo" data-view-toggle data-tcmd="view.toggle" aria-label="Show the full kitchen" title="Switch view (V)"><span class="flip"><span class="face f-pass">${svg('cloche')}</span><span class="face f-kitchen">${svg('cloche')}</span></span><span class="vh">Yes Chef</span></button>`;
   return `<header class="bar"><h1 class="brand">${logo}</h1><ul class="stats" aria-label="Counts">${stats}</ul>${lamps}${footMenu}${gear}</header>${strip}`
     + `<div class="board">${nav}${navFoot}${you}${teamWait}${pass}`
     + `<section class="reader" aria-label="Open ticket"><div class="reader-empty">${svg('cloche')}<p class="muted">Pick a ticket to read it here.</p></div></section></div>${projectOptions}`
