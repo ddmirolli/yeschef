@@ -1363,10 +1363,12 @@ html.s-team .vmenu .vi-team{display:block}
 .vmenu summary .vl,:is(.v-pass,.v-kitchen) .nav-foot .vmenu summary>span.vl{flex:none}
 .vmenu summary .vdot{flex:none;margin:0 -3px;color:var(--label2)}
 .vmenu summary .vp{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* The fan: each card steps right and turns a little more, and both shrink as the count grows, so ten still fit. */
+/* The fan: each card steps right and turns a little more, and both shrink as the count grows, so ten still fit.
+   When the chip is short of room ("Team" is wider than "You"), the fan gives way and its cards step by the width it
+   has (100cqw), so the dot and the chevron keep their places. */
 .vmenu .fan{--adv:min(12px,calc(40px / max(var(--n) - 1,1)));--step:min(8deg,calc(34deg / max(var(--n) - 1,1)));--mid:calc((var(--n) - 1) / 2);
-  position:relative;flex:none;margin-right:auto;width:calc(40px + (var(--n) - 1) * var(--adv));height:26px}
-.vmenu .fan .card{position:absolute;left:calc(10px + var(--i) * var(--adv));top:3px;width:20px;height:20px;border-radius:6px;background:var(--card);
+  container-type:inline-size;position:relative;flex:0 1 auto;min-width:0;margin-right:auto;width:calc(40px + (var(--n) - 1) * var(--adv));height:26px}
+.vmenu .fan .card{position:absolute;left:calc(10px + var(--i) * max(0px,min(var(--adv),(100cqw - 40px) / max(var(--n) - 1,1))));top:3px;width:20px;height:20px;border-radius:6px;background:var(--card);
   box-shadow:0 0 0 1.5px var(--card),0 1px 3px rgba(0,0,0,.28);transform:rotate(calc((var(--i) - var(--mid)) * var(--step)));transform-origin:50% 170%;
   transition:transform .35s cubic-bezier(.32,1.25,.5,1)}
 .vmenu .fan .card .pm{display:grid;width:20px;height:20px;border-radius:6px;font-size:11px}
@@ -2511,7 +2513,13 @@ ${BAR_HTML}
     function on(b){ return b.getAttribute('aria-checked') === 'true'; }
     if (pk === all) { if (on(all)) return; }
     else {
-      if (on(pk) && boxes.filter(on).length === 1) { pk.classList.remove('no'); void pk.offsetWidth; pk.classList.add('no'); return; }
+      // The last ticked box stays ticked and shakes once; the class goes when the shake ends, so reopening the menu
+      // does not shake it again.
+      if (on(pk) && boxes.filter(on).length === 1) {
+        pk.classList.remove('no'); void pk.offsetWidth; pk.classList.add('no');
+        pk.addEventListener('animationend', function(){ pk.classList.remove('no'); }, { once: true });
+        return;
+      }
       names = boxes.filter(function(b){ return b === pk ? !on(b) : on(b); }).map(function(b){ return b.dataset.p; });
       // Every box is All projects, unless T3 did not answer: then the list is not the whole of it.
       if (names.length === boxes.length && !nav.hasAttribute('data-nc')) names = null;
