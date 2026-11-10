@@ -91,6 +91,7 @@ export class Team {
     this.asks = new Map();       // request id -> { resolve, timer }
     this.out = new Map();        // action nonce -> { resolve, timer }
     this.rosterLock = Promise.resolve(); // the lead's roster edits, one at a time
+    this.writes = Promise.resolve();     // the store's writes, one at a time
     this.unsaved = false;        // the last roster floor did not reach the disk: the screens say so
     this.listeners = new Set();
     this.roster = null;          // the verified roster body
@@ -116,21 +117,23 @@ export class Team {
   // ---- state and events ----
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
   emit(type, data = {}) { for (const fn of [...this.listeners]) { try { fn({ type, ...data }); } catch { /* a listener's fault is its own */ } } }
-  save() {
+  /** Queue one write of the state as it is now. Writes go one at a time, in order, each a copy taken when it was
+   *  queued: an older write never lands after a newer one (PR-Agent r6 on public #7). Resolves true once written. */
+  write() {
     this.state.seen = [...this.seen];
+    let snap;
+    try { snap = structuredClone(this.state); } catch { snap = JSON.parse(JSON.stringify(this.state)); }
+    const done = this.writes.then(() => this.saveFn(snap)).then(() => true, () => false);
+    this.writes = done;
     // A store that answers later (the desktop app's Keychain) reports here too: a failed write shows as unsaved, never
     // as an unhandled rejection (PR-Agent r5 on public #7).
-    try {
-      const p = this.saveFn(this.state);
-      if (p && typeof p.then === 'function') p.then(() => this.saved(true), () => this.saved(false));
-      else this.saved(true);
-      return true;
-    } catch { this.saved(false); return false; }
+    return done.then((ok) => { this.saved(ok); return ok; });
   }
+  save() { this.write(); return true; }
   /** The last save's outcome. The screens say "Not saved" until a later save gets through. */
   saved(ok) { const was = this.unsaved; this.unsaved = !ok; if (was !== this.unsaved) this.emit('team'); }
   /** Save and wait until the store says it is written. False when it failed: whatever needed it does not go ahead. */
-  async saveNow() { this.state.seen = [...this.seen]; try { await this.saveFn(this.state); this.saved(true); return true; } catch { this.saved(false); return false; } }
+  saveNow() { return this.write(); }
   setLink(link) { if (this.link !== link) { this.link = link; this.linkAt = this.now(); this.emit('link', { link }); } }
   async member() { return this.meCache || (this.meCache = await loadMember(this.state.me)); }
   async teamKey() { if (!this.key && this.state.key) this.key = await teamKey(this.state.key); return this.key; }
@@ -339,6 +342,7 @@ export class Team {
       case 'pending': return this.takePending(msg.pending);
       case 'pending-gone': this.pending.delete(msg.m); this.emit('team'); return;
       case 'invite': return this.takeInvite(msg.invite);
+      case 'invite-gone': this.invites.delete(msg.invite); this.emit('team'); return;
       case 'declined': return; // the close (4002) that follows ends it
       default: return;
     }
@@ -709,9 +713,10 @@ export class Team {
   async share(projectIds) {
     const before = new Set(this.state.shared || []);
     this.state.shared = [...new Set(projectIds.map(String))];
-    const ok = await this.saveNow();
+    // The waiting summary follows the new list first, so nothing from a dropped project goes out while it saves
+    // (PR-Agent r6 on public #7).
     this.shareNow(before);
-    return ok;
+    return this.saveNow();
   }
   shareNow(before) {
     if (!this.state.shared.length) { this.unshare(); return; }
@@ -759,7 +764,8 @@ export class Team {
       if (!hb || hb.ver <= (this.roster?.ver || 0)) { delete this.state.unsent; await this.saveNow(); }
       else {
         const r0 = await this.say({ t: 'roster', roster: held });
-        if (r0.t === 'ok') { delete this.state.unsent; await this.saveNow(); await this.takeRoster(held); return stale; }
+        // takeRoster saves the new floor first, then lets the kept copy go (PR-Agent r6 on public #7).
+        if (r0.t === 'ok') { await this.takeRoster(held); return stale; }
         // The relay is past this Mac's roster: read the team again (the next hello brings it). Nothing is signed till then.
         if (r0.code === 'stale') { this.refresh(); return stale; }
         return r0;
@@ -786,7 +792,7 @@ export class Team {
     this.state.unsent = roster;
     if (!(await this.saveNow())) { delete this.state.unsent; return { t: 'err', code: 'save', text: 'Not changed: Yes Chef could not save. Try again shortly.' }; }
     const r = await this.say({ t: 'roster', roster });
-    if (r.t === 'ok') { delete this.state.unsent; await this.saveNow(); await this.takeRoster(roster); }
+    if (r.t === 'ok') await this.takeRoster(roster);
     // Refused or unanswered, it is kept: it leaves once a roster at or past its version is in place here.
     else if (r.code === 'stale') this.refresh();
     return r;
