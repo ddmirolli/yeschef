@@ -1,7 +1,7 @@
 // The stream's shells as the rows `t3_thread_list` gave the board (ports of T3 Code v0.1.7's own mapping).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { threadRow, boardThreads, isSnoozed, changeTargets, threadFolder, prBase } from './shells.mjs';
+import { threadRow, boardThreads, isSnoozed, changeTargets, threadFolder, prBase, githubTargets } from './shells.mjs';
 import { buildBoard } from './board.mjs';
 
 const NOW = Date.parse('2026-11-10T12:00:00.000Z');
@@ -106,4 +106,29 @@ test('whose changes to follow: open threads and any with an open PR, in the fold
   assert.equal(threadFolder({ worktreePath: null }, null), null);
   assert.equal(prBase({ pullRequests: [pr('open', { source: 'stack-dismissed' })] }), null, 'a dismissed link is not the thread\'s PR');
   assert.equal(prBase({ pullRequests: [pr('closed'), pr('open')] }), 'staging');
+});
+
+test('what GitHub is asked: the PR\'s repo and base, else the folder\'s; each open PR once, with its thread\'s last move', () => {
+  const pr = (number, state, extra = {}) => ({ repository: 'o/r', number, url: 'u', source: 'created', snapshot: { state, baseBranch: 'staging' }, ...extra });
+  const shells = new Map([
+    ['with-pr', shell('with-pr', { pullRequests: [pr(7, 'open'), pr(6, 'merged'), pr(5, 'open', { source: 'stack-dismissed' })], updatedAt: iso(-3) })],
+    ['same-pr', shell('same-pr', { pullRequests: [pr(7, 'open', { host: 'GitHub.com' })], updatedAt: iso(-1) })],
+    ['local', shell('local')],
+    ['no-remote', shell('no-remote')],
+    ['unread', shell('unread')],
+  ]);
+  const local = (id) => ({
+    local: { state: 'checked', remote: { host: 'github.com', repo: 'o/app' }, base: { branch: 'main' } },
+    'no-remote': { state: 'checked', remote: null, base: { branch: 'main' } },
+    unread: { state: 'not-checked', why: 'the folder is gone' },
+  })[id] ?? null;
+  const got = githubTargets(['with-pr', 'same-pr', 'local', 'no-remote', 'unread'].map((id) => ({ id })), shells, local);
+  assert.deepEqual(got.base, [
+    { id: 'with-pr', host: 'github.com', repo: 'o/r', branch: 'staging' },
+    { id: 'same-pr', host: 'github.com', repo: 'o/r', branch: 'staging' },
+    { id: 'local', host: 'github.com', repo: 'o/app', branch: 'main' },
+    { id: 'no-remote', why: 'the folder has no remote named origin' },
+    { id: 'unread', why: 'its folder is not checked: the folder is gone' },
+  ]);
+  assert.deepEqual(got.prs, [{ host: 'github.com', repo: 'o/r', number: 7, stamp: iso(-1) }], 'merged and dismissed links are left out; a shared PR takes the latest move');
 });
