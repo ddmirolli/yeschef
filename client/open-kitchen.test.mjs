@@ -722,3 +722,17 @@ test('r9: a missing merge base is not checked, never said to be two merge bases'
   assert.ok(!html.includes('two merge bases'));
   assert.ok(html.includes('Lines not checked'));
 });
+
+// ---- PR B, PR-Agent round 10 ----
+test('r10: a merge’s branch and commit come from whichever copy gives them, so the ribbon still marks the break', () => {
+  const v = viewL();
+  const ravi = who(v, 'ravi').summary.tickets.find((k) => k.prs.some((pr) => pr.n === 431));
+  const pr431 = ravi.prs.find((pr) => pr.n === 431);
+  // An earlier copy (Kai's thread, read first) says #431 is open and names no base.
+  who(v, 'kai').summary.tickets[0].prs.push({ ...pr431, state: 'open', mergedAt: null, base: null, mergeSha: null });
+  const i = v.people.findIndex((p) => p.id === 'kai');
+  v.people.splice(1, 0, ...v.people.splice(i, 1));
+  assert.equal(v.people[1].id, 'kai', 'Kai is read before Ravi');
+  const m = board(v).base.merges.find((x) => x.n === 431);
+  assert.equal(m.tone, 'red', 'the merged copy names main, so the break is marked');
+});
