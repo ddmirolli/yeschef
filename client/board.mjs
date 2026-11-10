@@ -669,14 +669,16 @@ function callWords(c, { name, now, people }) {
       const bands = top.shared.map((r) => `<div class="band" style="left:calc(62px + (100% - 62px) * ${((r[0] - 1) / L).toFixed(4)});width:calc((100% - 62px) * ${((r[1] - r[0] + 1) / L).toFixed(4)})"></div>`).join('');
       const ticks = [1, Math.round(L / 4), Math.round(L / 2), Math.round((3 * L) / 4), L];
       const s0 = top.shared[0];
-      const lines = s0[0] === s0[1] ? `Line ${s0[0]}` : `Lines ${s0[0]} to ${s0[1]}`;
+      // From two merge bases the line numbers are near, not exact: "About".
+      const lines = (f.near ? 'About l' : 'L') + (s0[0] === s0[1] ? `ine ${s0[0]}` : `ines ${s0[0]} to ${s0[1]}`);
       const map = `<div class="tvis">${vlab(`<span class="mono">${e(top.path)}</span>`, `${lines}, both${top.shared.length > 1 ? `, and ${top.shared.length - 1} more` : ''}`, 'red')}<div class="fmap">`
         + lane(A, top.a) + lane(B, top.b) + bands + `<div class="ticks"><span></span><div>${ticks.map((t) => `<span>${t}</span>`).join('')}</div></div></div>`
         + (f.files.length > 1 ? `<p class="tmore">Also the same lines of ${plural(f.files.length - 1, 'more file')}: ${e(f.files.slice(1, 4).map((x) => x.path.split('/').pop()).join(', '))}${f.files.length > 4 ? ', …' : ''}</p>` : '') + '</div>';
       return {
         title: `${names} both change ${top.path.split('/').pop()}`,
         preview: both ? 'Both PRs are open. Whoever merges second redoes the work.' : 'Whoever merges second redoes the work.',
-        lead: `Both change ${lines.toLowerCase()} of ${top.path}. Whoever merges second redoes part of the work.`,
+        lead: `Both change ${lines.toLowerCase()} of ${top.path}. Whoever merges second redoes part of the work.`
+          + (f.near ? ' They started from different points on the base, so the line numbers are near, not exact.' : ''),
         suggest: `Ask ${R} to rebase`,
         why: `Ask ${R} to rebase${kpr ? ` on #${kpr.n}` : ''}. ${pos(K)} thread is ${String(f.keeper.ticket.place || 'further along').toLowerCase()} and further along.`,
         body: `<div class="duo">${card(A)}${card(B)}</div>` + map,

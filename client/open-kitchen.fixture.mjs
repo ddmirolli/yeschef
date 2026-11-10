@@ -33,7 +33,7 @@ export function fixtureView(now = Date.UTC(2026, 10, 10, 14, 3)) {
     summary: { v: 1, tickets, more: 0, bases: [], seen: {} }, ...more });
   const people = [
     person('ravi', 'Ravi', ravi, { summary: { v: 1, tickets: ravi, more: 0, seen: { [callId('main', 'acme/fernpay@main', mainRed)]: ago(4) },
-      bases: [{ repo: 'acme/fernpay', branch: 'main', sha: 'f431', title: 'Updater channel picker (#431)', committedAt: iso(mainRed), result: 'failing', requiredResult: 'failing', failing: ['test:desktop'], at: ago(2) }] } }),
+      bases: [{ repo: 'acme/fernpay', branch: 'main', sha: 'f431', title: 'Updater channel picker (#431)', committedAt: iso(mainRed), redSince: iso(mainRed), result: 'failing', requiredResult: 'failing', failing: ['test:desktop'], at: ago(2) }] } }),
     person('kai', 'Kai', [kai]), person('jon', 'Jon', [jon]), person('nina', 'Nina', [nina]),
     person('iris', 'Iris', [t('mcp:iris-1', 'Fernpay', 'In review', 'Export: tables', { startedAt: iso(ago(51)), prs: [pr('acme/fernpay', 440, 'open', { size: { files: 41, added: 1079, removed: 161, at: ago(3) } })],
       changes: ch('acme/fernpay', [['packages/export/src/tables/a.ts', 598, 42], ['packages/export/src/markdown/b.ts', 262, 48], ['apps/web/src/export/c.ts', 131, 59], ['packages/contracts/src/d.ts', 88, 12], ['pnpm-lock.yaml', 2104, 0, 1]].map(([p, a, d, x]) => ({ p, r: [[1, a]], a, d, ...(x ? { x: 1 } : {}) }))) })]),

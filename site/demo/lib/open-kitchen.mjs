@@ -41,6 +41,8 @@ const ms = (v) => { const t = typeof v === 'number' ? v : Date.parse(v); return 
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 // A teammate's summary is outside data: a list that is not one reads as empty, and an entry that is not an object drops.
 const arr = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object') : []);
+// A PR from a teammate's summary counts only with a whole number and an owner/name repo: both reach the page's markup.
+const okPr = (pr) => Number.isInteger(pr.n) && pr.n > 0 && typeof pr.repo === 'string' && /^[\w.-]+\/[\w.-]+$/.test(pr.repo);
 const prKey = (repo, n) => `${String(repo).toLowerCase()}#${n}`;
 
 /** Who is below me. Until 3b's chart carries `under`, a lead has everyone on the roster below them and nobody else
@@ -72,11 +74,15 @@ export function reporting(p, { now, link, rules = RULES }) {
 // ---- The detectors. Each returns calls: { id, kind, tone, subject, since, who: [person ids], thread, project,
 // prs, holds, facts }. `facts` is what the reader shows; numbers stay numbers, and the screens format them. ----
 
-/** Main broken: a required check fails on a base branch (3a's requiredResult; null is not checked). The cause is the PR merged last before the break; it is a
- *  clean roll back when nothing merged after it. Bases are deduplicated across devs by the newest read. */
+/** Main broken: a required check fails on a base branch (3a's requiredResult; null is not checked). The break is
+ *  `redSince`, the commit time of the first red commit in the current run of red (proposed: the dev's Mac keeps it
+ *  from read to read). The head's own `committedAt` moves with every merge, so it never names a cause. The cause is
+ *  the PR merged last before the break; it is a clean roll back when nothing merged after it. With no `redSince`, the
+ *  cause is not checked. Bases come only from Macs online now (another dev's merge can turn a base red or green while
+ *  a Mac is away), deduplicated by the newest read. */
 function mainBroken(people, tickets) {
   const bases = new Map();
-  for (const p of people) for (const b of p.reporting ? arr(p.summary?.bases) : []) {
+  for (const p of people) for (const b of p.reporting && p.online === true ? arr(p.summary?.bases) : []) {
     if (!b?.repo || !b.branch) continue;
     const key = `${String(b.repo).toLowerCase()}@${b.branch}`, have = bases.get(key);
     if (!have || (num(b.at) ?? 0) > (num(have.at) ?? 0)) bases.set(key, b);
@@ -84,7 +90,7 @@ function mainBroken(people, tickets) {
   const out = [];
   for (const [key, b] of bases) {
     if (b.requiredResult !== 'failing') continue; // null is not checked, never a guess
-    const red = ms(b.committedAt);
+    const red = ms(b.redSince);
     const repo = key.slice(0, key.lastIndexOf('@'));
     const inRepo = tickets.flatMap(({ k, p }) => arr(k.prs).map((pr) => ({ pr, k, p }))).filter(({ pr }) => String(pr.repo).toLowerCase() === repo);
     const merged = inRepo.filter(({ pr }) => pr.state === 'merged' && ms(pr.mergedAt) !== null).sort((a, z) => ms(a.pr.mergedAt) - ms(z.pr.mergedAt));
@@ -130,7 +136,7 @@ function overlap(tickets) {
         const x = span(ra), y = span(rb);
         if (overlaps(x, y)) shared.push([Math.max(x[0], y[0]), Math.min(x[1], y[1])]);
       }
-      if (shared.length) files.push({ path: fa.p, a: fa.r, b: fb.r, shared, lines: shared.reduce((n, s) => n + s[1] - s[0] + 1, 0) });
+      if (shared.length) files.push({ path: fa.p, a: fa.r.filter(rng), b: fb.r.filter(rng), shared, lines: shared.reduce((n, s) => n + s[1] - s[0] + 1, 0) });
     }
     if (!files.length) continue;
     files.sort((x, y) => y.lines - x.lines || x.path.localeCompare(y.path));
@@ -145,16 +151,18 @@ function overlap(tickets) {
       id: callId('overlap', `${first.k.thread}+${second.k.thread}`, since), kind: 'overlap', subject: `${first.k.thread}+${second.k.thread}`, since,
       who: [...new Set([A.p.id, B.p.id])], thread: rebaser.k.thread, project: A.k.project,
       prs: [...arr(keeper.k.prs), ...arr(rebaser.k.prs)].filter((pr) => pr.state === 'open').slice(0, 2), holds: 2,
-      facts: { files, sides: [A, B].map(({ k, p }) => ({ person: p.id, ticket: k })), rebaser: { person: rebaser.p.id, ticket: rebaser.k }, keeper: { person: keeper.p.id, ticket: keeper.k } },
+      // Ranges are base-side lines; from two different merge bases they are near, not exact (lines merged between move them).
+      facts: { near: !ca.mergeBase || ca.mergeBase !== cb.mergeBase, files, sides: [A, B].map(({ k, p }) => ({ person: p.id, ticket: k })), rebaser: { person: rebaser.p.id, ticket: rebaser.k }, keeper: { person: keeper.p.id, ticket: keeper.k } },
     });
   }
   return out;
 }
 
-/** Failing: an open PR's checks failed 3 runs in a row. since: the first red run of the streak. */
+/** Failing: an open PR's checks failed 3 runs in a row. since: the first red run of the streak. Only from a Mac online
+ *  now: checks can be run again on GitHub while the dev's Mac is away. */
 function failing(tickets, rules) {
   const out = [];
-  for (const { k, p, live } of tickets) for (const pr of live ? arr(k.prs) : []) {
+  for (const { k, p, live } of tickets) for (const pr of live && p.online === true ? arr(k.prs) : []) {
     const c = pr.checks, n = num(c?.redRuns);
     if (pr.state !== 'open' || n === null || n < rules.failRuns) continue;
     const runs = arr(c.runs);
@@ -213,7 +221,9 @@ function tooBig(tickets, rules) {
 /** Does this call reach the lead's Pass, and why. Open kitchen: a call goes first to its dev, and reaches the lead
  *  when it is red; when nobody marks it Seen within its time; or when its own rule says so. seen: { person id: at }. */
 export function reach(call, { seen = {}, quiet = new Set(), now, rules = RULES }) {
-  const age = call.since === null ? 0 : (now - call.since) / MIN;
+  // A Stuck call rises 20 minutes after its last activity, so its wait for Seen starts then, not at the activity.
+  const from = call.since === null ? null : call.kind === 'stuck' ? call.since + rules.stuckMin * MIN : call.since;
+  const age = from === null ? 0 : Math.max(0, (now - from) / MIN);
   const anySeen = call.who.some((id) => seen[id]);
   if (KINDS[call.kind].tone === 'red') return { lead: true, why: 'red' };
   if (call.kind === 'waiting') {
@@ -255,7 +265,7 @@ export function openKitchen(view, { now = Date.now(), rules = RULES } = {}) {
   const people = team.map((p) => ({ ...p, reporting: reporting(p, { now, link: view.link, rules }) }));
   if (!people.some((p) => p.summary)) return { status: 'not-checked', why: 'no-summaries', people: people.map((p) => ({ ...p, state: 'unknown' })), pass: [], held: [] };
   const quiet = new Set(people.filter((p) => p.reporting === false).map((p) => p.id));
-  const tickets = people.flatMap((p) => arr(p.summary?.tickets).map((k) => ({ k, p, live: p.reporting === true })));
+  const tickets = people.flatMap((p) => arr(p.summary?.tickets).map((k) => ({ k: { ...k, prs: arr(k.prs).filter(okPr) }, p, live: p.reporting === true })));
   // Only a reporting dev's data raises a call: a quiet Mac's is old. Waiting is the exception: a question still waits
   // while its dev is away, and that is when it reaches the lead.
   const calls = [...mainBroken(people, tickets.filter((t) => t.live)), ...overlap(tickets), ...failing(tickets, rules), ...stuck(tickets, now, rules), ...waiting(tickets, now, rules), ...tooBig(tickets, rules)];

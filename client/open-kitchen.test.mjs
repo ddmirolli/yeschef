@@ -83,10 +83,26 @@ test('Main broken needs a failing required check; the cause is the last merge be
   assert.equal(read(v).pass[0].facts.clean, false);
   // Nothing merged before the break: no cause is named.
   v = view();
-  who(v, 'ravi').summary.bases[0].committedAt = new Date(ago(400)).toISOString();
+  who(v, 'ravi').summary.bases[0].redSince = new Date(ago(400)).toISOString();
   const none = read(v).pass[0];
   assert.equal(none.facts.cause, null);
   assert.deepEqual(none.who, []);
+  // A later merge moves the head's time, never the break: the cause stays #431, and the roll back is no longer clean.
+  v = view();
+  const base = who(v, 'ravi').summary.bases[0];
+  who(v, 'priya').summary.tickets[1].prs[0].mergedAt = base.committedAt = new Date(ago(100)).toISOString();
+  const later = read(v).pass[0];
+  assert.equal(later.facts.cause.pr.n, 431);
+  assert.equal(later.facts.clean, false);
+  assert.equal(later.id, read(view()).pass[0].id, 'the call keeps its id, so Seen still matches');
+  // No time for the break: the cause is not checked.
+  v = view();
+  delete who(v, 'ravi').summary.bases[0].redSince;
+  assert.equal(read(v).pass[0].facts.cause, null);
+  // A Mac away now: its base reads are not used (someone may have fixed main since).
+  v = view();
+  Object.assign(who(v, 'ravi'), { online: false, lastSeen: ago(5) });
+  assert.ok(!read(v).pass.some((c) => c.kind === 'main'));
   // Two devs read the same base: the newest read counts.
   v = view();
   who(v, 'maya').summary.bases = [{ ...who(v, 'ravi').summary.bases[0], requiredResult: 'passing', at: ago(1) }];
@@ -266,4 +282,31 @@ test('a page with odd strings in a teammate’s summary still draws', () => {
   const k = ticket(v, 'ravi');
   k.title = 42; v.people[0].name = null;
   assert.doesNotThrow(() => page({ view: v, now: NOW }));
+});
+
+test('review r1: a bad PR number never reaches the page; bad ranges drop; Stuck waits for Seen; near ranges say so', () => {
+  let v = view();
+  ticket(v, 'ravi').prs[0].n = '"><img src=x onerror=alert(1)>';
+  let k = read(v);
+  assert.equal(k.pass.find((c) => c.kind === 'main').facts.cause.pr.n, 430, 'the PR with a bad number drops; the merge before it is next');
+  assert.ok(!page({ view: v, now: NOW }).includes('<img src=x'));
+  v = view();
+  const jon = who(v, 'jon').summary.tickets[0].changes.files.find((f) => f.p === 'contracts/src/orchestration.ts');
+  jon.r = [null, ...jon.r];
+  const ov = read(v).pass.find((c) => c.kind === 'overlap');
+  assert.ok(ov.facts.files[0].b.every((r) => Array.isArray(r)));
+  assert.doesNotThrow(() => page({ view: v, now: NOW }));
+  assert.equal(ov.facts.near, false, 'one merge base: exact');
+  v = view();
+  who(v, 'jon').summary.tickets[0].changes.mergeBase = 'b9';
+  assert.equal(read(v).pass.find((c) => c.kind === 'overlap').facts.near, true);
+  assert.match(page({ view: v, now: NOW }), /About lines 120 to 168/);
+  // Stuck rises at 20 min quiet and reaches the lead 15 min later, unseen.
+  const call = { kind: 'stuck', since: ago(25), who: ['omar'], facts: {} };
+  assert.equal(reach(call, { now: NOW }).lead, false);
+  assert.equal(reach({ ...call, since: ago(36) }, { now: NOW }).lead, true);
+  // Failing needs a Mac online now.
+  v = view();
+  Object.assign(who(v, 'nina'), { online: false, lastSeen: ago(3) });
+  assert.ok(!read(v).pass.some((c) => c.kind === 'failing' && c.who[0] === 'nina'));
 });
