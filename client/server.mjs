@@ -2289,7 +2289,7 @@ ${BAR_HTML}
       var on = !!kind && b.value === kind, lead = kind ? on : b.dataset.fill === '1';
       b.classList.toggle('armed', on);
       b.classList.toggle('fill', lead);
-      if (kb) { kb.textContent = on ? SK() : b.dataset.key; kb.hidden = !!kind && !on && b.dataset.key === SK(); }
+      if (kb) { kb.textContent = on ? SK() : b.dataset.key; kb.classList.toggle('nokey', !kb.textContent); kb.hidden = !!kind && !on && b.dataset.key === SK(); }
       // The blue action's tooltip says "M or ⌘↵": while another action is armed, Cmd+Enter is that one's.
       $$('kbd', b).slice(1).forEach(function(k2){ k2.hidden = !!kind && !on; });
     });
@@ -2311,7 +2311,7 @@ ${BAR_HTML}
     if (kb) {
       if (b.dataset.fill === undefined) { b.dataset.fill = b.classList.contains('fill') ? '1' : ''; b.dataset.key = kb.textContent; }
       var free = !f.dataset.intent && !$('button.primary', f), wrote = !!(f.elements.note && f.elements.note.value && f.elements.note.value.trim()) && !stale(f);
-      if (!f.dataset.intent) kb.textContent = free && wrote ? SK() : b.dataset.key;
+      if (!f.dataset.intent) { kb.textContent = free && wrote ? SK() : b.dataset.key; kb.classList.toggle('nokey', !kb.textContent); }
       // The button Cmd+Enter sends is the blue one, so Reply fills while it owns the key (r16, Astra).
       if (!f.dataset.intent) b.classList.toggle('fill', b.dataset.fill === '1' || (free && wrote));
     }
@@ -2963,7 +2963,8 @@ ${BAR_HTML}
     if (!c || (K.plain(c) && typing) || (dialog && K.dialogKey(c)) || (/^[a-i]$/.test(c) && optionTakes(c))) { onKey(ev); return; }
     var r = K.route(KST, c, { ticket: !!mounted, dialog: dialog });
     if (!r) { onKey(ev); return; }
-    if (r.as) { onKey(K.synth(r.as, ev)); return; }
+    // A changed key is the shortcut's alone, so the browser never also acts on it (Hold on ⌘F opens no Find).
+    if (r.as) { ev.preventDefault(); onKey(K.synth(r.as, ev)); return; }
     ev.preventDefault();
     if (r.run && !dialog && !ev.repeat) RUN[r.run]();
   });

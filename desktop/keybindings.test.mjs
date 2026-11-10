@@ -56,6 +56,13 @@ test('only a list of commands with short text fields is saved; other fields are 
     const f = join(d, 'keybindings.json');
     assert.match(writeKeybindings(f, 'nope').error, /must be a list/);
     assert.deepEqual(readdirSync(d), [], 'a refused list writes nothing');
+    // The most the cleaner lets through can still be more than the reader takes: then nothing is written either.
+    const big = Array.from({ length: MAX_ENTRIES }, (_, i) => ({ key: 'k'.repeat(200), command: `c${i}`.padEnd(200, 'x'), when: 'w'.repeat(200) }));
+    assert.match(writeKeybindings(f, big).error, /larger than 256 KB/);
+    assert.deepEqual(readdirSync(d), [], 'a list too large to read back writes nothing');
+    const most = big.slice(0, 100);
+    assert.deepEqual(writeKeybindings(f, most), { ok: true });
+    assert.deepEqual(readKeybindings(f), { list: most }, 'what is written reads back');
   } finally { rmSync(d, { recursive: true, force: true }); }
 });
 

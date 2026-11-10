@@ -45,6 +45,8 @@ export function writeKeybindings(file, list) {
   const clean = cleanKeybindings(list);
   if (clean.error) return clean;
   const text = clean.list.length ? `[\n${clean.list.map((e) => `  ${JSON.stringify(e)}`).join(',\n')}\n]\n` : '[]\n';
+  // Never write a file the reader would refuse.
+  if (Buffer.byteLength(text) > MAX_BYTES) return { error: 'These shortcuts would make keybindings.json larger than 256 KB, so Yes Chef did not save them.' };
   const tmp = `${file}.${process.pid}.tmp`;
   try {
     mkdirSync(dirname(file), { recursive: true });
