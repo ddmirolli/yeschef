@@ -121,13 +121,13 @@ export class Team {
     const live = this.link === 'online';
     return {
       status: this.state.status, link: this.link, linkAt: this.linkAt, team: this.state.team, teamName: this.state.teamName,
-      me: this.me ? { id: this.meId, name: this.me.name, role: this.me.role, perms: this.me.perms, area: this.me.area } : { id: this.meId, name: this.state.name, role: null, perms: [], area: null },
+      me: this.me ? { id: this.meId, name: this.me.name, role: this.me.role, perms: this.me.perms, area: this.me.area, under: this.me.under } : { id: this.meId, name: this.state.name, role: null, perms: [], area: null, under: null },
       lead: this.isLead, leadName: this.people.get(this.roster?.lead)?.name || this.state.leadName || '',
       code: this.state.status === 'pending' ? this.state.code || null : null, asked: this.state.projects || [],
       areas: this.areas.map((a) => ({ ...a })),
       people: [...this.people.values()].map((p) => {
         const s = this.summaries.get(p.id);
-        return { id: p.id, name: p.name, role: p.role, perms: p.perms, area: p.area, online: live && this.online.has(p.id),
+        return { id: p.id, name: p.name, role: p.role, perms: p.perms, area: p.area, under: p.under, online: live && this.online.has(p.id),
           summary: s?.body || null, at: s?.at || null, live: live && !!s };
       }),
       pending: [...this.pending.values()].map(({ m, at, code, name, projects }) => ({ m, at, code, name, projects })),
@@ -373,8 +373,9 @@ export class Team {
     this.people = new Map(body.members.map((m) => {
       const d = people[m.id] || {};
       const g = m.id === body.lead ? grant('lead') : grant(d.role, d.perms);
-      return [m.id, { id: m.id, sign: m.sign, dh: m.dh, invite: !!m.invite || m.id === body.lead, name: clean(d.name, 60) || 'Not checked', ...g, area: areaFor(g.role, d.area, this.areas) }];
+      return [m.id, { id: m.id, sign: m.sign, dh: m.dh, invite: !!m.invite || m.id === body.lead, name: clean(d.name, 60) || 'Not checked', ...g, area: areaFor(g.role, d.area, this.areas), under: d.under }];
     }));
+    readUnder(this.people, body.lead);
     for (const id of [...this.summaries.keys()]) if (!this.people.has(id)) this.summaries.delete(id);
     for (const id of [...this.summaryFloor.keys()]) if (!this.people.has(id)) this.summaryFloor.delete(id);
     // Made a Viewer: nothing more goes out, and the relay's copy goes (PR-Agent r1 on #79).
@@ -665,9 +666,14 @@ export class Team {
     const list = readAreas(areas);
     const detail = { people: {}, areas: list };
     const members = [];
-    for (const [id, p] of people) {
+    const placed = new Map([...people].map(([id, p]) => {
       const g = id === me.id ? grant('lead') : grant(p.role, p.perms);
-      detail.people[id] = { name: clean(p.name, 60), ...g, area: areaFor(g.role, p.area, list) };
+      return [id, { ...g, area: areaFor(g.role, p.area, list) }];
+    }));
+    const under = chartUnder(placed, me.id, list);
+    for (const [id, p] of people) {
+      const g = placed.get(id);
+      detail.people[id] = { name: clean(p.name, 60), role: g.role, perms: g.perms, area: g.area, ...(under.has(id) ? { under: under.get(id) } : {}) };
       members.push({ id, sign: p.sign, dh: p.dh, ...(g.perms.includes('invite') ? { invite: true } : {}) });
     }
     const roster = await signRoster(me, { team: this.state.team, ver, lead: me.id, at: this.now(), members, detail: await seal(await this.teamKey(), detail, aad.detail(this.state.team, ver)) });
@@ -787,6 +793,33 @@ function readAreas(list) {
     if (out.length >= AREA_MAX) break;
   }
   return out;
+}
+/** Who each member reports to, from where the lead put them on the chart (Dan's 1b): an Engineer in an area reports to
+ *  that area's first Area owner; everyone else, and an Engineer in an area with no owner, to the lead. The lead reports
+ *  to nobody. people: Map id -> { role, area }. Returns Map id -> the id they report to. */
+export function chartUnder(people, lead, areas) {
+  const owner = new Map();
+  for (const [id, p] of people) if (p.role === 'owner' && p.area && !owner.has(p.area)) owner.set(p.area, id);
+  const out = new Map();
+  for (const [id, p] of people) {
+    if (id === lead) continue;
+    out.set(id, p.role === 'engineer' && p.area && areas.some((a) => a.id === p.area) && owner.has(p.area) ? owner.get(p.area) : lead);
+  }
+  return out;
+}
+/** The `under` the lead signed, checked in place: a member on this roster, never the lead or a loop. Anything else is
+ *  null, which the screens read as "not checked". The lead's is always null. */
+export function readUnderForTest(people, lead) { readUnder(people, lead); }
+function readUnder(people, lead) {
+  for (const p of people.values()) {
+    if (p.id === lead || typeof p.under !== 'string' || p.under === p.id || !people.has(p.under)) { p.under = null; continue; }
+  }
+  for (const p of people.values()) {
+    // Follow the chain up: it must reach the lead within the team's size, or it is a loop.
+    let at = p, steps = 0;
+    while (at && at.id !== lead && at.under && steps <= people.size) { at = people.get(at.under); steps++; }
+    if (p.under && (!at || at.id !== lead)) p.under = null;
+  }
 }
 /** A member's area: only an Area owner or an Engineer sits in one, and only one that is on the list. */
 function areaFor(role, area, areas) {

@@ -64,7 +64,7 @@ The relay checks only who may change the team. What a role may do to a dev's thr
 
 **The match code** (Dan's 2a). Six digits, the same on the dev's waiting screen and beside the ask at the lead: SHA-256 over the team, the invite, the invite's secret and the dev's two public keys. A key swapped on the way gives other digits. The relay knows the keys but not the secret, so it cannot try keys until one gives the dev's digits.
 
-**Areas** travel inside the roster the lead signs, sealed with the team key: the list of names and each member's area. Only an Area owner or an Engineer sits in one. Until Rules gives an area its projects and mode, it is a name only.
+**Areas** travel inside the roster the lead signs, sealed with the team key: the list of names and each member's area. Only an Area owner or an Engineer sits in one. Until Rules gives an area its projects and mode, it is a name only. Each member's `under` (who they report to) goes there too, from the chart: an Engineer in an area reports to its first Area owner; everyone else reports to the lead. Each Mac checks it: an `under` that names nobody on the roster, or loops, reads as not checked.
 
 **The link.** `https://yeschef.codes/join#<invite>` is a static page (`site/join.html`). It hands the fragment to the app as `yeschef://join#<invite>` and sends it nowhere else: no referrer, no request. The app opens Join with it.
 

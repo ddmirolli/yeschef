@@ -324,8 +324,9 @@ function joinedPage(v, projects, shared) {
   const can = PERMS.filter((p) => mine.has(p.key));
   const actors = v.people.filter((p) => p.id !== me.id && (p.perms || []).some((k) => k === 'reply' || k === 'merge'));
   const area = v.areas.find((a) => a.id === me.area);
+  const boss = me.under ? v.people.find((p) => p.id === me.under) : null;
   return `<div class="dev">
-    <div class="from">${av(lead || { name: v.leadName })}<div><h1>You're on ${e(v.teamName || 'the team')}</h1><p class="who">${e(lead?.name || v.leadName || 'The lead')} added you as <span class="badge">${e(ROLE_NAMES[me.role] || 'Not checked')}</span>${area ? ` in ${e(area.name)}` : ''}</p></div></div>
+    <div class="from">${av(lead || { name: v.leadName })}<div><h1>You're on ${e(v.teamName || 'the team')}</h1><p class="who">${e(lead?.name || v.leadName || 'The lead')} added you as <span class="badge">${e(ROLE_NAMES[me.role] || 'Not checked')}</span>${area ? ` in ${e(area.name)}` : ''}${boss && boss.id !== lead?.id ? `, reporting to ${e(boss.name)}` : ''}</p></div></div>
     <div class="box2"><div class="bh">Your role lets you</div><div class="acts-li">
       ${can.map((p) => `<div><span class="y">✓</span>${e(p.label)}</div>`).join('')}
       <div class="muted">Ask ${e(first(lead?.name || v.leadName))} for more.</div></div></div>

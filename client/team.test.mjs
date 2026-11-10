@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fakeRelay, fakeNet } from '../relay/fake.mjs';
-import { Team, createTeam, joinTeam, summarize, RETRY, ACT_TTL, BOARD_FRESH_MS } from './team.mjs';
+import { Team, createTeam, joinTeam, summarize, chartUnder, RETRY, ACT_TTL, BOARD_FRESH_MS } from './team.mjs';
 import { grant, allows, refusal, signature, DEFAULTS, PERMS, shares } from './roles.mjs';
 import { buildBoard } from './board.mjs';
 import { act } from './actions.mjs';
@@ -845,4 +845,30 @@ test('the lead\'s Yes Chef shows an open invite\'s link again, and it still lets
   const state = await joinTeam({ link: shown.link, name: 'Jon Park', net, now: () => relay.now() });
   assert.equal(state.status, 'pending');
   lead.stop();
+});
+
+test('under: each member reports to whom the chart says, sealed in the roster, and a bad one reads as not checked', async () => {
+  const { relay, lead, dev } = await crew();
+  assert.equal(dev.me.under, lead.meId, 'an Engineer in no area reports to the lead');
+  assert.equal((await lead.addArea('Site')).t, 'ok');
+  const site = lead.areas[0].id;
+  assert.equal((await lead.setRole(dev.meId, 'engineer', undefined, site)).t, 'ok');
+  await until(() => dev.me?.area === site, 'the dev in Site');
+  assert.equal(dev.me.under, lead.meId, 'no Area owner yet: still the lead');
+  assert.equal(dev.view().people.find((p) => p.id === lead.meId).under, null, 'the lead reports to nobody');
+  assert.doesNotMatch(relay.sql.exec('SELECT roster FROM team').one().roster, /under/);
+  // The chart rule alone: an Engineer in an area with an owner reports to that owner.
+  const people = new Map([['L', { role: 'lead' }], ['O', { role: 'owner', area: 'a' }], ['E', { role: 'engineer', area: 'a' }],
+    ['F', { role: 'engineer', area: 'b' }], ['D', { role: 'deputy' }], ['V', { role: 'viewer' }]]);
+  assert.deepEqual(Object.fromEntries(chartUnder(people, 'L', [{ id: 'a' }, { id: 'b' }])), { O: 'L', E: 'O', F: 'L', D: 'L', V: 'L' });
+  lead.stop(); dev.stop();
+});
+
+test('under from a roster that loops or names a stranger reads as not checked', async () => {
+  const p = (id, under) => [id, { id, under }];
+  const people = new Map([p('L', 'X'), p('A', 'B'), p('B', 'A'), p('C', 'nobody'), p('D', 'D'), p('E', 'L'), p('F', 'E')]);
+  // The check takeRoster runs on every roster it reads.
+  const { readUnderForTest } = await import('./team.mjs');
+  readUnderForTest(people, 'L');
+  assert.deepEqual(Object.fromEntries([...people].map(([id, x]) => [id, x.under])), { L: null, A: null, B: null, C: null, D: null, E: 'L', F: 'E' });
 });
