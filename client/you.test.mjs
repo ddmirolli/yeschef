@@ -215,11 +215,11 @@ test('stage dots are a gray ramp up to In progress, never orange', () => {
   assert.doesNotMatch(html, /c-amber[^"]*"><\/i>In progress|data-folder="In progress"><i class="gd c-amber/);
 });
 
-test('the rail opens with the person and one bar piece per thread on the line, in the rows\' order', () => {
+test('the rail opens with the person and one bar piece per thread on the line, Backlog to Merged, left to right', () => {
   const html = page();
   const row = html.match(/<div class="idrow">[\s\S]*?<\/span><\/div>/)[0];
   assert.match(row, /<span class="vh">You<\/span>/);
-  assert.deepEqual([...row.matchAll(/<i class="c-(\w+)"><\/i>/g)].map((m) => m[1]), ['merged', 'open', 'prog', 'planned', 'backlog']);
+  assert.deepEqual([...row.matchAll(/<i class="c-(\w+)"><\/i>/g)].map((m) => m[1]), ['backlog', 'planned', 'prog', 'open', 'merged']);
   assert.doesNotMatch(html, /Your threads<\/h3>|class="nav-h"/);
 });
 
