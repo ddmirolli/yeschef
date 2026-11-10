@@ -11,6 +11,12 @@ import {
 } from './seal.mjs';
 import { grant, allows, refusal, signature, shares } from './roles.mjs';
 
+/** A roster's fingerprint: SHA-256 of its signed body. Two rosters with one version must have one fingerprint. */
+async function rosterDigest(body) {
+  const h = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(body))));
+  return [...h].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 export const RETRY = { base: 1000, cap: 5 * 60000 };
 export const PING_MS = 30000, PONG_MS = 10000, ASK_MS = 15000;
 /** A teammate's action older than this is not run. It is also how long the relay holds it. */
@@ -84,6 +90,8 @@ export class Team {
     this.ws = null;
     this.asks = new Map();       // request id -> { resolve, timer }
     this.out = new Map();        // action nonce -> { resolve, timer }
+    this.rosterLock = Promise.resolve(); // the lead's roster edits, one at a time
+    this.unsaved = false;        // the last roster floor did not reach the disk: the screens say so
     this.listeners = new Set();
     this.roster = null;          // the verified roster body
     this.people = new Map();     // id -> { id, sign, dh, invite, name, role, perms }
@@ -122,7 +130,7 @@ export class Team {
   view() {
     const live = this.link === 'online';
     return {
-      status: this.state.status, link: this.link, linkAt: this.linkAt, team: this.state.team, teamName: this.state.teamName,
+      status: this.state.status, link: this.link, linkAt: this.linkAt, team: this.state.team, teamName: this.state.teamName, unsaved: this.unsaved,
       me: this.me ? { id: this.meId, name: this.me.name, role: this.me.role, perms: this.me.perms, area: this.me.area, under: this.me.under } : { id: this.meId, name: this.state.name, role: null, perms: [], area: null, under: null },
       lead: this.isLead, leadName: this.people.get(this.roster?.lead)?.name || this.state.leadName || '',
       code: this.state.status === 'pending' ? this.state.code || null : null, asked: this.state.projects || [],
@@ -225,12 +233,17 @@ export class Team {
     try {
       const me = await this.member();
       const path = `/v1/teams/${this.state.team}/me`;
-      const auth = await authToken(me, { team: this.state.team, method: 'GET', path, now: this.now() });
+      const signedAt = this.now();
+      const auth = await authToken(me, { team: this.state.team, method: 'GET', path, now: signedAt });
       const res = await this.net.http('GET', `${this.state.relay}${path}`, undefined, { authorization: `YesChef ${auth}` });
       if (res.status === 404) return 'ended';
       if (res.status === 401) {
         // A Mac clock far off fails every token: say so, and keep trying, rather than call the dev removed.
-        if (Number.isFinite(res.body?.now) && Math.abs(res.body.now - this.now()) > AUTH_SKEW_MS) { this.emit('clock', { off: res.body.now - this.now() }); return null; }
+        // Measured against the time the token was signed with, not the clock now: a clock set right while the request
+        // was out must not turn a skewed token into a removal (PR-Agent r4 on public #7).
+        if (Number.isFinite(res.body?.now) && Math.abs(res.body.now - signedAt) > AUTH_SKEW_MS) { this.emit('clock', { off: res.body.now - signedAt }); return null; }
+        // The clock moved while the request was out: try again with a fresh token before calling this Mac removed.
+        if (Math.abs(this.now() - signedAt) > AUTH_SKEW_MS) return null;
         return this.state.status === 'pending' ? 'declined' : 'removed';
       }
     } catch { /* the network: keep trying */ }
@@ -360,7 +373,18 @@ export class Team {
     const body = await readRoster(roster, { team: this.state.team, leadSignPub: this.state.leadSign });
     const floor = Math.max(this.roster?.ver || 0, Number(this.state.rosterVer) || 0);
     if (!body || body.ver < floor) return false;
-    if (body.ver > (Number(this.state.rosterVer) || 0)) { this.state.rosterVer = body.ver; this.save(); }
+    // One roster per version: a different roster signed at a version this Mac already took is refused, so a relay
+    // that kept two cannot swap one for the other (PR-Agent r4 on public #7).
+    const digest = await rosterDigest(roster.body);
+    if (body.ver === (Number(this.state.rosterVer) || 0) && this.state.rosterHash && this.state.rosterHash !== digest) return false;
+    if (body.ver > (Number(this.state.rosterVer) || 0) || !this.state.rosterHash) {
+      this.state.rosterVer = body.ver;
+      this.state.rosterHash = digest;
+      // The floor is waited for. When it does not reach the disk this Mac still takes the newer roster (the older one
+      // grants more), and the screens say the team is not saved (PR-Agent r4 on public #7).
+      this.unsaved = !(await this.saveNow());
+      if (body.ver < (this.roster?.ver || 0)) return false;
+    }
     const myId = this.meId || (await this.member()).id;
     if (!body.members.some((x) => x.id === myId)) { this.end('removed'); return 'removed'; }
     const sharedBefore = this.me ? shares(this.me.role) : null;
@@ -509,29 +533,41 @@ export class Team {
       this.emit('acted', { from: sender.id, name: sender.name, kind: body.action?.kind, thread: body.action?.thread, status, text });
       return this.reply(sender.id, nonce, status, text);
     };
-    const at = Number(body.at);
-    if (!Number.isFinite(at) || now - at > ACT_TTL || at - now > AUTH_SKEW_MS) return answer(409, 'Not run: that action is too old. Look again and send it fresh.');
     const action = body.action || {};
     const kind = String(action.kind || '');
-    if (!allows(sender, kind)) return answer(403, refusal(sender, kind));
-    if (!this.me || !shares(this.me.role)) return answer(409, 'Not run: this teammate shares no tickets.');
-    if (!this.run || !this.boardOf) return answer(409, 'Not checked: this teammate\'s Yes Chef cannot act yet.');
-    const b = this.boardOf();
-    if (!b?.ok || !b.board || now - b.at > BOARD_FRESH_MS) return answer(409, 'Not checked: this teammate\'s board is not fresh. Try again in a minute.');
-    // The thread must sit in a project this dev shares. A thread id from anywhere else is refused, whoever sends it.
     const thread = String(action.thread || '');
-    const ticket = b.board.tickets.find((k) => k.thread.threadId === thread || k.asks.some((a) => a.thread.threadId === thread));
-    const shared = new Set(this.state.shared || []);
-    if (!ticket || !shared.has(ticket.thread.projectId)) return answer(409, 'Not run: that ticket is not on this teammate\'s shared board.');
+    // Every check, from what this Mac holds at time t. It runs again after the save below: a project dropped, a role
+    // taken away or a board gone stale while the id was saved stops the action (PR-Agent r4 on public #7).
+    const gate = (t) => {
+      const at = Number(body.at);
+      if (!Number.isFinite(at) || t - at > ACT_TTL || at - t > AUTH_SKEW_MS) return [409, 'Not run: that action is too old. Look again and send it fresh.'];
+      if (this.stopped || this.state.status !== 'member') return [409, 'Not run: this Mac is no longer on the team.'];
+      const from = this.people.get(sender.id);
+      if (!from) return [403, 'Not run: the sender is no longer on the team.'];
+      if (!allows(from, kind)) return [403, refusal(from, kind)];
+      if (!this.me || !shares(this.me.role)) return [409, 'Not run: this teammate shares no tickets.'];
+      if (!this.run || !this.boardOf) return [409, 'Not checked: this teammate\'s Yes Chef cannot act yet.'];
+      const b = this.boardOf();
+      if (!b?.ok || !b.board || t - b.at > BOARD_FRESH_MS) return [409, 'Not checked: this teammate\'s board is not fresh. Try again in a minute.'];
+      // The thread must sit in a project this dev shares. A thread id from anywhere else is refused, whoever sends it.
+      const ticket = b.board.tickets.find((k) => k.thread.threadId === thread || k.asks.some((a) => a.thread.threadId === thread));
+      if (!ticket || !new Set(this.state.shared || []).has(ticket.thread.projectId)) return [409, 'Not run: that ticket is not on this teammate\'s shared board.'];
+      return null;
+    };
+    const no = gate(now);
+    if (no) return answer(...no);
     // The id is saved before T3 hears the action: if this Mac stops mid-run, the relay's copy that comes back gets
     // "not confirmed", never a second run (PR-Agent r2 on public #7).
     this.seen.set(seenKey, { at: now, status: 502, text: 'Not confirmed: this teammate\'s Yes Chef stopped while it ran the action. Check the thread before you send again.' });
     // The reservation must be on disk first. If it is not, nothing runs (PR-Agent r3 on public #7).
     if (!(await this.saveNow())) { this.seen.delete(seenKey); return this.reply(sender.id, nonce, 503, 'Not run: this teammate\'s Yes Chef could not save. Try again shortly.'); }
+    const late = gate(this.now());
+    if (late) return answer(...late);
+    const from = this.people.get(sender.id);
     let out;
     try {
       // The nonce T3 sees names the sender too, so one teammate's ids never collide with another's or with the dev's.
-      out = await this.run({ ...action, kind, thread, nonce: `t-${sender.id}-${nonce}` }, signature(sender), { holds: this.holds, answered: this.answered });
+      out = await this.run({ ...action, kind, thread, nonce: `t-${sender.id}-${nonce}` }, signature(from), { holds: this.holds, answered: this.answered });
     } catch (ex) { return answer(502, `Not checked: T3 did not take it (${clean(ex?.message || ex, 120)}). Check the thread.`); }
     return answer(out?.status || 500, clean(out?.text || 'No answer.', 300));
   }
@@ -668,7 +704,27 @@ export class Team {
   /** A new roster from the lead: people is the full list as Map id -> { sign, dh, name, role, perms, area }; areas is
    *  the team's list of { id, name }. */
   async pushRoster(people, areas = this.areas) {
+    // One edit at a time, so two edits never sign two rosters with one version (PR-Agent r4 on public #7).
+    const next = this.rosterLock.then(() => this.pushRosterNow(people, areas));
+    this.rosterLock = next.catch(() => {});
+    return next;
+  }
+  async pushRosterNow(people, areas) {
     if (!this.isLead) return { t: 'err', code: 'role', text: 'Only the lead can change the team.' };
+    const stale = { t: 'err', code: 'stale', text: 'The team changed while you edited it. Look again and try once more.' };
+    // A roster this Mac signed and the relay never confirmed goes again first: the lead never signs a second, different
+    // roster with that version.
+    const held = this.state.unsent;
+    if (held) {
+      const hb = await readRoster(held, { team: this.state.team, leadSignPub: this.state.leadSign });
+      if (!hb || hb.ver !== (this.roster?.ver || 0) + 1) { delete this.state.unsent; await this.saveNow(); }
+      else {
+        const r0 = await this.say({ t: 'roster', roster: held });
+        if (r0.t === 'ok') { delete this.state.unsent; await this.saveNow(); await this.takeRoster(held); return stale; }
+        if (r0.code === 'stale' && Number(r0.ver) >= hb.ver) { delete this.state.unsent; await this.saveNow(); return stale; }
+        return r0;
+      }
+    }
     const me = await this.member();
     const ver = this.roster.ver + 1;
     const list = readAreas(areas);
@@ -684,9 +740,13 @@ export class Team {
       detail.people[id] = { name: clean(p.name, 60), role: g.role, perms: g.perms, area: g.area, ...(under.has(id) ? { under: under.get(id) } : {}) };
       members.push({ id, sign: p.sign, dh: p.dh, ...(g.perms.includes('invite') ? { invite: true } : {}) });
     }
-    if ((people.ver !== undefined && people.ver !== this.roster.ver) || ver !== this.roster.ver + 1) return { t: 'err', code: 'stale', text: 'The team changed while you edited it. Look again and try once more.' };
+    if ((people.ver !== undefined && people.ver !== this.roster.ver) || ver !== this.roster.ver + 1) return stale;
     const roster = await signRoster(me, { team: this.state.team, ver, lead: me.id, at: this.now(), members, detail: await seal(await this.teamKey(), detail, aad.detail(this.state.team, ver)) });
+    // Kept until the relay answers, so a lost answer sends this same roster again, never a new one.
+    this.state.unsent = roster;
+    if (!(await this.saveNow())) { delete this.state.unsent; return { t: 'err', code: 'save', text: 'Not changed: Yes Chef could not save. Try again shortly.' }; }
     const r = await this.say({ t: 'roster', roster });
+    if (r.t === 'ok' || (r.code === 'stale' && Number(r.ver) >= ver)) { delete this.state.unsent; await this.saveNow(); }
     if (r.t === 'ok') await this.takeRoster(roster);
     return r;
   }

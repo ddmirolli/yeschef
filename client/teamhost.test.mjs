@@ -164,3 +164,9 @@ test('a save the store refused reaches the team client, so an action that needs 
   assert.equal(await t.saveNow(), false);
   lead.h.stop();
 });
+
+test('a team whose last change did not save says so above the page', () => {
+  const view = { status: 'member', lead: false, unsaved: true, link: 'online', me: { id: 'm1', name: 'Ada', role: 'engineer', perms: ['see'], area: null, under: null }, people: [], areas: [], pending: [], invites: [] };
+  assert.match(teamPage({ view }), /role="alert">Not saved: Yes Chef could not save/);
+  assert.doesNotMatch(teamPage({ view: { ...view, unsaved: false } }), /Not saved:/);
+});

@@ -673,13 +673,14 @@ test('the same invite sent again with the invites full is still taken once', asy
 });
 
 test('a team still waiting on the registry takes no socket, ask or second create until it is made', async () => {
-  let let_go, fail = false;
+  let let_go = null, fail = false;
   const relay = fakeRelay({ register: () => new Promise((ok, no) => { let_go = () => (fail ? no(new Error('registry down')) : ok()); }) });
   const id = newId();
   const lead = await newMember();
   const roster = await signRoster(lead, { team: id, ver: 1, lead: lead.id, at: relay.now(), members: [{ id: lead.id, sign: lead.signPub, dh: lead.dhPub }] });
   const making = relay.http('POST', `/v1/teams/${id}`, { roster });
-  await new Promise((r) => setTimeout(r, 0));
+  // Wait until the create is inside the registry call, however slow the machine.
+  for (let i = 0; !let_go; i++) { assert.ok(i < 2000, 'the create reached the registry'); await new Promise((r) => setTimeout(r, 1)); }
   const path = `/v1/teams/${id}/ws`;
   const early = await relay.connect(`${path}?auth=${await authToken(lead, { team: id, method: 'GET', path, now: relay.now() })}`);
   assert.equal(early.status, 503, 'no socket on a team that may yet be undone');
@@ -721,4 +722,37 @@ test('a dev declined while their socket token is checked is refused, not let in 
   assert.equal((await declined).t, 'ok');
   assert.equal(res.status, 401);
   assert.equal(t.relay.sockets().filter((s) => s.info.m === dev.id).length, 0);
+});
+
+test('a member removed after the socket was checked, before it opened, gets no socket and hears nothing', async () => {
+  const t = await team();
+  const lws = await t.ws(t.lead);
+  const inv = await t.invite(lws);
+  const { dev } = await t.join(inv);
+  await t.approve(lws, dev);
+  const room = t.relay.room, route = room.route.bind(room);
+  room.route = async (...a) => {
+    const out = await route(...a);
+    if (out?.upgrade?.m === dev.id) { t.people.delete(dev.id); assert.equal((await t.push(lws)).t, 'ok'); }
+    return out;
+  };
+  const late = await t.ws(dev);
+  assert.equal(late.status, 401);
+  room.route = route;
+  assert.equal(room.socketsOf(dev.id).length, 0);
+});
+
+test('HTTP requests that arrive together hold their places under the cap until they are counted', async () => {
+  const d = await team({ MAX_DAILY_REQUESTS: '6' });
+  // So far today: the create (1) and this socket (2). Four places left.
+  await d.ws(d.lead);
+  const room = d.relay.room, route = room.route.bind(room);
+  // Each answer waits on its way out, as it does through the Worker's own awaits.
+  room.route = async (...a) => { const out = await route(...a); await new Promise((r) => setTimeout(r, 5)); return out; };
+  const path = `/v1/teams/${d.id}/me`;
+  const me = async () => d.relay.http('GET', path, undefined, { authorization: `YesChef ${await authToken(d.lead, { team: d.id, method: 'GET', path, now: d.relay.now() })}` });
+  const out = await Promise.all([me(), me(), me(), me(), me(), me()]);
+  assert.equal(out.filter((r) => r.status === 200).length, 4);
+  assert.equal(out.filter((r) => r.status === 429).length, 2);
+  assert.equal(room.held, 0, 'every place is given back');
 });

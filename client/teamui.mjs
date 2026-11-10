@@ -185,6 +185,7 @@ dialog.dlg::backdrop{background:var(--scrim)}
 .devfoot .fine{flex:1;font-size:13px;color:var(--label3)}
 .wait{width:520px;max-width:calc(100vw - 32px);margin:110px auto 48px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px}
 .wait .lede{max-width:440px}
+.unsaved{margin:0 0 14px;padding:10px 14px;border-radius:10px;font-size:14px;font-weight:600;color:var(--red);background:color-mix(in srgb,var(--red) 10%,transparent)}
 .bigcode{margin-top:10px;padding:18px 26px 16px;border-radius:16px;background:var(--panel);display:grid;gap:6px}
 .bigcode b{font:600 34px/1 var(--mono);letter-spacing:.12em}
 .bigcode span{font-size:13px;color:var(--label2)}
@@ -378,8 +379,11 @@ export function teamBody({ lost = '', view = null, join = null, links = [], proj
   if (!view) return join ? joinPage(join, projects, t3, now) : startPage({ relay, name });
   if (view.status === 'pending') return waitingPage(view, projects);
   if (view.status !== 'member') return endedPage(view);
-  if (view.lead || (view.me.perms || []).includes('invite')) return leadPage(view, links, now);
-  return joinedPage(view, projects, shared);
+  // The team's last change did not reach the disk: after a restart this Mac could read an older team (PR-Agent r4 on
+  // public #7). Said above the page, in plain words.
+  const warn = view.unsaved ? `<p class="unsaved" role="alert">Not saved: Yes Chef could not save the team's latest change on this Mac. It is in use now; check the disk and the Keychain, then restart Yes Chef.</p>` : '';
+  if (view.lead || (view.me.perms || []).includes('invite')) return warn + leadPage(view, links, now);
+  return warn + joinedPage(view, projects, shared);
 }
 
 // The page script. It runs in the page, so it is written here as a function and sent as its source: no template-literal
