@@ -260,8 +260,12 @@ test('the columns run the window\'s full height and each scrolls inside; all six
   assert.deepEqual(run((c) => !c.has('four')), []);
   assert.deepEqual(run((c) => c.has('tight')), ['tight']);
   assert.deepEqual(run(() => false), ['tight', 'tighter']);
-  assert.match(src, /\.v-kitchen \.rail\.tight>\.tray:not\(\.empty\)\{min-width:max\(88px,var\(--name,0px\)\)\}/);
-  // .tighter never splits a word: each stage keeps its longest word (--word, up to 200 px).
+  // No floor splits a title word: each stage keeps its longest word (--word, up to 200 px), in every mode (PR-Agent on
+  // #14: .tight fit with a long word split, so .tighter never ran).
+  const floors = src.match(/\.v-kitchen \.rail(?:\.four|\.tight)?>\.tray:not\(\.empty\)\{min-width:max\([^}]*\}/g);
+  assert.equal(floors.length, 4);
+  floors.forEach((f) => assert.match(f, /,min\(var\(--word,0px\),200px\)\)/, f));
+  assert.match(src, /\.v-kitchen \.rail\.tight>\.tray:not\(\.empty\)\{min-width:max\(88px,var\(--name,0px\),min\(var\(--word,0px\),200px\)\)\}/);
   assert.match(src, /\.v-kitchen \.rail\.tight\.tighter>\.tray\.empty,\.v-kitchen \.rail\.tight\.tighter>\.tray:not\(\.empty\)\{min-width:max\(88px,min\(var\(--word,0px\),200px\)\)\}/);
   assert.match(src, /tr\.style\.setProperty\('--word', Math\.ceil\(word\) \+ 'px'\)/);
   assert.doesNotMatch(src, /hyphens:auto/);

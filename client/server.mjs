@@ -795,16 +795,17 @@ dialog.sheet{height:fit-content;max-height:min(920px,calc(100dvh - 48px))}
   .v-kitchen .rail>.tray.empty .tray-h .g{min-width:0;overflow:hidden;white-space:nowrap}
   .v-kitchen .rail>.tray.empty .tray-h .hint{display:none}
   /* A stage with tickets keeps room for its titles; on a narrow window the rail scrolls sideways (hill climb 2 r1). */
-  .v-kitchen .rail>.tray:not(.empty){min-width:max(120px,var(--floor,140px),var(--name,0px),calc(var(--text,0px) + 45px));flex:var(--need,1) 1 0}
+  .v-kitchen .rail>.tray:not(.empty){min-width:max(120px,var(--floor,140px),var(--name,0px),calc(var(--text,0px) + 45px),min(var(--word,0px),200px));flex:var(--need,1) 1 0}
   .v-kitchen .rail.fade-right{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 40px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 40px),transparent)}
 }
 /* Over 1366 px a narrower pass panel and 8 px stage gaps give the titles 4 lines when the whole rail fits (.four), else 5 (r14, Opus); the stage arrow takes the 1280 size for the gap (r13, Opus and Fable). */
-@media (min-width:1367px){ .v-kitchen .rail{gap:8px} .v-kitchen .rail.four>.tray:not(.empty){min-width:max(120px,var(--floor,140px),var(--name,0px),calc(var(--text4,var(--text,0px)) + 45px))} .v-kitchen .rail>.tray:not(:last-child)::after{right:-6.5px;width:3.5px;height:3.5px} .v-kitchen .board{grid-template-columns:208px minmax(0,1fr) clamp(280px,19.5vw,360px)} }
+@media (min-width:1367px){ .v-kitchen .rail{gap:8px} .v-kitchen .rail.four>.tray:not(.empty){min-width:max(120px,var(--floor,140px),var(--name,0px),calc(var(--text4,var(--text,0px)) + 45px),min(var(--word,0px),200px))} .v-kitchen .rail>.tray:not(:last-child)::after{right:-6.5px;width:3.5px;height:3.5px} .v-kitchen .board{grid-template-columns:208px minmax(0,1fr) clamp(280px,19.5vw,360px)} }
 /* Still too wide (the page script's fitRail() sets .tight): a stage keeps only its name and count on one line, so all
-   six stages stay in the window (Dan, 2026-11-10). A word longer than 200 px (a pasted link) breaks rather than widen
-   its stage. */
+   six stages stay in the window (Dan, 2026-11-10). Every floor holds the stage's longest word (--word), so a title
+   word is never split; only a word that would make its stage wider than 200 px (a pasted link) breaks (PR-Agent on
+   #14). */
 @media (min-width:761px){
-  .v-kitchen .rail.tight>.tray:not(.empty){min-width:max(88px,var(--name,0px))}
+  .v-kitchen .rail.tight>.tray:not(.empty){min-width:max(88px,var(--name,0px),min(var(--word,0px),200px))}
   .v-kitchen .rail.tight .tile .t{overflow-wrap:break-word}
   /* .tighter: a stage's name may wrap after its dot, with its count at the right, down to its longest word (--word).
      Narrower still, the stages scroll sideways. */
@@ -976,7 +977,7 @@ html .plate .dock{margin:0;padding:12px 28px 16px;border:0;border-radius:0;backg
 /* At 1280 all six kitchen columns fit: a narrower pass panel and 140px stages. */
 @media (min-width:761px) and (max-width:1366px){
   .v-kitchen .board{grid-template-columns:208px minmax(0,1fr) 280px}
-  .v-kitchen .rail>.tray:not(.empty){min-width:max(104px,var(--floor,120px),var(--name,0px),calc(var(--text,0px) + 35px))}
+  .v-kitchen .rail>.tray:not(.empty){min-width:max(104px,var(--floor,120px),var(--name,0px),calc(var(--text,0px) + 35px),min(var(--word,0px),200px))}
   /* Narrower gutters give the titles room at 1280 (hill climb 2 r5, Opus). Stages with tickets share the width by their longest title, as above 1366, over a floor that holds the stage's hint on one line (at least 104 px), so no title takes more than 5 lines (hill climb 2 r10 and r11). */
   .v-kitchen .rail{gap:8px}
   .v-kitchen .rail .tile{padding:10px 6px}
