@@ -1,7 +1,7 @@
 # The ⌘K action bar, v1.0
 
 Status: PR 1 built (the bar, its motion, search, history and suggestions). PR 2 built (Send a note to any thread).
-PR 3 built (Appearance). PR 4 is below and not built.
+PR 3 built (Appearance), its choices redrawn as pictures after Dan's look. PR 4 is below and not built.
 Approved look and motion: [mocks/command-bar-v3.html](mocks/command-bar-v3.html) (mock v3, Dan, 2026-11-10: "Then yes, build").
 Code: `client/bar.mjs`, tested in `client/bar.test.mjs`, wired into the page in `client/server.mjs`.
 Words: the developer words of `pass-definitions-v1_0.md`. Where the mock uses an older word, the definitions win.
@@ -26,7 +26,8 @@ Inside the bar:
 | ↑ in the empty field | Brings back the last action, like a terminal. ↑ again goes older, ↓ goes newer, ↓ past the newest clears the field. |
 | ↑ ↓ in a list | Moves the highlight. Rows that say "not checked" are skipped. |
 | ↵ | Runs the highlighted row. On a recalled action it runs that action again. |
-| ⌫ in an empty step | Goes back from "Go to a thread" or "Send a note" to the full list. |
+| ← → in a step of pictures | Moves along the pictures (Change appearance, Change density). ↑ ↓ work too. |
+| ⌫ in an empty step | Goes back from a step ("Go to a thread", "Send a note", "Change appearance") to the full list. |
 | ⌘↵ in a note | Sends it. Esc goes back to the list of threads. |
 | Esc | Clears the field first, and the bar sinks. A second Esc closes it. |
 | Tab | Moves between the field and the footer's Clear recent actions button. The list is not a tab stop. |
@@ -72,8 +73,8 @@ groups.
 4. **View.**
    - Expand the view or Collapse the view (V).
    - View: You and View: Your team (see below).
-   - Appearance: Match system, Light and Dark (below). The current one shows **Now**.
-   - Density: Default, Comfortable and Compact. The current one shows **Now**.
+   - Change appearance (⌥⇧⌘A) and Change density: each opens a step of pictures (below). Typing a choice's name
+     finds it at once: "dark" finds Change appearance: Dark, with its picture on the right.
 5. **Settings.** Rules, Keyboard shortcuts (?), Settings (⌘,).
 6. **Threads: on the board.** Threads match only once you type: by title, project and stage, never by preview text.
 
@@ -117,16 +118,31 @@ PR 2. The mock's compose step, built on the ticket's own Reply.
 
 ## Appearance
 
-PR 3. Before it, the theme followed the system only.
+PR 3. Before it, the theme followed the system only. Its first look was a list of radio rows with gray blocks, and
+three "Appearance:" rows in the bar. Dan, 2026-11-10: "Horrible design", use T3 Code's theme previews instead, the
+ones that draw the home view in each look. This is that.
 
-- **Three choices.** Match system, Light and Dark: three rows in the bar's View group, and Appearance at the top of
-  Settings → Layout, each with a small preview of what it picks. Keywords: theme, mode, light, dark, system, auto.
-- **Key.** ⌥⇧⌘A steps Match system, Light, Dark, in T3 Code's `appearance.cycle` order, and a toast names the new
-  one. It works with the bar, Settings or New thread open. Shortcuts lists it.
-- **Saved on this Mac** (`localStorage`: `yc.theme`). Match system saves nothing. The choice is on the page before its
+- **Three choices.** System, Light and Dark, T3 Code's names. Each one is a picture of the home view in that look: the
+  rail with its stage dots, the ticket list, and the open ticket with its pull requests, screenshots, options and blue
+  action. System is the same picture split down the middle, light on the left and dark on the right, as T3 Code draws
+  it.
+- **Settings → Layout.** Appearance and Density are rows of three pictures. Click a picture to pick it. The current one
+  has the blue ring. Each picture is a radio button underneath, so Tab, the arrow keys and Space work as in any form.
+  Density's pictures show the ticket list up close, in the look you have now.
+- **⌘K.** One row, Change appearance (⌥⇧⌘A), opens a step with the same three pictures side by side. ← → or ↑ ↓
+  moves, ↵ picks, ⌫ goes back. The current one has the ring. Change density works the same way. The pick becomes the
+  last action, "Appearance: Dark" or "Density: Compact", so ↑ ↵ picks it again. Keywords: theme, mode, light, dark,
+  system, match, auto, color, night, day.
+- **The pictures use the page's own colors.** When the page is built, `client/theme.mjs` reads the page's tokens for
+  light and dark (`rootTokens`: every `:root` block in order, `var()` resolved) and draws the pictures with them
+  (`miniCss`). A new color on the page changes the pictures too. A token the pictures need and cannot find stops the
+  build. The pictures are drawn in container units, so one picture serves the Settings tile and the bar's thumbnail.
+- **Key.** ⌥⇧⌘A steps System, Light, Dark, in T3 Code's `appearance.cycle` order, and a toast names the new one. It
+  works with the bar, Settings or New thread open. Shortcuts lists it.
+- **Saved on this Mac** (`localStorage`: `yc.theme`). System saves nothing. The choice is on the page before its
   first paint, so a Light choice on a dark Mac never flashes dark.
 - **How.** The page's dark and light rules are `prefers-color-scheme` blocks. `client/theme.mjs` writes each one twice
-  when the page is built: once for Match system (a root with no `data-theme`) and once for the choice
+  when the page is built: once for System (a root with no `data-theme`) and once for the choice
   (`:root[data-theme=dark]` or `light`). The guard sits in `:where()`, so no rule changes weight, and with no choice the
   page looks as it did. It goes on each selector's first part as "the root, or anything in it", because the view and
   density classes sit on `<html>` itself (`.v-kitchen .rail .tile`). A block it cannot read stops the build instead of
@@ -177,6 +193,7 @@ Each PR is small, goes into main, and waits for Dan's look.
    open New thread.
 2. **Send a note to any thread (built).** The row "Send a note to a thread…" picks a thread, then a note. It reuses
    the note path (`reply`, sent with mode `queue`, as T3 Code's queue does).
-3. **Appearance (built).** Dark, Light and Match system, in the bar and in Settings, and ⌥⇧⌘A.
+3. **Appearance (built).** System, Light and Dark, as pictures of the home view in Settings and in the bar, and
+   ⌥⇧⌘A. Density's choices are pictures too.
 4. **Editable shortcuts.** Settings → Shortcuts: record a key, resolve a clash (Swap them or Keep), and Reset all.
    Saved in the shape of T3 Code's `keybindings.json`: a key, a command, and when it applies.

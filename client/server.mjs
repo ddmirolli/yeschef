@@ -22,7 +22,7 @@ import { parseCalls, callKey, imagesIn, imageId, shotPath, isShot, SHOT_TYPES } 
 import { act } from './actions.mjs';
 import { refuse } from './guard.mjs';
 import { BAR_CSS, BAR_HTML, barCore, installBar } from './bar.mjs';
-import { onTheme } from './theme.mjs';
+import { onTheme, miniCss, minis, MINI_CSS } from './theme.mjs';
 import { appendFileSync } from 'node:fs';
 
 // The desktop app's pipe. In the app this runs in an Electron utility process and talks over process.parentPort;
@@ -547,18 +547,6 @@ dialog.sheet::backdrop{background:rgba(0,0,0,.36);-webkit-backdrop-filter:blur(5
 #settings h2{margin:0 0 14px;font-size:17px}
 #settings fieldset{margin:0 0 18px;padding:0;border:0}
 #settings legend{margin-bottom:8px;font-size:13px;font-weight:600;color:var(--label2)}
-.set-o{display:flex;align-items:center;gap:12px;padding:8px 10px;border-radius:10px;cursor:pointer;font-size:15px}
-.set-o:hover{background:var(--fill)}
-.set-o input{width:18px;height:18px;margin:0;accent-color:var(--accent)}
-.set-o span{flex:1}
-.set-o small{display:block;font-size:12px;color:var(--label2)}
-.pv{flex:none;display:flex;flex-direction:column;gap:3px;width:92px;height:46px;padding:5px;border-radius:7px;background:var(--fill);box-sizing:border-box}
-.pv i{display:block;border-radius:3px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--sep)}
-.pv-default i{height:16px}.pv-comfortable i{height:10px}.pv-compact i{height:5px}
-/* Appearance previews keep their own colors in either theme: each shows the theme it picks. Match system is split. */
-.pv-theme{background:#E5E5EA;box-shadow:inset 0 0 0 .5px var(--sep)}.pv-theme i{height:14px;background:#FFFFFF;box-shadow:none}
-.pv-dark{background:#1C1C1E}.pv-dark i{background:#3A3A3C}
-.pv-system{background:linear-gradient(90deg,#E5E5EA 50%,#1C1C1E 50%)}.pv-system i{background:linear-gradient(90deg,#FFFFFF 50%,#3A3A3C 50%)}
 #settings .set-done{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12px;color:var(--label2)}
 /* Density: Comfortable shows one summary line; Compact shows the title alone. */
 html.d-comfortable .call-tile{gap:6px;padding:11px 14px 10px}
@@ -864,9 +852,9 @@ dialog.sheet{height:fit-content;max-height:min(920px,calc(100dvh - 48px))}
 #settings[open]{margin:min(12vh,120px) auto auto}
 #settings .set-done{grid-column:2;padding:8px 24px 20px;border-top:0}
 /* Native controls, styled: round options, no resize grips, one chevron for every fold. */
-label.opt input[type=radio],.set-o input[type=radio],.lf-ws input[type=radio]{-webkit-appearance:none;appearance:none;flex:none;width:18px;height:18px;margin:0;border-radius:50%;background:var(--card);box-shadow:inset 0 0 0 1.5px var(--label2);cursor:pointer;transition:box-shadow .15s}
-label.opt input[type=radio]:checked,.set-o input[type=radio]:checked,.lf-ws input[type=radio]:checked{background:#fff;box-shadow:inset 0 0 0 5px var(--accent)}
-label.opt input[type=radio]:focus-visible,.set-o input[type=radio]:focus-visible,.lf-ws input[type=radio]:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+label.opt input[type=radio],.lf-ws input[type=radio]{-webkit-appearance:none;appearance:none;flex:none;width:18px;height:18px;margin:0;border-radius:50%;background:var(--card);box-shadow:inset 0 0 0 1.5px var(--label2);cursor:pointer;transition:box-shadow .15s}
+label.opt input[type=radio]:checked,.lf-ws input[type=radio]:checked{background:#fff;box-shadow:inset 0 0 0 5px var(--accent)}
+label.opt input[type=radio]:focus-visible,.lf-ws input[type=radio]:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .more>summary,.more-st>summary{display:flex;align-items:center;gap:6px;list-style:none}
 .more>summary::-webkit-details-marker,.more-st>summary::-webkit-details-marker{display:none}
 .more>summary::before,.more-st>summary::before{content:"";flex:none;width:12px;height:12px;background:currentColor;-webkit-mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='m9 6 6 6-6 6'/></svg>") center/contain no-repeat;mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='m9 6 6 6-6 6'/></svg>") center/contain no-repeat;transition:transform .2s}
@@ -1388,7 +1376,10 @@ html.s-team .head-b>.team-pass{display:flex}
 html.s-team.v-kitchen .team-wait{display:block;padding:16px 18px;border-radius:16px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--sep)}
 `;
 // Appearance (theme.mjs): every dark and light rule also answers to the html element's data-theme.
-const STYLE = onScale(onTheme(CSS + APP_CSS + BAR_CSS));
+// The pictures in Settings → Layout and the ⌘K bar's Appearance and Density steps (theme.mjs).
+const MINIS = minis();
+const tile = (name, value, label) => `<label class="look"><input type="radio" name="${name}" value="${value}" aria-label="${label}">${MINIS[value]}<span class="look-n">${label}</span></label>`;
+const STYLE = onScale(onTheme(CSS + APP_CSS + BAR_CSS + MINI_CSS) + miniCss(CSS + APP_CSS + BAR_CSS));
 
 const page = (body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark"><title>Yes Chef</title>
@@ -1403,15 +1394,11 @@ const page = (body) => `<!doctype html><html lang="en"><head><meta charset="utf-
 <button type="button" class="set-tab" data-tab="keys">Shortcuts</button></nav>
 <div class="set-panes">
 <section class="set-pane" data-pane="layout">
-<fieldset><legend>Appearance</legend>
-<label class="set-o"><input type="radio" name="theme" value="system"><span>Match system<small>Light or dark, as your system is set</small></span><i class="pv pv-theme pv-system"><i></i><i></i></i></label>
-<label class="set-o"><input type="radio" name="theme" value="light"><span>Light<small>Always light</small></span><i class="pv pv-theme pv-light"><i></i><i></i></i></label>
-<label class="set-o"><input type="radio" name="theme" value="dark"><span>Dark<small>Always dark</small></span><i class="pv pv-theme pv-dark"><i></i><i></i></i></label>
+<fieldset class="looks"><legend>Appearance</legend>
+${tile('theme', 'system', 'System')}${tile('theme', 'light', 'Light')}${tile('theme', 'dark', 'Dark')}
 </fieldset>
-<fieldset><legend>Density</legend>
-<label class="set-o"><input type="radio" name="density" value="default"><span>Default<small>Title and the agent's summary</small></span><i class="pv pv-default"><i></i><i></i></i></label>
-<label class="set-o"><input type="radio" name="density" value="comfortable"><span>Comfortable<small>Title and one summary line</small></span><i class="pv pv-comfortable"><i></i><i></i><i></i></i></label>
-<label class="set-o"><input type="radio" name="density" value="compact"><span>Compact<small>Titles only, the most tickets on screen</small></span><i class="pv pv-compact"><i></i><i></i><i></i><i></i><i></i></i></label>
+<fieldset class="looks"><legend>Density</legend>
+${tile('density', 'default', 'Default')}${tile('density', 'comfortable', 'Comfortable')}${tile('density', 'compact', 'Compact')}
 </fieldset>
 </section>
 ${kitchenPane({ rules, projects, error: rulesError })}
@@ -1438,7 +1425,7 @@ ${kitchenPane({ rules, projects, error: rulesError })}
 <dt><kbd>⌘</kbd> <kbd>K</kbd></dt><dd>Actions: search every action, thread and setting. <kbd>↑</kbd> brings back your last action</dd>
 <dt><kbd>⌘</kbd> <kbd>T</kbd></dt><dd>New thread in T3 Code (also <kbd>⌘</kbd> <kbd>N</kbd>)</dd>
 <dt><kbd>⌘</kbd> <kbd>,</kbd></dt><dd>Settings. <kbd>?</kbd> opens Shortcuts</dd>
-<dt><kbd>⌥</kbd> <kbd>⇧</kbd> <kbd>⌘</kbd> <kbd>A</kbd></dt><dd>Appearance: Match system, Light and Dark in turn, as in T3 Code</dd>
+<dt><kbd>⌥</kbd> <kbd>⇧</kbd> <kbd>⌘</kbd> <kbd>A</kbd></dt><dd>Appearance: System, Light and Dark in turn, as in T3 Code</dd>
 <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Previous and next screenshot in the viewer</dd></dl></section>
 </div></div>
 <p class="set-done"><span role="status">Saved on this Mac.</span><button type="button" class="btn fill" data-settings-done><span class="bl">Done</span><kbd>esc</kbd></button></p></dialog>
@@ -1470,6 +1457,7 @@ ${BAR_HTML}
   var actedLatest = {}; // plate id -> the hand-back it had when sent: a newer hand-back brings it back at once (Opus)
   var mounted = null; // the ticket element now open in the reader or the sheet
   var bar = null; // the Cmd+K action bar, once installed at the end
+  var MINI = ${JSON.stringify(MINIS)}; // the Settings pictures, for the bar's Appearance and Density steps
   function $(sel, el){ return (el || document).querySelector(sel); }
   function $$(sel, el){ return Array.prototype.slice.call((el || document).querySelectorAll(sel)); }
   function wide(){ return wideQ.matches; }
@@ -2042,9 +2030,9 @@ ${BAR_HTML}
     applyTheme();
     fades();
   }
-  // Appearance (PR 3 of the action bar): Match system, Light or Dark, saved on this Mac. Match system stores nothing.
+  // Appearance (PR 3 of the action bar): System, Light or Dark, saved on this Mac. System stores nothing.
   // In the desktop app the window's own parts (title bar, menus, the update card) follow too, through the preload bridge.
-  var THEME_NAME = { system: 'Match system', light: 'Light', dark: 'Dark' };
+  var THEME_NAME = { system: 'System', light: 'Light', dark: 'Dark' };
   function applyTheme(){
     if (!/^(light|dark)$/.test(prefs.theme)) prefs.theme = 'system';
     if (prefs.theme === 'system') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', prefs.theme);
@@ -2055,7 +2043,7 @@ ${BAR_HTML}
     prefs.theme = t; if (t === 'light' || t === 'dark') store('yc.theme', t); else forget('yc.theme');
     applyTheme();
   }
-  // The order of T3 Code's appearance.cycle: Match system, Light, Dark.
+  // The order of T3 Code's appearance.cycle: System, Light, Dark.
   function cycleTheme(){ setTheme({ system: 'light', light: 'dark', dark: 'system' }[prefs.theme] || 'system'); toast('Appearance: ' + THEME_NAME[prefs.theme], null, 2000); }
   // Settings has sections (Dan, 2026-11-07): Layout and Shortcuts. Cmd+, opens Layout; ? opens Shortcuts.
   function openSettings(tab){
@@ -2844,7 +2832,7 @@ ${BAR_HTML}
   bar = installBar({
     $: $, $$: $$, store: store, forget: forget, state: state, prefs: prefs, reduce: reduce,
     mounted: function(){ return mounted; }, plateNode: plateNode, keyForm: keyForm, select: select, setFolder: setFolder, listKeyOf: listKeyOf,
-    send: send, setIntent: setIntent, noting: noting, toggleView: toggleView, openLaunch: openLaunch, openSettings: openSettings, setDensity: setDensity, setTheme: setTheme,
+    send: send, setIntent: setIntent, noting: noting, toggleView: toggleView, openLaunch: openLaunch, openSettings: openSettings, setDensity: setDensity, setTheme: setTheme, mini: function(k){ return MINI[k] || ''; },
     liftToast: liftToast, yieldKey: yieldKey, grow: grow, views: viewsNow, setScope: setScope
   }, barCore());
 })();
