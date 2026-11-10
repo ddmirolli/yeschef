@@ -1,7 +1,7 @@
 // Builds the site's live demo (site/demo/), the real Pass on a made-up kitchen, from the app in client/.
 // Run it from the repo root after a change to the app's UI:  node tools/site_demo.mjs [port]
 //
-// It copies the app's board, calls, kitchen and actions modules to site/demo/lib/ unchanged, and the
+// It copies the app's board, calls, kitchen, actions, you and open-kitchen modules to site/demo/lib/ unchanged, and the
 // made-up projects' icons and screenshots from tools/hero-art/. Then it starts client/server.mjs in a temp
 // folder with a stand-in for client/t3mcp.mjs that answers from site/demo/kitchen.mjs, so it never signs in
 // to T3 Code. It saves the server's page as site/demo/app.html, with shim.js and boot.mjs added: in the
@@ -21,7 +21,7 @@ const DIRS = { 'p-pay': 'fernpay', 'p-loop': 'loopline', 'p-quill': 'quillo' };
 // 1. The app's modules, unchanged. Only these node: imports have browser stand-ins (lib/node-*.mjs).
 const SHIMMED = new Set(['node:crypto', 'node:fs', 'node:path']);
 mkdirSync(join(DEMO, 'lib'), { recursive: true });
-for (const f of ['board.mjs', 'calls.mjs', 'kitchen.mjs', 'actions.mjs', 'you.mjs']) {
+for (const f of ['board.mjs', 'calls.mjs', 'kitchen.mjs', 'actions.mjs', 'you.mjs', 'open-kitchen.mjs']) {
   const src = readFileSync(join(ROOT, 'client', f), 'utf8');
   for (const [, spec] of src.matchAll(/^import [^;]*? from '([^']+)';/gm)) {
     if (!spec.startsWith('./') && !SHIMMED.has(spec)) throw new Error(`client/${f} imports ${spec}: give it a stand-in in site/demo/lib first`);
