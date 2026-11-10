@@ -672,3 +672,13 @@ test('r6: a merge with a known time in any copy is never counted as having no ti
   merged.prs[0].mergedAt = new Date(NOWL - 30 * 60 * MIN).toISOString();
   assert.equal(board(v).merged.untimed, 0);
 });
+
+// ---- PR B, PR-Agent round 7 ----
+test('r7: in a picked project, a merge whose time is in another project’s copy is counted with that time', () => {
+  const v = viewL();
+  const merged = who(v, 'maya').summary.tickets.find((k) => k.place === 'Merged');
+  // Tom's Quillo thread holds a copy of Maya's Fernpay PR with no time; Maya's own copy (Fernpay) has today's time.
+  who(v, 'tom').summary.tickets[0].prs = [{ ...merged.prs[0], mergedAt: null }];
+  const M = board(v, new Set(['Quillo'])).merged;
+  assert.deepEqual([M.count, M.untimed], [1, 0]);
+});

@@ -349,18 +349,21 @@ export function kitchenBoard(ok, { now, want = null }) {
 
   // Merges today, each PR once: a merge stays done, so a quiet dev's merges count too.
   // A merged PR with no time may or may not be today's: it is counted apart, never as today's or as not.
+  // A PR's merge time is settled across every summary first (a copy in any project may give it), then the picked
+  // projects' PRs are counted with it. A PR is untimed only when no copy of it says when it merged.
+  const timeOf = new Map();
+  for (const { k } of ok.tickets) for (const pr of k.prs) if (pr.state === 'merged' && pr.mergedAt !== null && !timeOf.has(prKey(pr.repo, pr.n))) timeOf.set(prKey(pr.repo, pr.n), pr.mergedAt);
   const merges = [], seenPr = new Set(), untimed = new Set();
   for (const { k, person } of all) for (const pr of k.prs) {
     if (pr.state !== 'merged') continue;
     const key = prKey(pr.repo, pr.n);
-    if (pr.mergedAt === null) { untimed.add(key); continue; }
-    if (pr.mergedAt < d0 || pr.mergedAt > now || seenPr.has(key)) continue;
+    const at = pr.mergedAt ?? timeOf.get(key) ?? null;
+    if (at === null) { untimed.add(key); continue; }
+    if (at < d0 || at > now || seenPr.has(key)) continue;
     seenPr.add(key);
-    merges.push({ n: pr.n, repo: pr.repo, branch: pr.base, at: pr.mergedAt, sha: pr.mergeSha, person, thread: k.thread });
+    merges.push({ n: pr.n, repo: pr.repo, branch: pr.base, at, sha: pr.mergeSha, person, thread: k.thread });
   }
   merges.sort((a, z) => a.at - z.at || a.n - z.n);
-  // A PR is untimed only when no copy of it, in any summary, says when it merged (that copy may be from another day).
-  for (const { k } of ok.tickets) for (const pr of k.prs) if (pr.state === 'merged' && pr.mergedAt !== null) untimed.delete(prKey(pr.repo, pr.n));
 
   // The base instrument: the bases Macs online now read, narrowed to the picked projects' repos.
   const repos = new Set(all.flatMap(({ k }) => [...k.prs.map((pr) => pr.repo), k.changes?.repo].filter(Boolean).map((r) => r.toLowerCase())));
