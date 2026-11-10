@@ -37,7 +37,8 @@ export function callId(kind, subject, since) {
   return `${kind}:${subject}:${Number.isFinite(since) ? since : 0}`;
 }
 
-const ms = (v) => { const t = typeof v === 'number' ? v : Date.parse(v); return Number.isFinite(t) ? t : null; };
+// A time from a teammate's summary: a number or a date string; anything else is not checked.
+const ms = (v) => { const t = typeof v === 'number' ? v : typeof v === 'string' ? Date.parse(v) : NaN; return Number.isFinite(t) ? t : null; };
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 // A teammate's summary is outside data: a list that is not one reads as empty, and an entry that is not an object drops.
 const arr = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object') : []);
@@ -74,11 +75,11 @@ export function reporting(p, { now, link, rules = RULES }) {
 // ---- The detectors. Each returns calls: { id, kind, tone, subject, since, who: [person ids], thread, project,
 // prs, holds, facts }. `facts` is what the reader shows; numbers stay numbers, and the screens format them. ----
 
-/** Main broken: a required check fails on a base branch (3a's requiredResult; null is not checked). The break is
- *  `redSince`, the commit time of the first red commit in the current run of red (proposed: the dev's Mac keeps it
+/** Main broken: a required check fails on a base branch (3a's requiredResult; null is not checked). The break is the
+ *  first red commit in the current run of red: `redSha` and its time `redSince` (proposed: the dev's Mac keeps them
  *  from read to read). The head's own `committedAt` moves with every merge, so it never names a cause. The cause is
- *  the PR merged last before the break; it is a clean roll back when nothing merged after it. With no `redSince`, the
- *  cause is not checked. Bases come only from Macs online now (another dev's merge can turn a base red or green while
+ *  the team's PR whose merge commit is that first red commit (proposed `pr.mergeSha`); a direct push, or a merge no
+ *  summary carries, names no cause. The roll back is clean only while that commit is still the head. Bases come only from Macs online now (another dev's merge can turn a base red or green while
  *  a Mac is away), deduplicated by the newest read. */
 function mainBroken(people, tickets) {
   const bases = new Map();
@@ -96,8 +97,8 @@ function mainBroken(people, tickets) {
     const inRepo = tickets.flatMap(({ k, p, live }) => arr(k.prs).map((pr) => ({ pr, k, p, live })))
       .filter(({ pr }) => String(pr.repo).toLowerCase() === repo && pr.base === b.branch);
     const merged = inRepo.filter(({ pr }) => pr.state === 'merged' && ms(pr.mergedAt) !== null).sort((a, z) => ms(a.pr.mergedAt) - ms(z.pr.mergedAt));
-    const cause = red === null ? null : [...merged].reverse().find(({ pr }) => ms(pr.mergedAt) <= red + MIN) || null;
-    const after = cause ? merged.filter(({ pr }) => ms(pr.mergedAt) > ms(cause.pr.mergedAt)) : [];
+    const redSha = typeof b.redSha === 'string' && b.redSha ? b.redSha : null;
+    const cause = redSha ? merged.find(({ pr }) => pr.mergeSha === redSha) || null : null;
     const open = new Map();
     for (const x of inRepo) if (x.live && x.pr.state === 'open' && !open.has(prKey(x.pr.repo, x.pr.n))) open.set(prKey(x.pr.repo, x.pr.n), x);
     const waiting = [...open.values()];
@@ -106,7 +107,7 @@ function mainBroken(people, tickets) {
       who: cause ? [cause.p.id] : [], thread: cause?.k.thread || null, project: cause?.k.project || null,
       prs: cause ? [cause.pr] : [], holds: waiting.length,
       facts: { repo: b.repo, branch: b.branch, sha: b.sha || null, title: b.title || null, failing: (Array.isArray(b.failing) ? b.failing : []).filter((x) => typeof x === 'string').slice(0, 5),
-        cause: cause ? { pr: cause.pr, ticket: cause.k, person: cause.p.id } : null, clean: !!cause && !after.length,
+        cause: cause ? { pr: cause.pr, ticket: cause.k, person: cause.p.id } : null, clean: !!cause && b.sha === redSha,
         mergedToday: merged.map(({ pr, p }) => ({ n: pr.n, at: ms(pr.mergedAt), person: p.id })),
         waiting: waiting.map(({ pr, p }) => ({ n: pr.n, person: p.id })) },
     });
@@ -172,7 +173,7 @@ function failing(tickets, rules) {
     const since = streak.length === n ? ms(streak[0].at) : null;
     // The call rose at the run that made the count: its wait for Seen starts there.
     const rose = streak.length === n ? ms(streak[rules.failRuns - 1].at) : null;
-    out.push({ id: callId('failing', `${k.thread}#${pr.n}`, since), kind: 'failing', subject: k.thread, since, rose, who: [p.id], thread: k.thread, project: k.project,
+    out.push({ id: callId('failing', `${k.thread}:${prKey(pr.repo, pr.n)}`, since), kind: 'failing', subject: k.thread, since, rose, who: [p.id], thread: k.thread, project: k.project,
       prs: [pr], holds: 1, facts: { redRuns: n, runs, pr, ticket: k } });
   }
   return out;
@@ -217,7 +218,7 @@ function tooBig(tickets, rules) {
     const lines = s.added + s.removed;
     if (lines <= rules.bigLines && s.files <= rules.bigFiles) continue;
     const since = ms(s.overAt);
-    out.push({ id: callId('big', `${k.thread}#${pr.n}`, since), kind: 'big', subject: k.thread, since, who: [p.id], thread: k.thread, project: k.project,
+    out.push({ id: callId('big', `${k.thread}:${prKey(pr.repo, pr.n)}`, since), kind: 'big', subject: k.thread, since, who: [p.id], thread: k.thread, project: k.project,
       prs: [pr], holds: 1, facts: { lines, size: s, pr, ticket: k, changes: k.changes?.state === 'checked' ? k.changes : null } });
   }
   return out;

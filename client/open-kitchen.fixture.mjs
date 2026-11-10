@@ -17,23 +17,23 @@ export function fixtureView(now = Date.UTC(2026, 10, 10, 14, 3)) {
   const ch = (repo, files, more = {}) => ({ state: 'checked', at: ago(1), repo, base: 'main', mergeBase: 'b0', files, head: 'h1', headAt: iso(ago(30)), more: 0, size: null, ...more });
 
   const nina = t('mcp:nina-1', 'Quillo', 'In review', 'Tray icon states', { working: 2, prs: [pr('acme/quillo', 428, 'open', { checks: { result: 'failing', redRuns: 6, at: ago(5), runs: runs(4, 6, 233, 20) } })] });
-  const ninaFail = callId('failing', 'mcp:nina-1#428', ago(233 - 4 * 20));
+  const ninaFail = callId('failing', 'mcp:nina-1:acme/quillo#428', ago(233 - 4 * 20));
   const ben = t('mcp:ben-1', 'Fernpay', 'In progress', 'Diff viewer: word wrap', { prs: [pr('acme/fernpay', 436, 'open', { checks: { result: 'failing', redRuns: 3, at: ago(2), runs: runs(2, 3, 50, 10) } })] });
-  const benFail = callId('failing', 'mcp:ben-1#436', ago(50 - 2 * 10));
+  const benFail = callId('failing', 'mcp:ben-1:acme/fernpay#436', ago(50 - 2 * 10));
   const kai = t('mcp:kai-1', 'Loopline', 'In review', 'Pin threads to the sidebar', { working: 5, startedAt: iso(ago(390)),
     prs: [pr('acme/loopline', 412, 'open')], changes: ch('acme/loopline', [{ p: 'contracts/src/orchestration.ts', r: [[118, 170], [300, 318]], a: 61, d: 9 }, { p: 'web/src/sidebar.tsx', r: [[10, 40]], a: 30, d: 2 }]) });
   const jon = t('mcp:jon-1', 'Loopline', 'In progress', 'Group threads by parent', { working: 3, startedAt: iso(ago(303)),
     prs: [pr('acme/loopline', 415, 'open')], changes: ch('acme/loopline', [{ p: 'contracts/src/orchestration.ts', r: [[120, 168], [204, 231], [380, 392]], a: 80, d: 12 }]) });
   const overlapId = callId('overlap', 'mcp:jon-1+mcp:kai-1', ago(303));
   const mainRed = ago(141);
-  const ravi = [t('mcp:ravi-1', 'Fernpay', 'Merged', 'Updater channel picker', { working: 0, prs: [pr('acme/fernpay', 431, 'merged', { mergedAt: iso(mainRed), size: { files: 5, added: 212, removed: 40, at: ago(150) } })] }),
+  const ravi = [t('mcp:ravi-1', 'Fernpay', 'Merged', 'Updater channel picker', { working: 0, prs: [pr('acme/fernpay', 431, 'merged', { mergeSha: 'f431', mergedAt: iso(mainRed), size: { files: 5, added: 212, removed: 40, at: ago(150) } })] }),
     t('mcp:ravi-2', 'Fernpay', 'In progress', 'Nightly icon', { startedAt: iso(ago(125)) })];
 
   const person = (id, name, tickets, more = {}) => ({ id, name, role: 'engineer', perms: ['see'], online: true, lastSeen: null, at: ago(1), live: true,
     summary: { v: 1, tickets, more: 0, bases: [], seen: {} }, ...more });
   const people = [
     person('ravi', 'Ravi', ravi, { summary: { v: 1, tickets: ravi, more: 0, seen: { [callId('main', 'acme/fernpay@main', mainRed)]: ago(4) },
-      bases: [{ repo: 'acme/fernpay', branch: 'main', sha: 'f431', title: 'Updater channel picker (#431)', committedAt: iso(mainRed), redSince: iso(mainRed), result: 'failing', requiredResult: 'failing', failing: ['test:desktop'], at: ago(2) }] } }),
+      bases: [{ repo: 'acme/fernpay', branch: 'main', sha: 'f431', title: 'Updater channel picker (#431)', committedAt: iso(mainRed), redSha: 'f431', redSince: iso(mainRed), result: 'failing', requiredResult: 'failing', failing: ['test:desktop'], at: ago(2) }] } }),
     person('kai', 'Kai', [kai]), person('jon', 'Jon', [jon]), person('nina', 'Nina', [nina]),
     person('iris', 'Iris', [t('mcp:iris-1', 'Fernpay', 'In review', 'Export: tables', { startedAt: iso(ago(51)), prs: [pr('acme/fernpay', 440, 'open', { size: { files: 41, added: 1079, removed: 161, at: ago(3), overAt: iso(ago(51)) } })],
       changes: ch('acme/fernpay', [['packages/export/src/tables/a.ts', 598, 42], ['packages/export/src/markdown/b.ts', 262, 48], ['apps/web/src/export/c.ts', 131, 59], ['packages/contracts/src/d.ts', 88, 12], ['pnpm-lock.yaml', 2104, 0, 1]].map(([p, a, d, x]) => ({ p, r: [[1, a]], a, d, ...(x ? { x: 1 } : {}) }))) })]),

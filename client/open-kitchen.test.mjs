@@ -78,12 +78,13 @@ test('Main broken needs a failing required check; the cause is the last merge be
   assert.equal(main.facts.clean, true);
   assert.equal(main.holds, 4);
   assert.deepEqual(main.facts.waiting.map((w) => w.n).sort(), [436, 440, 444, 445]);
-  // A merge after the cause makes a roll back unclean.
-  who(v, 'priya').summary.tickets[1].prs[0].mergedAt = new Date(ago(100)).toISOString();
+  // A commit after the first red one makes a roll back unclean, whoever pushed it.
+  who(v, 'ravi').summary.bases[0].sha = 'f999';
+  assert.equal(read(v).pass[0].facts.cause.pr.n, 431);
   assert.equal(read(v).pass[0].facts.clean, false);
-  // Nothing merged before the break: no cause is named.
+  // The first red commit is no team merge (a direct push): no cause is named, even with older merges before it.
   v = view();
-  who(v, 'ravi').summary.bases[0].redSince = new Date(ago(400)).toISOString();
+  who(v, 'ravi').summary.bases[0].redSha = 'd001';
   const none = read(v).pass[0];
   assert.equal(none.facts.cause, null);
   assert.deepEqual(none.who, []);
@@ -91,13 +92,15 @@ test('Main broken needs a failing required check; the cause is the last merge be
   v = view();
   const base = who(v, 'ravi').summary.bases[0];
   who(v, 'priya').summary.tickets[1].prs[0].mergedAt = base.committedAt = new Date(ago(100)).toISOString();
+  Object.assign(who(v, 'priya').summary.tickets[1].prs[0], { mergeSha: 'f500' });
+  base.sha = 'f500';
   const later = read(v).pass[0];
   assert.equal(later.facts.cause.pr.n, 431);
   assert.equal(later.facts.clean, false);
   assert.equal(later.id, read(view()).pass[0].id, 'the call keeps its id, so Seen still matches');
-  // No time for the break: the cause is not checked.
+  // No first red commit: the cause is not checked.
   v = view();
-  delete who(v, 'ravi').summary.bases[0].redSince;
+  delete who(v, 'ravi').summary.bases[0].redSha;
   assert.equal(read(v).pass[0].facts.cause, null);
   // A Mac away now: its base reads are not used (someone may have fixed main since).
   v = view();
@@ -291,7 +294,7 @@ test('review r1: a bad PR number never reaches the page; bad ranges drop; Stuck 
   let v = view();
   ticket(v, 'ravi').prs[0].n = '"><img src=x onerror=alert(1)>';
   let k = read(v);
-  assert.equal(k.pass.find((c) => c.kind === 'main').facts.cause.pr.n, 430, 'the PR with a bad number drops; the merge before it is next');
+  assert.equal(k.pass.find((c) => c.kind === 'main').facts.cause, null, 'the PR with a bad number drops, and no other is blamed');
   assert.ok(!page({ view: v, now: NOW }).includes('<img src=x'));
   v = view();
   const jon = who(v, 'jon').summary.tickets[0].changes.files.find((f) => f.p === 'contracts/src/orchestration.ts');
@@ -337,4 +340,17 @@ test('review r2: pathless files, merges to another branch, a quiet Mac’s merge
   v = view(); delete ticket(v, 'iris').prs[0].size.overAt;
   const big = read(v).held.find((c) => c.kind === 'big');
   assert.equal(big.since, null);
+});
+
+test('review r3: odd times read as not checked; two PRs with one number in two repos are two calls', () => {
+  let v = view();
+  ticket(v, 'omar').updatedAt = { toString: null };
+  ticket(v, 'kai').startedAt = [1];
+  assert.doesNotThrow(() => page({ view: v, now: NOW }));
+  v = view();
+  const k = ticket(v, 'nina');
+  k.prs.push({ ...k.prs[0], repo: 'acme/other', url: 'https://github.com/acme/other/pull/428' });
+  const ids = [...read(v).pass, ...read(v).held].filter((c) => c.kind === 'failing' && c.who[0] === 'nina').map((c) => c.id);
+  assert.equal(ids.length, 2);
+  assert.notEqual(ids[0], ids[1]);
 });
