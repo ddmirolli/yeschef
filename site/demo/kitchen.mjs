@@ -3,7 +3,7 @@
 // Three made-up products: Fernpay, Loopline, Quillo. Nothing here reaches T3 Code or any server.
 // Nothing leaves the pass on its own: every ticket there waits for the visitor's call. The agents answer a
 // call a few seconds later, the way a real agent would, and two tickets in progress finish while the visitor watches.
-import { buildBoard, renderApp } from './lib/board.mjs';
+import { buildBoard, renderApp, pickedFrom } from './lib/board.mjs';
 import { parseCalls, callKey, imageId } from './lib/calls.mjs';
 import { act } from './lib/actions.mjs';
 import { normalize, change } from './lib/kitchen.mjs';
@@ -211,8 +211,9 @@ export function createKitchen({ now = Date.now, where, shot, onChange = () => {}
         call: calls.length ? { key: callKey(latest.itemId, calls), itemId: latest.itemId, text: latest.text, calls } : null, cut: false });
     }
     const qs = new Map([...questions].map(([id, list]) => [id, list.map((q) => ({ ...q }))]));
-    // Open threads first, then settled ones: the order client/server.mjs reads them in.
-    const ordered = [...threads.filter((x) => !x.settled), ...threads.filter((x) => x.settled)];
+    // Newest move first: the order client/server.mjs reads them in from the live stream (client/shells.mjs boardThreads).
+    const moved = (x) => Date.parse(x.updatedAt) || 0;
+    const ordered = [...threads].sort((a, b) => moved(b) - moved(a) || String(b.threadId).localeCompare(String(a.threadId)));
     // Run times for the threads that ran today, as client/server.mjs runTimes() reads them.
     const t0 = dayStart(now()), runs = new Map();
     for (const t of threads.filter((x) => mayRunToday(x, t0))) {
@@ -236,8 +237,8 @@ export function createKitchen({ now = Date.now, where, shot, onChange = () => {}
     /** The app's /app page for a query string, as client/server.mjs route() renders it. */
     page(search = '') {
       board = snapshot();
-      const project = new URLSearchParams(search).get('p');
-      return renderApp({ board, project, link: () => 'https://t3.codes/', status: { ok: true, at: now(), ms: 4 },
+      const picked = pickedFrom(new URLSearchParams(search));
+      return renderApp({ board, picked, link: () => 'https://t3.codes/', status: { ok: true, at: now(), ms: 4 },
         origin: 'https://t3.codes', answered, projects, rules: { ...rules, rev } })
         .replace(/\/img\/([0-9a-f]{20})/g, (all, id) => (SHOTS.has(id) ? shot(SHOTS.get(id)) : all));
     },
