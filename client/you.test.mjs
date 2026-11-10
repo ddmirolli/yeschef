@@ -273,6 +273,46 @@ test('a page read for the old projects is not replayed when the menu closes afte
   assert.deepEqual(synced, ['fernpay']);
 });
 
+test('picks that cover the whole board drop out of the address, and Back redraws the boxes at once (PR-Agent r2 on #10)', () => {
+  const src = readFileSync(new URL('./server.mjs', import.meta.url), 'utf8');
+  const fn = (name) => src.match(new RegExp(`function ${name}\\(\\)\\{[\\s\\S]*?\\n {2}\\}`))[0];
+  const calls = [];
+  const ctx = vm.createContext({ URLSearchParams, location: { pathname: '/', search: '' }, all: 'true',
+    $: () => ({ getAttribute: () => ctx.all }), history: { state: null, replaceState: (s, t, u) => calls.push(u) } });
+  vm.runInContext(`${fn('pickedNow')} ${fn('normalizePicked')}`, ctx);
+  // The address reads as pickedFrom reads it, a project called __proto__ included.
+  ctx.location.search = '?p=A&p=&p=A&p=__proto__&p=B';
+  assert.deepEqual([...vm.runInContext('pickedNow()', ctx)], ['A', '__proto__', 'B']);
+  ctx.location.search = '';
+  assert.equal(vm.runInContext('pickedNow()', ctx), null);
+  // All projects ticked with picks in the address: the picks go, and anything else in the address stays.
+  ctx.location.search = '?p=A&x=1';
+  vm.runInContext('normalizePicked()', ctx);
+  assert.deepEqual(calls, ['/?x=1']);
+  // Some picked, or no picks: the address stays as it is.
+  ctx.all = 'mixed';
+  vm.runInContext('normalizePicked()', ctx);
+  ctx.all = 'true'; ctx.location.search = '';
+  vm.runInContext('normalizePicked()', ctx);
+  assert.deepEqual(calls, ['/?x=1']);
+
+  // Back and Forward: the handler draws the address's picks when the menu has a box for each, else closes the menu.
+  const onPop = src.match(/window\.addEventListener\('popstate', (function\(\)\{[\s\S]*?\n {2}\})\);/)[1];
+  const drawn = [], menu = { open: true };
+  const pop = vm.createContext({ picks: null, drawn, menu, state: { sel: 'k1' }, woke: 0,
+    pickedNow: () => pop.picks, $$: () => ['A', 'B'].map((p) => ({ dataset: { p } })), $: () => menu,
+    drawPicked: (n) => drawn.push(n), wake: () => { pop.woke++; } });
+  vm.runInContext(`var onPop = ${onPop};`, pop);
+  pop.picks = ['A', 'B'];
+  vm.runInContext('onPop()', pop);
+  pop.picks = null;
+  vm.runInContext('onPop()', pop);
+  assert.deepEqual([drawn, menu.open, pop.state.sel, pop.woke], [[['A', 'B'], null], true, null, 2]);
+  pop.picks = ['A', 'Gone'];
+  vm.runInContext('onPop()', pop);
+  assert.deepEqual([drawn.length, menu.open, pop.woke], [2, false, 3]);
+});
+
 test('switching to Your team forgets the ticket the Pass kept, even with none open (PR-Agent r6 on #74)', () => {
   const src = readFileSync(new URL('./server.mjs', import.meta.url), 'utf8').match(/function setScope\(next\)\{[\s\S]*?\n {2}\}/)[0];
   const ctx = vm.createContext({ scope: 'you', state: { sel: null, passSel: 'k1' }, placed: 0 });

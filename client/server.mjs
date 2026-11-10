@@ -1860,7 +1860,7 @@ ${BAR_HTML}
     $$('.plate', nuStore).forEach(function(p){ if ((!mounted || p.id !== mounted.id) && !held[p.id]) store_.appendChild(p); });
     // A ticket sent from the pass comes back as soon as the agent hands it back again, not after 90 s.
     Object.keys(acted).forEach(function(aid){ var np = nuStore.querySelector('#' + CSS.escape(aid)) || document.getElementById(aid); if (np && actedLatest[aid] !== undefined && (np.dataset.latest || '') !== actedLatest[aid]) { delete acted[aid]; delete actedLatest[aid]; } });
-    hideActed(); setFolder(state.folder); applyScope(); sizeRail(); restoreDrafts(app); restoreDrafts($('#plates'));
+    hideActed(); setFolder(state.folder); applyScope(); normalizePicked(); sizeRail(); restoreDrafts(app); restoreDrafts($('#plates'));
     if (focusSel && document.activeElement !== null && (document.activeElement === document.body || !document.activeElement.isConnected)) { var back = $(focusSel); if (back) back.focus({ preventScroll: true }); }
     // The open ticket left the board on its own: show the next one, unless you are working in it.
     if (gone && !keep) { var id = mounted.id; mounted.remove(); mounted = null; if (acted[id]) { state.sel = null; place(); } else advance(id); return; }
@@ -2562,7 +2562,30 @@ ${BAR_HTML}
       if (cur) cur.replaceWith(nw);
     });
   }
-  window.addEventListener('popstate', function(){ state.sel = null; wake(); });
+  // The picks in the address, as pickedFrom reads them (client/board.mjs): repeats and empty names drop out; null is
+  // All projects. An array, not an object: a project may be called "__proto__".
+  function pickedNow(){
+    var out = [];
+    new URLSearchParams(location.search).getAll('p').forEach(function(n){ if (n && out.indexOf(n) < 0) out.push(n); });
+    return out.length ? out : null;
+  }
+  // Picks that cover every project on the board are All projects: the address drops them, so a project that turns up
+  // later shows too, and All projects stays a way out of a filter (PR-Agent r2 on #10).
+  function normalizePicked(){
+    var a = $('.vmenu .pk.all'); if (!a || a.getAttribute('aria-checked') !== 'true') return;
+    var u = new URLSearchParams(location.search); if (!u.has('p')) return;
+    u.delete('p'); var q = u.toString();
+    history.replaceState(history.state, '', location.pathname + (q ? '?' + q : ''));
+  }
+  // Back and Forward: the boxes and the chip follow the address at once, even while the board waits for the menu to
+  // close, so the next tick starts from the right picks (PR-Agent r2 on #10). A pick the menu has no box for closes
+  // the menu instead, and the refresh draws it.
+  window.addEventListener('popstate', function(){
+    var names = pickedNow(), have = $$('.vmenu .pk[data-p]').map(function(b){ return b.dataset.p; });
+    if (!names || names.every(function(n){ return have.indexOf(n) >= 0; })) drawPicked(names);
+    else { var om = $('details.vmenu[open]'); if (om) om.open = false; }
+    state.sel = null; wake();
+  });
   document.addEventListener('submit', function(ev){
     var f = ev.target; if (!f.matches || !f.matches('form.act')) return;
     ev.preventDefault();
@@ -2914,7 +2937,7 @@ ${BAR_HTML}
   // Typing your own answer picks it: a field inside a label does not check the label's radio by itself.
   document.addEventListener('focusin', function(ev){ var t = ev.target; if (t.matches && t.matches('label.opt .custom')) { var r = t.parentNode.querySelector('input[data-custom]'); if (r) r.checked = true; } });
 
-  applyPrefs(); applyScope(); sizeRail(); restoreDrafts(document);
+  applyPrefs(); applyScope(); normalizePicked(); sizeRail(); restoreDrafts(document);
   setView(state.view); setFolder('pass');
   fades();
   // The Cmd+K action bar (client/bar.mjs). View: You and View: Team read and set the same scope as the footer
