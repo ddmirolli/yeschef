@@ -5,7 +5,7 @@
 export const ROLES = ['lead', 'deputy', 'owner', 'engineer', 'viewer'];
 export const ROLE_NAMES = { lead: 'Lead', deputy: 'Deputy', owner: 'Area owner', engineer: 'Engineer', viewer: 'Viewer' };
 
-/** The role dialog's boxes (S4), in developer words. `see` is every role's and cannot be unticked. */
+/** The role dialog's boxes, in developer words. `see` is every role's and cannot be unticked. */
 export const PERMS = [
   { key: 'see', label: 'See every ticket in the projects the team shares', hint: 'Every role can. Each dev picks their own projects.', locked: true },
   { key: 'reply', label: 'Reply on anyone\'s ticket', hint: 'The reply goes to that dev\'s thread, with your name on it.' },
@@ -16,7 +16,7 @@ export const PERMS = [
 ];
 const KEYS = PERMS.map((p) => p.key);
 
-/** Each role's boxes before the lead changes them. The Deputy's are S4's. */
+/** Each role's boxes before the lead changes them. The Deputy's are the ones Dan approved; the others are proposed. */
 export const DEFAULTS = {
   lead: KEYS,
   deputy: ['see', 'reply', 'projects', 'invite'],

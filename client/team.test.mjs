@@ -84,7 +84,7 @@ async function crew({ role = 'engineer', perms } = {}) {
   return { relay, net, timers, lead, dev, ran, t3calls, saved, setBoard: (b) => { devBoard = b; } };
 }
 
-test('roles: the lead has every box, the Deputy has S4\'s, see is never off, and unknown roles fall to Viewer', () => {
+test('roles: the lead has every box, the Deputy has the approved boxes, see is never off, and unknown roles fall to Viewer', () => {
   assert.deepEqual(grant('lead', []).perms, PERMS.map((p) => p.key));
   assert.deepEqual(grant('deputy').perms, ['see', 'reply', 'projects', 'invite']);
   assert.deepEqual(grant('engineer', ['merge']).perms, ['see', 'merge']);

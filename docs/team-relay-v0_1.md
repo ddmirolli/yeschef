@@ -64,7 +64,7 @@ The relay checks only who may change the team. What a role may do to a dev's thr
 
 **The summary.** Only from the projects the dev shares, and nothing from coordinator threads. Per ticket: the thread id and title, the project, the stage, whether it waits on a person, agents working, open questions, whether the agent asked a decision, up to five PRs (repository, number, state, link), and the last update. No messages, no code. At most 100 tickets, waiting ones first, cut to fit 64 KiB. It goes only when it changed, at most once per the relay's limit, always the newest, and is cut again if its sealed size is over the limit. A Viewer sends none, and a dev made a Viewer sends a forget. Sharing nothing sends a forget. Dropping a project rebuilds the waiting summary at once, so the dropped project's tickets never go out, even when a summary was being sealed at that moment. A summary the relay refuses is dropped; a relay that does not answer is tried again after 20 seconds, then 40, up to 5 minutes. A teammate's screen shows the time the dev's Mac signed, not the relay's, and an older summary never replaces a newer one.
 
-**Roles.** The words Dan approved on 2026-11-10. The Deputy's boxes are S4's; the others are proposed.
+**Roles.** The words Dan approved on 2026-11-10. The Deputy's boxes are the ones Dan approved; the others are proposed.
 
 | Role | Boxes by default |
 |---|---|
@@ -162,6 +162,6 @@ Close codes: 4001 approved (connect again as a member), 4002 declined, 4003 remo
 ## Open
 
 - **The cap's number:** Dan sets it from `/v1/usage`.
-- **The Merge box has no area scope yet.** S4 says "every ticket in a French Brigade area, only shared code changes in an Open kitchen area". Until areas exist, the box covers every project the dev shares.
+- **The Merge box has no area scope yet.** The rule: a Merge box covers every ticket in a French Brigade area, and only shared code changes in an Open kitchen area. Until areas exist, the box covers every project the dev shares.
 - **A member who leaves still holds the team key.** The relay stops serving them the moment the roster drops them. Rotating the team key on removal is not built.
 - **Pairing tokens last 30 days**: renewal and revoke on leaving.
