@@ -333,6 +333,17 @@ test('the file: a key that is not text is named and skipped, and never throws', 
   assert.equal(st.changed, false);
 });
 
+test('off a Mac, AltGr types a character and is never a shortcut; on a Mac, ⌥ still reads', () => {
+  const W = keysCore(false);
+  const altGr = (on) => ({ getModifierState: (m) => on && m === 'AltGraph' });
+  assert.equal(W.comboOf(ev('€', { code: 'KeyE', ctrlKey: true, altKey: true, ...altGr(true) })), null, 'AltGr+E is €');
+  assert.equal(W.comboOf(ev('e', { code: 'KeyE', ctrlKey: true, altKey: true, ...altGr(false) })), 'mod+alt+e', 'Ctrl+Alt+E with no AltGr is a key');
+  const st = W.build([{ key: 'mod+alt+e', command: 'ticket.suggested' }]);
+  assert.equal(W.route(st, W.comboOf(ev('€', { code: 'KeyE', ctrlKey: true, altKey: true, ...altGr(true) })), { ticket: true }), null, '€ in a note never sends');
+  assert.deepEqual(W.route(st, W.comboOf(ev('e', { code: 'KeyE', ctrlKey: true, altKey: true, ...altGr(false) })), { ticket: true }), { as: 'mod+enter', id: 'ticket.suggested' });
+  assert.equal(K.comboOf(ev('´', { code: 'KeyE', altKey: true, metaKey: true, ...altGr(true) })), 'mod+alt+e', 'a Mac reads ⌥ as ⌥');
+});
+
 test('a sign under ⌥ reads as its US key, whatever the Mac types', () => {
   assert.equal(K.comboOf(ev('÷', { code: 'Slash', altKey: true })), 'alt+/');
   assert.equal(K.comboOf(ev('¿', { code: 'Slash', altKey: true, shiftKey: true })), 'alt+?');

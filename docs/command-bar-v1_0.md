@@ -250,7 +250,8 @@ own Send stay ⌘↵: the suggested action's `!dialog` keeps them apart.
   `mod`, `alt`, `shift`, then the key, joined with `+`. `mod` is ⌘ on a Mac and Ctrl elsewhere. A sign carries its
   own Shift (`?`), except a shifted digit's, which reads as the digit: `!` is `shift+1`. Written with `shift`, a US
   sign is the sign Shift types: `shift+/` is `?`, and `alt+shift+/` is `alt+?`. With ⌥, a key reads as its
-  US key, whatever the Mac types: ⌥/ is `alt+/`, not ÷, and ⌥E is `alt+e`. `when` joins names
+  US key, whatever the Mac types: ⌥/ is `alt+/`, not ÷, and ⌥E is `alt+e`. Off a Mac, AltGr types a character
+  (AltGr+E is € on a German keyboard), so a key pressed with it is never a shortcut. `when` joins names
   with `&&`, each with an optional `!`: `ticket` (a ticket is open) and `dialog` (the bar, Settings, New thread or a
   screenshot is open). No chords.
 - **Changes only.** The list holds what differs from the defaults, as VS Code's does. An entry adds a key to its

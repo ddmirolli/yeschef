@@ -107,6 +107,9 @@ export function keysCore(mac) {
   function comboOf(ev) {
     var k = ev && ev.key, code = (ev && ev.code) || '', name;
     if (!k) return null;
+    // Off a Mac, AltGr types a character (AltGr+E is € on a German keyboard) and reads as Ctrl+Alt: never a shortcut,
+    // so € in a note never sends. On a Mac, ⌥ is a shortcut's ⌥ (some browsers call it AltGraph), so there it reads.
+    if (!mac && typeof ev.getModifierState === 'function' && ev.getModifierState('AltGraph')) return null;
     if (k.length === 1 && /^[a-z0-9]$/i.test(k)) name = k.toLowerCase();
     else if ((ev.altKey || ev.shiftKey) && /^Key[A-Z]$/.test(code)) name = code.slice(3).toLowerCase();
     else if ((ev.altKey || ev.shiftKey) && /^Digit[0-9]$/.test(code)) name = code.slice(5);
