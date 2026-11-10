@@ -1041,3 +1041,46 @@ test('a board read before the clock went back is not fresh', async () => {
   assert.equal(ran.length, 0);
   lead.stop(); dev.stop();
 });
+
+test('a summary whose answer was lost does not count as sent: the one before it goes again', async () => {
+  const { relay, timers, lead, dev } = await crew();
+  const say = dev.say.bind(dev);
+  let lose = false;
+  // The relay takes the summary; its answer is lost.
+  dev.say = async (msg) => { const r = await say(msg); return lose && msg.t === 'summary' ? { t: 'err', code: 'timeout', text: 'The relay did not answer.' } : r; };
+  const a = boardNow(relay.now());
+  dev.board(a);
+  await until(() => lead.summaries.size === 1, 'summary A');
+  const tickets = () => JSON.stringify(lead.summaries.get(dev.meId)?.body.tickets);
+  const first = tickets();
+  lose = true;
+  await timers.advance(10000);
+  const b = boardNow(relay.now()); b.tickets[1].place = 'Merged';
+  dev.board(b);
+  await until(() => tickets() !== first, 'summary B at the relay');
+  lose = false;
+  dev.board(a);
+  await timers.advance(20000);
+  await until(() => tickets() === first, 'summary A again');
+  lead.stop(); dev.stop();
+});
+
+test('a stop and start while the keys load opens one socket, not two', async () => {
+  const { relay, net, timers, lead, dev } = await crew();
+  dev.stop();
+  let made = 0;
+  const counting = { ...net, socket: (url) => { made++; return net.socket(url); } };
+  const again = new Team({ state: structuredClone(dev.state), net: counting, now: () => relay.now(), timers, random: () => 1 });
+  const member = again.member.bind(again);
+  let go;
+  const gate = new Promise((r) => { go = r; });
+  again.member = async () => { await gate; return member(); };
+  again.start();
+  again.stop();
+  again.start();
+  go();
+  await until(() => again.link === 'online', 'online');
+  await settle(); await settle();
+  assert.equal(made, 1);
+  again.stop(); lead.stop();
+});
