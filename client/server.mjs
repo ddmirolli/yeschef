@@ -1443,6 +1443,75 @@ html.s-team .you{display:none}
 .team-pass,html.s-team .head-b>.folder,html.s-team .head .badge,html.s-team .head-h>.muted{display:none}
 html.s-team .head-b>.team-pass{display:flex}
 html.s-team.v-kitchen .team-wait{display:block;padding:16px 18px;border-radius:16px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--sep)}
+/* Your team, Open kitchen (step 4; mock v2, round 2, Dan 2026-11-10). The team's card replaces yours in the rail, and
+   The Pass holds the team's calls with a quiet line under them. Phones show The Pass only (Dan's 1a). */
+.team-card,.tpn{display:none}
+html.s-team .stagenav:has(.team-card) .nav-card:not(.team-card){display:none}
+html.s-team .team-card{display:flex}
+html.s-team .stagenav>.nf[data-folder=pass]:has(.tpn) .n:not(.tpn){display:none}
+html.s-team .stagenav>.nf[data-folder=pass] .tpn{display:block}
+.team-card .tst{margin:0;cursor:default}
+.gd.c-red{background:var(--red)}.gd.c-nc{background:none;box-shadow:inset 0 0 0 1.5px var(--gray)}
+.segbar i.c-amber{background:var(--orange)}.segbar i.c-gray{background:var(--gray)}.segbar i.c-green{background:var(--green)}.segbar i.c-nc{background:var(--fill2)}
+html.s-team .head-b>.team-pass.tp-live{display:block;padding:0;text-align:left}
+.tp-live .lb.tsg{color:var(--label2)}.tp-live .lb.tsg b{font-weight:600;color:var(--label)}
+.tcalm{display:flex;gap:9px;align-items:flex-start;margin:14px 12px 4px 4px;font-size:13px;line-height:1.45;color:var(--label2)}
+.tcalm .ic{flex:none;width:18px;height:18px;color:var(--green)}
+html.s-team .bar .stats{display:none}
+@media (max-width:760px){html.s-team .team-card{display:none}.tcalm{margin:12px 4px 4px}}
+/* The reader: Seen, the evidence, then Suggested. */
+.tv{font-size:14px}
+.tv .tvis{position:relative;margin-top:14px;padding:14px 16px;border-radius:12px;background:var(--card)}
+.tv .vl{display:flex;align-items:baseline;gap:10px;margin-bottom:10px;font-size:12px;font-weight:600;color:var(--label2)}
+.tv .vl>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* A long path keeps its file name: it cuts from the start. */
+.tv .vl>span:has(>.mono){direction:rtl;text-align:left}
+.tv .vl b{margin-left:auto;font-size:12.5px;color:var(--label);font-weight:600;white-space:nowrap}
+.tv .vl b.red{color:var(--red)}
+.tv .mono{font:500 12px var(--mono);color:var(--label2)}
+.tv .kvs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 20px}
+.tv .kv span{display:block;font-size:11.5px;color:var(--label2)}
+.tv .kv b{display:block;font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tv .kv b.mono{font-size:12px;color:var(--label)}
+.tv .tsug{display:flex;gap:12px;align-items:flex-start;margin-top:16px;padding:12px 14px;border-radius:12px;background:var(--pass-t);font-size:13.5px;line-height:1.45}
+.tv .tsug b{flex:none;color:var(--pass);font-size:12px;font-weight:700;padding-top:1px}
+.tv .tseen{margin:0;font-size:13px;color:var(--label2)}
+.tv .tseen b{margin-right:4px;font-weight:600}.tv .tseen .ok{color:var(--green)}.tv .tseen .no{color:var(--red)}
+.tv .tquiet{display:flex;gap:10px;align-items:flex-start;margin:0 0 12px;padding:10px 12px;border-radius:10px;background:var(--fill);font-size:13px;line-height:1.45;color:var(--label2)}
+.tv .tquiet b{color:var(--label);font-weight:600}
+.tv .hz{flex:none;display:inline-block;width:22px;height:12px;margin-top:2px;border-radius:3px;background:repeating-linear-gradient(135deg,var(--fill2) 0 2px,transparent 2px 5px);box-shadow:inset 0 0 0 1px var(--fill2)}
+.tv .raxis{display:flex;justify-content:space-between;margin-top:6px;font-size:11.5px;color:var(--label2);font-variant-numeric:tabular-nums}
+.tv .wlg{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:8px;font-size:11.5px;color:var(--label2)}
+.tv .wlg span{display:inline-flex;align-items:center;gap:6px}
+.tv .wlg i{display:inline-block;width:14px;height:8px;border-radius:2px;background:var(--green)}
+.tv .wlg i.r{background:var(--red)}.tv .wlg i.a{background:none;box-shadow:inset 0 0 0 1.5px var(--red)}
+.tv .tmore{margin:10px 0 0;font-size:12.5px;color:var(--label2)}
+/* Main broken: the team's merges today, red at the break, then the PRs that wait. */
+.tv .ribbon{display:flex;flex-wrap:wrap;gap:3px;align-items:flex-end}
+.tv .ribbon i{width:14px;height:22px;border-radius:3px;background:var(--green);opacity:.85}
+.tv .ribbon i.r{background:var(--red);opacity:1;height:30px}
+.tv .ribbon i.a{background:none;box-shadow:inset 0 0 0 1.5px var(--red);opacity:1}
+.tv .tprs{display:flex;flex-wrap:wrap;gap:6px}
+.tv .tpr{display:inline-flex;align-items:center;gap:6px;padding:3px 9px 3px 4px;border-radius:999px;background:var(--bg);box-shadow:inset 0 0 0 .5px var(--sep);font-size:12.5px;font-weight:600}
+/* Overlap: the two threads, then the file's line map with the shared lines boxed. */
+.tv .duo{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.tv .tcard{padding:12px 14px;border-radius:12px;background:var(--card)}
+.tv .tcard .h{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600}
+.tv .tcard .h .lb{margin-left:auto;display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;color:var(--label2)}
+.tv .tcard .t{margin-top:6px;font-size:14px;font-weight:600}
+.tv .tcard .m{margin-top:2px;font-size:12.5px;color:var(--label2)}
+.tv .fmap{position:relative;margin-top:4px}
+.tv .fmap .tr{display:grid;grid-template-columns:52px 1fr;align-items:center;gap:10px;height:26px;font-size:12.5px;font-weight:600}
+.tv .fmap .tr>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tv .fmap .lane{position:relative;height:12px;border-radius:3px;background:var(--fill)}
+.tv .fmap .lane i{position:absolute;top:0;bottom:0;min-width:2px;border-radius:3px;background:var(--label2)}
+.tv .fmap .band{position:absolute;top:-3px;height:58px;min-width:3px;border-radius:5px;background:var(--red-t);box-shadow:inset 0 0 0 1.5px var(--red)}
+.tv .fmap .ticks{display:grid;grid-template-columns:52px 1fr;gap:10px;margin-top:4px;font-size:11px;color:var(--label2)}
+.tv .fmap .ticks div{display:flex;justify-content:space-between;font-variant-numeric:tabular-nums}
+@media (max-width:560px){.tv .kvs,.tv .duo{grid-template-columns:minmax(0,1fr)}}
+/* Faces: initials on a colour from the name. */
+.av{display:inline-grid;place-items:center;flex:none;width:22px;height:22px;border-radius:50%;background:hsl(var(--h) 52% 46%);font:700 9.5px/1 var(--sans);color:#fff;letter-spacing:.02em}
+.av.sm{width:18px;height:18px;font-size:8px}
 `;
 // Appearance (theme.mjs): every dark and light rule also answers to the html element's data-theme.
 // The pictures in Settings → Layout and the ⌘K bar's Appearance and Density steps (theme.mjs).
@@ -1583,15 +1652,17 @@ ${BAR_HTML}
     // Your team shows none of your own tickets, so the one open in the reader closes, and the one the Pass kept for
     // its return is forgotten too, even when none is open now (PR-Agent r6 on #74). The reader is cleared even when
     // nothing is selected: a project pick in the same open menu drops the selection before the reader redraws.
-    if (next === 'team' && was !== 'team') { state.passSel = null; state.sel = null; place(); }
+    // Coming back to You does the same for a team call (step 4): neither view opens the other's.
+    if (next !== was) { state.passSel = null; state.sel = null; place(); }
   }
 
   // ----- Folders (the stage list) and selection -----
-  function folderEl(){ return $('.head-b .folder[data-folder="' + state.folder + '"]') || $('.head-b .folder[data-folder="pass"]'); }
+  // In Your team the list is the team's calls (folder "team"), never one of your own folders.
+  function folderEl(){ if (scope === 'team') return $('.head-b .folder[data-folder="team"]'); return $('.head-b .folder[data-folder="' + state.folder + '"]') || $('.head-b .folder[data-folder="pass"]'); }
   function setFolder(name){
-    if (!$('.head-b .folder[data-folder="' + name + '"]')) name = 'pass';
+    if (name === 'team' || !$('.head-b .folder[data-folder="' + name + '"]')) name = 'pass';
     state.folder = name;
-    $$('.head-b .folder').forEach(function(d){ d.hidden = d.dataset.folder !== name; });
+    $$('.head-b .folder:not([data-folder="team"])').forEach(function(d){ d.hidden = d.dataset.folder !== name; });
     // The stage list marks the open list in the pass view only: You, expanded shows every stage at once.
     $$('.stagenav .nf').forEach(function(b){ if (b.dataset.folder === name && focusView()) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current'); });
     var label = name === 'pass' ? 'The Pass' : name, h = $('.head-name'); if (h && focusView()) h.textContent = label; else if (h) h.textContent = 'The Pass';
@@ -1665,7 +1736,9 @@ ${BAR_HTML}
   }
   // After a send from the pass, the next ticket at the pass opens. With none left, the pass shows all clear.
   function advance(fromId){
-    var list = $$('.head-b .folder[data-folder="' + (focusView() ? state.folder : 'pass') + '"] [data-plate]').filter(function(t){ return !t.classList.contains('gone') || t.dataset.plate === fromId; });
+    // In Your team the next one is the team's next call, never one of your own tickets.
+    var box = $('.head-b .folder[data-folder="' + (scope === 'team' ? 'team' : focusView() ? state.folder : 'pass') + '"]');
+    var list = (box ? $$('[data-plate]', box) : []).filter(function(t){ return !t.classList.contains('gone') || t.dataset.plate === fromId; });
     var i = list.findIndex(function(t){ return t.dataset.plate === fromId; });
     var rest = list.filter(function(t){ return t.dataset.plate !== fromId && !t.classList.contains('gone'); });
     var nextT = i < 0 ? rest[0] : (list.slice(i + 1).filter(function(t){ return !t.classList.contains('gone'); })[0] || rest[rest.length - 1]);
@@ -2376,6 +2449,8 @@ ${BAR_HTML}
   window.addEventListener('beforeunload', function(ev){ if (pendingSends.length) { ev.preventDefault(); ev.returnValue = ''; } });
   window.addEventListener('pagehide', function(){ pendingSends.slice().forEach(function(p){ p.fire(true); }); });
   function send(f, btn){
+    // Your team's actions wait for the team connection: nothing a teammate's agent could act on leaves this Mac yet.
+    if (f.classList.contains('team-act')) { say(f, 'Not sent: Yes Chef does not have the team connection yet.', 'bad'); return; }
     // A send waiting on its answer goes nowhere, but one that is not confirmed goes again, the same bytes.
     if (f.dataset.busy) { var uid = f.classList.contains('launch') ? 'launch' : f.dataset.plate; if (unconfirmed[uid]) retry(uid); return; }
     if ((btn.value === 'call' || btn.value === 'answer') && btn.classList.contains('primary')) recPick(f);
