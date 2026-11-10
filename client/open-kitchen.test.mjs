@@ -1,7 +1,7 @@
 // Open kitchen, the Your team view (step 4). Run: node --test client/open-kitchen.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openKitchen, callId, below, reporting, reach, sortCalls, may, RULES } from './open-kitchen.mjs';
+import { openKitchen, kitchenBoard, callId, below, reporting, reach, sortCalls, may, RULES } from './open-kitchen.mjs';
 import { fixtureView } from './open-kitchen.fixture.mjs';
 import { renderApp } from './board.mjs';
 
@@ -414,4 +414,97 @@ test('review r6: a summary that is not an object with tickets is not checked, ne
     v = view(); for (const p of v.people) if (p.id !== 'me') p.summary = bad;
     assert.equal(read(v).status, 'not-checked');
   }
+});
+
+// ---- PR B: Your team, expanded ----
+const board = (v, want = null) => kitchenBoard(read(v), { now: NOW, want });
+const hmOf = (t) => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
+test('expanded: the instruments from the made-up team', () => {
+  const B = board(view());
+  assert.equal(B.people, 14);
+  assert.equal(B.base.state, 'red');
+  assert.equal(B.base.since, ago(141));
+  assert.deepEqual(B.base.merges.map((m) => `${m.n}:${m.tone}`), ['425:ok', '427:ok', '429:ok', '430:ok', '431:red']);
+  // One mark per merge it counts, so the base and Merged today agree (brief, departure 1).
+  assert.equal(B.merged.count, B.base.merges.length);
+  assert.equal(B.merged.byHour.reduce((a, n) => a + n, 0), 5);
+  assert.equal(B.merged.usual, null, 'no merge history is sent, so usual by now is not checked');
+  assert.deepEqual(B.review, { count: 3, ages: [236, 128, 44].map((m) => m * MIN) });
+  // Lee is not reporting, so their thread's agent is not counted as running now; Tom's planned thread runs none.
+  assert.deepEqual(B.agents, { count: 20, threads: 12 });
+});
+
+test('expanded: Who’s on what puts In The Pass first, links the Overlap, and hatches a quiet Mac', () => {
+  const B = board(view());
+  const T = B.timeline;
+  assert.deepEqual(T.rows.map((r) => r.state).filter((s, i, a) => a.indexOf(s) === i), ['pass', 'alarm', 'quiet', 'track']);
+  const lee = T.rows.find((r) => r.person === 'lee');
+  assert.equal(lee.quiet.since, ago(122));
+  assert.equal(lee.bars[0].end, ago(122), 'a quiet dev’s bar stops at their last report');
+  assert.equal(lee.bars[0].call.kind, 'waiting');
+  const ravi = T.rows.find((r) => r.person === 'ravi');
+  assert.deepEqual(ravi.bars.map((b) => [b.title, b.call?.kind || null, b.merged !== null]), [['Updater channel picker', 'main', true], ['Nightly icon', null, false]]);
+  assert.equal(T.rows.find((r) => r.person === 'ben').bars[0].call.mine, false, 'Ben holds their own alarm');
+  assert.deepEqual(T.links.map((l) => [l.a, l.b, l.file]), [['kai', 'jon', 'contracts/src/orchestration.ts']]);
+  assert.ok(T.rows.every((r) => r.bars.every((b) => b.start >= T.from && b.end <= T.to && b.start <= b.end)));
+});
+
+test('expanded: files two live threads change, same lines first', () => {
+  const F = board(view()).files;
+  assert.deepEqual(F.rows.map((f) => [f.path, f.state, f.people.join('+')]), [['contracts/src/orchestration.ts', 'same', 'kai+jon'], ['web/src/sidebar.tsx', 'different', 'kai+ada']]);
+  assert.ok(F.rows[0].call.mine);
+  assert.equal(F.at, ago(1));
+});
+
+test('expanded: what no summary says stays not checked, never a guess', () => {
+  let v = view();
+  delete ticket(v, 'kai').prs[0].readyAt;
+  assert.equal(board(v).review.ages, null, 'one PR with no ready time leaves the ages not checked');
+  v = view();
+  who(v, 'ravi').summary.bases = [];
+  assert.equal(board(v).base.state, null);
+  v = view();
+  delete ticket(v, 'ada').changes.files[0].r;
+  const F = board(v).files;
+  assert.equal(F.rows.find((f) => f.path === 'web/src/sidebar.tsx').state, 'nc');
+  v = view();
+  delete ticket(v, 'kai').changes.at;
+  assert.equal(board(v).files.at, null);
+  // A thread with no start time is counted, not drawn; work merged before today is not drawn at all.
+  v = view();
+  delete ticket(v, 'tom').startedAt;
+  const tom = board(v).timeline.rows.find((r) => r.person === 'tom');
+  assert.deepEqual([tom.bars.length, tom.untimed], [0, 1]);
+  v = view();
+  who(v, 'maya').summary.tickets[1].prs[0].mergedAt = new Date(NOW - 30 * 60 * MIN).toISOString();
+  assert.equal(board(v).timeline.rows.find((r) => r.person === 'maya').bars.length, 1);
+  assert.equal(kitchenBoard(openKitchen({ ...view(), link: 'offline' }, { now: NOW }), { now: NOW }), null);
+});
+
+test('expanded: a picked project narrows the board', () => {
+  const B = board(view(), new Set(['Quillo']));
+  assert.deepEqual(B.timeline.rows.map((r) => r.person).sort(), ['elena', 'lee', 'nina', 'tom']);
+  assert.equal(B.base.state, null, 'the red base is in another project’s repo');
+  assert.equal(B.merged.count, 0);
+  assert.equal(B.files.rows.length, 0);
+});
+
+test('expanded: the page draws the board and The Pass as a column; each opens a call that is in the page', () => {
+  const html = page({ view: view(), now: NOW });
+  assert.match(html, /<section class="tboard"/);
+  assert.ok(!html.includes('class="team-wait"'), 'the board replaces the waiting panel');
+  assert.equal((html.match(/class="xc"/g) || []).length, 6);
+  const opens = [...html.matchAll(/data-team-open="([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(opens.length > 12);
+  for (const id of new Set(opens)) assert.ok(html.includes(`<article class="plate team-plate" id="${id}"`), id);
+  // Every colour carries a word: the legend says what red and amber mean.
+  for (const w of ['working', 'merged', 'red: act now', 'amber: decide soon', 'not reporting']) assert.ok(html.includes(w), w);
+  assert.ok(html.includes('usual by now: not checked'));
+  assert.ok(html.includes(`Mac quiet since ${hmOf(ago(122))}`));
+  assert.ok(html.includes('6 need you, most urgent first.'));
+  // The suggestion button is the call's first action, and only for a role that may take it.
+  assert.match(html, /data-team-act="rollback">Roll back #431</);
+  const v = view(); v.me = { ...v.me, role: 'engineer', perms: ['see'] };
+  assert.ok(!page({ view: v, now: NOW }).includes('data-team-act='), 'See only: Open, never the suggestion');
 });

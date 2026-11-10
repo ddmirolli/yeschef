@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { imagesIn, imageUrl, withoutImages, recommendLines } from './calls.mjs';
 import { missingShots, ASK_SHOTS } from './kitchen.mjs';
 import { agentTime, runningSeries, duration, trackWaits, withoutWaits } from './you.mjs';
-import { openKitchen, KINDS, may } from './open-kitchen.mjs';
+import { openKitchen, kitchenBoard, KINDS, may } from './open-kitchen.mjs';
 
 // Developer words (Dan, 2026-11-10). A stage is never stored: T3 state decides it on every poll, so no old data names one.
 export const STAGES = ['Backlog', 'Planned', 'In progress', 'In review', 'Ready to merge', 'Merged'];
@@ -757,6 +757,109 @@ function teamDock(c, w, me, id) {
   return `<aside class="dock dock-plain" aria-label="Your move"><form class="act team-act" method="post" action="/act" data-plate="${e(id)}">${only}${ask}${note}${bar(labelled, [hold, settle], rows)}</form></aside>`;
 }
 
+/** Your team, expanded (mock v2, approved 2026-11-10): a header, four instruments, Who's on what and the files two live
+ *  threads change. Its numbers come from client/open-kitchen.mjs kitchenBoard; what no summary says reads "Not checked". */
+function boardOf({ ok, now, want, name, people, plateOf }) {
+  const at = new Date(now);
+  const time = `<time datetime="${at.toISOString()}">${hm(now)}</time>`;
+  const title = want ? [...want].sort((a, b) => a.localeCompare(b)).join(', ') : 'All projects';
+  const head = (sub) => `<header class="you-h"><h2 id="tb-t">${e(title)}</h2><p class="you-sub">${sub}</p></header>`;
+  const B = kitchenBoard(ok, { now, want });
+  if (!B) {
+    const why = ok.why === 'offline' ? 'Yes Chef’s team connection is down.' : 'No one on your team has reported yet.';
+    return `<section class="tboard" aria-labelledby="tb-t">${head('<span>Open kitchen</span><span>Not checked</span>')}<div class="you-b"><p class="nc-l"><b>Not checked</b> ${e(why)}</p></div></section>`;
+  }
+  const sub = ['Open kitchen', plural(B.people, 'person', 'people'), plural(B.threads, 'live thread')].map((x) => `<span>${e(x)}</span>`).join('') + time;
+  const ins = (label, v, extra = '') => `<div class="ins" role="listitem"><p class="l">${e(label)}</p><p class="v">${v}</p>${extra}</div>`;
+  const ago = (t) => span(Math.max(0, Math.round((now - t) / 60000)));
+  const short = (repo) => String(repo).split('/').pop();
+  // 1. The base: red since the first red commit, or green; one mark per merge today, so it agrees with Merged today.
+  const b = B.base;
+  const label1 = b.branches.length === 1 ? b.branches[0] : 'Base branches';
+  const v1 = b.state === 'red' ? `<b class="red">Red</b><span>${b.since !== null ? `since ${hm(b.since)}` : 'since not checked'}${b.count > 1 ? `, ${e(and(b.red.map((r) => short(r.repo))))}` : ''}</span>`
+    : b.state === 'green' ? `<b class="green">Green</b><span>${e(b.count > 1 ? `${b.count} repos` : short(b.repos[0]))}</span>`
+    : NOT(b.count ? 'a required check has no result yet' : 'no Mac online has read it');
+  const TONE1 = { red: ['r', 'red'], ok: ['g', 'merged while green'], nc: ['n', 'base not checked'] };
+  const rib = b.merges.length ? `<div class="kribbon" role="img" aria-label="${e(`${plural(b.merges.length, 'merge')} today`)}">${b.merges.map((m) => `<i class="${TONE1[m.tone][0]}" title="${e(`#${m.n}, ${name(m.person)}, ${hm(m.at)}: ${TONE1[m.tone][1]}`)}"></i>`).join('')}</div>`
+    + `<span class="cap"><span>${plural(b.merges.length, 'merge')}</span>${b.merges.some((m) => m.tone === 'red') ? `<span class="red">red: since ${b.since !== null ? hm(b.since) : 'the break'}</span>` : ''}</span>` : '';
+  // 2. Merged today: the count and bars by hour. "Usual by now" needs weeks of merge times, which no summary sends.
+  const m = B.merged;
+  const v2 = `<b>${m.count}</b><span>usual by now: not checked</span>`;
+  const hh = (h) => `${String(h).padStart(2, '0')}:00`;
+  const mbars = bars(m.byHour, `Merges by hour from ${hh(m.from)}: ${m.byHour.join(', ')}`).replace('class="vbars"', 'class="vbars mg"')
+    + `<span class="cap"><span>${hh(m.from)}</span><span>now</span></span>`;
+  // 3. Waiting for review: PRs ready for review and how long each has waited, oldest first.
+  const r = B.review;
+  const v3 = r.count ? `<b>${r.count}</b><span>${r.count === 1 ? 'PR' : 'PRs'}, oldest ${r.ages ? span(Math.round(r.ages[0] / 60000)) : 'not checked'}</span>` : '<b>0</b><span>no PR waits</span>';
+  const rbars = r.ages ? bars(r.ages.slice(0, 12).map((a) => Math.round(a / 60000)), `How long each waits: ${r.ages.slice(0, 12).map((a) => span(Math.round(a / 60000))).join(', ')}`) : '';
+  // 4. Agents running now. The day's line needs readings over the day, which no summary sends.
+  const v4 = `<b>${B.agents.count}</b><span>on ${plural(B.agents.threads, 'thread')}</span>`;
+  const inst = `<div class="inst" role="list">${ins(label1, v1, rib)}${ins('Merged today', v2, mbars)}${ins('Waiting for review', v3, rbars)}${ins('Agents running', v4)}</div>`;
+
+  // Who's on what: rows of bars along today, a blue now line, and a red link for each Overlap.
+  const T = B.timeline, total = Math.max(1, (T.to - T.from) * 1.035);
+  const X = (t) => (((t - T.from) / total) * 100).toFixed(2);
+  const W = (a, z) => Math.max(0.4, ((z - a) / total) * 100).toFixed(2);
+  const step = T.to - T.from > 9 * 3600000 ? 2 : 1;
+  const first = new Date(T.from); first.setMinutes(0, 0, 0);
+  const ticks = [];
+  for (let t = first.getTime() + (first.getTime() < T.from ? 3600000 : 0); t <= T.to; t += 3600000) if (new Date(t).getHours() % step === 0) ticks.push(t);
+  const grid = ticks.map((t) => `<i class="gv" style="left:${X(t)}%"></i>`).join('');
+  const STATE = { pass: ['In The Pass', 'k-pass'], alarm: ['Fixing an alarm', 'k-amber'], quiet: ['Not reporting', 'k-gray'], track: ['', ''], unknown: [NC_V, 'k-gray'] };
+  const LANE = [3, 16];
+  const rowOf = new Map(T.rows.map((row, i) => [row.person, i]));
+  const rows = T.rows.map((row) => {
+    const p = people.get(row.person), [word, cls] = STATE[row.state];
+    const marks = row.bars.map((x) => {
+      const top = row.bars.some((y) => y.lane === 1) ? LANE[x.lane] : 9;
+      const call = x.call, tone = call ? KINDS[call.kind].tone : '', open = call && call.mine ? plateOf(call.id) : null;
+      const label = `${x.title || 'Untitled thread'}${x.pr ? ` #${x.pr.n}` : ''}`;
+      const tip = `${label}. ${x.place}${call ? `, ${KINDS[call.kind].word}${call.mine ? ' in The Pass' : `, ${name(row.person)} holds it`}` : ''}. Started ${x.clip ? 'before' : ''} ${hm(x.start)}${x.merged !== null ? `, merged ${hm(x.merged)}` : ''}.`;
+      // The call's word sits inside the bar's right end, clear of the merge mark, so it never covers the next bar.
+      const tag = call ? `<span class="tltag ${tone}" style="top:${top}px;right:calc(${(100 - Number(X(x.end))).toFixed(2)}% + ${x.merged !== null ? 7 : 1}px)">${e(KINDS[call.kind].word)}</span>` : '';
+      const attrs = `class="tlb${tone ? ` ${tone}` : ''}${x.clip ? ' clip' : ''}" style="top:${top}px;left:${X(x.start)}%;width:${W(x.start, x.end)}%" title="${e(tip)}"`;
+      const words = (x.end - x.start) / total > 0.07 ? e(label) : '';
+      const bar = open ? `<button type="button" ${attrs} data-team-open="${e(open)}" aria-label="${e(tip)}">${words}</button>` : `<span ${attrs}>${words}</span>`;
+      return bar + (x.merged !== null ? `<i class="tlm" style="top:${top + 6}px;left:${X(x.merged)}%" title="${e(`Merged ${hm(x.merged)}`)}"></i>` : '') + tag;
+    }).join('');
+    const top0 = row.bars.some((y) => y.lane === 1) ? LANE[0] : 9;
+    const quiet = row.quiet ? `<span class="tlb off" style="top:${top0}px;left:${X(row.quiet.since)}%;width:${W(row.quiet.since, T.to)}%">Mac quiet since ${hm(row.quiet.since)}</span>` : '';
+    const extra = [row.more ? `${row.more} more` : '', row.untimed ? `${row.untimed} with no start time` : ''].filter(Boolean).join(', ');
+    return `<div class="tlr" role="listitem"><div class="who">${face(p, 'sm')}<span><b>${e(name(row.person))}</b>${word ? `<em class="${cls}">${e(word)}</em>` : ''}</span></div>`
+      + `<div class="plot">${grid}${marks}${quiet}${extra ? `<span class="tlx">${e(extra)}</span>` : ''}</div></div>`;
+  }).join('');
+  const ROW = 30, AX = 16;
+  const two = (i) => T.rows[i].bars.some((y) => y.lane === 1);
+  const links = T.links.filter((l) => rowOf.has(l.a) && rowOf.has(l.b)).map((l) => {
+    const [i, j] = [rowOf.get(l.a), rowOf.get(l.b)].sort((x, y) => x - y);
+    const y0 = AX + i * ROW + (two(i) ? 28 : 21), y1 = AX + j * ROW + (two(j) ? 3 : 9);
+    const open = l.mine ? plateOf(l.id) : null;
+    const tag = `<span>${e(l.file.split('/').pop())}</span>`;
+    return `<div class="conn" style="left:calc(116px + (100% - 116px) * ${(Number(X(l.at)) / 100).toFixed(4)});top:${y0}px;height:${Math.max(6, y1 - y0)}px">${open ? `<button type="button" data-team-open="${e(open)}" title="${e(`Overlap: ${l.file}`)}">${tag}</button>` : tag}</div>`;
+  }).join('');
+  const nowL = `calc(116px + (100% - 116px) * ${(Number(X(T.to)) / 100).toFixed(4)})`;
+  const axis = `<div class="tlax"><span></span><div class="ax">${ticks.map((t) => `<span style="left:${X(t)}%">${hm(t)}</span>`).join('')}</div></div>`;
+  const legend = '<span class="lg"><span><i class="sw"></i>working</span><span><i class="mk"></i>merged</span><span><i class="sw red"></i>red: act now</span>'
+    + '<span><i class="sw amber"></i>amber: decide soon</span><span><i class="sw off"></i>not reporting</span></span>';
+  const who = `<section class="pnl tl-p" aria-labelledby="tb-who"><header class="ph"><h3 id="tb-who">Who’s on what</h3><span>today, one row per person</span>${legend}</header>`
+    + `<div class="tl-s"><div class="tl" role="list">${axis}${rows}${links}<div class="now" style="left:${nowL};top:${AX - 14}px"><span>now</span></div></div></div></section>`;
+
+  // Files two live threads change.
+  const F = B.files;
+  const FS = { same: ['Same lines. In The Pass', 'red'], different: ['Different lines. Fine', ''], nc: ['Lines not checked', 'gray'] };
+  const frow = (f) => {
+    const [word, tone] = f.state === 'same' && !(f.call && f.call.mine) ? ['Same lines', 'red'] : FS[f.state];
+    const open = f.call && f.call.mine ? plateOf(f.call.id) : null;
+    const inner = `<span class="f" title="${e(`${f.repo}: ${f.path}`)}">${e(f.path)}</span><span class="fc">${f.people.map((id) => face(people.get(id), 'sm')).join('')}</span><span class="s${tone ? ` ${tone}` : ''}">${e(word)}</span>`;
+    return open ? `<button type="button" class="sf" role="listitem" data-team-open="${e(open)}">${inner}</button>` : `<div class="sf" role="listitem">${inner}</div>`;
+  };
+  const fbody = !F.compared ? `<p class="nc-l"><b>Not checked</b> No live thread has sent its changed files.</p>`
+    : F.rows.length ? `<div class="sfl" role="list">${F.rows.slice(0, 8).map(frow).join('')}</div>${F.rows.length > 8 ? `<p class="tmore">And ${plural(F.rows.length - 8, 'more file')}.</p>` : ''}`
+    : `<p class="nc-l">No file is changed by two live threads.</p>`;
+  const files = `<section class="pnl" aria-labelledby="tb-f"><header class="ph"><h3 id="tb-f">Files two live threads change</h3><span>${F.at !== null ? `checked ${hm(F.at)}` : 'check time not checked'}</span></header>${fbody}</section>`;
+  return `<section class="tboard" aria-labelledby="tb-t">${head(sub)}<div class="you-b">${inst}${who}${files}</div></section>`;
+}
+
 /** Everything Your team draws when the page has a team reading. ctx: { icons } from the board, for project marks. */
 function teamParts(team, icons, want = null) {
   const now = Number.isFinite(team.now) ? team.now : Date.now();
@@ -805,10 +908,21 @@ function teamParts(team, icons, want = null) {
   if (by.track.length) bits.push(`${plural(by.track.length, 'person', 'people')} ${by.track.length === 1 ? 'is' : 'are'} on track.`);
   if (by.unknown.length) bits.push(`${plural(by.unknown.length, 'person', 'people')} not checked.`);
   const calm = `<p class="tcalm">${svg('done')}<span>${calls.length ? 'Nothing else needs you.' : 'Nothing from your team needs you.'}${bits.length ? ` ${e(bits.join(' '))}` : ''}</span></p>`;
+  // The Pass as a column beside the board (expanded): each call with its suggestion and Open, one click each. A click
+  // goes back to The Pass with the call open; the suggestion also puts focus on its action there, since nothing sends
+  // from Your team until the team connection lands.
+  const xcard = ({ c, id, w }) => {
+    const [kind] = w.acts[0] || [];
+    const sug = kind && may(me, kind) ? `<button type="button" class="xb fill" data-team-open="${e(id)}" data-team-act="${e(kind)}">${e(w.suggest)}</button>` : '';
+    return `<div class="xc" role="listitem" data-team-open="${e(id)}"><p class="xk"><span class="w t-${KINDS[c.kind].tone}">${e(KINDS[c.kind].word)}</span>${age(c) ? `<span class="age">${age(c)}</span>` : ''}</p>`
+      + `<p class="xt">${e(w.title)}</p><p class="xw">${e(who(c))}</p><div class="xa">${sug}<button type="button" class="xb" data-team-open="${e(id)}">Open</button></div></div>`;
+  };
+  const col = calls.length ? `<div class="tcol" role="list" aria-label="Your team’s calls">${calls.map(xcard).join('')}</div>` : '';
   const pass = !live ? `<div class="clear team-pass">${svg('cloche')}<p><b>${NC_V}</b></p><p class="muted">${e(why)} Your team’s calls show once it is back.</p></div>`
-    : `<div class="team-pass tp-live"><div class="folder" data-folder="team">${calls.map(tile).join('')}</div>${calm}</div>`;
+    : `<div class="team-pass tp-live"><div class="folder" data-folder="team">${calls.map(tile).join('')}</div>${col}${calm}</div>`;
+  const board = boardOf({ ok, now, want, name, people, plateOf: (id) => (calls.some((x) => x.c.id === id) ? teamPlateId({ id }) : null) });
   return {
-    ok, card, pass, count: live ? calls.length : '–',
+    ok, card, pass, board, count: live ? calls.length : '–',
     plates: calls.map(plateOf).join(''),
     meta: { name: [team.view.teamName, team.name].find((x) => typeof x === 'string' && x) || null, below: ok.people.length, mode: 'open' },
   };
@@ -922,7 +1036,9 @@ export function renderApp({ board, picked = null, link, status, origin, answered
   const lists = teamPass + `<div class="folder" data-folder="pass">${waiting.length ? waiting.map((k) => passTile(k)).join('') : clear}</div>`
     + folders.slice(1).map(([key]) => `<div class="folder" data-folder="${e(key)}" hidden>${(key === 'Verified' ? verified : key === 'On hold' ? heldAll : spots[key] || []).map((k) => tile(k, key === 'Verified' || key === 'On hold')).join('')}</div>`).join('');
   const pass = `<section class="head" aria-labelledby="head-t"><header class="head-h"><h2 id="head-t">${svg('cloche')}<span class="head-name">The Pass</span></h2>${waiting.length ? `<span class="badge">${waiting.length}</span>` : ''}`
-    + `<p class="muted">${waiting.length ? 'Needs your focus.<span class="sub2"> Questions first, then oldest first.</span>' : 'Calls and plates for you land here.'}</p></header><div class="head-b">${lists}</div>`
+    + `<p class="muted">${waiting.length ? 'Needs your focus.<span class="sub2"> Questions first, then oldest first.</span>' : 'Calls and plates for you land here.'}</p>`
+    // Your team, expanded: the column says how many calls need you (mock v2).
+    + `${T && T.ok.status === 'live' ? `<p class="muted tpm">${T.count ? `${T.count} need you, most urgent first.` : 'Nothing from your team needs you.'}</p>` : ''}</header><div class="head-b">${lists}</div>`
     + `</section>`;
   const you = youView({ board, shown, spots, waiting, since, status, picked: want, trays, verified, heldAll });
   // Your team is not built yet (Dan, 2026-11-10): with reports, its view says so instead of showing anything made up.
@@ -940,7 +1056,7 @@ export function renderApp({ board, picked = null, link, status, origin, answered
   // The logo is the view switch: white on blue for the focused pass, blue on white for You, expanded.
   const logo = `<button type="button" class="logo" data-view-toggle aria-label="Show the full kitchen" title="Switch view (V)"><span class="flip"><span class="face f-pass">${svg('cloche')}</span><span class="face f-kitchen">${svg('cloche')}</span></span><span class="vh">Yes Chef</span></button>`;
   return `<header class="bar"><h1 class="brand">${logo}</h1><ul class="stats" aria-label="Counts">${stats}</ul>${lamps}${footMenu}${gear}</header>${strip}`
-    + `<div class="board">${nav}${navFoot}${you}${teamWait}${pass}`
+    + `<div class="board">${nav}${navFoot}${you}${T ? T.board : teamWait}${pass}`
     + `<section class="reader" aria-label="Open ticket"><div class="reader-empty">${svg('cloche')}<p class="muted">Pick a ticket to read it here.</p></div></section></div>${projectOptions}`
     + (team ? `<script type="application/json" id="yc-team">${JSON.stringify(T ? T.meta : { name: team.name || null, below: typeof team.below === 'number' ? team.below : null, mode: team.mode === 'open' || team.mode === 'brigade' ? team.mode : null }).replace(/</g, '\\u003c')}</script>` : '')
     // The saved rules ride each refresh, so a second window's Settings shows them (PR-Agent r3 on #49).

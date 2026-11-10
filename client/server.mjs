@@ -1478,6 +1478,83 @@ html.s-team .bar .stats{display:none}
 /* Faces: initials on a colour from the name. */
 .av{display:inline-grid;place-items:center;flex:none;width:22px;height:22px;border-radius:50%;background:hsl(var(--h) 52% 46%);font:700 9.5px/1 var(--sans);color:#fff;letter-spacing:.02em}
 .av.sm{width:18px;height:18px;font-size:8px}
+/* Your team, expanded (step 4 PR B; mock v2, approved 2026-11-10): the board in the middle, The Pass as a column of
+   cards on the right, each with its suggestion and Open. */
+.tboard,.tcol,.head-h>.tpm{display:none}
+html.s-team.v-kitchen .head-h>.muted.tpm{display:block}
+html.s-team.v-kitchen .tboard{display:flex;flex-direction:column;grid-area:you;min-width:0;min-height:0}
+@media (min-width:761px){html.s-team.v-kitchen .tboard .you-b{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 2px 12px}}
+@media (max-width:760px){html.s-team.v-kitchen .tboard{display:block}}
+html.v-kitchen .tp-live .folder[data-folder=team]{display:none}
+html.v-kitchen .tp-live .tcol{display:flex;flex-direction:column;gap:8px}
+.xc{padding:11px 13px 12px;border-radius:14px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--sep);cursor:pointer}
+.xc:hover{box-shadow:inset 0 0 0 .5px var(--sep),var(--sh1)}
+.xk{display:flex;align-items:baseline;gap:8px;margin:0;font-size:12px;font-weight:600}
+.xk .t-red{color:var(--red)}.xk .t-amber{color:var(--orange)}.xk .t-blue{color:var(--pass)}
+.xk .age{margin-left:auto;font-weight:500;color:var(--label2);font-variant-numeric:tabular-nums}
+.xt{margin:4px 0 0;font-size:14px;font-weight:600;line-height:1.3}
+.xw{margin:2px 0 0;font-size:12.5px;color:var(--label2)}
+.xa{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.xb{display:inline-flex;align-items:center;min-height:30px;padding:0 12px;border:0;border-radius:8px;background:var(--fill);font:600 13px/1.2 var(--sans);color:var(--label);cursor:pointer}
+.xb:hover{background:var(--fill2)}
+.xb.fill{background:var(--accent);color:#fff}
+.xb.fill:hover{background:#0068D1}
+/* The instruments: the base's merges as a ribbon, merges by hour in purple. */
+.ins .v b.red{color:var(--red)}.ins .v b.green{color:var(--green)}
+.vbars.mg rect{fill:var(--merged);opacity:.75}
+.kribbon{display:flex;gap:2px;align-items:flex-end;height:28px;margin-top:8px}
+.kribbon i{flex:1 1 0;max-width:16px;height:18px;border-radius:2px;background:var(--green);opacity:.85}
+.kribbon i.r{height:26px;background:var(--red);opacity:1}
+.kribbon i.n{background:var(--fill2);opacity:1}
+.ins .cap .red{font-weight:600;color:var(--red)}
+/* Who's on what: a row per person, a bar per thread along today. */
+.tl-p .ph .lg{display:flex;flex-wrap:wrap;gap:4px 12px;font-weight:500}
+.tl-p .ph .lg>span{display:inline-flex;align-items:center;gap:5px}
+.sw{display:inline-block;width:14px;height:8px;border-radius:2px;background:var(--fill2)}
+.sw.red{background:none;box-shadow:inset 0 0 0 1.5px var(--red)}.sw.amber{background:none;box-shadow:inset 0 0 0 1.5px var(--orange)}
+.sw.off{background:repeating-linear-gradient(135deg,var(--fill2) 0 2px,transparent 2px 4px);box-shadow:inset 0 0 0 .5px var(--fill2)}
+.mk{display:inline-block;width:8px;height:8px;border-radius:1px;background:var(--merged);transform:rotate(45deg)}
+.tl-s{overflow-x:auto;overscroll-behavior-x:contain}
+.tl{position:relative;min-width:560px}
+.tlax{display:grid;grid-template-columns:116px 1fr;height:16px;font-size:11px;color:var(--label2)}
+.tlax .ax{position:relative}
+.tlax .ax span{position:absolute;transform:translateX(-50%);white-space:nowrap;font-variant-numeric:tabular-nums}
+.tlr{display:grid;grid-template-columns:116px 1fr;align-items:center;height:30px;border-top:.5px solid var(--sep)}
+.tlr .who{display:flex;align-items:center;gap:7px;min-width:0;padding-right:6px}
+.tlr .who>span{min-width:0}
+.tlr .who b{display:block;overflow:hidden;font-size:12.5px;font-weight:600;line-height:1.15;text-overflow:ellipsis;white-space:nowrap}
+.tlr .who em{display:block;font-style:normal;font-size:10.5px;font-weight:600;line-height:1.2;white-space:nowrap}
+.k-pass{color:var(--pass)}.k-amber{color:var(--orange)}.k-gray{color:var(--label2)}
+.tlr .plot{position:relative;height:100%}
+.gv{position:absolute;top:0;bottom:0;width:0;border-left:.5px solid var(--sep)}
+.tlb{position:absolute;box-sizing:border-box;height:12px;margin:0;padding:0 5px;border:0;border-radius:3px;background:var(--fill2);font:500 9.5px/12px var(--sans);color:var(--label2);text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+button.tlb{cursor:pointer}
+.tlb.red{background:var(--red-t);box-shadow:inset 0 0 0 1.5px var(--red);color:var(--label)}
+.tlb.amber{background:var(--orange-t);box-shadow:inset 0 0 0 1.5px var(--orange);color:var(--label)}
+.tlb.clip{border-top-left-radius:0;border-bottom-left-radius:0}
+.tlb.off{background:repeating-linear-gradient(135deg,var(--fill2) 0 2px,transparent 2px 5px);font-style:italic;color:var(--label2)}
+.tlm{position:absolute;width:8px;height:8px;margin:-4px 0 0 -4px;border-radius:1px;background:var(--merged);transform:rotate(45deg)}
+.tltag{position:absolute;padding:0 5px;border-radius:3px;font-size:10px;font-weight:700;line-height:12px;white-space:nowrap}
+.tltag.red{background:var(--red);color:#fff}.tltag.amber{background:var(--orange);color:#1D1D1F}
+.tlx{position:absolute;right:0;top:50%;padding-left:6px;background:var(--card);font-size:10.5px;color:var(--label2);transform:translateY(-50%)}
+.tl .now{position:absolute;bottom:0;width:0;border-left:1.5px solid var(--pass);pointer-events:none}
+.tl .now span{position:absolute;top:0;left:4px;font-size:10.5px;font-weight:700;color:var(--pass)}
+.tl .conn{position:absolute;width:0;border-left:2px solid var(--red)}
+.tl .conn button{all:unset;cursor:pointer}
+.tl .conn span{position:absolute;left:6px;top:50%;padding:1px 4px;border-radius:3px;background:var(--card);box-shadow:inset 0 0 0 1px var(--red);font:600 10.5px var(--mono);color:var(--red);white-space:nowrap;transform:translateY(-50%)}
+/* Files two live threads change: the path, the faces, a state word. */
+.sfl{display:flex;flex-direction:column}
+.sf{display:grid;grid-template-columns:minmax(0,1.4fr) 64px minmax(0,1fr);align-items:center;gap:12px;width:100%;min-height:34px;margin:0;padding:0;border:0;border-top:.5px solid var(--sep);background:none;font:inherit;font-size:13px;color:var(--label);text-align:left}
+.sf:first-child{border-top:0}
+button.sf{cursor:pointer}
+button.sf:hover .s{text-decoration:underline}
+.sf .f{overflow:hidden;font:12px var(--mono);text-overflow:ellipsis;white-space:nowrap}
+.sf .fc{display:flex}
+.sf .fc .av+.av{margin-left:-5px;box-shadow:0 0 0 1.5px var(--card)}
+.sf .s{overflow:hidden;color:var(--label2);text-overflow:ellipsis;white-space:nowrap}
+.sf .s.red{font-weight:600;color:var(--red)}
+.tboard .tmore{margin:8px 0 0;font-size:12.5px;color:var(--label2)}
+@media (max-width:760px){.sf{grid-template-columns:minmax(0,1fr) auto;row-gap:2px;padding:6px 0}.sf .s{grid-column:1 / -1}}
 `;
 // Appearance (theme.mjs): every dark and light rule also answers to the html element's data-theme.
 // The pictures in Settings → Layout and the ⌘K bar's Appearance and Density steps (theme.mjs).
@@ -1632,6 +1709,15 @@ ${BAR_HTML}
     // nothing is selected: a project pick in the same open menu drops the selection before the reader redraws.
     // Coming back to You does the same for a team call (step 4): neither view opens the other's.
     if (next !== was) { state.passSel = null; state.sel = null; place(); }
+  }
+
+  // Your team, expanded: a card in The Pass column, a bar in Who's on what or a file row goes back to The Pass with
+  // that call open. The card's suggestion also puts focus on its action there: nothing sends from Your team yet.
+  function openTeamCall(id, act){
+    if (scope !== 'team' || !id || !plateNode(id)) return;
+    state.passFolder = 'pass'; state.passSel = id;
+    if (focusView()) select(id); else toggleView();
+    if (act) setTimeout(function(){ var p = plateNode(id), b = p && $('form.act button[name=kind][value="' + act + '"]', p); if (b) b.focus(); }, reduce.matches ? 0 : MOTION_MS + 60);
   }
 
   // ----- Folders (the stage list) and selection -----
@@ -1882,9 +1968,9 @@ ${BAR_HTML}
     if (keepScroll) $$(keepScroll, nu).forEach(function(x, i){ x.scrollTop = st[i] || 0; });
   }
   // A part only one side has: #yc-team and Your team's panel come and go with the team connection.
-  function swapAny(sel, fresh, before){
+  function swapAny(sel, fresh, before, keepScroll){
     var old = $(sel, app), nu = fresh.querySelector(sel);
-    if (old && nu) old.replaceWith(nu);
+    if (old && nu) { var st = keepScroll ? $$(keepScroll, old).map(function(x){ return x.scrollTop; }) : []; old.replaceWith(nu); if (keepScroll) $$(keepScroll, nu).forEach(function(x, i){ x.scrollTop = st[i] || 0; }); }
     else if (old) old.remove();
     else if (nu) { var b = $(before, app); if (b) b.before(nu); }
   }
@@ -1907,7 +1993,7 @@ ${BAR_HTML}
     var t = document.createElement('template'); t.innerHTML = html; var fresh = t.content;
     swap('.stats', fresh); swap('.pmenu', fresh); swap('.bar .lamps', fresh); swap('.stagenav', fresh, '.nav-scroll');
     // You, expanded: its numbers, columns and chips all come fresh; where you scrolled stays.
-    swap('.you', fresh, '.you-b, .tray-b'); swapAny('.team-wait', fresh, '.head'); swap('.head', fresh, '.head-b');
+    swap('.you', fresh, '.you-b, .tray-b'); swapAny('.team-wait', fresh, '.head'); swapAny('.tboard', fresh, '.head', '.you-b'); swap('.head', fresh, '.head-b');
     swap('#yc-projects', fresh); swapAny('#yc-team', fresh, '#plates'); swap('#yc-rules-now', fresh); if (typeof krLive === 'function') krLive();
     $$('.strip:not(.netstrip)', app).forEach(function(s){ s.remove(); });
     var strip = fresh.querySelector('.strip'); if (strip) $('.bar', app).after(strip);
@@ -2853,6 +2939,8 @@ ${BAR_HTML}
     if (nf) { setFolder(nf.dataset.folder); if (focusView() && wide()) { state.sel = null; place(); } return; }
     var shot = t.closest('a[data-shot]');
     if (shot) { ev.preventDefault(); var box = shot.closest('.plate') || document; shotsList = $$('a[data-shot]', box); showShot(shotsList.indexOf(shot)); if (!viewer.open) viewer.showModal(); yieldKey(); return; }
+    var to = t.closest('[data-team-open]');
+    if (to) { var ta = t.closest('[data-team-act]'); openTeamCall(to.dataset.teamOpen, ta ? ta.dataset.teamAct : null); return; }
     var tl = t.closest('[data-plate]:not(form)');
     if (tl && !t.closest('.plate')) { state.listKey = listKeyOf(tl); select(tl.dataset.plate); return; }
     var rt = t.closest('[data-retry]'); if (rt) { var pl = rt.closest('.plate'); if (pl) retry(pl.id); return; }
