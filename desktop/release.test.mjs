@@ -1,13 +1,13 @@
 // The release build's rules (build/release.mjs): which certificate signs, which fuses ship, and the feed rewrite.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { FUSES, FUSE_WIRE, TEAM_ID, appUpdateProblems, entitlementKeys, feedProblems, fuseProblems, identities, literalPattern, machOFiles, pickIdentity, rewriteFeed, runningFrom, targetsFor, topLevel, writesAppUpdate } from './build/release.mjs';
-import { assetProblems, changelogEntry, ghArgs, pickRelease, releaseFiles, releaseNotes, releaseTitle } from './build/publish.mjs';
+import { FUSES, FUSE_WIRE, TEAM_ID, appUpdateProblems, checkApp, checkDmg, entitlementKeys, feedProblems, fuseProblems, identities, literalPattern, machOFiles, pickIdentity, resultLine, rewriteFeed, runningFrom, targetsFor, topLevel, writesAppUpdate } from './build/release.mjs';
+import { assetProblems, changelogEntry, ghArgs, newestNightly, nightlyDue, parseArgs, pickRelease, releaseFiles, releaseNotes, releaseTitle, settle } from './build/publish.mjs';
 
 const DEV = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const DEVID = 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
@@ -248,4 +248,109 @@ test('runningFrom sees a running Nightly, whose path holds parentheses (PR-Agent
     rmSync(dir, { recursive: true, force: true });
   }
   assert.equal(runningFrom(nightly), false);
+});
+
+// GitHub Actions (.github/workflows/release.yml): the scheduled Nightly's gate, the dry run, and the --ci path.
+
+test('the newest published Nightly is the highest Nightly version, never a draft or a Stable', () => {
+  assert.equal(newestNightly([]), null);
+  assert.equal(newestNightly([rel('v0.2.0'), rel('v0.3.0', { pre: true })]), null);
+  const releases = [rel('v0.2.1-nightly.20261112.1'), rel('v0.2.1-nightly.20261112.3', { draft: true }), rel('v0.2.1-nightly.20261111.9'), rel('v0.2.0')];
+  assert.equal(newestNightly(releases), 'v0.2.1-nightly.20261112.1');
+});
+
+test('the scheduled Nightly runs only when main has commits since the newest Nightly', () => {
+  const never = () => false;
+  assert.equal(nightlyDue({ head: 'a'.repeat(40), last: null, lastTag: null, isAncestor: never }).due, true);
+  const same = nightlyDue({ head: 'b'.repeat(40), last: 'b'.repeat(40), lastTag: 'v0.2.1-nightly.20261112.1', isAncestor: never });
+  assert.deepEqual(same, { due: false, reason: 'main (bbbbbbbbbbbb) has nothing new since v0.2.1-nightly.20261112.1.' });
+  // main behind the Nightly's commit (it never should be) is nothing new either.
+  assert.equal(nightlyDue({ head: 'c'.repeat(40), last: 'd'.repeat(40), lastTag: 'v1', isAncestor: (a, b) => a === 'c'.repeat(40) && b === 'd'.repeat(40) }).due, false);
+  assert.equal(nightlyDue({ head: 'e'.repeat(40), last: 'f'.repeat(40), lastTag: 'v1', isAncestor: never }).due, true);
+});
+
+test('a dry run plans the next Nightly or the version given, and a draft does not stop it', () => {
+  const releases = [rel('v0.2.0'), rel('v0.2.1-nightly.20261112.1', { draft: true })];
+  assert.deepEqual(pickRelease({ arg: 'dry-run', pkgVersion: '0.1.0', releases, date: NOW }),
+    { version: '0.2.1-nightly.20261112.2', channel: 'nightly', tag: 'v0.2.1-nightly.20261112.2', from: null, dryRun: true });
+  assert.deepEqual(pickRelease({ arg: 'dry-run', pkgVersion: '0.1.0', releases: [], date: NOW, dryRunVersion: '0.2.0' }),
+    { version: '0.2.0', channel: 'latest', tag: 'v0.2.0', from: null, dryRun: true });
+  assert.throws(() => pickRelease({ arg: 'dry-run', pkgVersion: '0.1.0', releases: [], date: NOW, dryRunVersion: 'v0.2.0' }), /not a version Yes Chef builds/);
+  // A real release still stops on the draft.
+  assert.throws(() => pickRelease({ arg: 'nightly', pkgVersion: '0.1.0', releases, date: NOW }), /draft release is left/);
+});
+
+test('the command line takes its flags anywhere and refuses unknown ones', () => {
+  assert.deepEqual(parseArgs(['plan', 'nightly', '/tmp/p.json', '--ci', '--if-changed']),
+    { cmd: 'plan', args: ['nightly', '/tmp/p.json'], ci: true, ifChanged: true, version: '' });
+  assert.deepEqual(parseArgs(['--ci', 'plan', 'dry-run', '--version', '0.2.0', 'p.json']),
+    { cmd: 'plan', args: ['dry-run', 'p.json'], ci: true, ifChanged: false, version: '0.2.0' });
+  assert.deepEqual(parseArgs(['build', 'p.json']), { cmd: 'build', args: ['p.json'], ci: false, ifChanged: false, version: '' });
+  assert.throws(() => parseArgs(['build', 'p.json', '--no-check']), /Unknown option --no-check/);
+});
+
+test('settle asks again until a check passes, then gives the last problems', async () => {
+  const waits = [];
+  const sleep = async (ms) => { waits.push(ms); };
+  let n = 0;
+  assert.deepEqual(await settle(async () => (++n < 3 ? ['not yet'] : []), { tries: 5, wait: 7, sleep }), []);
+  assert.equal(n, 3);
+  assert.deepEqual(waits, [7, 7]);
+  n = 0;
+  assert.deepEqual(await settle(async () => [`try ${++n}`], { tries: 3, wait: 1, sleep }), ['try 3']);
+});
+
+test('an unsigned dry run reports the certificate checks as skip, and a release cannot be unsigned', async () => {
+  assert.equal(resultLine({ name: 'team', ok: true, skipped: true, detail: 'why' }), 'skip team: why');
+  assert.equal(resultLine({ name: 'fuses', ok: true, detail: '' }), 'ok   fuses');
+  assert.equal(resultLine({ name: 'fuses', ok: false, detail: 'a\nb' }), 'FAIL fuses: a | b');
+  await assert.rejects(() => checkApp('/nonexistent.app', { release: true, signed: false }), /always signed/);
+  assert.throws(() => checkDmg('/nonexistent.dmg', { release: true, signed: false }), /always signed/);
+  const dir = mkdtempSync(join(tmpdir(), 'yeschef-dmg-'));
+  try {
+    writeFileSync(join(dir, 'x.dmg'), 'not a disk image');
+    const results = checkDmg(join(dir, 'x.dmg'), { release: false, signed: false });
+    assert.deepEqual(results.map((r) => [r.name, r.ok, !!r.skipped]),
+      [['DMG codesign --verify --strict', true, true], [`DMG signed by team ${TEAM_ID}`, true, true], ['not empty', true, false]]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+const HERE = new URL('.', import.meta.url).pathname;
+const publishCli = (args, env = {}) => spawnSync(process.execPath, [join(HERE, 'build', 'publish.mjs'), ...args],
+  { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, GITHUB_ACTIONS: '', ...env } });
+
+test('--ci runs only where GitHub Actions says it runs, and drops only the terminal guard', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'yeschef-ci-'));
+  try {
+    const notDue = join(dir, 'not-due.json');
+    writeFileSync(notDue, JSON.stringify({ due: false, reason: 'nothing new' }));
+    const dry = join(dir, 'dry.json');
+    writeFileSync(dry, JSON.stringify({ due: true, dryRun: true, version: '0.2.0', files: [{ name: 'a', size: 1, sha512: 'x' }] }));
+    // Off Actions, --ci is refused, and without a terminal build and publish are refused.
+    let r = publishCli(['build', notDue, '--ci']);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /--ci is the GitHub Actions path/);
+    r = publishCli(['build', notDue]);
+    assert.match(r.stderr, /in your own Terminal window/);
+    // In Actions, build and publish pass the terminal guard and stop at the plan's own rules.
+    r = publishCli(['build', notDue, '--ci'], { GITHUB_ACTIONS: 'true' });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /The plan has nothing to build/);
+    r = publishCli(['publish', dry, '--ci'], { GITHUB_ACTIONS: 'true' });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /A dry run is never published/);
+    r = publishCli(['plan', 'nightly', join(dir, 'p.json'), '--version', '0.2.0']);
+    assert.match(r.stderr, /--version is for a dry run/);
+    r = publishCli(['plan', '0.2.0', join(dir, 'p.json'), '--if-changed']);
+    assert.match(r.stderr, /--if-changed is for the scheduled Nightly only/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('ci-signing.sh refuses to run outside GitHub Actions, so it never touches this Mac\'s keychains', () => {
+  for (const mode of ['load', 'rehearse', 'cleanup']) {
+    const r = spawnSync('/bin/bash', [join(HERE, 'build', 'ci-signing.sh'), mode], { encoding: 'utf8', env: { ...process.env, GITHUB_ACTIONS: '', RUNNER_TEMP: '', GITHUB_ENV: '' } });
+    assert.equal(r.status, 1, mode);
+    assert.match(r.stderr, /runs only in GitHub Actions on macOS/);
+  }
+  assert.equal(existsSync(join(tmpdir(), 'yeschef-signing')), false);
 });

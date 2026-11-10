@@ -5,7 +5,9 @@
 //   npm run app -- --install     the same, then put it in /Applications (quit Yes Chef first)
 //   npm run dist                 the release files in out/builder: Yes-Chef-<version>-arm64.dmg and .zip, latest-mac.yml
 //   npm run dist -- --dry-run    the same files signed with this Mac's certificate and not notarized, to test the build.
-//                                Never publish them: Gatekeeper rejects them on any other Mac.
+//                                Never publish them: Gatekeeper rejects them on any other Mac. With no certificate
+//                                (the GitHub runner's dry run) they are signed ad hoc, and the checks only a
+//                                certificate build can pass print as skip.
 //   --version <version>          build that version instead of package.json's: 0.2.0 for Stable, or
 //                                0.2.1-nightly.20261110.1 for Nightly (desktop/channels.mjs). `npm run release` passes it.
 //
@@ -180,13 +182,16 @@ if (DRY) {
   // The feed rewrite on the real file: with the DMG unchanged it must give back the same feed.
   const before = readFileSync(feed, 'utf8');
   if (rewriteFeed(before, basename(dmg), { sha512: sha512(dmg), size: statSync(dmg).size }) !== before) fail(`${basename(feed)} does not match the DMG.`);
+  // With no certificate (a GitHub runner before the signing secrets exist) the build is ad hoc: the checks only a
+  // certificate build can pass are reported as skipped, and every other check still has to pass.
+  const signed = !!identity;
   const unzipped = mkdtempSync(join(tmpdir(), 'yeschef-check-'));
   run('/usr/bin/ditto', ['-x', '-k', zip, unzipped]);
-  const ok = report([...(await checkApp(appIn(unzipped))), ...checkBuild(appIn(unzipped), expected), ...checkFeed(feed, expected), ...smoke(appIn(unzipped)),
-    ...checkDmg(dmg, { release: false })]);
+  const ok = report([...(await checkApp(appIn(unzipped), { signed })), ...checkBuild(appIn(unzipped), expected), ...checkFeed(feed, expected), ...smoke(appIn(unzipped)),
+    ...checkDmg(dmg, { release: false, signed })]);
   rmSync(unzipped, { recursive: true, force: true });
   if (!ok) fail('The dry run failed its checks.');
-  console.log(`Dry run: files in ${OUT}, not notarized. Never publish them.`);
+  console.log(`Dry run${signed ? '' : ', unsigned'}: files in ${OUT}, not notarized. Never publish them.`);
   process.exit(0);
 }
 

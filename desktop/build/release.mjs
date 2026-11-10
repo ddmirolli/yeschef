@@ -153,21 +153,31 @@ export function machOFiles(dir) {
 /** The entitlement keys in `codesign -d --entitlements - --xml` output. */
 export const entitlementKeys = (xml) => [...String(xml).matchAll(/<key>([^<]+)<\/key>/g)].map((m) => m[1]);
 
+// Why an unsigned dry run skips a check (see `signed` below).
+const AD_HOC = 'ad hoc signature: only a certificate build can pass this';
+
 /**
  * The section 2 checks on a built app: signature, hardened runtime, team, entitlements and fuses. With `release`,
  * also the Developer ID authority, Gatekeeper and the stapled ticket, which only a notarized build passes.
- * Returns a list of { name, ok, detail }.
+ * `signed: false` is an unsigned dry run on a machine with no certificate, such as the GitHub runner before the
+ * signing secrets exist (as T3 Code builds when CSC_LINK is missing): the hardened runtime and team checks are
+ * reported as skipped, not passed. A release is always signed.
+ * Returns a list of { name, ok, detail, skipped? }.
  */
-export async function checkApp(app, { release = false } = {}) {
+export async function checkApp(app, { release = false, signed = true } = {}) {
+  if (release && !signed) throw new Error('A release build is always signed.');
   const results = [];
   const add = (name, ok, detail = '') => results.push({ name, ok, detail: detail.trim() });
+  const skip = (name) => results.push({ name, ok: true, skipped: true, detail: AD_HOC });
   const verify = sh('/usr/bin/codesign', ['--verify', '--deep', '--strict', '--verbose=2', app]);
   add('codesign --verify --deep --strict', verify.ok, verify.ok ? '' : verify.out);
   const info = sh('/usr/bin/codesign', ['-dvvv', app]).out;
   const flags = /flags=0x[0-9a-f]+\(([^)]*)\)/.exec(info)?.[1] || '';
-  add('hardened runtime', flags.split(',').includes('runtime'), `flags: ${flags || 'none'}`);
+  if (signed) add('hardened runtime', flags.split(',').includes('runtime'), `flags: ${flags || 'none'}`);
+  else skip('hardened runtime');
   const team = /TeamIdentifier=(\S+)/.exec(info)?.[1] || 'none';
-  add(`team ${TEAM_ID}`, team === TEAM_ID, `TeamIdentifier=${team}`);
+  if (signed) add(`team ${TEAM_ID}`, team === TEAM_ID, `TeamIdentifier=${team}`);
+  else skip(`team ${TEAM_ID}`);
   if (release) {
     const authority = /Authority=(.+)/.exec(info)?.[1] || 'none';
     add('Developer ID signature', authority.startsWith('Developer ID Application: '), `Authority=${authority}`);
@@ -180,11 +190,12 @@ export async function checkApp(app, { release = false } = {}) {
   for (const file of files) {
     const name = relative(app, file);
     const flagsOf = /flags=0x[0-9a-f]+\(([^)]*)\)/.exec(sh('/usr/bin/codesign', ['-dv', file]).out)?.[1] || '';
-    if (!flagsOf.split(',').includes('runtime')) loose.push(`${name}: no hardened runtime`);
+    if (signed && !flagsOf.split(',').includes('runtime')) loose.push(`${name}: no hardened runtime`);
     const extra = entitlementKeys(sh('/usr/bin/codesign', ['-d', '--entitlements', '-', '--xml', file]).stdout).filter((k) => !ALLOWED.includes(k));
     if (extra.length) loose.push(`${name}: ${extra.join(', ')}`);
   }
-  add(`every signed file hardened, allow-jit at most (${files.length} files)`, files.length > 0 && loose.length === 0, loose.join('; '));
+  add(`every signed file${signed ? ' hardened,' : ':'} allow-jit at most (${files.length} files)`, files.length > 0 && loose.length === 0, loose.join('; '));
+  if (!signed) skip('every signed file hardened');
   const { getCurrentFuseWire } = await import('@electron/fuses');
   const bad = fuseProblems(await getCurrentFuseWire(app));
   add('fuses', bad.length === 0, bad.join('; '));
@@ -199,17 +210,23 @@ export async function checkApp(app, { release = false } = {}) {
 
 /**
  * The section 2 checks on a DMG: its signature and, with `release`, Gatekeeper's open check (`-t install` is for
- * installer packages) and the stapled ticket.
+ * installer packages) and the stapled ticket. electron-builder leaves an ad hoc build's DMG unsigned, so with
+ * `signed: false` (as for checkApp) the two signature checks are reported as skipped.
  */
-export function checkDmg(dmg, { release = true } = {}) {
+export function checkDmg(dmg, { release = true, signed = true } = {}) {
+  if (release && !signed) throw new Error('A release build is always signed.');
   const results = [];
   const add = (name, ok, detail = '') => results.push({ name, ok, detail: detail.trim() });
-  // Verify the signature, not only read it (PR-Agent r1 on #64): -d prints a signer even for changed bytes.
-  const verify = sh('/usr/bin/codesign', ['--verify', '--strict', '--verbose=2', dmg]);
-  add('DMG codesign --verify --strict', verify.ok, verify.ok ? '' : verify.out);
-  const sig = sh('/usr/bin/codesign', ['-dvv', dmg]);
-  const team = /TeamIdentifier=(\S+)/.exec(sig.out)?.[1] || 'none';
-  add(`DMG signed by team ${TEAM_ID}`, sig.ok && team === TEAM_ID, `TeamIdentifier=${team}`);
+  if (signed) {
+    // Verify the signature, not only read it (PR-Agent r1 on #64): -d prints a signer even for changed bytes.
+    const verify = sh('/usr/bin/codesign', ['--verify', '--strict', '--verbose=2', dmg]);
+    add('DMG codesign --verify --strict', verify.ok, verify.ok ? '' : verify.out);
+    const sig = sh('/usr/bin/codesign', ['-dvv', dmg]);
+    const team = /TeamIdentifier=(\S+)/.exec(sig.out)?.[1] || 'none';
+    add(`DMG signed by team ${TEAM_ID}`, sig.ok && team === TEAM_ID, `TeamIdentifier=${team}`);
+  } else {
+    for (const name of ['DMG codesign --verify --strict', `DMG signed by team ${TEAM_ID}`]) results.push({ name, ok: true, skipped: true, detail: AD_HOC });
+  }
   if (release) {
     const gk = sh('/usr/sbin/spctl', ['-a', '-vvv', '-t', 'open', '--context', 'context:primary-signature', dmg]);
     add('Gatekeeper (spctl -t open)', gk.ok && /accepted/.test(gk.out), gk.out);
@@ -285,8 +302,11 @@ export function checkFeed(file, expected) {
   return [{ name: `feed ${file.split('/').pop()}: ${expected.version}`, ok: bad.length === 0, detail: bad.join('; ') }];
 }
 
-/** Print results; true when every check passed. */
+/** One result as a line: ok, FAIL, or skip for a check an unsigned dry run cannot run. */
+export const resultLine = (r) => `${r.skipped ? 'skip' : r.ok ? 'ok  ' : 'FAIL'} ${r.name}${r.detail ? `: ${r.detail.split('\n').join(' | ')}` : ''}`;
+
+/** Print results; true when every check passed or was skipped. */
 export function report(results) {
-  for (const r of results) console.log(`${r.ok ? 'ok  ' : 'FAIL'} ${r.name}${r.detail ? `: ${r.detail.split('\n').join(' | ')}` : ''}`);
+  for (const r of results) console.log(resultLine(r));
   return results.every((r) => r.ok);
 }
