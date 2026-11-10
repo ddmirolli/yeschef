@@ -1757,7 +1757,9 @@ ${BAR_HTML}
   });
 
   // ----- Refresh: swap each region; never the ticket you are working on -----
-  var last = Date.now(), pendingHtml = null;
+  // pendingFor: the address pendingHtml was read for. A project pick or Back changes the address while the menu is
+  // open, so a page read before it is not replayed when the menu closes (PR-Agent r1 on the view menu).
+  var last = Date.now(), pendingHtml = null, pendingFor = null;
   // Missing data renders "not checked": the lists, counts and "Live" go; only a ticket you are writing in stays.
   function lost(why){
     var msg = why + ' at ' + new Date().toLocaleTimeString() + '. The board returns with the next update.';
@@ -1814,7 +1816,7 @@ ${BAR_HTML}
     else if (nu) { var b = $(before, app); if (b) b.before(nu); }
   }
   function sync(html){
-    if ($('details.pmenu[open]')) { pendingHtml = html; return; }
+    if ($('details.pmenu[open]')) { pendingHtml = html; pendingFor = location.search; return; }
     pendingHtml = null;
     // Keep keyboard focus on the same card or stage across the refresh (hill climb r5, Sol).
     var ae = document.activeElement, focusSel = null;
@@ -1869,7 +1871,12 @@ ${BAR_HTML}
     }
     place();
   }
-  document.addEventListener('toggle', function(ev){ if (pendingHtml && ev.target.matches && ev.target.matches('details.pmenu') && !ev.target.open) sync(pendingHtml); }, true);
+  function replayPending(){
+    if (!pendingHtml) return;
+    if (pendingFor !== location.search) { pendingHtml = null; return; }
+    sync(pendingHtml);
+  }
+  document.addEventListener('toggle', function(ev){ if (ev.target.matches && ev.target.matches('details.pmenu') && !ev.target.open) replayPending(); }, true);
   var es = new EventSource('/events');
   function net(ok, msg){
     $$('.netstrip').forEach(function(n){ n.remove(); });

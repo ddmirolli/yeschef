@@ -251,6 +251,28 @@ test('a stale page hides the rail bar with the counts (PR-Agent on #74)', () => 
   assert.match(counts, /\.is-stale \.pmenu-l \.n[,{]/);
 });
 
+test('a page read for the old projects is not replayed when the menu closes after a pick (PR-Agent r1 on the view menu)', () => {
+  const src = readFileSync(new URL('./server.mjs', import.meta.url), 'utf8');
+  // The page a refresh keeps while a menu is open carries the address it was read for.
+  assert.match(src, /if \(\$\('details\.pmenu\[open\]'\)\) \{ pendingHtml = html; pendingFor = location\.search; return; \}/);
+  const fn = src.match(/function replayPending\(\)\{[\s\S]*?\n {2}\}/)[0];
+  const synced = [];
+  const ctx = vm.createContext({ pendingHtml: null, pendingFor: null, location: { search: '' }, sync: (h) => synced.push(h) });
+  vm.runInContext(fn, ctx);
+  // Read for All projects, then Fernpay picked while the menu stayed open: dropped, and the next refresh draws it.
+  Object.assign(ctx, { pendingHtml: 'all', pendingFor: '', location: { search: '?p=Fernpay' } });
+  vm.runInContext('replayPending()', ctx);
+  assert.deepEqual([synced, ctx.pendingHtml], [[], null]);
+  // Read for the address on screen: replayed.
+  Object.assign(ctx, { pendingHtml: 'fernpay', pendingFor: '?p=Fernpay' });
+  vm.runInContext('replayPending()', ctx);
+  assert.deepEqual(synced, ['fernpay']);
+  // Nothing kept: nothing drawn.
+  Object.assign(ctx, { pendingHtml: null });
+  vm.runInContext('replayPending()', ctx);
+  assert.deepEqual(synced, ['fernpay']);
+});
+
 test('switching to Your team forgets the ticket the Pass kept, even with none open (PR-Agent r6 on #74)', () => {
   const src = readFileSync(new URL('./server.mjs', import.meta.url), 'utf8').match(/function setScope\(next\)\{[\s\S]*?\n {2}\}/)[0];
   const ctx = vm.createContext({ scope: 'you', state: { sel: null, passSel: 'k1' }, placed: 0 });
