@@ -671,3 +671,54 @@ test('the same invite sent again with the invites full is still taken once', asy
   assert.equal(r.t, 'ok');
   assert.equal((await t.invite(lws)).reply.code, 'full');
 });
+
+test('a team still waiting on the registry takes no socket, ask or second create until it is made', async () => {
+  let let_go, fail = false;
+  const relay = fakeRelay({ register: () => new Promise((ok, no) => { let_go = () => (fail ? no(new Error('registry down')) : ok()); }) });
+  const id = newId();
+  const lead = await newMember();
+  const roster = await signRoster(lead, { team: id, ver: 1, lead: lead.id, at: relay.now(), members: [{ id: lead.id, sign: lead.signPub, dh: lead.dhPub }] });
+  const making = relay.http('POST', `/v1/teams/${id}`, { roster });
+  await new Promise((r) => setTimeout(r, 0));
+  const path = `/v1/teams/${id}/ws`;
+  const early = await relay.connect(`${path}?auth=${await authToken(lead, { team: id, method: 'GET', path, now: relay.now() })}`);
+  assert.equal(early.status, 503, 'no socket on a team that may yet be undone');
+  assert.equal((await relay.http('POST', `/v1/teams/${id}`, { roster })).status, 503);
+  fail = true;
+  let_go();
+  assert.equal((await making).status, 500);
+  assert.equal(relay.sockets().length, 0);
+  assert.equal(relay.sql.exec("SELECT name FROM sqlite_master WHERE type = 'table'").toArray().length, 0, 'nothing left behind');
+});
+
+test('messages that arrive together cannot pass the daily cap while the first ones still run', async () => {
+  const d = await team({ MAX_DAILY_REQUESTS: '5' });
+  // So far today: the create (1) and this socket (2). Three places left.
+  const dl = await d.ws(d.lead);
+  const handle = d.relay.room.handle.bind(d.relay.room);
+  d.relay.room.handle = async (...a) => { await new Promise((r) => setTimeout(r, 5)); return handle(...a); };
+  const replies = [];
+  dl.onheard = (v) => replies.push(v);
+  await Promise.all([1, 2, 3, 4, 5].map((i) => d.relay.room.message(dl, JSON.stringify({ t: 'forget', id: i }))));
+  assert.equal(replies.filter((r) => r.code === 'cap').length, 2);
+  assert.equal(replies.filter((r) => r.t === 'ok').length, 3);
+  assert.equal(d.relay.room.held, 0, 'every place taken is given back');
+});
+
+test('a dev declined while their socket token is checked is refused, not let in as waiting', async () => {
+  const t = await team();
+  const lws = await t.ws(t.lead);
+  const { dev } = await t.join(await t.invite(lws));
+  const room = t.relay.room, one = room.one.bind(room);
+  let declined = null;
+  room.one = (q, ...a) => {
+    const out = one(q, ...a);
+    if (!declined && /SELECT sign FROM pending/.test(q) && a[0] === dev.id) declined = Promise.resolve().then(() => lws.say({ t: 'decline', id: 'd', m: dev.id }));
+    return out;
+  };
+  const path = `/v1/teams/${t.id}/ws`;
+  const res = await t.relay.connect(`${path}?auth=${await authToken(dev, { team: t.id, method: 'GET', path, now: t.relay.now() })}`);
+  assert.equal((await declined).t, 'ok');
+  assert.equal(res.status, 401);
+  assert.equal(t.relay.sockets().filter((s) => s.info.m === dev.id).length, 0);
+});
