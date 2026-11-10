@@ -207,7 +207,7 @@ const THREADS = [
 const RUNS = new Map([['cooking', readRuns({ thread: { runCount: 1 }, recentRuns: [run(at(14), null)] })],
   ['review', readRuns({ thread: { runCount: 1 }, recentRuns: [run(at(10), at(12))] })]]);
 const board = (runs = RUNS) => buildBoard({ projects: [{ id: 'p', title: 'Fernpay' }], threads: THREADS, questions: new Map(), runs, today: new Date(NOW) });
-const page = (o = {}) => renderApp({ board: board(o.runs), project: null, link: (t) => `https://t3.example/${t.threadId}`, status: { ok: true, at: NOW, ms: 1 }, origin: 'https://t3.example', ...o });
+const page = (o = {}) => renderApp({ board: board(o.runs), link: (t) => `https://t3.example/${t.threadId}`, status: { ok: true, at: NOW, ms: 1 }, origin: 'https://t3.example', ...o });
 
 test('stage dots are a gray ramp up to In progress, never orange', () => {
   const html = page();
@@ -251,15 +251,82 @@ test('a stale page hides the rail bar with the counts (PR-Agent on #74)', () => 
   assert.match(counts, /\.is-stale \.pmenu-l \.n[,{]/);
 });
 
+test('a page read for the old projects is not replayed when the menu closes after a pick (PR-Agent r1 on the view menu)', () => {
+  const src = readFileSync(new URL('./server.mjs', import.meta.url), 'utf8');
+  // The page a refresh keeps while a menu is open carries the address it was read for.
+  assert.match(src, /if \(\$\('details\.pmenu\[open\]'\)\) \{ pendingHtml = html; pendingFor = location\.search; return; \}/);
+  const fn = src.match(/function replayPending\(\)\{[\s\S]*?\n {2}\}/)[0];
+  const synced = [];
+  const ctx = vm.createContext({ pendingHtml: null, pendingFor: null, location: { search: '' }, sync: (h) => synced.push(h) });
+  vm.runInContext(fn, ctx);
+  // Read for All projects, then Fernpay picked while the menu stayed open: dropped, and the next refresh draws it.
+  Object.assign(ctx, { pendingHtml: 'all', pendingFor: '', location: { search: '?p=Fernpay' } });
+  vm.runInContext('replayPending()', ctx);
+  assert.deepEqual([synced, ctx.pendingHtml], [[], null]);
+  // Read for the address on screen: replayed.
+  Object.assign(ctx, { pendingHtml: 'fernpay', pendingFor: '?p=Fernpay' });
+  vm.runInContext('replayPending()', ctx);
+  assert.deepEqual(synced, ['fernpay']);
+  // Nothing kept: nothing drawn.
+  Object.assign(ctx, { pendingHtml: null });
+  vm.runInContext('replayPending()', ctx);
+  assert.deepEqual(synced, ['fernpay']);
+});
+
+test('picks that cover the whole board drop out of the address, and Back redraws the boxes at once (PR-Agent r2 on #10)', () => {
+  const src = readFileSync(new URL('./server.mjs', import.meta.url), 'utf8');
+  const fn = (name) => src.match(new RegExp(`function ${name}\\(\\)\\{[\\s\\S]*?\\n {2}\\}`))[0];
+  const calls = [];
+  const ctx = vm.createContext({ URLSearchParams, location: { pathname: '/', search: '' }, all: 'true',
+    $: () => ({ getAttribute: () => ctx.all }), history: { state: null, replaceState: (s, t, u) => calls.push(u) } });
+  vm.runInContext(`${fn('pickedNow')} ${fn('normalizePicked')}`, ctx);
+  // The address reads as pickedFrom reads it, a project called __proto__ included.
+  ctx.location.search = '?p=A&p=&p=A&p=__proto__&p=B';
+  assert.deepEqual([...vm.runInContext('pickedNow()', ctx)], ['A', '__proto__', 'B']);
+  ctx.location.search = '';
+  assert.equal(vm.runInContext('pickedNow()', ctx), null);
+  // All projects ticked with picks in the address: the picks go, and anything else in the address stays.
+  ctx.location.search = '?p=A&x=1';
+  vm.runInContext('normalizePicked()', ctx);
+  assert.deepEqual(calls, ['/?x=1']);
+  // Some picked, or no picks: the address stays as it is.
+  ctx.all = 'mixed';
+  vm.runInContext('normalizePicked()', ctx);
+  ctx.all = 'true'; ctx.location.search = '';
+  vm.runInContext('normalizePicked()', ctx);
+  assert.deepEqual(calls, ['/?x=1']);
+
+  // Back and Forward: the handler draws the address's picks when the menu has a box for each, else closes the menu.
+  const onPop = src.match(/window\.addEventListener\('popstate', (function\(\)\{[\s\S]*?\n {2}\})\);/)[1];
+  const drawn = [], menu = { open: true };
+  const pop = vm.createContext({ picks: null, drawn, menu, state: { sel: 'k1' }, woke: 0,
+    pickedNow: () => pop.picks, $$: () => ['A', 'B'].map((p) => ({ dataset: { p } })), $: () => menu,
+    drawPicked: (n) => drawn.push(n), wake: () => { pop.woke++; } });
+  vm.runInContext(`var onPop = ${onPop};`, pop);
+  pop.picks = ['A', 'B'];
+  vm.runInContext('onPop()', pop);
+  pop.picks = null;
+  vm.runInContext('onPop()', pop);
+  assert.deepEqual([drawn, menu.open, pop.state.sel, pop.woke], [[['A', 'B'], null], true, null, 2]);
+  pop.picks = ['A', 'Gone'];
+  vm.runInContext('onPop()', pop);
+  assert.deepEqual([drawn.length, menu.open, pop.woke], [2, false, 3]);
+});
+
 test('switching to Your team forgets the ticket the Pass kept, even with none open (PR-Agent r6 on #74)', () => {
   const src = readFileSync(new URL('./server.mjs', import.meta.url), 'utf8').match(/function setScope\(next\)\{[\s\S]*?\n {2}\}/)[0];
   const ctx = vm.createContext({ scope: 'you', state: { sel: null, passSel: 'k1' }, placed: 0 });
   vm.runInContext(`function teamNow(){ return { name: 'Platform' }; } function store(){} function applyScope(){} function place(){ placed++; } ${src}`, ctx);
+  // The reader redraws even with nothing selected: a project pick in the same open menu drops the selection before
+  // the reader redraws, so its ticket would stay on screen in Team (view menu, Dan, 2026-11-10).
   vm.runInContext(`setScope('team')`, ctx);
-  assert.deepEqual([ctx.scope, ctx.state.passSel, ctx.placed], ['team', null, 0]);
+  assert.deepEqual([ctx.scope, ctx.state.passSel, ctx.placed], ['team', null, 1]);
   // With a ticket open, it closes too.
   vm.runInContext(`scope = 'you'; state.sel = 'k2'; state.passSel = 'k2'; setScope('team')`, ctx);
-  assert.deepEqual([ctx.state.sel, ctx.state.passSel, ctx.placed], [null, null, 1]);
+  assert.deepEqual([ctx.state.sel, ctx.state.passSel, ctx.placed], [null, null, 2]);
+  // Team again is no switch: nothing redraws.
+  vm.runInContext(`setScope('team')`, ctx);
+  assert.equal(ctx.placed, 2);
 });
 
 test('without a good poll every instrument says "Not checked"', () => {
@@ -274,32 +341,53 @@ test('Verified and on hold are chips that open their tickets', () => {
   assert.match(held, /data-thread="held" title="On hold: Snoozed">/);
 });
 
-test('no reports, no switch: the footer chip stays the project menu and nothing names Your team', () => {
+const menuOf = (html) => html.match(/<details class="pmenu vmenu">[\s\S]*?<\/details>/)[0];
+const summaryOf = (html) => menuOf(html).match(/<summary>[\s\S]*?<\/summary>/)[0];
+
+test('no reports: the person and You, the project check boxes, and no toggle (Dan, 2026-11-10)', () => {
   const html = page();
-  assert.doesNotMatch(html, /vmenu|data-scope|id="yc-team"|Your team/);
+  const summary = summaryOf(html);
+  assert.match(summary, /^<summary><svg class="ic who"[^>]*><circle cx="12" cy="8\.25"[\s\S]*?<span class="vl">You<\/span><span class="vdot" aria-hidden="true">·<\/span><span class="vp">All projects<\/span>/);
+  const menu = menuOf(html);
+  assert.match(menu, /<button type="button" class="pk all" role="checkbox" aria-checked="true">/);
+  assert.match(menu, /<button type="button" class="pk" role="checkbox" data-p="Fernpay" aria-checked="true">/);
+  assert.doesNotMatch(html, /data-scope|class="seg"|id="yc-team"|Your team|vi-team/);
 });
 
-test('with reports, the footer chip is the view switch: You, its projects, then Your team in full words', () => {
+test('with reports: the person and You or the toque and Team, never the team or mode name, and the toggle last', () => {
+  for (const mode of ['brigade', 'open', null]) {
+    const html = page({ team: { name: 'Platform', below: 6, mode } });
+    const summary = summaryOf(html);
+    // The toque means Team in both modes; the chip never names the team or its mode.
+    assert.match(summary, /class="ic who vi-you"[^>]*><circle cx="12" cy="8\.25"/);
+    assert.match(summary, /class="ic who vi-team"[^>]*><path d="M7\.6 16\.1/);
+    assert.match(summary, /<span class="vl"><span class="vl-you">You<\/span><span class="vl-team">Team<\/span><\/span>/);
+    assert.doesNotMatch(summary, /Platform|French Brigade|Open kitchen|Your team/);
+    // One line at the bottom of the menu: person and You, toque and Team.
+    const menu = menuOf(html);
+    assert.match(menu, /<hr><div class="seg" role="radiogroup" aria-label="View"><button type="button" role="radio" aria-checked="false" data-scope="you"><svg class="ic"[^>]*><circle cx="12" cy="8\.25"[\s\S]*?<span>You<\/span><\/button><button type="button" role="radio" aria-checked="false" data-scope="team"><svg class="ic"[^>]*><path d="M7\.6 16\.1[\s\S]*?<span>Team<\/span><\/button><\/div><\/nav><\/details>$/);
+  }
   const html = page({ team: { name: 'Platform', below: 6, mode: 'brigade' } });
-  const menu = html.match(/<details class="pmenu vmenu">[\s\S]*?<\/details>/)[0];
-  assert.match(menu, /<span class="vl-you">You · All projects<\/span>/);
-  assert.match(menu, /<p class="mh">You<\/p><a href="\/" data-scope="you" aria-current="page">/);
-  assert.match(menu, /<a class="sub" href="\/\?p=Fernpay" data-scope="you">/);
-  assert.match(menu, /<p class="mh">Your team<\/p><button type="button" data-scope="team">[\s\S]*?6 people below you\. French Brigade/);
-  assert.match(page({ team: { name: 'Platform', below: 1, mode: 'open' } }), /1 person below you\. Open kitchen/);
-  // In Your team the chip shows the mode's icon and its full name, never "Your team" (brief v0.4: it wrapped).
-  const summary = menu.match(/<summary>[\s\S]*?<\/summary>/)[0];
-  assert.match(summary, /<span class="vl-team">French Brigade<\/span>/);
-  assert.match(summary, /class="ic who vi-team"[^>]*><path d="M7\.6 16\.1/);
-  assert.match(page({ team: { name: 'Platform', below: 1, mode: 'open' } }), /<span class="vl-team">Open kitchen<\/span>/);
-  assert.match(page({ team: { name: 'Platform', below: 1, mode: null } }), /<span class="vl-team">Platform<\/span>/);
   assert.match(html, /<script type="application\/json" id="yc-team">\{"name":"Platform","below":6,"mode":"brigade"\}<\/script>/);
-  // Without a good poll the menu does not say "0 need you" (PR-Agent r2 on #74).
-  const down = page({ team: { name: 'Platform', below: 6, mode: 'brigade' }, status: { ok: false, error: 'down', at: NOW, ms: 0 } });
-  assert.match(down.match(/<details class="pmenu vmenu">[\s\S]*?<\/details>/)[0], /<b>Your threads<\/b>[\s\S]*?<span class="n">Not checked<\/span>/);
-  assert.doesNotMatch(down, /0 need you/);
-  // The top bar (phones) has the same switch; The Pass has its Your team state, shown only in that scope.
+  // The top bar (phones) has the same chip and menu; The Pass has its Your team state, shown only in that scope.
   assert.match(html, /<header class="bar">[\s\S]*?<details class="pmenu vmenu">[\s\S]*?<\/header>/);
   assert.match(html, /<div class="head-b"><div class="clear team-pass">[\s\S]*?Your team's calls need the team connection/);
   assert.doesNotMatch(page(), /team-pass/);
+});
+
+test('picked projects: the chip fans their marks, All projects shows a dash, and their names are the tooltip', () => {
+  const two = buildBoard({ projects: [{ id: 'p', title: 'Fernpay' }, { id: 'q', title: 'Loopline' }, { id: 'r', title: 'Quillo' }],
+    threads: [...THREADS, T('loop', { projectId: 'q' }), T('quill', { projectId: 'r' })], questions: new Map(), runs: RUNS, today: new Date(NOW) });
+  const html = renderApp({ board: two, picked: ['Quillo', 'Fernpay'], link: (t) => `https://t3.example/${t.threadId}`, status: { ok: true, at: NOW, ms: 1 }, origin: 'https://t3.example' });
+  const summary = summaryOf(html);
+  // In the menu's order, each a card, with no tooltip of its own: the fan's names them all.
+  assert.match(summary, /<span class="fan" style="--n:2" title="Fernpay, Quillo"><span class="card" style="--i:0"><i class="pm" style="--h:\d+" aria-hidden="true">F<\/i><\/span><span class="card" style="--i:1"><i class="pm" style="--h:\d+" aria-hidden="true">Q<\/i><\/span><span class="vh">Fernpay, Quillo<\/span><\/span>/);
+  assert.doesNotMatch(summary, /All projects/);
+  const menu = menuOf(html);
+  assert.match(menu, /class="pk all" role="checkbox" aria-checked="mixed"/);
+  assert.deepEqual([...menu.matchAll(/data-p="(\w+)" aria-checked="(\w+)"/g)].map((m) => m.slice(1)), [['Fernpay', 'true'], ['Loopline', 'false'], ['Quillo', 'true']]);
+  // You, expanded names the picked projects; the board holds only their tickets.
+  assert.match(html, /<p class="you-sub"><span>Fernpay, Quillo<\/span>/);
+  assert.match(html, /data-thread="quill"/);
+  assert.doesNotMatch(html, /data-thread="loop"/);
 });

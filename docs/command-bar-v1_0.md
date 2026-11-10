@@ -72,7 +72,7 @@ groups.
    every thread on the board.
 4. **View.**
    - Expand the view or Collapse the view (V).
-   - View: You and View: Your team (see below).
+   - View: You and View: Team (see below).
    - Change appearance (⌥⇧⌘A) and Change density: each opens a step of pictures (below). Typing a choice's name
      finds it at once: "dark" finds Change appearance: Dark, with its picture on the right.
 5. **Settings.** Rules, Keyboard shortcuts (?), Settings (⌘,).
@@ -167,11 +167,12 @@ Suggestions come from real data only. A source that is missing says "not checked
 - **The next ticket at The Pass,** with its preview. If the board is not live, the row says "not checked" instead.
 - **The thread your last note went to,** with when. It is recorded only when T3 confirmed the note.
 
-## View: You and View: Your team
+## View: You and View: Team
 
 Scope addition, Dan, 2026-11-10: "also add switching to a quick action in the command K action bar".
 
-- Two View rows next to Expand the view: **View: You** and **View: Your team**.
+- Two View rows next to Expand the view: **View: You** and **View: Team** ("Team", as on the footer chip; Dan,
+  2026-11-10). Their icons are the app's own person and toque, the footer chip's.
 - The team row's line names the team, for example "Lantern, 14 people below you". A missing name or count reads
   "not checked".
 - The current view shows **Now**, as Density does.

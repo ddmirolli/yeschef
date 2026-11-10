@@ -15,13 +15,13 @@ import { createKeys, createLive } from './t3live.mjs';
 import { boardThreads, changeTargets, githubTargets } from './shells.mjs';
 import { createChanges } from './changes.mjs';
 import { createBaseChecks, createPrSizes } from './github.mjs';
-import { buildBoard, renderApp, kitchenPane } from './board.mjs';
+import { buildBoard, renderApp, kitchenPane, pickedFrom } from './board.mjs';
 import { readRuns, dayStart, trackWaits, mayRunToday } from './you.mjs';
 import { normalize as normalRules, change as changeRule } from './kitchen.mjs';
 import { parseCalls, callKey, imagesIn, imageId, shotPath, isShot, SHOT_TYPES } from './calls.mjs';
 import { act } from './actions.mjs';
 import { refuse } from './guard.mjs';
-import { BAR_CSS, BAR_HTML, barCore, installBar } from './bar.mjs';
+import { BAR_CSS, BAR_HTML, SPRING, barCore, installBar } from './bar.mjs';
 import { onTheme, miniCss, minis, MINI_CSS } from './theme.mjs';
 import { appendFileSync } from 'node:fs';
 
@@ -1352,23 +1352,58 @@ html .plate .dock .q-set{max-width:640px}
   .inst{grid-template-columns:repeat(2,minmax(0,1fr))}
   .split{grid-template-columns:minmax(0,1fr)}
 }
-/* The view switch: only a user with reports has it (#yc-team). */
-.vmenu summary .ic.who{width:20px;height:20px}
+/* The footer chip and its menu (Dan, 2026-11-10, view menu mock a). The chip: the person and You, or the toque and
+   Team, then All projects or the picked projects' icons fanned like cards. The menu: check boxes, then the toggle. */
+.vmenu{--cbon:#007AFF;--cboff:#FFFFFF;--cbline:rgba(0,0,0,.26);--segon:var(--card)}
+@media (prefers-color-scheme:dark){.vmenu{--cbon:#0A84FF;--cboff:rgba(255,255,255,.07);--cbline:rgba(255,255,255,.32);--segon:#636366}}
+.vmenu summary .ic.who{width:24px;height:24px}
 .vmenu .vl-team,html.s-team .vmenu .vl-you,.vmenu .vi-team,html.s-team .vmenu .vi-you{display:none}
 html.s-team .vmenu .vl-team{display:inline}
 html.s-team .vmenu .vi-team{display:block}
+.vmenu summary .vl,:is(.v-pass,.v-kitchen) .nav-foot .vmenu summary>span.vl{flex:none}
+.vmenu summary .vdot{flex:none;margin:0 -3px;color:var(--label2)}
+.vmenu summary .vp{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* The fan: each card steps right and turns a little more, and both shrink as the count grows, so ten still fit.
+   When the chip is short of room ("Team" is wider than "You"), the fan gives way and its cards step by the width it
+   has (100cqw), so the dot and the chevron keep their places. */
+.vmenu .fan{--adv:min(12px,calc(40px / max(var(--n) - 1,1)));--step:min(8deg,calc(34deg / max(var(--n) - 1,1)));--mid:calc((var(--n) - 1) / 2);
+  container-type:inline-size;position:relative;flex:0 1 auto;min-width:0;margin-right:auto;width:calc(40px + (var(--n) - 1) * var(--adv));height:26px}
+.vmenu .fan .card{position:absolute;left:calc(10px + var(--i) * max(0px,min(var(--adv),(100cqw - 40px) / max(var(--n) - 1,1))));top:3px;width:20px;height:20px;border-radius:6px;background:var(--card);
+  box-shadow:0 0 0 1.5px var(--card),0 1px 3px rgba(0,0,0,.28);transform:rotate(calc((var(--i) - var(--mid)) * var(--step)));transform-origin:50% 170%;
+  transition:transform .35s cubic-bezier(.32,1.25,.5,1)}
+.vmenu .fan .card .pm{display:grid;width:20px;height:20px;border-radius:6px;font-size:11px}
+.vmenu summary:hover .fan .card{transform:rotate(calc((var(--i) - var(--mid)) * var(--step) * 1.25))}
 .vmenu .pmenu-l{width:300px}
-.vmenu .pmenu-l .mh{margin:0;padding:8px 10px 4px;font-size:12px;font-weight:600;color:var(--label2)}
-.vmenu .pmenu-l hr{margin:6px 4px;border:0;border-top:.5px solid var(--sep)}
+.vmenu .pmenu-l hr{flex:none;margin:6px 4px;border:0;border-top:.5px solid var(--sep)}
 .vmenu .pmenu-l button{display:flex;align-items:center;gap:10px;width:100%;padding:8px 10px;border:0;border-radius:6px;background:none;font:inherit;font-size:14px;color:var(--label);text-align:left;cursor:pointer}
 .vmenu .pmenu-l button:hover{background:var(--fill)}
-.vmenu .pmenu-l a.sub{padding-left:34px}
-.vmenu .pmenu-l .n{flex:none;margin-left:auto;white-space:nowrap}
-.vmenu .mi{display:flex;flex-direction:column;min-width:0}
-.vmenu .mi b{font-weight:600}
-.vmenu .mi small{font-size:12px;color:var(--label2)}
-.vmenu .tk{flex:none;width:14px;height:14px}
-html:not(.s-team) .vmenu a[data-scope=you]:not(.sub)[aria-current] .tk::before,html.s-team .vmenu button[data-scope=team] .tk::before{content:"";display:block;width:5px;height:9px;margin:1px 0 0 4px;border:solid var(--pass);border-width:0 2px 2px 0;transform:rotate(45deg)}
+.vmenu .pmenu-l .pk{flex:none;gap:12px;min-height:40px;font-weight:400}
+.vmenu .pmenu-l .pk.all{font-weight:600}
+.vmenu .pk .vn{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vmenu .pk-nc{margin:2px 10px 4px;font-size:12px;color:var(--label2)}
+/* A check box: 18 px, rounded, a tick drawn in (or a dash for some) on system blue, as on a Mac. */
+.vmenu .cb{flex:none;position:relative;width:18px;height:18px;border-radius:5px;background:var(--cboff);box-shadow:inset 0 0 0 1px var(--cbline),0 .5px 1px rgba(0,0,0,.06);transition:background-color .15s,box-shadow .15s,transform .1s}
+.vmenu .cb svg{position:absolute;inset:0;width:18px;height:18px;fill:none;stroke:#FFFFFF;stroke-width:2.25;stroke-linecap:round;stroke-linejoin:round}
+.vmenu .cb .tick{stroke-dasharray:13;stroke-dashoffset:13;transition:stroke-dashoffset .2s ease-out .03s}
+.vmenu .cb .dash{opacity:0;transition:opacity .12s}
+.vmenu [aria-checked=true]>.cb,.vmenu [aria-checked=mixed]>.cb{background:var(--cbon) linear-gradient(rgba(255,255,255,.16),rgba(255,255,255,0));box-shadow:inset 0 0 0 .5px rgba(0,0,0,.14),0 .5px 1.5px rgba(0,0,0,.14)}
+.vmenu [aria-checked=true]>.cb .tick{stroke-dashoffset:0}
+.vmenu [aria-checked=mixed]>.cb .dash{opacity:1}
+.vmenu .pk:hover[aria-checked=false]>.cb{box-shadow:inset 0 0 0 1.5px var(--cbon)}
+.vmenu .pk:active>.cb{transform:scale(.9)}
+/* The last ticked box cannot be unticked: it shakes. */
+.vmenu .pk.no>.cb{animation:yc-no .32s}
+@keyframes yc-no{20%,60%{transform:translateX(-3px)}40%,80%{transform:translateX(3px)}}
+/* The toggle, one line at the bottom: You | Team, a thumb that slides with the app's 0.5 s spring. */
+.vmenu .pmenu-l .seg{position:relative;display:flex;flex:none;padding:3px;border-radius:11px;background:var(--fill)}
+.vmenu .pmenu-l .seg::before{content:"";position:absolute;top:3px;bottom:3px;left:3px;width:calc(50% - 3px);border-radius:8px;background:var(--segon);box-shadow:0 1px 3px rgba(0,0,0,.16),0 0 0 .5px var(--sep);transition:transform 735ms ${SPRING}}
+html.s-team .vmenu .pmenu-l .seg::before{transform:translateX(100%)}
+.vmenu .pmenu-l .seg button{position:relative;z-index:1;flex:1 1 0;justify-content:center;gap:8px;width:auto;min-height:0;height:40px;padding:0 8px;border-radius:8px;background:none;font-size:15px;font-weight:600;color:var(--label2);transition:color .25s}
+.vmenu .pmenu-l .seg button:hover{background:none;color:var(--label)}
+.vmenu .pmenu-l .seg [aria-checked=true]{color:var(--label)}
+.vmenu .pmenu-l .seg .ic{flex:none;width:24px;height:24px}
+@media (prefers-reduced-motion:reduce){.vmenu .pmenu-l .seg::before,.vmenu .cb .tick,.vmenu .fan .card{transition:none}}
+@media (max-width:760px){.vmenu .pmenu-l .pk{min-height:44px}.vmenu .pmenu-l{max-height:calc(100dvh - 72px);overflow-y:auto;overscroll-behavior:contain}}
 html.s-team .you{display:none}
 /* The Pass follows the view: in Your team it says what it cannot show yet, and none of your own calls. */
 .team-pass,html.s-team .head-b>.folder,html.s-team .head .badge,html.s-team .head-h>.muted{display:none}
@@ -1515,14 +1550,18 @@ ${BAR_HTML}
   // has it, so the scope stays You. viewsNow and setScope are what the Cmd+K bar's View actions read and call.
   function teamNow(){ var j = $('#yc-team'); if (!j) return null; try { return JSON.parse(j.textContent); } catch (x) { return null; } }
   var scope = store('yc.scope') === 'team' ? 'team' : 'you';
-  function applyScope(){ if (!teamNow()) scope = 'you'; root.classList.toggle('s-team', scope === 'team'); }
+  function applyScope(){
+    if (!teamNow()) scope = 'you'; root.classList.toggle('s-team', scope === 'team');
+    $$('.vmenu .seg [data-scope]').forEach(function(b){ b.setAttribute('aria-checked', String(b.dataset.scope === scope)); });
+  }
   function viewsNow(){ var t = teamNow(); return { hasReports: !!t, current: scope, team: t }; }
   function setScope(next){
     if ((next !== 'you' && next !== 'team') || (next === 'team' && !teamNow())) return;
     var was = scope; scope = next; store('yc.scope', next); applyScope();
     // Your team shows none of your own tickets, so the one open in the reader closes, and the one the Pass kept for
-    // its return is forgotten too, even when none is open now (PR-Agent r6 on #74).
-    if (next === 'team' && was !== 'team') { state.passSel = null; if (state.sel) { state.sel = null; place(); } }
+    // its return is forgotten too, even when none is open now (PR-Agent r6 on #74). The reader is cleared even when
+    // nothing is selected: a project pick in the same open menu drops the selection before the reader redraws.
+    if (next === 'team' && was !== 'team') { state.passSel = null; state.sel = null; place(); }
   }
 
   // ----- Folders (the stage list) and selection -----
@@ -1718,7 +1757,9 @@ ${BAR_HTML}
   });
 
   // ----- Refresh: swap each region; never the ticket you are working on -----
-  var last = Date.now(), pendingHtml = null;
+  // pendingFor: the address pendingHtml was read for. A project pick or Back changes the address while the menu is
+  // open, so a page read before it is not replayed when the menu closes (PR-Agent r1 on the view menu).
+  var last = Date.now(), pendingHtml = null, pendingFor = null;
   // Missing data renders "not checked": the lists, counts and "Live" go; only a ticket you are writing in stays.
   function lost(why){
     var msg = why + ' at ' + new Date().toLocaleTimeString() + '. The board returns with the next update.';
@@ -1775,7 +1816,7 @@ ${BAR_HTML}
     else if (nu) { var b = $(before, app); if (b) b.before(nu); }
   }
   function sync(html){
-    if ($('details.pmenu[open]')) { pendingHtml = html; return; }
+    if ($('details.pmenu[open]')) { pendingHtml = html; pendingFor = location.search; return; }
     pendingHtml = null;
     // Keep keyboard focus on the same card or stage across the refresh (hill climb r5, Sol).
     var ae = document.activeElement, focusSel = null;
@@ -1819,7 +1860,7 @@ ${BAR_HTML}
     $$('.plate', nuStore).forEach(function(p){ if ((!mounted || p.id !== mounted.id) && !held[p.id]) store_.appendChild(p); });
     // A ticket sent from the pass comes back as soon as the agent hands it back again, not after 90 s.
     Object.keys(acted).forEach(function(aid){ var np = nuStore.querySelector('#' + CSS.escape(aid)) || document.getElementById(aid); if (np && actedLatest[aid] !== undefined && (np.dataset.latest || '') !== actedLatest[aid]) { delete acted[aid]; delete actedLatest[aid]; } });
-    hideActed(); setFolder(state.folder); applyScope(); sizeRail(); restoreDrafts(app); restoreDrafts($('#plates'));
+    hideActed(); setFolder(state.folder); applyScope(); normalizePicked(); sizeRail(); restoreDrafts(app); restoreDrafts($('#plates'));
     if (focusSel && document.activeElement !== null && (document.activeElement === document.body || !document.activeElement.isConnected)) { var back = $(focusSel); if (back) back.focus({ preventScroll: true }); }
     // The open ticket left the board on its own: show the next one, unless you are working in it.
     if (gone && !keep) { var id = mounted.id; mounted.remove(); mounted = null; if (acted[id]) { state.sel = null; place(); } else advance(id); return; }
@@ -1830,7 +1871,12 @@ ${BAR_HTML}
     }
     place();
   }
-  document.addEventListener('toggle', function(ev){ if (pendingHtml && ev.target.matches && ev.target.matches('details.pmenu') && !ev.target.open) sync(pendingHtml); }, true);
+  function replayPending(){
+    if (!pendingHtml) return;
+    if (pendingFor !== location.search) { pendingHtml = null; return; }
+    sync(pendingHtml);
+  }
+  document.addEventListener('toggle', function(ev){ if (ev.target.matches && ev.target.matches('details.pmenu') && !ev.target.open) replayPending(); }, true);
   var es = new EventSource('/events');
   function net(ok, msg){
     $$('.netstrip').forEach(function(n){ n.remove(); });
@@ -2466,12 +2512,80 @@ ${BAR_HTML}
   // Reload and a project switch refresh the board in place (council 3): the page never unloads, so a send waiting
   // out its Undo keeps its four seconds and a half-written note stays.
   window.__ycSoftReload = function(){ wake(); };
-  function switchProject(href){
-    var m = $('details.pmenu[open]'); pendingHtml = null; if (m) m.open = false;
-    if (href === location.pathname + location.search) return;
-    history.pushState(null, '', href); state.sel = null; wake();
+  // ----- The projects the board shows (Dan, 2026-11-10, view menu mock a) -----
+  // A tick flips at once and the menu stays open. The chip follows at once, and the board when the menu closes (sync
+  // waits while a menu is open). All projects ticks every box. The last ticked box stays ticked and shakes: no project
+  // at all is not a view. The address repeats p, ?p=A&p=B; no p is All projects.
+  function pickProject(pk){
+    var nav = pk.closest('.pmenu-l'), boxes = $$('.pk[data-p]', nav), all = $('.pk.all', nav), names = null;
+    function on(b){ return b.getAttribute('aria-checked') === 'true'; }
+    if (pk === all) { if (on(all)) return; }
+    else {
+      // The last ticked box stays ticked and shakes once; the class goes when the shake ends, so reopening the menu
+      // does not shake it again.
+      if (on(pk) && boxes.filter(on).length === 1) {
+        pk.classList.remove('no'); void pk.offsetWidth; pk.classList.add('no');
+        pk.addEventListener('animationend', function(){ pk.classList.remove('no'); }, { once: true });
+        return;
+      }
+      var ticked = boxes.filter(function(b){ return b === pk ? !on(b) : on(b); });
+      names = ticked.map(function(b){ return b.dataset.p; });
+      // Every project on the board, and no pick that has no ticket now (data-gone), is All projects, as the server
+      // reads it; unless T3 did not answer: then the list is not the whole of it.
+      var gone = function(b){ return b.hasAttribute('data-gone'); };
+      if (!nav.hasAttribute('data-nc') && !ticked.some(gone) && ticked.length === boxes.filter(function(b){ return !gone(b); }).length) names = null;
+    }
+    drawPicked(names);
+    var q = names ? '?' + names.map(function(n){ return 'p=' + encodeURIComponent(n); }).join('&') : '';
+    if (q === location.search) return;
+    history.pushState(null, '', location.pathname + q); state.sel = null; wake();
   }
-  window.addEventListener('popstate', function(){ state.sel = null; wake(); });
+  // Both copies of the menu (the rail's, and the top bar's on a phone) show the same picks. names: null is All projects.
+  function drawPicked(names){
+    $$('details.vmenu').forEach(function(d){
+      var boxes = $$('.pk[data-p]', d), all = $('.pk.all', d), sel = [];
+      // All projects is every project on the board: a pick with no ticket now (data-gone) is not one of them.
+      boxes.forEach(function(b){ var y = names ? names.indexOf(b.dataset.p) >= 0 : !b.hasAttribute('data-gone'); b.setAttribute('aria-checked', String(y)); if (y) sel.push(b); });
+      if (all) all.setAttribute('aria-checked', names ? 'mixed' : 'true');
+      var cur = $('summary .vp, summary .fan', d), nw = document.createElement('span');
+      if (!names) { nw.className = 'vp'; nw.textContent = 'All projects'; }
+      else {
+        var list = sel.map(function(b){ return b.dataset.p; }).join(', '), vh = document.createElement('span');
+        nw.className = 'fan'; nw.style.setProperty('--n', sel.length); nw.title = list;
+        sel.forEach(function(b, i){
+          var c = document.createElement('span'), m = $('.pm', b); c.className = 'card'; c.style.setProperty('--i', i);
+          if (m) { m = m.cloneNode(true); m.removeAttribute('title'); c.appendChild(m); }
+          nw.appendChild(c);
+        });
+        vh.className = 'vh'; vh.textContent = list; nw.appendChild(vh);
+      }
+      if (cur) cur.replaceWith(nw);
+    });
+  }
+  // The picks in the address, as pickedFrom reads them (client/board.mjs): repeats and empty names drop out; null is
+  // All projects. An array, not an object: a project may be called "__proto__".
+  function pickedNow(){
+    var out = [];
+    new URLSearchParams(location.search).getAll('p').forEach(function(n){ if (n && out.indexOf(n) < 0) out.push(n); });
+    return out.length ? out : null;
+  }
+  // Picks that cover every project on the board are All projects: the address drops them, so a project that turns up
+  // later shows too, and All projects stays a way out of a filter (PR-Agent r2 on #10).
+  function normalizePicked(){
+    var a = $('.vmenu .pk.all'); if (!a || a.getAttribute('aria-checked') !== 'true') return;
+    var u = new URLSearchParams(location.search); if (!u.has('p')) return;
+    u.delete('p'); var q = u.toString();
+    history.replaceState(history.state, '', location.pathname + (q ? '?' + q : ''));
+  }
+  // Back and Forward: the boxes and the chip follow the address at once, even while the board waits for the menu to
+  // close, so the next tick starts from the right picks (PR-Agent r2 on #10). A pick the menu has no box for closes
+  // the menu instead, and the refresh draws it.
+  window.addEventListener('popstate', function(){
+    var names = pickedNow(), have = $$('.vmenu .pk[data-p]').map(function(b){ return b.dataset.p; });
+    if (!names || names.every(function(n){ return have.indexOf(n) >= 0; })) drawPicked(names);
+    else { var om = $('details.vmenu[open]'); if (om) om.open = false; }
+    state.sel = null; wake();
+  });
   document.addEventListener('submit', function(ev){
     var f = ev.target; if (!f.matches || !f.matches('form.act')) return;
     ev.preventDefault();
@@ -2653,11 +2767,11 @@ ${BAR_HTML}
     var t = ev.target;
     var m = $('details.pmenu[open]'); if (m && !m.contains(t)) m.open = false;
     if (t.closest('[data-view-toggle]')) { toggleView(); return; }
-    // The view switch: Your team is a button; You's rows are project links that also set the scope.
-    var sc = t.closest('.pmenu-l [data-scope]');
-    if (sc && sc.tagName === 'BUTTON') { setScope(sc.dataset.scope); var om = sc.closest('details.pmenu'); if (om) om.open = false; return; }
-    var pa = t.closest('.pmenu-l a[href]');
-    if (pa && !(ev.metaKey || ev.ctrlKey || ev.shiftKey)) { ev.preventDefault(); if (sc) setScope(sc.dataset.scope); switchProject(pa.getAttribute('href')); return; }
+    // The view menu: a project's check box, All projects, and the You | Team toggle all keep the menu open.
+    var pk = t.closest('.vmenu .pk');
+    if (pk) { pickProject(pk); return; }
+    var sc = t.closest('.vmenu .seg [data-scope]');
+    if (sc) { setScope(sc.dataset.scope); return; }
     var nf = t.closest('.nf[data-folder]');
     // In You, expanded, a stage row opens that stage's list in the pass view, with no ticket open.
     if (nf && !focusView()) { state.passFolder = nf.dataset.folder; state.passSel = null; toggleView(); return; }
@@ -2678,7 +2792,8 @@ ${BAR_HTML}
   });
   sheet.addEventListener('close', function(){ var id = state.sel; if (!(focusView() && wide())) { unmount(); state.sel = null; mark(); } var back = id && $('[data-plate="' + id + '"]:not(form)'); if (back) back.focus({ preventScroll: true }); });
   document.addEventListener('keydown', function(ev){
-    var m = $('details.pmenu[open]'); if (m && ev.key === 'Escape') { m.open = false; return; }
+    // Esc closes the menu and puts focus back on its chip, so the keys go on from there.
+    var m = $('details.pmenu[open]'); if (m && ev.key === 'Escape') { var back = m.contains(document.activeElement) && $('summary', m); m.open = false; if (back) back.focus(); return; }
     // More, while open: Esc or . closes it, the arrows move between its rows, and Enter or Space presses the row in
     // focus. Any other key closes it, then does what it always does (N adds a note, O opens T3, Cmd+Enter sends).
     var om = openMenu();
@@ -2822,10 +2937,10 @@ ${BAR_HTML}
   // Typing your own answer picks it: a field inside a label does not check the label's radio by itself.
   document.addEventListener('focusin', function(ev){ var t = ev.target; if (t.matches && t.matches('label.opt .custom')) { var r = t.parentNode.querySelector('input[data-custom]'); if (r) r.checked = true; } });
 
-  applyPrefs(); applyScope(); sizeRail(); restoreDrafts(document);
+  applyPrefs(); applyScope(); normalizePicked(); sizeRail(); restoreDrafts(document);
   setView(state.view); setFolder('pass');
   fades();
-  // The Cmd+K action bar (client/bar.mjs). View: You and View: Your team read and set the same scope as the footer
+  // The Cmd+K action bar (client/bar.mjs). View: You and View: Team read and set the same scope as the footer
   // chip's switch; with no reports (#yc-team absent) views() says so and their rows stay hidden (Dan, 2026-11-10).
   ${barCore}
   ${installBar}
@@ -2933,8 +3048,9 @@ if (DESKTOP) {
 
 /** The pages and images, for both doors: the web prototype's HTTP server and the desktop app's pipe. */
 function route(url) {
-  const project = url.searchParams.get('p');
-  const app = () => renderApp({ board, project, link, status, origin: ORIGIN, answered, projects, rules: rulesNow() });
+  // ?p=A&p=B: the projects picked in the view menu; no p is All projects.
+  const picked = pickedFrom(url.searchParams);
+  const app = () => renderApp({ board, picked, link, status, origin: ORIGIN, answered, projects, rules: rulesNow() });
   const html = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' };
   if (url.pathname === '/') return { status: 200, headers: html, body: page(app()) };
   if (url.pathname === '/app') return { status: 200, headers: html, body: app() };

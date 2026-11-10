@@ -117,7 +117,7 @@ const optText = (t) => e(t).replace(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pu
   return `<a href="${url}" target="_blank" rel="noopener">PR #${n}</a>${all.slice(url.length)}`;
 });
 const ago = (iso) => { const m = Math.round((Date.now() - Date.parse(iso)) / 60000); return m < 1 ? 'now' : m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h` : `${Math.floor(m / 1440)} d`; };
-const ICON = {
+export const ICON = {
   cloche: '<path d="M4.25 17.4a7.75 7.75 0 0 1 15.5 0" stroke-width="1.5" stroke-linecap="butt"/><circle cx="12" cy="7.4" r="1.75" fill="currentColor" stroke="none"/><path d="M2.75 19h18.5l-1.5 1.5H4.25z" fill="currentColor" stroke="none"/>',
   chev: '<path d="m6 9 6 6 6-6"/>', done: '<circle cx="12" cy="12" r="9"/><path d="m8 12.4 2.7 2.7L16.2 9.4"/>',
   out: '<path d="M8.5 15.5 16 8"/><path d="M9.5 8H16v6.5"/>', x: '<path d="M7 7l10 10M17 7 7 17"/>',
@@ -517,12 +517,12 @@ function bars(vals, label) {
 /** You, expanded (Dan, 2026-11-10, views mock v4): your threads with four instruments over the stage columns, then
  *  merges by day and agent time, then what is verified or on hold. Each number comes from T3 Code; what T3 does not
  *  send says "Not checked". now: the poll's time, so the view shows that one reading. */
-function youView({ board, shown, spots, waiting, since, status, project, trays, verified, heldAll }) {
+function youView({ board, shown, spots, waiting, since, status, picked, trays, verified, heldAll }) {
   const ok = status.ok, now = status.at;
   const cooks = shown.filter((k) => k.place !== 'Coordinators');
   const line = STAGES.flatMap((s) => spots[s] || []);
   const running = cooks.reduce((n, k) => n + k.working, 0), busy = cooks.filter((k) => k.working).length;
-  const names = project ? [project] : [...new Set(cooks.map((k) => k.project))].sort((a, b) => a.localeCompare(b));
+  const names = [...(picked || new Set(cooks.map((k) => k.project)))].sort((a, b) => a.localeCompare(b));
   const at = new Date(now);
   const time = `<time datetime="${at.toISOString()}">${at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</time>`;
   const sub = ok ? [names.join(', '), plural(line.length, 'thread'), `${plural(running, 'agent')} running`].filter(Boolean).map((x) => `<span>${e(x)}</span>`).join('') + time
@@ -574,30 +574,57 @@ function youView({ board, shown, spots, waiting, since, status, project, trays, 
     + `<div class="you-b">${inst}${stages}${split}${held}</div></section>`;
 }
 
-/** The view switch (Dan, 2026-11-10): only a user with reports has one, in the rail's footer chip, with You (your
- *  threads, then each project) and Your team. team: { name, below, mode } from the team connection, or null. Until
- *  that connection lands it is null, and the chip stays the project menu. */
-function viewMenu({ team, rows, cur, project, waitAll, names }) {
-  const below = typeof team.below === 'number' && Number.isFinite(team.below) ? `${team.below} ${team.below === 1 ? 'person' : 'people'} below you` : 'People below you not checked';
-  const mode = { open: 'Open kitchen', brigade: 'French Brigade' }[team.mode];
-  // In Your team the chip names the mode in full, never "Your team" (it wrapped; brief v0.4). The team's faces need
-  // the team connection, so the mode's icon stands in for them.
-  const modeIc = { open: 'skillet', brigade: 'toque' }[team.mode] || 'person';
-  return `<details class="pmenu vmenu"><summary>${svg('person', 'ic who vi-you')}${svg(modeIc, 'ic who vi-team')}<span><span class="vl-you">You · ${e(cur[2])}</span><span class="vl-team">${e(mode || team.name || 'Your team')}</span></span>${svg('chev')}</summary>`
-    + `<nav class="pmenu-l" aria-label="Views"><p class="mh">You</p>`
-    + `<a href="/" data-scope="you"${!project ? ' aria-current="page"' : ''}><span class="tk"></span><span class="mi"><b>Your threads</b><small>${names.length ? `Your agents in ${e(names.join(', '))}` : 'Your agents'}</small></span><span class="n">${waitAll == null ? 'Not checked' : `${waitAll} need you`}</span></a>`
-    + rows.slice(1).map(([h, m, nm, c, on]) => `<a class="sub" href="${e(h)}" data-scope="you"${on ? ' aria-current="page"' : ''}>${m}<span>${e(nm)}</span><span class="n">${plural(c, 'thread')}</span></a>`).join('')
-    + `<hr><p class="mh">Your team</p><button type="button" data-scope="team"><span class="tk"></span><span class="mi"><b>${e(team.name || 'Your team')}</b><small>${e([below, mode].filter(Boolean).join('. '))}</small></span></button></nav></details>`;
+/** The projects a page shows, from its address: ?p=A&p=B picks A and B; no p is All projects (Dan, 2026-11-10).
+ *  Empty and repeated names drop out. Null means All projects. */
+export function pickedFrom(params) {
+  const names = [...new Set(params.getAll('p').filter((p) => p !== ''))];
+  return names.length ? names : null;
 }
 
-/** The page body (#app). project: one project's title, or null for All projects.
+// A check box (view menu mock a, Dan, 2026-11-10): a drawn tick when picked, a dash when some are (All projects only).
+const CB = '<span class="cb" aria-hidden="true"><svg viewBox="0 0 18 18"><path class="tick" d="M4.75 9.4l2.85 2.85 5.65-6.5"/><path class="dash" d="M5.25 9h7.5"/></svg></span>';
+// A mark in the chip's fan has no tooltip of its own: the fan's tooltip names every picked project.
+const fanMark = (name, icon) => mark(name, icon).replace(/ title="[^"]*"/, '');
+
+/** The rail's footer chip and the menu it opens (Dan, 2026-11-10, view menu mock a). The chip: the person and "You",
+ *  or the toque and "Team", then "All projects" or the picked projects' icons fanned like a hand of cards. It never
+ *  names the team or its mode. The menu, top to bottom: All projects as a tri-state check box, one check box per
+ *  project, and, only for a user with reports, a sliding You | Team toggle on one line. The toque means Team in both
+ *  modes. projs: [name, mark html, on the board] in menu order; picked: the names picked, or null for All projects.
+ *  ok: the board was read, so the project list is current; without it the list says "not checked". */
+function viewMenu({ team, projs, picked, icons, ok }) {
+  const sel = new Set(picked || projs.map(([nm]) => nm));
+  // Picking exactly the board's projects is All projects. A pick with no ticket now stays a pick, and so does any pick
+  // without a board: then the list is unknown.
+  const every = !picked || (ok && projs.every(([nm, , here]) => (here ? sel.has(nm) : !sel.has(nm))));
+  const on = projs.filter(([nm]) => sel.has(nm)).map(([nm]) => nm);
+  const names = e(on.join(', '));
+  const which = every ? '<span class="vp">All projects</span>'
+    : `<span class="fan" style="--n:${on.length}" title="${names}">${on.map((nm, i) => `<span class="card" style="--i:${i}">${fanMark(nm, icons.get(nm))}</span>`).join('')}<span class="vh">${names}</span></span>`;
+  const who = team ? `${svg('person', 'ic who vi-you')}${svg('toque', 'ic who vi-team')}<span class="vl"><span class="vl-you">You</span><span class="vl-team">Team</span></span>`
+    : `${svg('person', 'ic who')}<span class="vl">You</span>`;
+  // data-gone: a pick with no ticket now. The page script counts All projects as every box but these.
+  const box = ([nm, m, here]) => `<button type="button" class="pk" role="checkbox" data-p="${e(nm)}"${here ? '' : ' data-gone'} aria-checked="${sel.has(nm)}">${CB}${m}<span class="vn">${e(nm)}</span></button>`;
+  const seg = team ? `<hr><div class="seg" role="radiogroup" aria-label="View">`
+    + `<button type="button" role="radio" aria-checked="false" data-scope="you">${svg('person')}<span>You</span></button>`
+    + `<button type="button" role="radio" aria-checked="false" data-scope="team">${svg('toque')}<span>Team</span></button></div>` : '';
+  return `<details class="pmenu vmenu"><summary>${who}<span class="vdot" aria-hidden="true">·</span>${which}${svg('chev')}</summary>`
+    + `<nav class="pmenu-l" aria-label="${team ? 'Projects and view' : 'Projects'}"${ok ? '' : ' data-nc'}>`
+    + `<button type="button" class="pk all" role="checkbox" aria-checked="${every ? 'true' : 'mixed'}">${CB}<span class="vn">All projects</span></button><hr>`
+    + projs.map(box).join('')
+    + (ok ? '' : '<p class="pk-nc"><b>Projects not checked.</b> T3 did not answer.</p>')
+    + `${seg}</nav></details>`;
+}
+
+/** The page body (#app). picked: the projects' titles to show (pickedFrom), or null for All projects.
  *  Two views (Dan, 2026-11-07), switched by the logo: the pass, focused (stages as a list on the left, the tickets
  *  that wait on you, the open ticket beside them, like a mail client) and You, expanded (instruments over every
  *  stage as a column, 2026-11-10). The page script picks the view; the markup carries both.
  *  team: the user's team when they have reports (see viewMenu), else null. */
-export function renderApp({ board, project, link, status, origin, answered = new Map(), projects = [], rules = null, team = null }) {
+export function renderApp({ board, picked = null, link, status, origin, answered = new Map(), projects = [], rules = null, team = null }) {
+  const want = picked && picked.length ? new Set(picked) : null;
   // Missing data renders "not checked": without a good poll, show no tickets at all, never an older board.
-  const shown = status.ok ? board.tickets.filter((k) => !project || k.project === project) : [];
+  const shown = status.ok ? board.tickets.filter((k) => !want || want.has(k.project)) : [];
   const spots = {};
   for (const k of shown) (spots[k.place] ||= []).push(k);
   // A stable order in every column: newest ticket first by when it was opened, not by its last update (Opus).
@@ -606,18 +633,16 @@ export function renderApp({ board, project, link, status, origin, answered = new
   const since = (k) => k.asks.map((a) => a.thread.updatedAt).sort()[0] || k.updatedAt;
   const asking = (k) => !!(k.asks.length || k.call);
   const waiting = shown.filter((k) => k.atPass).sort((a, b) => (asking(b) - asking(a)) || (since(a) < since(b) ? -1 : 1));
-  // A Map: project titles come from T3 and may be any string, including "__proto__".
-  const counts = new Map(), icons = new Map();
+  // The menu lists every project with a ticket on the board, and any picked one that has none now, so it can still be
+  // unticked. A Map: project titles come from T3 and may be any string, including "__proto__".
+  const icons = new Map();
   const onBoard = (status.ok ? board.tickets : []).filter((k) => k.place !== 'Coordinators');
-  for (const k of onBoard) { counts.set(k.project, (counts.get(k.project) || 0) + 1); if (k.icon) icons.set(k.project, k.icon); }
-  // All projects has no icon (Dan, 2026-11-09: for clarity).
-  const rows = [['/', '', 'All projects', status.ok ? onBoard.length : 'not checked', !project],
-    ...[...counts.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([nm, c]) => [`/?p=${encodeURIComponent(nm)}`, mark(nm, icons.get(nm)), nm, c, nm === project])];
-  const cur = rows.find((r) => r[4]) || rows[0];
-  const menu = `<details class="pmenu"><summary>${cur[1]}<span>${e(cur[2])}</span><span class="n">${cur[3]}</span>${svg('chev')}</summary>`
-    + `<nav class="pmenu-l" aria-label="Projects">${rows.map(([h, m, nm, c, on]) => `<a href="${e(h)}"${on ? ' aria-current="page"' : ''}>${m}<span>${e(nm)}</span><span class="n">${c}</span></a>`).join('')}</nav></details>`;
-  // With reports, the rail's footer chip is the view switch, and so is its stand-in in the top bar (phones).
-  const footMenu = team ? viewMenu({ team, rows, cur, project, waitAll: status.ok ? board.tickets.filter((k) => k.atPass).length : null, names: rows.slice(1).map((r) => r[2]) }) : menu;
+  for (const k of onBoard) if (!icons.has(k.project) || k.icon) icons.set(k.project, k.icon || null);
+  const here = new Set(icons.keys());
+  for (const nm of want || []) if (!icons.has(nm)) icons.set(nm, null);
+  const projs = [...icons.keys()].sort((a, b) => a.localeCompare(b)).map((nm) => [nm, mark(nm, icons.get(nm)), here.has(nm)]);
+  // The rail's footer chip and its menu, and its stand-in in the top bar (phones). The toggle needs reports.
+  const footMenu = viewMenu({ team, projs, picked: want ? [...want] : null, icons, ok: status.ok });
   const active = STAGES.reduce((x, s) => x + (spots[s] || []).length, 0), held = HELD.reduce((x, s) => x + (spots[s] || []).length, 0);
   // Unknown is not zero: without a good poll the counts read "not checked".
   const n = (v) => (status.ok ? v : 'not checked');
@@ -653,7 +678,7 @@ export function renderApp({ board, project, link, status, origin, answered = new
   const pass = `<section class="head" aria-labelledby="head-t"><header class="head-h"><h2 id="head-t">${svg('cloche')}<span class="head-name">The Pass</span></h2>${waiting.length ? `<span class="badge">${waiting.length}</span>` : ''}`
     + `<p class="muted">${waiting.length ? 'Needs your focus.<span class="sub2"> Questions first, then oldest first.</span>' : 'Calls and plates for you land here.'}</p></header><div class="head-b">${lists}</div>`
     + `</section>`;
-  const you = youView({ board, shown, spots, waiting, since, status, project, trays, verified, heldAll });
+  const you = youView({ board, shown, spots, waiting, since, status, picked: want, trays, verified, heldAll });
   // Your team is not built yet (Dan, 2026-11-10): with reports, its view says so instead of showing anything made up.
   const teamWait = team ? `<section class="team-wait" aria-label="Your team"><p><b>${e(team.name || 'Your team')}</b></p><p class="muted">Not checked. Your team's view needs the team connection, which Yes Chef does not have yet.</p></section>` : '';
   const lamp = status.ok ? 'ok' : 'bad';

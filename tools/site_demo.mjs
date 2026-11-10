@@ -52,6 +52,38 @@ const kitchen = createKitchen({ where: (dir) => ({ workspaceRoot: ${JSON.stringi
   shot: (name) => name, later: null });
 export async function signIn() { return { resource: 'demo', token: 'demo', scope: 'orchestration:read' }; }
 export function connect() { return kitchen.t3; }
+export { kitchen };
+`);
+  // The board reads its threads from T3 Code's live stream (client/t3live.mjs). This stand-in hands the server the
+  // same kitchen's threads as stream shells, the inverse of client/shells.mjs threadRow; step 4 checks the result.
+  writeFileSync(join(tmp, 'client', 't3live.mjs'), `// Stand-in written by tools/site_demo.mjs: the made-up kitchen as stream shells, never T3 Code.
+import { kitchen } from './t3mcp.mjs';
+const LATER = '2999-01-01T00:00:00.000Z';
+export function createKeys() { return { sweep: async () => 0, revokeMine: async () => 0 }; }
+export function createLive({ onChange }) {
+  let shells = [], up = false;
+  const shell = async (t) => {
+    const asks = (await kitchen.t3.call('t3_pending_request', { action: 'list', threadId: t.threadId })).requestIds || [];
+    return { id: t.threadId, projectId: t.projectId, title: t.title, status: t.status, latestRunId: t.latestRunId,
+      modelSelection: { model: t.model }, pullRequests: t.pullRequests.map((p) => ({ ...p, snapshot: { state: p.state } })),
+      settledOverride: t.settled ? 'settled' : null, settledAt: t.settledAt ?? null, snoozedUntil: t.snoozed ? LATER : null,
+      lineage: { parentThreadId: t.parentThreadId }, visibleItemCount: t.itemCount, createdAt: t.updatedAt, updatedAt: t.updatedAt,
+      pendingRuntimeRequest: asks.length ? { id: asks[0] } : null };
+  };
+  return {
+    async start() {
+      const rows = [];
+      for (const settled of [false, true]) rows.push(...(await kitchen.t3.call('t3_thread_list', { settled })).threads);
+      shells = await Promise.all(rows.map(shell));
+      up = true;
+      onChange({ ids: [], live: true });
+    },
+    async stop() { up = false; },
+    probe() {},
+    live: () => up, why: () => 'the demo stream has not started', generation: () => 1, projectsRev: () => 1,
+    threads: () => shells, project: () => null,
+  };
+}
 `);
   // The server needs a page address and an allow list to start (#62). Nothing here sends, so both are placeholders.
   server = spawn(process.execPath, [join(tmp, 'client', 'server.mjs'), 'https://t3.codes', String(PORT)], { cwd: tmp, stdio: ['ignore', 'pipe', 'pipe'],
