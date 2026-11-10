@@ -508,12 +508,14 @@ body>.netstrip{position:sticky;top:0;z-index:8;margin:0 24px}
 .retry .result{margin:0;font-size:13px}
 /* The Retry button is as wide as its words, like the send it repeats, not the whole dock (r15, Fable). */
 .retry>[data-retry]{align-self:flex-start}
-.is-stale .head-b>.folder,.is-stale .rail .tray-b,.is-stale .segbar,.is-stale .you .held,.is-stale .you .inst,.is-stale .you .split,.is-stale .you-sub,.is-stale .you .ph>span{visibility:hidden}
+.is-stale .head-b>.folder,.is-stale .rail .tray-b,.is-stale .segbar{visibility:hidden}
 .is-stale .stats b,.is-stale .nf .n,.is-stale .tray-h .n,.is-stale .head .badge,.is-stale .pmenu-l .n{visibility:hidden}
 /* The hidden list says why it is empty. */
 .is-stale .head-b::before{content:"Not checked. The list returns with the next update.";display:block;padding:24px 12px;text-align:center;font-size:13px;color:var(--label2)}
 .tile.sel,.call-tile.sel{box-shadow:inset 0 0 0 2px var(--accent)}
 .tile.gone{display:none}
+/* A list a refresh just redrew (the page script's prime()): its cards take their hover at once, with no fade. */
+.fresh .tile{transition:none}
 /* The open ticket over the kitchen, and on phones. */
 dialog.sheet{width:min(1120px,calc(100vw - 48px));height:min(920px,calc(100dvh - 48px));max-width:none;max-height:none;padding:0;border:0;border-radius:22px;background:var(--card);color:var(--label);box-shadow:var(--sh4);overflow:hidden}
 dialog.sheet[open]{display:flex;flex-direction:column;animation:rise .28s cubic-bezier(.2,.8,.2,1)}
@@ -793,11 +795,28 @@ dialog.sheet{height:fit-content;max-height:min(920px,calc(100dvh - 48px))}
   .v-kitchen .rail>.tray.empty .tray-h .g{min-width:0;overflow:hidden;white-space:nowrap}
   .v-kitchen .rail>.tray.empty .tray-h .hint{display:none}
   /* A stage with tickets keeps room for its titles; on a narrow window the rail scrolls sideways (hill climb 2 r1). */
-  .v-kitchen .rail>.tray:not(.empty){min-width:max(120px,var(--floor,140px),var(--name,0px),calc(var(--text,0px) + 45px));flex:var(--need,1) 1 0}
+  .v-kitchen .rail>.tray:not(.empty){min-width:max(120px,var(--floor,140px),var(--name,0px),calc(var(--text,0px) + 45px),min(var(--word,0px),200px));flex:var(--need,1) 1 0}
   .v-kitchen .rail.fade-right{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 40px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 40px),transparent)}
 }
 /* Over 1366 px a narrower pass panel and 8 px stage gaps give the titles 4 lines when the whole rail fits (.four), else 5 (r14, Opus); the stage arrow takes the 1280 size for the gap (r13, Opus and Fable). */
-@media (min-width:1367px){ .v-kitchen .rail{gap:8px} .v-kitchen .rail.four>.tray:not(.empty){min-width:max(120px,var(--floor,140px),var(--name,0px),calc(var(--text4,var(--text,0px)) + 45px))} .v-kitchen .rail>.tray:not(:last-child)::after{right:-6.5px;width:3.5px;height:3.5px} .v-kitchen .board{grid-template-columns:208px minmax(0,1fr) clamp(280px,19.5vw,360px)} }
+@media (min-width:1367px){ .v-kitchen .rail{gap:8px} .v-kitchen .rail.four>.tray:not(.empty){min-width:max(120px,var(--floor,140px),var(--name,0px),calc(var(--text4,var(--text,0px)) + 45px),min(var(--word,0px),200px))} .v-kitchen .rail>.tray:not(:last-child)::after{right:-6.5px;width:3.5px;height:3.5px} .v-kitchen .board{grid-template-columns:208px minmax(0,1fr) clamp(280px,19.5vw,360px)} }
+/* Still too wide (the page script's fitRail() sets .tight): a stage keeps only its name and count on one line, so all
+   six stages stay in the window (Dan, 2026-11-10). Every floor holds the stage's longest word (--word), so a title
+   word is never split; only a word that would make its stage wider than 200 px (a pasted link) breaks (PR-Agent on
+   #14). */
+@media (min-width:761px){
+  .v-kitchen .rail.tight>.tray:not(.empty){min-width:max(88px,var(--name,0px),min(var(--word,0px),200px))}
+  .v-kitchen .rail.tight .tile .t{overflow-wrap:break-word}
+  /* .tighter: a stage's name may wrap after its dot, with its count at the right, down to its longest word (--word).
+     Narrower still, the stages scroll sideways. */
+  .v-kitchen .rail.tight.tighter>.tray.empty,.v-kitchen .rail.tight.tighter>.tray:not(.empty){min-width:max(88px,min(var(--word,0px),200px))}
+  .v-kitchen .rail.tight.tighter>.tray .tray-h{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;column-gap:6px}
+  .v-kitchen .rail.tight.tighter>.tray .tray-h .g{min-width:0;overflow:visible;white-space:normal;align-items:flex-start}
+  .v-kitchen .rail.tight.tighter>.tray .tray-h .g .gd{flex:none;margin-top:5px}
+  .v-kitchen .rail.tight.tighter>.tray .tray-h .hint{grid-column:1/-1}
+}
+/* A card's model shows whole or not at all: a column too narrow for it drew "O." (Dan's screenshot, 2026-11-10). */
+@container (max-width:150px){ .tile .tile-top .mdl{display:none} }
 .status-why{margin:-6px 0 14px;font-size:14px;color:var(--label2)}
 .btn.armed.fill{box-shadow:none}
 .dock .btn.quiet.fill,.btn.quiet.fill{background:var(--accent);color:#fff}
@@ -845,12 +864,13 @@ dialog.sheet{height:fit-content;max-height:min(920px,calc(100dvh - 48px))}
 .head-h h2 .ic{width:16px;height:16px;color:var(--pass)}
 .head .badge{min-width:20px;height:20px;padding:0 6px;border-radius:999px;font-size:12px}
 /* No full-width lines: the Verified fold and the Settings foot stand apart by space. */
-#settings[open]{display:grid;grid-template-columns:168px minmax(0,1fr);grid-template-rows:auto auto}
+/* Settings sits in the middle of the window, as T3 Code's dialogs do (16 px clear on every side), and never runs past
+   its edge (Dan, 2026-11-10). It keeps one height for every tab, so switching never moves it; the tab scrolls inside,
+   with a fade at its foot while more waits below. */
+#settings[open]{display:grid;grid-template-columns:168px minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto;height:min(720px,calc(100dvh - 32px));max-height:calc(100dvh - 32px);margin:auto}
 #settings .set-wrap{display:contents}
 #settings .set-nav{grid-row:1/3;border-radius:16px 0 0 16px}
-#settings .set-panes{grid-column:2;max-height:min(720px,82vh);padding:20px 24px 8px}
-/* Settings fits each tab, with its top edge pinned, so the tabs never move when you switch. */
-#settings[open]{margin:min(12vh,120px) auto auto}
+#settings .set-panes{grid-column:2;min-height:0;max-height:none;padding:20px 24px 8px}
 #settings .set-done{grid-column:2;padding:8px 24px 20px;border-top:0}
 /* Native controls, styled: round options, no resize grips, one chevron for every fold. */
 label.opt input[type=radio],.lf-ws input[type=radio]{-webkit-appearance:none;appearance:none;flex:none;width:18px;height:18px;margin:0;border-radius:50%;background:var(--card);box-shadow:inset 0 0 0 1.5px var(--label2);cursor:pointer;transition:box-shadow .15s}
@@ -957,7 +977,7 @@ html .plate .dock{margin:0;padding:12px 28px 16px;border:0;border-radius:0;backg
 /* At 1280 all six kitchen columns fit: a narrower pass panel and 140px stages. */
 @media (min-width:761px) and (max-width:1366px){
   .v-kitchen .board{grid-template-columns:208px minmax(0,1fr) 280px}
-  .v-kitchen .rail>.tray:not(.empty){min-width:max(104px,var(--floor,120px),var(--name,0px),calc(var(--text,0px) + 35px))}
+  .v-kitchen .rail>.tray:not(.empty){min-width:max(104px,var(--floor,120px),var(--name,0px),calc(var(--text,0px) + 35px),min(var(--word,0px),200px))}
   /* Narrower gutters give the titles room at 1280 (hill climb 2 r5, Opus). Stages with tickets share the width by their longest title, as above 1366, over a floor that holds the stage's hint on one line (at least 104 px), so no title takes more than 5 lines (hill climb 2 r10 and r11). */
   .v-kitchen .rail{gap:8px}
   .v-kitchen .rail .tile{padding:10px 6px}
@@ -1153,11 +1173,11 @@ html .plate .plate-scroll.fade-end~.dock{box-shadow:0 -.5px 0 var(--sep)}
 #settings .kx-live{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 /* A phone: the sections sit in a row on top, and each rule's control goes under its words. */
 @media (max-width:600px){
-  #settings[open]{grid-template-columns:minmax(0,1fr);margin:16px auto auto}
+  #settings[open]{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;height:calc(100dvh - 32px)}
   #settings .set-nav{grid-row:auto;flex-direction:row;flex-wrap:wrap;gap:4px;padding:14px 12px 8px;border-radius:16px 16px 0 0}
   #settings .set-nav h2{flex-basis:100%;margin:0 4px 6px}
   #settings .set-panes,#settings .set-done{grid-column:1}
-  #settings .set-panes{max-height:calc(100dvh - 200px);padding:16px}
+  #settings .set-panes{padding:16px}
   #settings .set-done{padding:8px 16px 16px}
   #settings .kr-row{grid-template-columns:minmax(0,1fr)}
   #settings .kr-c{justify-self:start}
@@ -1313,68 +1333,16 @@ html .plate .dock .q-set{max-width:640px}
 .segbar i{flex:1 1 0;min-width:2px;border-radius:2px}
 .segbar i.c-backlog{background:var(--st-backlog)}.segbar i.c-planned{background:var(--st-planned)}.segbar i.c-prog{background:var(--st-prog)}
 .segbar i.c-open{background:var(--st-review)}.segbar i.c-blue{background:var(--st-ready)}.segbar i.c-merged{background:var(--st-merged)}
-/* You, expanded: a header, four instruments, the stages, two panels, then what is verified or on hold. */
+/* You, expanded (Dan, 2026-11-10): the stage columns alone. They start at the top of the window and end level with
+   The Pass and the stage list, and each column scrolls inside itself. */
 .you,.team-wait{display:none}
-.you-h{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 14px;padding:6px 2px 14px}
-.you-h h2{margin:0;font-size:20px;font-weight:700;letter-spacing:-.01em}
-/* One line: the projects shorten first, so no dot ever starts a line. */
-.you-sub{flex:1 1 auto;display:flex;gap:8px;min-width:0;margin:0;font-size:14px;white-space:nowrap;color:var(--label2)}
-.you-sub>*{flex:none}
-.you-sub>:first-child{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.you-sub>*+*::before{content:"·";margin-right:8px}
-/* A grid sized inside a flex column takes its widest text as its minimum: min-width 0 keeps each block to the column. */
-.you-b{display:flex;flex-direction:column;gap:12px;container-type:inline-size}
-.you-b>*{min-width:0}
-.inst{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
-.ins{min-width:0;padding:12px 14px;border-radius:16px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--sep)}
-.ins .l{margin:0;font-size:12px;font-weight:600;color:var(--label2)}
-.ins .v{display:flex;align-items:baseline;flex-wrap:wrap;gap:0 6px;margin:4px 0 0}
-.ins .v b{font-size:24px;font-weight:700;line-height:1.2;font-variant-numeric:tabular-nums}
-.ins .v span{font-size:12px;color:var(--label2)}
-.ins .v .nc{display:block;width:100%;font-size:16px;font-weight:600;line-height:1.75;color:var(--label2)}
-.ins svg{display:block;width:100%;height:28px;margin-top:8px}
-.spark .area{fill:var(--pass-t);stroke:none}
-.spark .line{fill:none;stroke:var(--pass);stroke-width:1.5;vector-effect:non-scaling-stroke}
-.vbars rect{fill:var(--pass);opacity:.6}
-.ins .cap{display:flex;justify-content:space-between;margin-top:4px;font-size:12px;color:var(--label2)}
-.pnl{min-width:0;padding:12px 14px 14px;border-radius:16px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--sep)}
-.ph{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px;margin:0 0 10px;font-size:12px;color:var(--label2)}
-.ph h3{margin:0;font-size:14px;font-weight:600;color:var(--label)}
-.ph .lg{display:inline-flex;align-items:center;gap:6px;margin-left:auto}
-.ph .lg .ic{width:14px;height:14px;color:var(--pass)}
-/* The stage columns sit on the page, as the kitchen's always did: each column is its own card. */
-.pnl-stages{padding:0;background:none;box-shadow:none}
-.pnl-stages .ph{padding:0 2px}
-.you .rail-wrap{height:auto}
-.you .tray{max-height:none}
-.you .tray-b{flex:none;overflow:visible}
-.nc-l{margin:0;font-size:14px;line-height:1.45;color:var(--label2)}
-.nc-l b{font-weight:600;color:var(--label)}
-.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
-.ah{padding:4px 0 8px}
-.ah .row{display:flex;align-items:center;gap:8px;margin:0;font-size:14px}
-.ah .row .pn{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ah .row .v{margin-left:auto;font-size:12px;color:var(--label2);font-variant-numeric:tabular-nums;white-space:nowrap}
-.ah .track{position:relative;height:4px;margin-top:6px;border-radius:2px;background:var(--fill)}
-.ah .track>b{position:absolute;inset:0 auto 0 0;border-radius:2px;background:var(--green)}
-.held{display:flex;flex-wrap:wrap;gap:8px}
-.held>.muted{margin:0;font-size:14px}
-.hc{display:inline-flex;align-items:center;gap:8px;max-width:100%;min-height:34px;padding:6px 12px;border:0;border-radius:10px;background:var(--bg);box-shadow:inset 0 0 0 .5px var(--sep);font:inherit;font-size:14px;color:var(--label);text-align:left;cursor:pointer}
-.hc:hover{box-shadow:inset 0 0 0 .5px var(--sep),var(--sh1)}
-.hc.sel{box-shadow:inset 0 0 0 1.5px var(--accent)}
-.hc .w{font-weight:600;white-space:nowrap}
-.hc .proj{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--label2);white-space:nowrap}
-.hc .t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.hc .ic{flex:none;width:14px;height:14px}
-.hc .at-ic{color:var(--pass)}
-.hc .gd{margin:0}
-/* By the middle column's own width: four instruments need about 185 px each, the two panels about 260. */
-@container (max-width:760px){ .inst{grid-template-columns:repeat(2,minmax(0,1fr))} }
-@container (max-width:540px){ .split{grid-template-columns:minmax(0,1fr)} }
 @media (min-width:761px){
-  .v-kitchen .you{display:flex;flex-direction:column}
-  .v-kitchen .you-b{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 2px 12px}
+  .v-kitchen .you,.v-kitchen .you-b,.v-kitchen .you .rail-wrap{display:flex;flex-direction:column;min-height:0}
+  .v-kitchen .you-b,.v-kitchen .you .rail-wrap{flex:1;height:auto}
+  .v-kitchen .you .tray{max-height:none}
   .v-kitchen .team-wait{align-self:start}
+  /* The tile's cloche needed the key that sat over the columns; The Pass on the right lists the same threads. */
+  .v-kitchen .rail .at-ic{display:none}
 }
 @media (max-width:760px){
   /* The phone's stage list is one row of pills: the person and the bar stay on the desktop rail. */
@@ -1383,8 +1351,10 @@ html .plate .dock .q-set{max-width:640px}
   .v-kitchen .you{display:block;grid-area:you;min-width:0}
   .v-kitchen .team-wait{grid-area:you}
   .v-kitchen .head{grid-area:head}
-  .inst{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .split{grid-template-columns:minmax(0,1fr)}
+  /* A phone's stages grow with their threads and the page scrolls. */
+  .you .rail-wrap{height:auto}
+  .you .tray{max-height:none}
+  .you .tray-b{flex:none;overflow:visible}
 }
 /* The footer chip and its menu (Dan, 2026-11-10, view menu mock a). The chip: the person and You, or the toque and
    Team, then All projects or the picked projects' icons fanned like cards. The menu: check boxes, then the toggle. */
@@ -1712,15 +1682,14 @@ ${BAR_HTML}
     if (headRO && sc !== headWatched) { headRO.disconnect(); headWatched = sc || null; if (sc) { headRO.observe(sc); if (h) headRO.observe(h); } }
     fitHead();
   }
-  // J/K move within the list the open ticket came from (a stage column, Verified and on hold, or the pass list),
-  // not always the pass (hill climb r1, Sol). The list is named, not held, so a refresh keeps it.
+  // J/K move within the list the open ticket came from (a stage column or the pass list), not always the pass
+  // (hill climb r1, Sol). The list is named, not held, so a refresh keeps it.
   function listKeyOf(t){
-    var tray = t.closest('.tray'), still = t.closest('.held'), folder = t.closest('.folder');
-    return still ? 'held' : tray ? 'tray:' + tray.dataset.stage : folder ? 'folder:' + folder.dataset.folder : null;
+    var tray = t.closest('.tray'), folder = t.closest('.folder');
+    return tray ? 'tray:' + tray.dataset.stage : folder ? 'folder:' + folder.dataset.folder : null;
   }
   function listFor(key){
     if (!key) return null;
-    if (key === 'held') return $('.you .held');
     if (key.indexOf('tray:') === 0) return $('.tray[data-stage="' + key.slice(5) + '"] .tray-b');
     return null;
   }
@@ -1779,8 +1748,13 @@ ${BAR_HTML}
       // stage's 8 px sides, and 2 px to spare.
       var g = $('.tray-h .g', tr), c = $('.tray-h .n', tr);
       if (g) tr.style.setProperty('--name', Math.ceil(wide(g) + (c ? wide(c) : 0) + 49) + 'px'); else tr.style.removeProperty('--name');
+      // --word is the narrowest the stage can be with no word broken: its name's longest word beside the count, and
+      // (below) its cards' longest word and top row. .tighter holds it, so a narrow window wraps words, never splits them.
+      var word = 0, cw = c ? wide(c) : 0;
+      if (g) { wide(g); (g.textContent || '').trim().split(' ').forEach(function(w){ word = Math.max(word, cv.measureText(w).width + cw + 49); }); }
+      var setWord = function(){ if (word) tr.style.setProperty('--word', Math.ceil(word) + 'px'); else tr.style.removeProperty('--word'); };
       var ts = $$('.tile .t', tr);
-      if (!ts.length) { ['--need', '--floor', '--text', '--text4'].forEach(function(p){ tr.style.removeProperty(p); }); return; }
+      if (!ts.length) { ['--need', '--floor', '--text', '--text4'].forEach(function(p){ tr.style.removeProperty(p); }); setWord(); return; }
       // A stage's share grows with its longest title as drawn, so the titles take about the same lines everywhere.
       var m = ts.reduce(function(a, t){ return Math.max(a, wide(t)); }, 0);
       tr.style.setProperty('--need', (Math.min(Math.max(m, 160), 560) / 266).toFixed(2));
@@ -1788,11 +1762,11 @@ ${BAR_HTML}
       // card starts on one line (hill climb 2 r11, Astra).
       var h = $('.tray-h .hint', tr);
       if (h) tr.style.setProperty('--floor', Math.ceil(wide(h) + 28) + 'px'); else tr.style.removeProperty('--floor');
-      // --text is the width a card's content needs: its top row whole (the avatar, the age and the cloche with their
-      // gaps), so no stage clips the avatar, and each title in 5 lines or fewer, wrapped at spaces and after hyphens
-      // as the page wraps it. The CSS adds the stage and card sides (hill climb 2 r10 and r11). --text4 is the same
-      // with titles in 4 lines, for a window over 1366 px (r13, Opus and Fable).
-      var need = $$('.tile .tile-top', tr).reduce(function(a, tt){ var ag = $('.age', tt); return ag ? Math.max(a, wide(ag) + ($('.at-ic', tt) ? 49 : 21)) : a; }, 0), need4 = need;
+      // --text is the width a card's content needs: its top row whole (the avatar and the age with their gaps; the
+      // rail hides the cloche), so no stage clips the avatar, and each title in 5 lines or fewer, wrapped at spaces
+      // and after hyphens as the page wraps it. The CSS adds the stage and card sides (hill climb 2 r10 and r11).
+      // --text4 is the same with titles in 4 lines, for a window over 1366 px (r13, Opus and Fable).
+      var need = $$('.tile .tile-top', tr).reduce(function(a, tt){ var ag = $('.age', tt); return ag ? Math.max(a, wide(ag) + 21) : a; }, 0), need4 = need;
       ts.forEach(function(t){
         wide(t);
         var sp = cv.measureText(' ').width, words = [];
@@ -1802,19 +1776,28 @@ ${BAR_HTML}
         var lines = function(at){ var n = 1, x = 0; words.forEach(function(d){ var gap = x && d.sp ? sp : 0; if (x && x + gap + d.w > at) { n++; x = d.w; } else x += gap + d.w; }); return n; };
         var fit = function(most){ var lo = 40, hi = 220; if (lines(hi) > most) return hi; while (hi - lo > 1) { var mid = (lo + hi) >> 1; if (lines(mid) > most) lo = mid; else hi = mid; } return hi + 2; };
         need4 = Math.max(need4, fit(4)); need = Math.max(need, fit(5));
+        words.forEach(function(d){ word = Math.max(word, d.w + 45); });
       });
       tr.style.setProperty('--text', Math.ceil(need) + 'px'); tr.style.setProperty('--text4', Math.ceil(need4) + 'px');
+      // The top row: the project's mark and the age (the model hides in a narrow stage).
+      word = Math.max(word, $$('.tile .tile-top .age', tr).reduce(function(a, ag){ return Math.max(a, wide(ag) + 21 + 45); }, 0));
+      setWord();
     });
     fitRail();
   }
   // The 4-line floor (.four) holds only while the whole rail fits: it is tried, and dropped if the rail would scroll,
-  // so a window from 1367 to about 1435 px keeps 5 lines and every title whole (r14, Opus). Run on draw, resize and
-  // view change; a hidden rail keeps its state.
+  // so a window from 1367 to about 1435 px keeps 5 lines and every title whole (r14, Opus). If the rail still runs
+  // past its edge, .tight drops the floors and the titles wrap more, so Merged is never cut off (Dan, 2026-11-10).
+  // Run on draw, resize and view change; a hidden rail keeps its state.
   function fitRail(){
     $$('.rail').forEach(function(rail){
       if (!rail.clientWidth) return;
-      rail.classList.add('four');
-      if (rail.scrollWidth > rail.clientWidth + 1) rail.classList.remove('four');
+      var over = function(){ return rail.scrollWidth > rail.clientWidth + 1; };
+      rail.classList.remove('tight', 'tighter'); rail.classList.add('four');
+      if (over()) rail.classList.remove('four');
+      if (over()) rail.classList.add('tight');
+      // A window near 1280 px: the stage names wrap too.
+      if (over()) rail.classList.add('tighter');
     });
     fades();
   }
@@ -1858,7 +1841,7 @@ ${BAR_HTML}
   // Missing data renders "not checked": the lists, counts and "Live" go; only a ticket you are writing in stays.
   function lost(why){
     var msg = why + ' at ' + new Date().toLocaleTimeString() + '. The board returns with the next update.';
-    net(false, msg); app.classList.add('is-stale');
+    net(false, msg); app.classList.add('is-stale'); drawn = {};
     // The red strip says why; each Live dot (the stage list's and the top bar's) turns to "Not checked".
     $$('.lamps li', app).forEach(function(l){ l.className = 'bad'; l.textContent = ''; l.appendChild(document.createElement('i')); l.appendChild(document.createTextNode('Not checked')); });
   }
@@ -1896,9 +1879,33 @@ ${BAR_HTML}
     if (openMenu(p)) return true;
     return $$('textarea, input[type=text]', p).some(function(x){ return x.value.trim(); });
   }
+  // The app blinked every 5 s (Dan, 2026-11-10): each refresh put in a new copy of every list, and the open ticket's
+  // card drew without its blue bar for a moment, then faded it back in. Now a list whose HTML has not changed since the
+  // last refresh stays as it is. drawn holds that HTML; lost() and a project pick clear it, since both change a list
+  // in place. The Live lamp's tooltip names the time of each read, so it is left out of the compare.
+  var drawn = {};
+  // Each ticket's HTML as the refresh that brought it drew it, before the page marked it up (sync() compares it),
+  // without what every draw makes up anew: each form's one-time send id and the More menu's id.
+  var plateSrc = new WeakMap();
+  function plateKey(html){ return html.replace(/(name="nonce" value=")[^"]*"/g, '$1"').replace(/(id|popovertarget)="m-[^"]*"/g, '$1="m-"'); }
+  function plain(html){ return html.replace(/(<li class="ok") title="[^"]*"/g, '$1'); }
+  // A list that did change comes in with the open ticket's mark already on it, so no card animates to it, and its
+  // cards skip their hover shadow's fade while the pointer finds them again.
+  function prime(el){
+    if (state.sel) $$('[data-plate="' + CSS.escape(state.sel) + '"]', el).forEach(function(t){ if (t.tagName !== 'FORM') t.classList.add('sel'); });
+    $$('.head-b .tile[data-plate]', el).forEach(function(t){ if (acted[t.dataset.plate]) t.classList.add('gone'); });
+    el.classList.add('fresh'); setTimeout(function(){ el.classList.remove('fresh'); }, 300);
+  }
   function swap(sel, fresh, keepScroll){
     var old = $(sel, app), nu = fresh.querySelector(sel);
     if (!old || !nu) return;
+    var html = plain(nu.outerHTML);
+    if (drawn[sel] === html) {
+      var tips = $$('.lamps li', nu); $$('.lamps li', old).forEach(function(l, i){ if (tips[i]) l.title = tips[i].title; });
+      return;
+    }
+    drawn[sel] = html;
+    prime(nu);
     var st = keepScroll ? $$(keepScroll, old).map(function(x){ return x.scrollTop; }) : [];
     old.replaceWith(nu);
     if (keepScroll) $$(keepScroll, nu).forEach(function(x, i){ x.scrollTop = st[i] || 0; });
@@ -1928,9 +1935,12 @@ ${BAR_HTML}
     }
     var t = document.createElement('template'); t.innerHTML = html; var fresh = t.content;
     swap('.stats', fresh); swap('.pmenu', fresh); swap('.bar .lamps', fresh); swap('.stagenav', fresh, '.nav-scroll');
-    // You, expanded: its numbers, columns and chips all come fresh; where you scrolled stays.
+    // You, expanded: its columns come fresh when they change, and each keeps where you scrolled.
     swap('.you', fresh, '.you-b, .tray-b'); swapAny('.team-wait', fresh, '.head'); swap('.head', fresh, '.head-b');
     swap('#yc-projects', fresh); swapAny('#yc-team', fresh, '#plates'); swap('#yc-rules-now', fresh); if (typeof krLive === 'function') krLive();
+    // A card's "Not confirmed" line is the page's own. A list kept from the last refresh still has it, so it goes here,
+    // and decorate() and markSent() put back the ones still true, as they did on a new copy.
+    $$('.tile > .th.nc', app).forEach(function(m){ m.remove(); });
     $$('.strip:not(.netstrip)', app).forEach(function(s){ s.remove(); });
     var strip = fresh.querySelector('.strip'); if (strip) $('.bar', app).after(strip);
     // Tickets: every one is replaced, except the open one while you pick, type or send in it.
@@ -1940,6 +1950,17 @@ ${BAR_HTML}
     $$('.plate', nuStore).forEach(function(p){
       if (mounted && p.id === mounted.id) {
         if (keep) return;
+        // The open ticket stays as it is while the refresh draws it the same: a new copy dropped the focus and the
+        // text you had selected in it every 5 s (Dan, 2026-11-10). Only while nothing is being sent from it: a send in
+        // flight or not confirmed is replaced as before, so its one-time id follows the rules it always did. A kept
+        // ticket takes the new copy's one-time ids, as the new copy would have brought them.
+        var was = plateSrc.get(mounted), now = plateKey(p.outerHTML);
+        var sending = $('form.act[data-busy], form.act[data-touched], form[data-sent-sig]', mounted) || unconfirmed[mounted.id];
+        if (was === now && !sending) {
+          var ids = $$('input[name=nonce]', p); $$('input[name=nonce]', mounted).forEach(function(x, i){ if (ids[i]) x.value = ids[i].value; });
+          return;
+        }
+        plateSrc.set(p, now);
         var s = $('.plate-scroll', mounted), d = $('.dock', mounted), top = s ? s.scrollTop : 0, dtop = d ? d.scrollTop : 0;
         $$('details.more', mounted).forEach(function(x, i){ var y = $$('details.more', p)[i]; if (y) y.open = x.open; });
         // The question card you were reading stays in front through a refresh.
@@ -1952,7 +1973,7 @@ ${BAR_HTML}
     var held = {};
     // So does a ticket you left mid-draft (a pick or a note): it waits for you, untouched (council 1b).
     $$('.plate', store_).forEach(function(p){ if (p.querySelector('form.act[data-busy], form.act[data-touched]') || unconfirmed[p.id] || $$('textarea', p).some(function(x){ return x.value.trim(); })) held[p.id] = true; else p.remove(); });
-    $$('.plate', nuStore).forEach(function(p){ if ((!mounted || p.id !== mounted.id) && !held[p.id]) store_.appendChild(p); });
+    $$('.plate', nuStore).forEach(function(p){ if ((!mounted || p.id !== mounted.id) && !held[p.id]) { plateSrc.set(p, plateKey(p.outerHTML)); store_.appendChild(p); } });
     // A ticket sent from the pass comes back as soon as the agent hands it back again, not after 90 s.
     Object.keys(acted).forEach(function(aid){ var np = nuStore.querySelector('#' + CSS.escape(aid)) || document.getElementById(aid); if (np && actedLatest[aid] !== undefined && (np.dataset.latest || '') !== actedLatest[aid]) { delete acted[aid]; delete actedLatest[aid]; } });
     hideActed(); setFolder(state.folder); applyScope(); normalizePicked(); sizeRail(); if (KST.changed || !K.mac) relabel(document); restoreDrafts(app); restoreDrafts($('#plates'));
@@ -2219,6 +2240,9 @@ ${BAR_HTML}
   function openSettings(tab){
     applyPrefs(); if (typeof krRender === 'function') { krProjects(); krLive(); krRender(); krSay(krErr, !!krErr); }
     tab = tab || 'layout';
+    // Each tab opens at its top.
+    var was = $('#settings .set-tab[aria-current]'), panes = $('#settings .set-panes');
+    if (panes && (!setDlg.open || !was || was.dataset.tab !== tab)) panes.scrollTop = 0;
     $$('#settings .set-tab').forEach(function(b){ if (b.dataset.tab === tab) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current'); });
     $$('#settings .set-pane').forEach(function(p){ p.hidden = p.dataset.pane !== tab; });
     if (tab === 'keys') kxRender();
@@ -2670,6 +2694,7 @@ ${BAR_HTML}
   }
   // Both copies of the menu (the rail's, and the top bar's on a phone) show the same picks. names: null is All projects.
   function drawPicked(names){
+    drawn = {};
     $$('details.vmenu').forEach(function(d){
       var boxes = $$('.pk[data-p]', d), all = $('.pk.all', d), sel = [];
       // All projects is every project on the board: a pick with no ticket now (data-gone) is not one of them.
