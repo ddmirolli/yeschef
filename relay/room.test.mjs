@@ -856,3 +856,26 @@ test('a roster still being checked when its team is deleted and made again never
   await pushing;
   assert.equal(t.relay.sql.exec('SELECT ver FROM team').one().ver, 1, 'the new team keeps its own roster');
 });
+
+test('a delete still checking its token when the team is deleted and made again leaves the new team alone', async () => {
+  const t = await team();
+  const path = `/v1/teams/${t.id}`;
+  const del = async () => t.relay.http('DELETE', path, undefined, { authorization: `YesChef ${await authToken(t.lead, { team: t.id, method: 'DELETE', path, now: t.relay.now() })}` });
+  const header = `YesChef ${await authToken(t.lead, { team: t.id, method: 'DELETE', path, now: t.relay.now() })}`;
+  // Hold the first delete's token check until the team is gone and made again.
+  const subtle = globalThis.crypto.subtle;
+  const verify = subtle.verify;
+  let go, held = false;
+  const gate = new Promise((r) => { go = r; });
+  subtle.verify = async function (...args) { if (!held) { held = true; await gate; } return verify.apply(subtle, args); };
+  const slow = t.relay.http('DELETE', path, undefined, { authorization: header });
+  while (!held) await new Promise((r) => setImmediate(r));
+  subtle.verify = verify;
+  t.relay.tick(1000);
+  assert.equal((await del()).status, 200);
+  t.relay.tick(1000);
+  assert.equal((await t.relay.http('POST', path, { roster: await t.rosterNow(1) })).status, 201);
+  go();
+  assert.equal((await slow).status, 404);
+  assert.ok(t.relay.room.usage(7), 'the new team still answers');
+});

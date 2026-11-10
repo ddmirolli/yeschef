@@ -158,6 +158,8 @@ export class Team {
   start() {
     if (['declined', 'removed', 'ended'].includes(this.state.status)) { this.setLink('stopped'); return; }
     this.stopped = false;
+    // A retry left waiting from before would fire over the connection this opens (PR-Agent r10 on public #7).
+    this.timers.clearTimeout(this.retry); this.retry = null;
     this.connect();
   }
   stop() {
@@ -449,13 +451,18 @@ export class Team {
     const key = await this.teamKey();
     if (!p || m === this.meId) return;
     // The welcome can land after the hello that carried the summaries: keep them until the key comes.
-    if (!key) { this.later.push({ t: 'summary', m, blob, at }); return; }
+    // One per teammate, the latest: a Mac that waits long for its key does not keep every update (PR-Agent r10 on
+    // public #7).
+    if (!key) { this.later = this.later.filter((x) => !(x.t === 'summary' && x.m === m)); this.later.push({ t: 'summary', m, blob, at }); return; }
     try {
       const body = await openSigned(key, blob, aad.summary(this.state.team, m), p.sign);
       // The time shown is the one the dev's Mac signed, not the relay's: a relay that replays an old summary cannot
       // make it look new, and an older one never replaces a newer one (PR-Agent r1 on #79).
       const signed = Number(body?.at);
       if (!Number.isFinite(signed)) { this.summaries.delete(m); this.emit('team'); return; }
+      // A teammate's clock far ahead would set a floor no right-dated summary passes: not taken (PR-Agent r10 on
+      // public #7).
+      if (signed - this.now() > AUTH_SKEW_MS) return;
       // The floor outlives the shown summary: a reconnect clears what is shown, never the newest time taken, so a
       // relay cannot hand back an older summary after it (PR-Agent r1 on public #7).
       if (signed < (this.summaryFloor.get(m) || 0)) return;
@@ -637,11 +644,14 @@ export class Team {
    *  limit, always the newest, and only when it changed. */
   board(board) {
     this.lastBoard = board;
+    // The board was read just now: the summary carries this time, not the time it is sealed, so a summary held through
+    // an outage never shows as live (PR-Agent r10 on public #7).
+    this.lastBoardAt = this.now();
     if (this.state.status !== 'member' || !shares(this.me?.role) || !this.state.shared?.length) return;
     const body = summarize(board, this.state.shared, this.limits.summaryMax);
     const json = JSON.stringify(body);
     if (!this.flushing && json === this.sentJson && !this.state.dropped) { this.next = null; return; }
-    this.next = { json, body, drop: this.state.dropped };
+    this.next = { json, body, at: this.lastBoardAt, drop: this.state.dropped };
     this.flush();
   }
 
@@ -650,7 +660,11 @@ export class Team {
     // Checked again at send time: a dev made a Viewer, or sharing nothing, sends no summary, whatever was queued
     // before (PR-Agent r1 on #79).
     if (!this.next.forget && (!shares(this.me?.role) || !this.state.shared?.length)) { this.next = null; return; }
-    // A summary and a forget share the relay's one limit per member.
+    // A summary and a forget share the relay's one limit per member. The clock went back since the send time was set:
+    // the wait moves back by the jump, so it keeps its length and never waits the whole jump (PR-Agent r10 on
+    // public #7).
+    const jump = (this.setAt ?? -Infinity) - this.now();
+    if (jump > 0) { this.sentAt -= jump; this.setAt = this.now(); }
     const wait = this.sentAt + this.limits.summaryMs - this.now();
     if (wait > 0) { this.summaryTimer = this.timers.setTimeout(() => { this.summaryTimer = null; this.flush(); }, wait); return; }
     const next = this.next;
@@ -659,11 +673,11 @@ export class Team {
     try {
       let blob = null;
       if (!next.forget) {
-        try { blob = await this.sealSummary(next.body); } catch (ex) {
+        try { blob = await this.sealSummary(next.body, next.at); } catch (ex) {
           // A key or member that does not load fails the same way every time: wait as for a failed send, so the
           // re-flush below does not spin (own review on the public PR).
           this.flushFails = (this.flushFails || 0) + 1;
-          this.sentAt = this.now() - this.limits.summaryMs + Math.min(RETRY.cap, this.limits.summaryMs * 2 ** Math.min(this.flushFails, 10));
+          this.sentAt = this.now() - this.limits.summaryMs + Math.min(RETRY.cap, this.limits.summaryMs * 2 ** Math.min(this.flushFails, 10)); this.setAt = this.now();
           this.emit('error', { text: `Yes Chef could not seal this Mac's summary: ${clean(String(ex?.message || ex), 200)}` });
           return;
         }
@@ -673,11 +687,11 @@ export class Team {
       }
       const r = next.forget ? await this.say({ t: 'forget' }) : await this.say({ t: 'summary', blob });
       if (r.t === 'ok') {
-        this.sentJson = next.forget ? null : next.json; this.sentAt = this.now(); this.flushFails = 0;
+        this.sentJson = next.forget ? null : next.json; this.sentAt = this.now(); this.setAt = this.now(); this.flushFails = 0;
         if (this.state.dropped && next.drop === this.state.dropped) { delete this.state.dropped; this.save(); }
         if (this.next === next) this.next = null;
       } else if (r.code === 'slow') {
-        this.sentAt = this.now() - this.limits.summaryMs + (Number(r.retryAfter) || this.limits.summaryMs);
+        this.sentAt = this.now() - this.limits.summaryMs + (Number(r.retryAfter) || this.limits.summaryMs); this.setAt = this.now();
       } else if (r.code === 'bad') {
         // The relay will never take this one: drop it and say so, rather than send it again (PR-Agent r1 on #79).
         if (this.next === next) this.next = null;
@@ -688,7 +702,7 @@ export class Team {
         // (PR-Agent r8 on public #7).
         this.sentJson = null;
         this.flushFails = (this.flushFails || 0) + 1;
-        this.sentAt = this.now() - this.limits.summaryMs + Math.min(RETRY.cap, this.limits.summaryMs * 2 ** Math.min(this.flushFails, 10));
+        this.sentAt = this.now() - this.limits.summaryMs + Math.min(RETRY.cap, this.limits.summaryMs * 2 ** Math.min(this.flushFails, 10)); this.setAt = this.now();
       }
     } finally {
       this.flushing = false;
@@ -698,11 +712,12 @@ export class Team {
 
   /** Seal a summary, and halve its tickets until the sealed blob fits the relay's limit: names in any script are
    *  measured as the bytes they seal to (PR-Agent r1 on #79). */
-  async sealSummary(body) {
+  async sealSummary(body, at = this.now()) {
     const me = await this.member();
     const key = await this.teamKey();
+    const read = Math.min(Number.isFinite(at) ? at : this.now(), this.now());
     for (let b = body; ; ) {
-      const blob = await sealSigned(key, me, { ...b, at: this.now() }, aad.summary(this.state.team, me.id));
+      const blob = await sealSigned(key, me, { ...b, at: read }, aad.summary(this.state.team, me.id));
       if (blob.length <= this.limits.summaryMax || !b.tickets.length) return blob;
       const n = Math.floor(b.tickets.length / 2);
       b = { ...b, tickets: b.tickets.slice(0, n), more: (b.more || 0) + b.tickets.length - n };
@@ -732,7 +747,7 @@ export class Team {
     if (![...before].some((id) => !this.state.shared.includes(id))) return; // only added: the next board sends them
     if (this.lastBoard && shares(this.me?.role)) {
       const body = summarize(this.lastBoard, this.state.shared, this.limits.summaryMax);
-      this.next = { json: JSON.stringify(body), body, drop: this.state.dropped };
+      this.next = { json: JSON.stringify(body), body, at: this.lastBoardAt, drop: this.state.dropped };
       this.flush();
     } else this.unshare();
   }
