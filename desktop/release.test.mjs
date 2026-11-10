@@ -435,3 +435,15 @@ test('ci-signing.sh refuses to run outside GitHub Actions, so it never touches t
   }
   assert.equal(existsSync(join(tmpdir(), 'yeschef-signing')), false);
 });
+
+test('ci-signing.sh masks each line of a secret, so no line of a multiline value prints', () => {
+  const file = join(HERE, 'build', 'ci-signing.sh');
+  // Every mask goes through mask(): one workflow command in the whole script.
+  assert.equal(readFileSync(file, 'utf8').split('add-mask').length - 1, 1);
+  const mask = (value) => spawnSync('/bin/bash', ['-c', 'src=$(sed -n \'/^mask() {$/,/^}$/p\' "$1"); eval "$src"; mask "$2"', 'mask', file, value], { encoding: 'utf8' });
+  const r = mask('first\nsec%0Aond\r\n\n  third  ');
+  assert.equal(r.status, 0, r.stderr);
+  // "%" and the carriage return escaped as the runner expects; the blank line skipped; spaces kept.
+  assert.equal(r.stdout, '::add-mask::first\n::add-mask::sec%250Aond%0D\n::add-mask::  third  \n');
+  assert.equal(mask('').stdout, '');
+});

@@ -58,6 +58,18 @@ KEY_ITEM="Yes Chef notarization"
 
 die() { echo "ci-signing.sh: $*" >&2; exit 1; }
 
+# Hides $1 in the job's log. A workflow command ends at a line break, so each line is masked on its own, with "%" and
+# carriage returns escaped as the runner expects. Otherwise the later lines of a multiline value would print as is.
+mask() {
+  local line
+  while IFS= read -r line || [[ -n $line ]]; do
+    [[ -n $line ]] || continue
+    line=${line//%/%25}
+    line=${line//$'\r'/%0D}
+    printf '::add-mask::%s\n' "$line"
+  done <<<"$1"
+}
+
 # The keychains codesign searches, one path per line.
 search_list() {
   local line
@@ -154,16 +166,16 @@ fetch_material() {
   field=$(password_field "$cert")
   [[ -n $field ]] || die "expected one password field in \"$CERT_ITEM\". $(shape_note "$cert")"
   P12_PASSWORD=$("$CLI" read --no-newline "op://$VAULT/$CERT_ITEM/$field") || die "could not read the password from \"$CERT_ITEM\"."
-  [[ -z $P12_PASSWORD ]] || echo "::add-mask::$P12_PASSWORD"
+  mask "$P12_PASSWORD"
 
   # The notarization key, as the local fallback reads it: one .p8 attached, and fields "key id" and "issuer id".
   ref=$(file_ref "$key" "$KEY_ITEM" .p8)
   [[ -n $ref ]] || die "expected one .p8 attached to \"$KEY_ITEM\" in \"$VAULT\". $(shape_note "$key")"
   "$CLI" read --out-file "$DIR/AuthKey.p8" "$ref" >/dev/null || die "could not read the .p8 from \"$KEY_ITEM\"."
   KEY_ID=$("$CLI" read --no-newline "op://$VAULT/$KEY_ITEM/key id") || die "expected a field \"key id\" in \"$KEY_ITEM\". $(shape_note "$key")"
-  [[ -z $KEY_ID ]] || echo "::add-mask::$KEY_ID"
+  mask "$KEY_ID"
   ISSUER=$("$CLI" read --no-newline "op://$VAULT/$KEY_ITEM/issuer id") || die "expected a field \"issuer id\" in \"$KEY_ITEM\". $(shape_note "$key")"
-  [[ -z $ISSUER ]] || echo "::add-mask::$ISSUER"
+  mask "$ISSUER"
 
   echo "Read from \"$VAULT\": the certificate ($(wc -c < "$DIR/cert.p12" | tr -d ' ') bytes) and its password, the notarization key ($(wc -c < "$DIR/AuthKey.p8" | tr -d ' ') bytes), its key ID and its issuer ID."
   # Usage against 1Password's limits for Families: 1,000 reads an hour per token, and 1,000 requests a day for the
@@ -177,7 +189,7 @@ fetch_material() {
 install_identity() {
   local p12=$1 password=$2 keychain_password
   keychain_password=$(/usr/bin/openssl rand -hex 32)
-  echo "::add-mask::$keychain_password"
+  mask "$keychain_password"
   "$SECURITY" create-keychain -p "$keychain_password" "$KEYCHAIN"
   "$SECURITY" set-keychain-settings -lut 21600 "$KEYCHAIN"
   "$SECURITY" unlock-keychain -p "$keychain_password" "$KEYCHAIN"
@@ -250,7 +262,7 @@ rehearse() {
   local work="$DIR/rehearsal" password
   mkdir "$work"
   password=$(/usr/bin/openssl rand -hex 16)
-  echo "::add-mask::$password"
+  mask "$password"
   # A throwaway identity, trusted by nothing, made and deleted inside this step.
   # The extensions come from a config file, which every OpenSSL and LibreSSL reads; LibreSSL before 3.x has no -addext.
   printf '%s\n' '[req]' 'distinguished_name = dn' 'x509_extensions = ext' 'prompt = no' \
