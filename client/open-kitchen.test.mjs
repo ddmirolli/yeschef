@@ -682,3 +682,24 @@ test('r7: in a picked project, a merge whose time is in another project’s copy
   const M = board(v, new Set(['Quillo'])).merged;
   assert.deepEqual([M.count, M.untimed], [1, 0]);
 });
+
+// ---- PR B, PR-Agent round 8 ----
+test('r8: one repo with two base branches reads as one repo and two branches, never 2 repos', () => {
+  const v = viewL();
+  const base = who(v, 'ravi').summary.bases[0];
+  Object.assign(base, { result: 'passing', requiredResult: 'passing', redSha: null, redSince: null, failing: [] });
+  who(v, 'ravi').summary.bases.push({ ...base, branch: 'release', sha: 'r1' });
+  const html = page({ view: v, now: NOWL });
+  assert.ok(html.includes('<b class="green">Green</b><span>fernpay, 2 branches</span>'));
+  assert.ok(!html.includes('2 repos'));
+  // Both red: each named by its branch, once.
+  for (const b of who(v, 'ravi').summary.bases) Object.assign(b, { result: 'failing', requiredResult: 'failing', redSince: new Date(agoL(60)).toISOString() });
+  assert.match(page({ view: v, now: NOWL }), /<b class="red">Red<\/b><span>since [0-9:]+, fernpay main and fernpay release<\/span>/);
+});
+
+test('r8: a call’s word may shorten, and never leaves its bar', async () => {
+  const { readFileSync } = await import('node:fs');
+  const css = readFileSync(new URL('./server.mjs', import.meta.url), 'utf8');
+  assert.ok(css.includes('.tlb:has(.tltag){display:flex;padding-right:0;overflow:hidden}'));
+  assert.ok(css.includes('.tlb .tltag{position:static;flex:0 1 auto;min-width:0;'));
+});

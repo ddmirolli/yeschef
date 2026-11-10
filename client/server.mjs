@@ -1528,8 +1528,9 @@ html.v-kitchen .tp-live .tcol{display:flex;flex-direction:column;gap:8px}
 .gv{position:absolute;top:0;bottom:0;width:0;border-left:.5px solid var(--sep)}
 .tlb{position:absolute;box-sizing:border-box;height:12px;margin:0;padding:0 5px;border:0;border-radius:3px;background:var(--fill2);font:500 9.5px/12px var(--sans);color:var(--label2);text-align:left;white-space:nowrap}
 .tlb .tlt{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.tlb:has(.tltag){display:flex;padding-right:0}
-.tlb .tltag{position:static;flex:none;margin-left:auto}
+.tlb:has(.tltag){display:flex;padding-right:0;overflow:hidden}
+.tlb:has(.tltag) .tlt{flex:1 1 0}
+.tlb .tltag{position:static;flex:0 1 auto;min-width:0;margin-left:auto;overflow:hidden;text-overflow:ellipsis}
 button.tlb{cursor:pointer}
 .tlb.red{background:var(--red-t);box-shadow:inset 0 0 0 1.5px var(--red);color:var(--label)}
 .tlb.amber{background:var(--orange-t);box-shadow:inset 0 0 0 1.5px var(--orange);color:var(--label)}

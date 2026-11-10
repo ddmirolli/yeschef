@@ -776,8 +776,11 @@ function boardOf({ ok, now, want, name, people, plateOf }) {
   // 1. The base: red since the first red commit, or green; one mark per merge today, so it agrees with Merged today.
   const b = B.base;
   const label1 = b.branches.length === 1 ? b.branches[0] : 'Base branches';
-  const v1 = b.state === 'red' ? `<b class="red">Red</b><span>${b.since !== null ? `since ${hm(b.since)}` : 'since not checked'}${b.count > 1 ? `, ${e(and(b.red.map((r) => short(r.repo))))}` : ''}</span>`
-    : b.state === 'green' ? `<b class="green">Green</b><span>${e(b.count > 1 ? `${b.count} repos` : short(b.repos[0]))}</span>`
+  // Bases are one per repo and branch: name the branch only when there is more than one, and count repos apart.
+  const baseName = (r) => (b.branches.length > 1 ? `${short(r.repo)} ${r.branch}` : short(r.repo));
+  const nRepos = new Set(b.repos.map((r) => r.toLowerCase())).size;
+  const v1 = b.state === 'red' ? `<b class="red">Red</b><span>${b.since !== null ? `since ${hm(b.since)}` : 'since not checked'}${b.count > 1 ? `, ${e(and([...new Set(b.red.map(baseName))]))}` : ''}</span>`
+    : b.state === 'green' ? `<b class="green">Green</b><span>${e(nRepos > 1 ? `${nRepos} repos` : b.count > 1 ? `${short(b.repos[0])}, ${plural(b.count, 'branch', 'branches')}` : short(b.repos[0]))}</span>`
     : NOT(b.count ? 'a required check has no result yet' : 'no Mac online has read it');
   const rib = b.merges.length ? `<div class="kribbon" role="img" aria-label="${e(`${plural(b.merges.length, 'merge')} today`)}">${b.merges.map((m) => `<i${m.tone === 'red' ? ' class="r"' : ''} title="${e(`#${m.n}, ${name(m.person)}, ${hm(m.at)}${m.tone === 'red' ? `, while ${label1} is red` : ''}`)}"></i>`).join('')}</div>`
     + `<span class="cap"><span>${plural(b.merges.length, 'merge')}</span>${b.merges.some((m) => m.tone === 'red') ? `<span class="red">red: since ${b.since !== null ? hm(b.since) : 'the break'}</span>` : ''}</span>` : '';
