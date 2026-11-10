@@ -3086,7 +3086,8 @@ ${BAR_HTML}
   window.addEventListener('keydown', function(ev){
     if (!kxRec) return;
     if (!setDlg.open) { kxStop(false); return; }
-    if (ev.key === 'Tab') { kxStop(false); return; }
+    // Tab moves on from the row: its Change button has the focus first, so the browser moves on from there.
+    if (ev.key === 'Tab') { kxStop(true); return; }
     ev.preventDefault(); ev.stopPropagation();
     if (ev.isComposing) return;
     if (ev.key === 'Escape') { kxEscAt = Date.now(); kxStop(true); kxSay('Kept as it was.'); return; }

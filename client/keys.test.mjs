@@ -116,6 +116,13 @@ test('clashes: the system, fixed keys, the send key needs ⌘ or ⌥, and only w
   const st = K.build([]);
   assert.equal(K.clash(st, 'view.you', 'mod+q').reserved, true);
   assert.match(K.clash(st, 'view.you', 'mod+q').text, /^⌘Q belongs to macOS/);
+  // Switching back is macOS's too: ⇧⌘Tab, and ⇧⌘` from a keydown or the file.
+  assert.equal(K.clash(st, 'view.you', 'mod+shift+tab').reserved, true);
+  assert.equal(K.clash(st, 'view.you', K.comboOf(ev('~', { code: 'Backquote', metaKey: true, shiftKey: true }))).reserved, true);
+  assert.equal(K.clash(st, 'view.you', K.norm('mod+shift+' + String.fromCharCode(96))).reserved, true);
+  const back = K.build([{ key: 'mod+k', command: '-commandPalette.toggle' }, { key: 'mod+shift+tab', command: 'commandPalette.toggle' }]);
+  assert.deepEqual(back.notes, ['Entry 2 is not used: ⇧⌘⇥ belongs to macOS.', 'Action bar always has a key, so it keeps ⌘K.']);
+  assert.deepEqual(K.keysOf(back, 'commandPalette.toggle'), ['mod+k']);
   assert.equal(K.clash(st, 'ticket.reply', 'j').fixed, true);
   assert.match(K.clash(st, 'ticket.reply', 'mod+r').text, /refreshes Yes Chef/);
   assert.equal(K.clash(st, 'ticket.suggested', 'x').fixed, true);

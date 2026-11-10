@@ -198,7 +198,7 @@ and clashes), tested in `client/keys.test.mjs`. The Mac app's file: `desktop/key
 - **Record.** Change turns the row blue and waits for a key. Modifiers show in the row while you hold them. The next
   full key is the new key. Esc keeps the old key, and Settings stays open. Tab or a click outside the row stops
   recording.
-- **Refused keys.** A key macOS keeps (⌘Q, ⌘W, ⌘H, ⌘M, ⌘Tab and the like) or a fixed key says why in the row, and
+- **Refused keys.** A key macOS keeps (⌘Q, ⌘W, ⌘H, ⌘M, ⌘Tab, ⇧⌘Tab and the like) or a fixed key says why in the row, and
   recording goes on. The suggested action's key also works while you write a note, so it needs ⌘ or ⌥.
 - **Clash.** A key another command has, where both can apply, turns the row orange: "Taken. H is already Hold until
   8:00 tomorrow." **Swap them** gives each command the other's key. **Keep R** leaves both as they were. The other
