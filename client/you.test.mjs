@@ -255,11 +255,16 @@ test('switching to Your team forgets the ticket the Pass kept, even with none op
   const src = readFileSync(new URL('./server.mjs', import.meta.url), 'utf8').match(/function setScope\(next\)\{[\s\S]*?\n {2}\}/)[0];
   const ctx = vm.createContext({ scope: 'you', state: { sel: null, passSel: 'k1' }, placed: 0 });
   vm.runInContext(`function teamNow(){ return { name: 'Platform' }; } function store(){} function applyScope(){} function place(){ placed++; } ${src}`, ctx);
+  // The reader redraws even with nothing selected: a project pick in the same open menu drops the selection before
+  // the reader redraws, so its ticket would stay on screen in Team (view menu, Dan, 2026-11-10).
   vm.runInContext(`setScope('team')`, ctx);
-  assert.deepEqual([ctx.scope, ctx.state.passSel, ctx.placed], ['team', null, 0]);
+  assert.deepEqual([ctx.scope, ctx.state.passSel, ctx.placed], ['team', null, 1]);
   // With a ticket open, it closes too.
   vm.runInContext(`scope = 'you'; state.sel = 'k2'; state.passSel = 'k2'; setScope('team')`, ctx);
-  assert.deepEqual([ctx.state.sel, ctx.state.passSel, ctx.placed], [null, null, 1]);
+  assert.deepEqual([ctx.state.sel, ctx.state.passSel, ctx.placed], [null, null, 2]);
+  // Team again is no switch: nothing redraws.
+  vm.runInContext(`setScope('team')`, ctx);
+  assert.equal(ctx.placed, 2);
 });
 
 test('without a good poll every instrument says "Not checked"', () => {

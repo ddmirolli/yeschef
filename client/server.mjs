@@ -1559,8 +1559,9 @@ ${BAR_HTML}
     if ((next !== 'you' && next !== 'team') || (next === 'team' && !teamNow())) return;
     var was = scope; scope = next; store('yc.scope', next); applyScope();
     // Your team shows none of your own tickets, so the one open in the reader closes, and the one the Pass kept for
-    // its return is forgotten too, even when none is open now (PR-Agent r6 on #74).
-    if (next === 'team' && was !== 'team') { state.passSel = null; if (state.sel) { state.sel = null; place(); } }
+    // its return is forgotten too, even when none is open now (PR-Agent r6 on #74). The reader is cleared even when
+    // nothing is selected: a project pick in the same open menu drops the selection before the reader redraws.
+    if (next === 'team' && was !== 'team') { state.passSel = null; state.sel = null; place(); }
   }
 
   // ----- Folders (the stage list) and selection -----
