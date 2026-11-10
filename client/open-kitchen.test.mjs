@@ -434,9 +434,9 @@ test('expanded: the instruments from the made-up team', () => {
   assert.equal(B.merged.count, B.base.merges.length);
   assert.equal(B.merged.byHour.reduce((a, n) => a + n, 0), 5);
   assert.equal(B.merged.usual, null, 'no merge history is sent, so usual by now is not checked');
-  assert.deepEqual(B.review, { count: 3, away: 1, ages: [236, 128, 44].map((m) => m * MIN) });
+  assert.deepEqual(B.review, { count: 3, gap: { away: 1, capped: 0 }, ages: [236, 128, 44].map((m) => m * MIN) });
   // Lee is not reporting, so their thread's agent is not counted as running now; Tom's planned thread runs none.
-  assert.deepEqual(B.agents, { count: 20, threads: 12, away: 1 });
+  assert.deepEqual(B.agents, { count: 20, threads: 12, gap: { away: 1, capped: 0 } });
 });
 
 test('expanded: Who’s on what puts In The Pass first, links the Overlap, and hatches a quiet Mac', () => {
@@ -504,7 +504,8 @@ test('expanded: the page draws the board and The Pass as a column; each opens a 
   for (const id of new Set(opens)) assert.ok(html.includes(`<article class="plate team-plate" id="${id}"`), id);
   // Every colour carries a word: the legend says what red and amber mean.
   for (const w of ['working', 'merged', 'red: act now', 'amber: decide soon', 'not reporting']) assert.ok(html.includes(w), w);
-  assert.ok(html.includes('usual by now: not checked'));
+  // Lee's Mac is not reporting, so Merged today may be low: it says at least, and why.
+  assert.ok(html.includes('<b>5</b><span>at least</span>'));
   assert.ok(html.includes(`Mac quiet since ${hmOf(agoL(122))}`));
   assert.ok(html.includes('6 need you, most urgent first.'));
   // The suggestion button is the call's first action, and only for a role that may take it.
@@ -551,7 +552,7 @@ test('r1: a merged PR with no time makes the count a floor, never dropped', () =
   ticket(v, 'kai').prs[0].mergedAt = null;
   const M = board(v).merged;
   assert.deepEqual([M.count, M.untimed], [n, 1]);
-  assert.ok(page({ view: v, now: NOWL }).includes('at least: 1 merge with no time'));
+  assert.ok(page({ view: v, now: NOWL }).includes('Not counted: 1 merge with no time, 1 Mac not reporting'));
 });
 
 test('r1: a call’s word is inside its bar, so a click on the word opens the call', () => {
@@ -576,16 +577,16 @@ test('r2: a thread that sent only part of its files is counted, so a clear list 
 
 test('r2: a Mac that is not reporting makes Waiting for review and Agents running say so, never a bare 0', () => {
   const html = page({ view: viewL(), now: NOWL });
-  assert.equal((html.match(/<span class="cap"><span>Not counted: 1 Mac not reporting<\/span><\/span>/g) || []).length, 2, 'under Waiting for review and Agents running');
+  assert.equal((html.match(/<span class="cap"><span>Not counted: 1 Mac not reporting<\/span><\/span>/g) || []).length, 3, 'under Merged today, Waiting for review and Agents running');
   // With no live PR in review and a Mac out, the count is not checked.
   const v = viewL();
   for (const id of ['kai', 'nina', 'iris']) ticket(v, id).place = 'In progress';
   const B = board(v);
-  assert.deepEqual([B.review.count, B.review.away], [0, 1]);
+  assert.deepEqual([B.review.count, B.review.gap.away], [0, 1]);
   assert.match(page({ view: v, now: NOWL }), /<b class="nc">Not checked<\/b><span>1 Mac not reporting<\/span>/);
   // A picked project counts only the Macs out that may have work in it.
-  assert.equal(board(viewL(), new Set(['Fernpay'])).review.away, 0);
-  assert.equal(board(viewL(), new Set(['Quillo'])).review.away, 1);
+  assert.equal(board(viewL(), new Set(['Fernpay'])).review.gap.away, 0);
+  assert.equal(board(viewL(), new Set(['Quillo'])).review.gap.away, 1);
 });
 
 test('r2: a Mac quiet since before the window draws from the window’s edge and keeps its real time', () => {
@@ -600,4 +601,27 @@ test('r2: a Mac quiet since before the window draws from the window’s edge and
   assert.ok(band, 'the band is clipped at the window');
   assert.equal(Number(band[1]), 0);
   assert.equal(band[2], new Date(NOWL - 20 * 60 * MIN).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }));
+});
+
+// ---- PR B, PR-Agent round 3 ----
+test('r3: a summary that left threads out makes every team count say so', () => {
+  const v = viewL();
+  who(v, 'kai').summary.more = 4;
+  const B = board(v);
+  for (const g of [B.merged.gap, B.review.gap, B.agents.gap]) assert.deepEqual(g, { away: 1, capped: 1 });
+  assert.equal((page({ view: v, now: NOWL }).match(/Not counted: 1 Mac not reporting, 1 Mac that sent part of its threads/g) || []).length, 3);
+  // Lee alone, with no capped summary and Lee back: no caption, and Merged today is a plain count.
+  const w = viewL();
+  Object.assign(who(w, 'lee'), { online: true, lastSeen: null, at: agoL(1) });
+  const html = page({ view: w, now: NOWL });
+  assert.ok(!html.includes('Not counted:'));
+  assert.ok(html.includes('usual by now: not checked'));
+});
+
+test('r3: a PR any summary reports merged never waits for review', () => {
+  const v = viewL();
+  const n = board(v).review.count;
+  // Ravi's thread also holds Kai's #412, and reports it merged; Kai's copy still says open.
+  who(v, 'ravi').summary.tickets[0].prs.push({ ...ticket(v, 'kai').prs[0], state: 'merged', mergedAt: new Date(agoL(5)).toISOString() });
+  assert.equal(board(v).review.count, n - 1);
 });

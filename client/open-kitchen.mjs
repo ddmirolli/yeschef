@@ -383,25 +383,32 @@ export function kitchenBoard(ok, { now, want = null }) {
     merges: merges.map((m) => ({ n: m.n, repo: m.repo, at: m.at, person: m.person, tone: tone(m) })),
   };
 
+  // What the team counts cannot see: Macs not reporting, and reporting Macs whose summary left threads out.
+  const away = ok.people.filter((p) => p.reporting !== true && (!want || !okSummary(p.summary) || all.some((t) => t.person === p.id))).length;
+  const capped = ok.people.filter((p) => p.reporting === true && (num(p.summary?.more) ?? 0) > 0).length;
+  const gap = { away, capped };
+
   // Merged today, by hour: from the first merge's hour (or six hours back) to now.
   const hNow = new Date(now).getHours();
   const h0 = Math.max(0, Math.min(hNow - 5, ...merges.map((m) => new Date(m.at).getHours())));
   const hours = Array.from({ length: hNow - h0 + 1 }, (_, i) => h0 + i);
-  const merged = { count: merges.length, untimed: untimed.size, from: h0, byHour: hours.map((h) => merges.filter((m) => new Date(m.at).getHours() === h).length), usual: null };
+  const merged = { count: merges.length, untimed: untimed.size, gap, from: h0, byHour: hours.map((h) => merges.filter((m) => new Date(m.at).getHours() === h).length), usual: null };
 
   // Waiting for review: open PRs, not drafts, on live threads In review. Their age needs the time each was marked ready
   // (proposed `pr.readyAt`); with any one missing, the ages say not checked rather than a part of them.
+  // A merge is final: a PR that any summary, live or old, reports merged never waits, whatever another copy says.
+  const done = new Set(ok.tickets.flatMap(({ k }) => k.prs.filter((pr) => pr.state === 'merged').map((pr) => prKey(pr.repo, pr.n))));
   const rv = new Map();
-  for (const { k, person, live } of all) if (live && k.place === 'In review') for (const pr of k.prs) if (pr.state === 'open' && !pr.draft && !rv.has(prKey(pr.repo, pr.n))) rv.set(prKey(pr.repo, pr.n), { n: pr.n, repo: pr.repo, person, at: pr.readyAt });
+  for (const { k, person, live } of all) if (live && k.place === 'In review') for (const pr of k.prs) {
+    const key = prKey(pr.repo, pr.n);
+    if (pr.state === 'open' && !pr.draft && !done.has(key) && !rv.has(key)) rv.set(key, { n: pr.n, repo: pr.repo, person, at: pr.readyAt });
+  }
   const ready = [...rv.values()];
-  // A Mac that is not reporting may hold more: in a picked project, one whose old summary has work there or that sent
-  // none. The live counts then say how many Macs are out, never read as the whole team.
-  const away = ok.people.filter((p) => p.reporting !== true && (!want || !okSummary(p.summary) || all.some((t) => t.person === p.id))).length;
-  const review = { count: ready.length, away, ages: ready.length && ready.every((r) => r.at !== null) ? ready.map((r) => Math.max(0, now - r.at)).sort((a, z) => z - a) : null };
+  const review = { count: ready.length, gap, ages: ready.length && ready.every((r) => r.at !== null) ? ready.map((r) => Math.max(0, now - r.at)).sort((a, z) => z - a) : null };
 
   // Agents running: from reporting Macs only, since a quiet Mac's count is old.
   const liveTickets = all.filter(({ k, live }) => live && Object.hasOwn(STAGE_RANK, k.place ?? '') && k.place !== 'Merged');
-  const agents = { count: liveTickets.reduce((n, { k }) => n + k.working, 0), threads: liveTickets.filter(({ k }) => k.working > 0).length, away };
+  const agents = { count: liveTickets.reduce((n, { k }) => n + k.working, 0), threads: liveTickets.filter(({ k }) => k.working > 0).length, gap };
 
   // Who's on what: one row per person, In The Pass first. Each thread is a bar from its start to its merge, or to now
   // (to the last report for a dev who is not reporting). A thread with no start time is counted, not drawn.

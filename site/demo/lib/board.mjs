@@ -784,21 +784,25 @@ function boardOf({ ok, now, want, name, people, plateOf }) {
   // 2. Merged today: the count and bars by hour. "Usual by now" needs weeks of merge times, which no summary sends.
   const m = B.merged;
   // Merges with no time may be today's: the count is then a floor, and says so.
-  const v2 = m.untimed ? `<b>${m.count}</b><span>at least: ${plural(m.untimed, 'merge')} with no time</span>` : `<b>${m.count}</b><span>usual by now: not checked</span>`;
+  // What a count cannot see goes in a caption under it ("Not counted: …"); a count that may be low says "at least".
+  const gapWords = (g, untimed = 0) => [untimed ? `${plural(untimed, 'merge')} with no time` : '', g.away ? `${plural(g.away, 'Mac')} not reporting` : '',
+    g.capped ? `${plural(g.capped, 'Mac')} that sent part of ${g.capped === 1 ? 'its' : 'their'} threads` : ''].filter(Boolean).join(', ');
+  const gapCap = (words) => words ? `<span class="cap"><span>Not counted: ${e(words)}</span></span>` : '';
+  const mGap = gapWords(m.gap, m.untimed);
+  const v2 = `<b>${m.count}</b><span>${mGap ? 'at least' : 'usual by now: not checked'}</span>`;
   const hh = (h) => `${String(h).padStart(2, '0')}:00`;
   const mbars = bars(m.byHour, `Merges by hour from ${hh(m.from)}: ${m.byHour.join(', ')}`).replace('class="vbars"', 'class="vbars mg"')
-    + `<span class="cap"><span>${hh(m.from)}</span><span>now</span></span>`;
+    + `<span class="cap"><span>${hh(m.from)}</span><span>now</span></span>` + gapCap(mGap);
   // 3. Waiting for review: PRs ready for review and how long each has waited, oldest first.
   const r = B.review;
   // A Mac that is not reporting may hold more, so a caption says so; with none counted the count is not checked, never 0.
-  const awayW = (n) => `${plural(n, 'Mac')} not reporting`;
-  const awayCap = (n) => n ? `<span class="cap"><span>Not counted: ${awayW(n)}</span></span>` : '';
+  const rGap = gapWords(r.gap);
   const v3 = r.count ? `<b>${r.count}</b><span>${r.count === 1 ? 'PR' : 'PRs'}, oldest ${r.ages ? span(Math.round(r.ages[0] / 60000)) : 'not checked'}</span>`
-    : r.away ? NOT(awayW(r.away)) : '<b>0</b><span>no PR waits</span>';
-  const rbars = (r.ages ? bars(r.ages.slice(0, 12).map((a) => Math.round(a / 60000)), `How long each waits: ${r.ages.slice(0, 12).map((a) => span(Math.round(a / 60000))).join(', ')}`) : '') + (r.count ? awayCap(r.away) : '');
+    : rGap ? NOT(e(rGap)) : '<b>0</b><span>no PR waits</span>';
+  const rbars = (r.ages ? bars(r.ages.slice(0, 12).map((a) => Math.round(a / 60000)), `How long each waits: ${r.ages.slice(0, 12).map((a) => span(Math.round(a / 60000))).join(', ')}`) : '') + (r.count ? gapCap(rGap) : '');
   // 4. Agents running now. The day's line needs readings over the day, which no summary sends.
   const v4 = `<b>${B.agents.count}</b><span>on ${plural(B.agents.threads, 'thread')}</span>`;
-  const inst = `<div class="inst" role="list">${ins(label1, v1, rib)}${ins('Merged today', v2, mbars)}${ins('Waiting for review', v3, rbars)}${ins('Agents running', v4, awayCap(B.agents.away))}</div>`;
+  const inst = `<div class="inst" role="list">${ins(label1, v1, rib)}${ins('Merged today', v2, mbars)}${ins('Waiting for review', v3, rbars)}${ins('Agents running', v4, gapCap(gapWords(B.agents.gap)))}</div>`;
 
   // Who's on what: rows of bars along today, a blue now line, and a red link for each Overlap.
   const T = B.timeline, total = Math.max(1, (T.to - T.from) * 1.035);
