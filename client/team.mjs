@@ -213,7 +213,7 @@ export class Team {
       opened = true;
       this.startBeat();
     });
-    ws.addEventListener('message', (ev) => { if (this.ws === ws) this.heard(ev.data); });
+    ws.addEventListener('message', (ev) => { if (this.ws === ws) this.heard(ev.data, ws); });
     ws.addEventListener('close', (ev) => {
       if (this.ws !== ws) return;
       this.ws = null;
@@ -327,15 +327,17 @@ export class Team {
     });
   }
 
-  async heard(data) {
+  async heard(data, from = this.ws) {
     if (data === 'pong') { this.timers.clearTimeout(this.pongTimer); this.pongTimer = null; return; }
     let msg;
     try { msg = JSON.parse(data); } catch { return; }
     if (msg.id && this.asks.has(msg.id)) {
       const a = this.asks.get(msg.id); this.asks.delete(msg.id); this.timers.clearTimeout(a.timer); a.resolve(msg); return;
     }
-    // One message at a time, in order: a roster must land before the summaries and actions that follow it.
-    this.chain = (this.chain || Promise.resolve()).then(() => this.handle(msg)).catch((ex) => this.emit('error', { text: String(ex?.message || ex) }));
+    // One message at a time, in order: a roster must land before the summaries and actions that follow it. A message
+    // whose socket was replaced while it waited is dropped: the new socket's hello brings it again, and an old hello
+    // never marks a new socket online (PR-Agent r17 on public #7).
+    this.chain = (this.chain || Promise.resolve()).then(() => (this.ws === from ? this.handle(msg) : undefined)).catch((ex) => this.emit('error', { text: String(ex?.message || ex) }));
     return this.chain;
   }
 
@@ -902,7 +904,10 @@ export class Team {
   async askKey() {
     const lead = this.people.get(this.roster?.lead);
     const at = this.now();
-    if (!lead || lead.id === this.meId || at - (Number(this.state.keyAskAt) || 0) < KEY_ASK_MS) return;
+    const last = Number(this.state.keyAskAt) || 0;
+    // An ask saved in the future means the clock went back: ask now, not after that time plus a day (PR-Agent r17 on
+    // public #7).
+    if (!lead || lead.id === this.meId || (last <= at && at - last < KEY_ASK_MS)) return;
     const me = await this.member();
     const blob = await sealTo(me, lead.dh, { k: 'key', at }, aad.rekey(this.state.team, me.id, lead.id));
     if ((await this.say({ t: 'send', to: lead.id, blob, ttl: 7 * 86400000 })).t === 'ok') { this.state.keyAskAt = at; this.save(); }
