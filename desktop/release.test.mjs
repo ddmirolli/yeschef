@@ -346,11 +346,17 @@ test('--ci runs only where GitHub Actions says it runs, and drops only the termi
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-// The release workflow's safety rules, read from the file: a later edit that loosens one fails here.
-test('release.yml: one secret, read only in the release Environment, and no signed Stable without Dan\'s approval', () => {
+// The release workflow without its comments, and its jobs by name.
+function releaseWorkflow() {
   const yml = readFileSync(join(HERE, '..', '.github', 'workflows', 'release.yml'), 'utf8');
   const code = yml.split('\n').filter((l) => !l.trimStart().startsWith('#')).join('\n');
   const jobs = Object.fromEntries(code.split('\njobs:\n')[1].split(/\n(?=  [a-z][a-z-]*:\n)/).map((b) => [b.match(/^ {2}([a-z-]+):/)[1], b]));
+  return { code, jobs };
+}
+
+// The release workflow's safety rules, read from the file: a later edit that loosens one fails here.
+test('release.yml: one secret, read only in the release Environment', () => {
+  const { code, jobs } = releaseWorkflow();
   assert.deepEqual(Object.keys(jobs), ['plan', 'approve', 'build', 'publish', 'signing-check']);
   assert.doesNotMatch(code, /pull_request_target|workflow_run/);
   for (const line of code.split('\n').filter((l) => /\buses:/.test(l))) assert.match(line, /@[0-9a-f]{40} # v\d/, line);
@@ -363,17 +369,61 @@ test('release.yml: one secret, read only in the release Environment, and no sign
   assert.match(jobs['signing-check'], /environment:\n\s+name: release\n/);
   assert.match(jobs['signing-check'], /if: github\.event_name == 'workflow_dispatch' && inputs\.channel == 'signing-check'/);
   assert.match(jobs.approve, /environment:\n\s+name: stable\n/);
-  assert.match(jobs.approve, /if: needs\.plan\.outputs\.due == 'true' && needs\.plan\.outputs\.channel == 'stable' && github\.event_name != 'pull_request' && inputs\.channel != 'dry-run'/);
   assert.match(jobs.approve, /permissions: \{\}/);
-  // The gate: a signed Stable builds and publishes only after `approve` succeeded.
   assert.match(jobs.build, /needs: \[plan, approve\]/);
-  assert.match(jobs.build, /\(needs\.plan\.outputs\.channel != 'stable' \|\| github\.event_name == 'pull_request' \|\| inputs\.channel == 'dry-run' \|\| needs\.approve\.result == 'success'\)/);
   assert.match(jobs.publish, /needs: \[plan, approve, build\]/);
-  assert.match(jobs.publish, /needs\.build\.result == 'success' && github\.event_name != 'pull_request' && inputs\.channel != 'dry-run' && \(needs\.plan\.outputs\.channel != 'stable' \|\| needs\.approve\.result == 'success'\)/);
   // Only Publish can write.
   assert.match(code, /\npermissions:\n {2}contents: read\n/);
   assert.deepEqual(code.match(/contents: write/g), ['contents: write']);
   assert.match(jobs.publish, /contents: write/);
+});
+
+// The jobs' `if:` conditions, evaluated as GitHub would for each way a run starts, with the channels pickRelease
+// really plans. A text match missed that a Stable's channel is `latest`, not `stable`; this cannot.
+test('release.yml: a signed Stable builds and publishes only after Dan approves it; Nightly runs by itself', () => {
+  const { jobs } = releaseWorkflow();
+  const cond = (name) => jobs[name].match(/\n {4}if: (?:\$\{\{ )?(.+?)(?: \}\})?\n/)[1];
+  // GitHub's expressions here use only '...', ==, !=, &&, ||, !, ( ) and cancelled(), so JavaScript can run them.
+  const evaluate = (expr, ctx) => {
+    assert.doesNotMatch(expr, /[^\w\s.'!=&|()-]/, `an expression this test cannot run: ${expr}`);
+    return Function('needs', 'github', 'inputs', 'cancelled', `return (${expr.replace(/[!=]=/g, '$&=')});`)(ctx.needs, ctx.github, ctx.inputs, () => false);
+  };
+  // Which of approve, build and publish run, with Dan's answer when approve asks.
+  const flow = ({ event, input = '', channel, due = 'true', answer = 'success' }) => {
+    const github = { event_name: event };
+    const inputs = { channel: input };
+    const needs = { plan: { result: 'success', outputs: { due, channel } } };
+    const ran = { plan: evaluate(cond('plan'), { needs, github, inputs }), check: evaluate(cond('signing-check'), { needs, github, inputs }) };
+    ran.approve = ran.plan && evaluate(cond('approve'), { needs, github, inputs });
+    needs.approve = { result: ran.approve ? answer : 'skipped' };
+    ran.build = evaluate(cond('build'), { needs, github, inputs });
+    needs.build = { result: ran.build ? 'success' : 'skipped' };
+    ran.publish = evaluate(cond('publish'), { needs, github, inputs });
+    return ran;
+  };
+  const nightly = pickRelease({ arg: 'nightly', pkgVersion: '0.1.0', releases: [], date: NOW }).channel;
+  const stable = pickRelease({ arg: '0.2.0', pkgVersion: '0.1.0', releases: [rel('v0.1.1-nightly.20261111.1')], date: NOW }).channel;
+  const dryStable = pickRelease({ arg: 'dry-run', pkgVersion: '0.1.0', releases: [], date: NOW, dryRunVersion: '0.2.0' }).channel;
+  const dryNightly = pickRelease({ arg: 'dry-run', pkgVersion: '0.1.0', releases: [], date: NOW }).channel;
+  assert.notEqual(stable, nightly);
+  const runs = (r) => ['plan', 'approve', 'build', 'publish', 'check'].filter((k) => r[k]);
+
+  // A Stable waits for Dan: approved, it builds and publishes; rejected, nothing runs after approve.
+  assert.deepEqual(runs(flow({ event: 'workflow_dispatch', input: 'stable', channel: stable })), ['plan', 'approve', 'build', 'publish']);
+  assert.deepEqual(runs(flow({ event: 'workflow_dispatch', input: 'stable', channel: stable, answer: 'failure' })), ['plan', 'approve']);
+  // Fails closed: a plan that is not a Nightly, whatever its channel, waits for approval too.
+  for (const channel of ['', 'stable', 'beta']) {
+    assert.deepEqual(runs(flow({ event: 'workflow_dispatch', input: 'nightly', channel, answer: 'failure' })), ['plan', 'approve'], channel);
+  }
+  // Nightly runs by itself, from the schedule or by hand; a scheduled run with nothing new stops at plan.
+  assert.deepEqual(runs(flow({ event: 'schedule', channel: nightly })), ['plan', 'build', 'publish']);
+  assert.deepEqual(runs(flow({ event: 'workflow_dispatch', input: 'nightly', channel: nightly })), ['plan', 'build', 'publish']);
+  assert.deepEqual(runs(flow({ event: 'schedule', channel: '', due: 'false' })), ['plan']);
+  // Dry runs build unsigned and never publish, a Stable version included.
+  assert.deepEqual(runs(flow({ event: 'pull_request', channel: dryNightly })), ['plan', 'build']);
+  assert.deepEqual(runs(flow({ event: 'workflow_dispatch', input: 'dry-run', channel: dryStable })), ['plan', 'build']);
+  // The signing check alone.
+  assert.deepEqual(runs(flow({ event: 'workflow_dispatch', input: 'signing-check', channel: '' })), ['check']);
 });
 
 test('ci-signing.sh refuses to run outside GitHub Actions, so it never touches this Mac\'s keychains', () => {

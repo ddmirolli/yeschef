@@ -120,11 +120,12 @@ jobs:
           jq -r 'if .due then "### \(.title)\n\n\(if .dryRun then "Dry run: unsigned, never published" else "Release" end), tag `\(.tag)` at `\(.commit[0:12])`\(if .from then ", the commit of \(.from)" else "" end)." else "### No Nightly\n\n\(.reason)" end' "$file" >> "$GITHUB_STEP_SUMMARY"
 
   # Dan's approval for a signed Stable (Dan, 2026-11-10). The `stable` Environment holds no secret: its rules are Dan
-  # as the required reviewer, his own runs allowed, and the branch main. Nightly and dry runs skip this job.
+  # as the required reviewer, his own runs allowed, and the branch main. It fails closed: every signed build whose
+  # plan is not a Nightly waits here (a Stable's channel is `latest`, desktop/channels.mjs). Nightly and dry runs skip it.
   approve:
     name: Approve the Stable
     needs: plan
-    if: needs.plan.outputs.due == 'true' && needs.plan.outputs.channel == 'stable' && github.event_name != 'pull_request' && inputs.channel != 'dry-run'
+    if: needs.plan.outputs.due == 'true' && needs.plan.outputs.channel != 'nightly' && github.event_name != 'pull_request' && inputs.channel != 'dry-run'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
@@ -137,12 +138,12 @@ jobs:
         run: |
           jq -r '"Approved: \(.title), tag \(.tag) at \(.commit[0:12])."' <<<"$PLAN"
 
-  # Every condition below that names `stable` is the gate: a signed Stable builds and publishes only after `approve`
-  # succeeded. !cancelled() lets Nightly run when `approve` is skipped.
+  # The gate, in Build and Publish: a signed build that is not a Nightly runs only after `approve` succeeded.
+  # !cancelled() lets Nightly run when `approve` is skipped. release.test.mjs evaluates these conditions.
   build:
     name: Build (macOS arm64)
     needs: [plan, approve]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.due == 'true' && (needs.plan.outputs.channel != 'stable' || github.event_name == 'pull_request' || inputs.channel == 'dry-run' || needs.approve.result == 'success') }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.due == 'true' && (needs.plan.outputs.channel == 'nightly' || github.event_name == 'pull_request' || inputs.channel == 'dry-run' || needs.approve.result == 'success') }}
     runs-on: macos-26
     timeout-minutes: 90
     # A release only. An empty name is no Environment, so a dry run can read none of its secrets.
@@ -210,7 +211,7 @@ jobs:
   publish:
     name: Publish
     needs: [plan, approve, build]
-    if: ${{ !cancelled() && needs.build.result == 'success' && github.event_name != 'pull_request' && inputs.channel != 'dry-run' && (needs.plan.outputs.channel != 'stable' || needs.approve.result == 'success') }}
+    if: ${{ !cancelled() && needs.build.result == 'success' && github.event_name != 'pull_request' && inputs.channel != 'dry-run' && (needs.plan.outputs.channel == 'nightly' || needs.approve.result == 'success') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment:
