@@ -1406,3 +1406,26 @@ test('an offline teammate\'s summary shows as cached, not live', async () => {
   assert.equal(person().live, false);
   lead.stop();
 });
+
+test('a refusal that did not reach the disk does not go: the relay keeps the action', async () => {
+  const { relay, timers, lead, dev, setBoard } = await crew();
+  setBoard({ board: boardNow(relay.now()), ok: true, at: relay.now() - BOARD_FRESH_MS - 1 });
+  dev.saveFn = async () => { throw new Error('disk full'); };
+  const out = lead.act(dev.meId, { kind: 'reply', thread: 'th-parser', note: 'x' });
+  await settle(); await settle(); await settle(); await settle();
+  await timers.advance(30000);
+  const r = await out;
+  assert.notEqual(r.status, 409, 'no refusal was sent');
+  assert.equal(relay.sql.exec('SELECT COUNT(*) AS n FROM inbox WHERE to_m = ?', dev.meId).one().n, 1, 'the relay still holds it');
+  lead.stop(); dev.stop();
+});
+
+test('a revoked invite or an answered ask does not come back when the key arrives', async () => {
+  const { lead, dev } = await crew();
+  dev.key = null; dev.state.key = null;
+  dev.later.push({ t: 'invite', invite: { id: 'inv1' } }, { t: 'pending', pending: { m: 'm1', invite: 'inv1' } }, { t: 'pending', pending: { m: 'm2', invite: 'inv2' } });
+  await dev.heard(JSON.stringify({ t: 'invite-gone', invite: 'inv1' }));
+  await dev.heard(JSON.stringify({ t: 'pending-gone', m: 'm2' }));
+  assert.deepEqual(dev.later.filter((x) => x.t === 'invite' || x.t === 'pending'), []);
+  lead.stop(); dev.stop();
+});
