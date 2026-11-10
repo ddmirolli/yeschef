@@ -506,7 +506,11 @@ export class Room {
   /** The lead's new roster: approve asks, change roles, remove people. */
   async newRoster(me, roster) {
     if (!this.isLead(me)) return { t: 'err', code: 'role', text: 'Only the lead can change the team.' };
+    // The team as it was before the signature check: a team deleted and made again under this id while it ran is a
+    // different team, and this roster never lands on it (PR-Agent r9 on public #6).
+    const made = this.team.created;
     const r = await readRoster(roster, { team: this.team.id, leadSignPub: this.team.lead_sign });
+    if (!this.teamRow() || this.team.created !== made) return { t: 'err', code: 'stale', text: 'The team was deleted.' };
     if (!r || r.lead !== this.team.lead) return { t: 'err', code: 'bad', text: 'That roster is not signed by this team\'s lead.' };
     if (r.ver !== this.team.ver + 1) return { t: 'err', code: 'stale', text: `The team changed. Roster ${this.team.ver} is current.`, ver: this.team.ver };
     // Asks still waiting hold their places, as join() counts them: a roster cannot take a place an ask was given

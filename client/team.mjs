@@ -230,11 +230,15 @@ export class Team {
     if (code === 4004) return this.end('ended');
     // A socket that never opened shows no reason. After a few, ask the relay what it knows of this Mac.
     if (!opened && this.attempts >= 2) {
+      // A stop() while the probe waits makes this loss stale: a start() after it owns the connection, and this one
+      // schedules nothing over it (PR-Agent r9 on public #7).
+      const attempt = this.attempt;
       // The probe has a deadline: a relay that takes the request and never answers must not leave this Mac without a
       // retry (PR-Agent r1 on public #7).
       let timer;
       const why = await Promise.race([this.probe(), new Promise((r) => { timer = this.timers.setTimeout(() => r(null), ASK_MS); })]);
       this.timers.clearTimeout(timer);
+      if (attempt !== this.attempt) return;
       if (this.stopped) { this.setLink('stopped'); return; }
       if (why) return this.end(why);
     }
@@ -384,7 +388,11 @@ export class Team {
     this.flushFails = 0;
     // The relay kept our last summary; send only what changed while this Mac was away. A Viewer, or a dev who shares
     // nothing now, has it dropped.
-    if ((msg.summaries || []).some((s) => s.m === this.meId) && (!shares(this.me?.role) || !this.state.shared?.length)) this.unshare();
+    const held = (msg.summaries || []).some((s) => s.m === this.meId);
+    if (held && (!shares(this.me?.role) || !this.state.shared?.length)) this.unshare();
+    // A project dropped before a restart, its replacement never taken: the relay's copy still carries it. Rebuild it
+    // from the board, or drop it until the board is read (PR-Agent r9 on public #7).
+    else if (held && this.state.dropped && !this.next) this.shareNow(new Set([null]));
     else this.flush();
   }
 
@@ -632,8 +640,8 @@ export class Team {
     if (this.state.status !== 'member' || !shares(this.me?.role) || !this.state.shared?.length) return;
     const body = summarize(board, this.state.shared, this.limits.summaryMax);
     const json = JSON.stringify(body);
-    if (!this.flushing && json === this.sentJson) { this.next = null; return; }
-    this.next = { json, body };
+    if (!this.flushing && json === this.sentJson && !this.state.dropped) { this.next = null; return; }
+    this.next = { json, body, drop: this.state.dropped };
     this.flush();
   }
 
@@ -646,7 +654,7 @@ export class Team {
     const wait = this.sentAt + this.limits.summaryMs - this.now();
     if (wait > 0) { this.summaryTimer = this.timers.setTimeout(() => { this.summaryTimer = null; this.flush(); }, wait); return; }
     const next = this.next;
-    if (!next.forget && next.json === this.sentJson) { this.next = null; return; }
+    if (!next.forget && next.json === this.sentJson && !this.state.dropped) { this.next = null; return; }
     this.flushing = true;
     try {
       let blob = null;
@@ -666,6 +674,7 @@ export class Team {
       const r = next.forget ? await this.say({ t: 'forget' }) : await this.say({ t: 'summary', blob });
       if (r.t === 'ok') {
         this.sentJson = next.forget ? null : next.json; this.sentAt = this.now(); this.flushFails = 0;
+        if (this.state.dropped && next.drop === this.state.dropped) { delete this.state.dropped; this.save(); }
         if (this.next === next) this.next = null;
       } else if (r.code === 'slow') {
         this.sentAt = this.now() - this.limits.summaryMs + (Number(r.retryAfter) || this.limits.summaryMs);
@@ -701,7 +710,7 @@ export class Team {
   }
 
   /** Nothing more goes out, and the relay's copy goes. */
-  unshare() { this.next = { forget: true }; this.flush(); }
+  unshare() { this.next = { forget: true, drop: this.state.dropped }; this.flush(); }
 
   /** The dev changed which projects they share. Sharing nothing drops the relay's copy. Dropping a project rebuilds the
    *  waiting summary from the last board at once, so a summary queued before the change never carries that project's
@@ -710,6 +719,9 @@ export class Team {
   async share(projectIds) {
     const before = new Set(this.state.shared || []);
     this.state.shared = [...new Set(projectIds.map(String))];
+    // A project dropped is kept on disk as owed until the relay takes a summary or forget built after it: a restart
+    // before then still replaces the relay's copy (PR-Agent r9 on public #7).
+    if ([...before].some((id) => !this.state.shared.includes(id))) this.state.dropped = (Number(this.state.dropped) || 0) + 1;
     // The waiting summary follows the new list first, so nothing from a dropped project goes out while it saves
     // (PR-Agent r6 on public #7).
     this.shareNow(before);
@@ -720,7 +732,7 @@ export class Team {
     if (![...before].some((id) => !this.state.shared.includes(id))) return; // only added: the next board sends them
     if (this.lastBoard && shares(this.me?.role)) {
       const body = summarize(this.lastBoard, this.state.shared, this.limits.summaryMax);
-      this.next = { json: JSON.stringify(body), body };
+      this.next = { json: JSON.stringify(body), body, drop: this.state.dropped };
       this.flush();
     } else this.unshare();
   }

@@ -1084,3 +1084,46 @@ test('a stop and start while the keys load opens one socket, not two', async () 
   assert.equal(made, 1);
   again.stop(); lead.stop();
 });
+
+test('a project dropped just before a restart still leaves the relay\'s copy', async () => {
+  const { relay, timers, lead, dev, saved } = await crew();
+  await dev.share([P, Q]);
+  dev.board(boardNow(relay.now()));
+  await until(() => lead.summaries.get(dev.meId)?.body.tickets.some((k) => k.title === 'Private work'), 'both projects shared');
+  // Q is dropped; its replacement waits out the limit, and the Mac quits before it goes.
+  await dev.share([P]);
+  dev.stop();
+  const again = new Team({ state: structuredClone(saved.dev.at(-1)), save: () => {}, net: dev.net, now: () => relay.now(), timers, random: () => 1 });
+  again.start();
+  await until(() => again.link === 'online', 'online again');
+  await timers.advance(10000);
+  await until(() => !lead.summaries.get(dev.meId)?.body.tickets.some((k) => k.title === 'Private work'), 'Q gone from the relay');
+  again.stop(); lead.stop();
+});
+
+test('a probe that answers after a stop and start leaves the new connection alone', async () => {
+  const relay = fakeRelay();
+  const net = fakeNet(relay);
+  const timers = clock(relay);
+  const now = () => relay.now();
+  const lead = new Team({ state: await createTeam({ relay: 'https://relay.test', teamName: 'T', name: 'L', net, now }), net, now, timers, random: () => 1 });
+  lead.start();
+  await until(() => lead.link === 'online');
+  const { link } = await lead.invite();
+  const state = await joinTeam({ link, name: 'D', net, now });
+  // Sockets fail to open, and /me waits until the test answers it.
+  let probes = 0, answer = null, fail = true;
+  const slow = { ...net, http: (method, url, ...rest) => (url.endsWith('/me') ? (probes++, new Promise((r) => { answer = r; })) : net.http(method, url, ...rest)), socket: (url) => { net.down = fail; return net.socket(url); } };
+  const dev = new Team({ state, net: slow, now, timers, random: () => 1 });
+  dev.start();
+  for (let i = 0; i < 3 && probes === 0; i++) { await until(() => dev.link === 'waiting' || probes > 0, 'a retry or the probe'); if (probes === 0) await timers.advance(dev.retryMs); }
+  assert.equal(probes, 1);
+  dev.stop();
+  fail = false;
+  dev.start();
+  await until(() => dev.link === 'online', 'the new connection online');
+  answer({ status: 503, body: {} });
+  await settle(); await settle();
+  assert.equal(dev.link, 'online');
+  dev.stop(); lead.stop();
+});
