@@ -110,6 +110,9 @@ export class Room {
       day, refused ? 0 : requests, refused ? 0 : messages, this.written, bytes + r.bytes, r.n + (refused ? requests + messages : 0));
     this.refused = { n: 0, bytes: 0 };
     this.written = 0;
+    // A day's first row arms the alarm for the oldest day still kept, so a team that never opens an invite or sends a
+    // message still has its counts end on time (PR-Agent r2 on public #6).
+    if (this.armedDay !== day) { this.armedDay = day; const next = this.nextExpiry(); if (next !== null) this.expireAt(next); }
     if (refused) return;
     if (this.today?.day === day) this.today.n += requests + messages;
     else this.today = null;
@@ -293,6 +296,9 @@ export class Room {
     if (!(await verify(sign, sig, joinText(this.team.id, invite, dh, blob)))) return fail(403, 'That ask to join is not signed by its key.');
     if (this.overCap()) return this.capped();
     const m = await memberId(sign);
+    // The invite again, after the last wait: a revoke that landed while the keys were checked ends this ask too
+    // (PR-Agent r2 on public #6).
+    if (!this.one('SELECT id FROM invite WHERE id = ? AND until >= ?', invite, this.now())) return fail(410, 'This invite has ended. Ask the lead for a new link.');
     if (this.member(m)) return fail(409, 'You are already on this team.');
     // One ask per key per minute: someone holding a link cannot rewrite their ask in a loop.
     const had = this.one('SELECT at FROM pending WHERE m = ?', m);
@@ -406,14 +412,15 @@ export class Room {
         if (!isId(msg.invite) || !/^[A-Za-z0-9_-]{43}$/.test(msg.verifier || '') || !isBlob(msg.box, 1024)) return no('bad', 'That invite is not complete.');
         if (!(until > now && until <= now + this.cfg.inviteMaxMs)) return no('bad', 'An invite lasts at most 7 days.');
         this.prune();
-        if (this.one('SELECT COUNT(*) AS n FROM invite').n >= this.cfg.maxInvites) return no('full', 'Too many open invites. Revoke one first.');
-        // The same invite sent again (a retry after a lost answer) is taken once. Another invite under a used id is
-        // refused, so nobody hears a box that does not match the verifier the relay checks (PR-Agent r1 on public #6).
+        // The same invite sent again (a retry after a lost answer) is taken once, even with the invites full (r2).
+        // Another invite under a used id is refused, so nobody hears a box that does not match the verifier the relay
+        // checks (PR-Agent r1 on public #6).
         const had = this.one('SELECT verifier, box, until, by FROM invite WHERE id = ?', msg.invite);
         if (had) {
           if (had.verifier === msg.verifier && had.box === msg.box && had.until === until && had.by === me) return ok({ until });
           return no('bad', 'That invite id is taken. Make a new link.');
         }
+        if (this.one('SELECT COUNT(*) AS n FROM invite').n >= this.cfg.maxInvites) return no('full', 'Too many open invites. Revoke one first.');
         this.rows('INSERT INTO invite (id, verifier, box, until, by) VALUES (?, ?, ?, ?, ?)', msg.invite, msg.verifier, msg.box, until, me);
         this.broadcast({ t: 'invite', invite: { id: msg.invite, box: msg.box, until, by: me } }, { except: me, to: (id) => this.canInvite(id) });
         this.expireAt(until);

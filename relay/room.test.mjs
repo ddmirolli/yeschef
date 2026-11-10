@@ -631,3 +631,43 @@ test('an invite id is taken once: the same invite again is fine, a different one
   assert.equal(r.code, 'bad');
   assert.equal(t.relay.sql.exec('SELECT verifier FROM invite').one().verifier, inv.record.verifier);
 });
+
+test('a revoke that lands while an ask is checked ends that ask: nothing waits on a revoked invite', async () => {
+  const t = await team();
+  const lws = await t.ws(t.lead);
+  const inv = await t.invite(lws);
+  const dev = await newMember();
+  const ask = await joinRequest(inv.parsed, dev, { name: 'x' });
+  // The relay reads the invite, then waits on WebCrypto. Run the revoke in that wait.
+  const room = t.relay.room;
+  const proof = room.one.bind(room);
+  let revoked = null;
+  room.one = (q, ...a) => {
+    const out = proof(q, ...a);
+    if (!revoked && /SELECT verifier, until FROM invite/.test(q)) revoked = Promise.resolve().then(() => lws.say({ t: 'revoke', id: 'r', invite: inv.record.invite }));
+    return out;
+  };
+  const res = await t.relay.http('POST', `/v1/teams/${t.id}/join`, ask);
+  assert.equal((await revoked).t, 'ok');
+  assert.equal(res.status, 410);
+  assert.equal(t.relay.sql.exec('SELECT COUNT(*) AS n FROM pending').one().n, 0);
+});
+
+test('a new team\'s first counts arm the alarm, so they end after 90 days with no invite or message', async () => {
+  const t = await team();
+  const day = t.relay.sql.exec('SELECT MIN(day) AS d FROM usage').one().d;
+  assert.ok(day, 'the create wrote a usage row');
+  assert.equal(t.relay.alarms.at(-1), Date.parse(day + 'T00:00:00Z') + 91 * DAY + 1000);
+});
+
+test('the same invite sent again with the invites full is still taken once', async () => {
+  const t = await team();
+  const lws = await t.ws(t.lead);
+  let last = null;
+  for (let i = 0; i < 20; i++) last = await t.invite(lws);
+  assert.equal(last.reply.t, 'ok');
+  const box = t.relay.sql.exec('SELECT box FROM invite WHERE id = ?', last.record.invite).one().box;
+  const r = await lws.say({ t: 'invite', id: 'again', invite: last.record.invite, verifier: last.record.verifier, until: last.record.until, box });
+  assert.equal(r.t, 'ok');
+  assert.equal((await t.invite(lws)).reply.code, 'full');
+});
