@@ -3,7 +3,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { imagesIn, imageUrl, withoutImages, recommendLines } from './calls.mjs';
 import { missingShots, ASK_SHOTS } from './kitchen.mjs';
-import { agentTime, runningSeries, duration, trackWaits, withoutWaits } from './you.mjs';
+import { trackWaits, withoutWaits } from './you.mjs';
 import { openKitchen, KINDS, may } from './open-kitchen.mjs';
 
 // Developer words (Dan, 2026-11-10). A stage is never stored: T3 state decides it on every poll, so no old data names one.
@@ -504,78 +504,13 @@ function plate(k, link, origin, answered, rules) {
 const plural = (n, one, many = one + 's') => `${n} ${n === 1 ? one : many}`;
 // Minutes as a card says them: "52 min", "3 h", "2 d".
 const span = (m) => (m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h` : `${Math.floor(m / 1440)} d`);
-const NOT = (why) => `<b class="nc">Not checked</b><span>${why}</span>`;
-/** A small line chart of whole numbers, oldest first (views mock v4). */
-function spark(vals, label) {
-  const w = 200, h = 30, m = Math.max(1, ...vals), n = vals.length - 1;
-  const d = vals.map((v, i) => `${i ? 'L' : 'M'}${((i / n) * w).toFixed(1)} ${(h - 2 - (v / m) * (h - 4)).toFixed(1)}`).join(' ');
-  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="${e(label)}"><path d="${d} L${w} ${h} L0 ${h} Z" class="area"/><path d="${d}" class="line"/></svg>`;
-}
-/** Bars of whole numbers, one each, tallest the highest. */
-function bars(vals, label) {
-  const w = 200, h = 30, m = Math.max(1, ...vals), bw = w / vals.length;
-  return `<svg class="vbars" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="${e(label)}">${vals.map((v, i) => { const bh = Math.max(2, (v / m) * (h - 2));
-    return `<rect x="${(i * bw + 1.5).toFixed(1)}" y="${(h - bh).toFixed(1)}" width="${Math.max(1, bw - 3).toFixed(1)}" height="${bh.toFixed(1)}" rx="1.5"/>`; }).join('')}</svg>`;
-}
-
-/** You, expanded (Dan, 2026-11-10, views mock v4): your threads with four instruments over the stage columns, then
- *  merges by day and agent time, then what is verified or on hold. Each number comes from T3 Code; what T3 does not
- *  send says "Not checked". now: the poll's time, so the view shows that one reading. */
-function youView({ board, shown, spots, waiting, since, status, picked, trays, verified, heldAll }) {
-  const ok = status.ok, now = status.at;
-  const cooks = shown.filter((k) => k.place !== 'Coordinators');
-  const line = STAGES.flatMap((s) => spots[s] || []);
-  const running = cooks.reduce((n, k) => n + k.working, 0), busy = cooks.filter((k) => k.working).length;
-  const names = [...(picked || new Set(cooks.map((k) => k.project)))].sort((a, b) => a.localeCompare(b));
-  const at = new Date(now);
-  const time = `<time datetime="${at.toISOString()}">${at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</time>`;
-  const sub = ok ? [names.join(', '), plural(line.length, 'thread'), `${plural(running, 'agent')} running`].filter(Boolean).map((x) => `<span>${e(x)}</span>`).join('') + time
-    : '<span>Not checked</span>';
-  const down = 'T3 did not answer';
-  // 1. Agents running, with today's line from T3's run times.
-  const series = ok && board.runsChecked ? runningSeries(cooks, now) : { points: [] };
-  const most = Math.max(0, ...series.points);
-  const runLine = series.points.length > 1 ? spark(series.points, `Agents running over the last ${duration(series.span)}, ${most} at most`)
-    + `<span class="cap"><span>${duration(series.span)} ago</span><span>now</span></span>` : '';
-  const i1 = ok ? `<b>${running}</b><span>on ${plural(busy, 'thread')}</span>` : NOT(down);
-  // 2 and 4. T3 Code's pull requests carry no merge time and no checks (read 2026-11-10), so these say so.
-  const i2 = NOT(ok ? 'T3 Code sends no merge times' : down);
-  const i4 = NOT(ok ? 'T3 Code sends no check results' : down);
-  // 3. Your agents wait on you: how many, and how long each has waited, oldest first. A call with no time from T3 keeps
-  // its count, and the oldest age and the bars say "not checked" (PR-Agent r4 on #74).
-  const ages = waiting.map((k) => Math.max(0, Math.round((now - Date.parse(since(k))) / 60000)));
-  const aged = ages.every(Number.isFinite), sorted = ages.sort((a, b) => b - a);
-  const i3 = !ok ? NOT(down) : waiting.length ? `<b>${waiting.length}</b><span>${waiting.length === 1 ? 'call' : 'calls'}, oldest ${aged ? span(sorted[0]) : 'not checked'}</span>` : '<b>0</b><span>nothing waits</span>';
-  const waitBars = ok && aged && sorted.length ? bars(sorted.slice(0, 12), `How long each waits: ${sorted.slice(0, 12).map(span).join(', ')}`) : '';
-  const ins = (label, v, extra = '') => `<div class="ins" role="listitem"><p class="l">${label}</p><p class="v">${v}</p>${extra}</div>`;
-  const inst = `<div class="inst" role="list">${ins('Agents running', i1, runLine)}${ins('Merged today', i2)}${ins('Your agents wait on you', i3, waitBars)}${ins('Checks on open PRs', i4)}</div>`;
-  const stages = `<section class="pnl pnl-stages" aria-labelledby="you-st"><header class="ph"><h3 id="you-st">By stage</h3>`
-    + `<span class="lg">${svg('cloche', 'ic at-ic')}At The Pass</span></header><div class="rail-wrap"><div class="rail">${trays}</div></div></section>`;
-  const week = `<section class="pnl" aria-labelledby="you-wk"><header class="ph"><h3 id="you-wk">Merged, last 7 days</h3></header>`
-    + `<p class="nc-l"><b>Not checked</b> ${ok ? 'T3 Code sends no merge times, so merges by day cannot be counted.' : 'T3 did not answer.'}</p></section>`;
-  // Agent time today: each thread's run time since midnight, by project, from T3's run times.
-  let time2;
-  if (!ok || !board.runsChecked) time2 = `<header class="ph"><h3 id="you-at">Agent time today</h3></header><p class="nc-l"><b>Not checked</b> ${ok ? 'T3 did not send its run times.' : 'T3 did not answer.'}</p>`;
-  else {
-    const t = agentTime(cooks, now), icons = new Map(cooks.map((k) => [k.project, k.icon]));
-    const top = Math.max(1, ...t.byProject.values());
-    const rows = [...t.byProject.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([nm, ms]) => `<div class="ah"><p class="row">${mark(nm, icons.get(nm))}<span class="pn">${e(nm)}</span><span class="v">${duration(ms)}</span></p>`
-      + `<div class="track"><b style="width:${((ms / top) * 100).toFixed(1)}%"></b></div></div>`).join('');
-    // Agents count by whether they ran. A floor says "at least"; a floor of nothing says "not checked".
-    const sum = t.ms ? `${t.cut ? 'at least ' : ''}${duration(t.ms)}` : 'time not checked';
-    time2 = `<header class="ph"><h3 id="you-at">Agent time today</h3><span>${t.agents ? `${sum} across ${plural(t.agents, 'agent')}` : 'no agent ran today'}</span></header>${rows}`;
-  }
-  const split = `<div class="split">${week}<section class="pnl" aria-labelledby="you-at">${time2}</section></div>`;
-  // Verified and on hold: not moving. Each opens its ticket; a held one's tooltip names why it is held.
-  const still = [...verified, ...heldAll];
-  const chips = still.map((k) => `<button type="button" class="hc" data-plate="${e(plateId(k))}" data-thread="${e(k.thread.threadId)}" title="${k.place === 'Verified' ? 'Verified today' : `On hold: ${k.place}`}">`
-    + `${k.place === 'Verified' ? svg('done', 'ic vd') : '<i class="gd c-gray"></i>'}<span class="w">${k.place === 'Verified' ? 'Verified' : 'On hold'}</span>`
-    + `<span class="proj">${mark(k.project, k.icon)}<span class="pn">${e(k.project)}</span></span><span class="t">${e(k.thread.title)}</span>${k.atPass ? svg('cloche', 'ic at-ic') + '<span class="vh">At the pass.</span>' : ''}</button>`).join('');
-  const heldSub = !ok ? 'Not checked' : still.some((k) => k.atPass) ? 'not moving' : 'not moving, nothing needs you';
-  const held = `<section class="pnl pnl-held" aria-labelledby="you-hd"><header class="ph"><h3 id="you-hd">Verified and on hold</h3><span>${heldSub}</span></header>`
-    + `<div class="held">${chips || (ok ? '<p class="muted">Nothing verified today, nothing on hold.</p>' : '')}</div></section>`;
-  return `<section class="you" aria-labelledby="you-t"><header class="you-h"><h2 id="you-t">Your threads</h2><p class="you-sub">${sub}</p></header>`
-    + `<div class="you-b">${inst}${stages}${split}${held}</div></section>`;
+/** You, expanded: the stage columns, from the top of the window to the bottom, each scrolling inside. Dan, 2026-11-10:
+ *  the header line said nothing the rail and The Pass do not, the four instruments repeated The Pass or said "Not
+ *  checked", and the "At The Pass" key sat over one column at random. With them gone the columns move up and run the
+ *  full height, so the panels that sat under them went too: Merged, last 7 days only ever said "Not checked", Verified
+ *  and on hold are rows in the rail, and Agent time today was the one panel with its own numbers. */
+function youView({ trays }) {
+  return `<section class="you" aria-label="Your threads by stage"><div class="you-b"><div class="rail-wrap"><div class="rail">${trays}</div></div></div></section>`;
 }
 
 // ---------- Your team, Open kitchen (step 4) ----------
@@ -927,7 +862,7 @@ export function renderApp({ board, picked = null, link, status, origin, answered
   const pass = `<section class="head" aria-labelledby="head-t"><header class="head-h"><h2 id="head-t">${svg('cloche')}<span class="head-name">The Pass</span></h2>${waiting.length ? `<span class="badge">${waiting.length}</span>` : ''}`
     + `<p class="muted">${waiting.length ? 'Needs your focus.<span class="sub2"> Questions first, then oldest first.</span>' : 'Calls and plates for you land here.'}</p></header><div class="head-b">${lists}</div>`
     + `</section>`;
-  const you = youView({ board, shown, spots, waiting, since, status, picked: want, trays, verified, heldAll });
+  const you = youView({ trays });
   // Your team is not built yet (Dan, 2026-11-10): with reports, its view says so instead of showing anything made up.
   const teamWait = team ? `<section class="team-wait" aria-label="Your team"><p><b>${e(team.name || 'Your team')}</b></p><p class="muted">Not checked. Your team's view needs the team connection, which Yes Chef does not have yet.</p></section>` : '';
   const lamp = status.ok ? 'ok' : 'bad';

@@ -12,7 +12,6 @@
   var REPO = "ddmirolli/yeschef";
   var PAGE = "https://github.com/" + REPO + "/releases";
   var API = "https://api.github.com/repos/" + REPO + "/releases";
-  var NEEDS = "macOS 13 or later, Apple silicon";
   var NIGHTLIES = PAGE + "?q=nightly&expanded=true";
   var PER_PAGE = 30; // Nightly reads one page of GitHub's newest releases (t3.codes reads 10)
 
@@ -80,7 +79,7 @@
     }).catch(function () { return { state: "error" }; }); // a failed request or a body that fails to read
   }
 
-  var api = { REPO: REPO, PAGE: PAGE, NIGHTLIES: NIGHTLIES, PER_PAGE: PER_PAGE, NEEDS: NEEDS, dmgOf: dmgOf, isNightly: isNightly, pickNightly: pickNightly, version: version, mb: mb, ago: ago, lookup: lookup };
+  var api = { REPO: REPO, PAGE: PAGE, NIGHTLIES: NIGHTLIES, PER_PAGE: PER_PAGE, dmgOf: dmgOf, isNightly: isNightly, pickNightly: pickNightly, version: version, mb: mb, ago: ago, lookup: lookup };
   root.YCReleases = api;
 
   var doc = root.document;
@@ -90,12 +89,11 @@
   function ask(channel) { return lookup(channel, root.fetch.bind(root), store); }
   function each(selector, fn) { Array.prototype.forEach.call(doc.querySelectorAll(selector), fn); }
 
-  // Home page: each Download button takes the Stable DMG, and the line under the hero's names it.
-  if (doc.querySelector("[data-dl], [data-dl-meta]")) {
+  // Home page: each Download button takes the Stable DMG. The button has no line under it (Dan, 2026-11-10).
+  if (doc.querySelector("[data-dl]")) {
     ask("stable").then(function (r) {
       if (r.state !== "ok") return;
       each("[data-dl]", function (a) { a.href = r.dmg.url; });
-      each("[data-dl-meta]", function (p) { p.textContent = "Version " + version(r.release.tag_name) + " · " + mb(r.dmg.size) + " · " + NEEDS; });
     });
   }
 
