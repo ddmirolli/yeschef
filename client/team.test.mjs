@@ -1429,3 +1429,35 @@ test('a revoked invite or an answered ask does not come back when the key arrive
   assert.deepEqual(dev.later.filter((x) => x.t === 'invite' || x.t === 'pending'), []);
   lead.stop(); dev.stop();
 });
+
+test('a hello queued behind a slow step does not speak for a newer socket', async () => {
+  const { lead, dev } = await crew();
+  let hello = null;
+  const handle = dev.handle.bind(dev);
+  dev.handle = (msg) => { if (msg.t === 'hello') hello = msg; return handle(msg); };
+  dev.stop(); dev.start();
+  await until(() => dev.link === 'online' && hello, 'the dev back online');
+  const old = dev.ws;
+  let release;
+  dev.chain = new Promise((r) => { release = r; });
+  const done = dev.heard(JSON.stringify(hello));
+  dev.ws = { send() {}, close() {}, addEventListener() {} };
+  dev.link = 'connecting';
+  release();
+  await done;
+  assert.equal(dev.link, 'connecting', 'the old socket\'s hello did not open the new one');
+  dev.ws = old;
+  lead.stop(); dev.stop();
+});
+
+test('a key ask saved in the future does not hold the next one for days', async () => {
+  const { relay, lead, dev } = await crew();
+  dev.state.keyAskAt = relay.now() + 30 * 86400000;
+  let sent = 0;
+  const say = dev.say.bind(dev);
+  dev.say = (msg) => { if (msg.t === 'send' && msg.to === lead.meId) sent++; return say(msg); };
+  await dev.askKey();
+  assert.equal(sent, 1);
+  assert.ok(dev.state.keyAskAt <= relay.now());
+  lead.stop(); dev.stop();
+});
