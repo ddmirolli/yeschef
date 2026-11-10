@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { imagesIn, imageUrl, withoutImages, recommendLines } from './calls.mjs';
 import { missingShots, ASK_SHOTS } from './kitchen.mjs';
 import { agentTime, runningSeries, duration, trackWaits, withoutWaits } from './you.mjs';
+import { openKitchen, KINDS, may } from './open-kitchen.mjs';
 
 // Developer words (Dan, 2026-11-10). A stage is never stored: T3 state decides it on every poll, so no old data names one.
 export const STAGES = ['Backlog', 'Planned', 'In progress', 'In review', 'Ready to merge', 'Merged'];
@@ -574,6 +575,241 @@ function youView({ board, shown, spots, waiting, since, status, picked, trays, v
     + `<div class="you-b">${inst}${stages}${split}${held}</div></section>`;
 }
 
+// ---------- Your team, Open kitchen (step 4) ----------
+// client/open-kitchen.mjs derives the calls; this draws them in the approved parts (mock v2, round 2, 2026-11-10): the
+// call tile in The Pass, the rail card, the quiet line under the tiles, and a reader per call. Times are the team
+// reading's `now`, never the page clock. Until the team connection lands no page has a team view, so none of this
+// shows; the tests and screenshots feed it a made-up team.
+const initials = (name) => String(name || '').trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
+const face = (p, cls = '') => `<span class="av${cls ? ` ${cls}` : ''}" style="--h:${hue(String(p?.name || p?.id || '?'))}" title="${e(p?.name || 'Someone')}" aria-hidden="true">${e(initials(p?.name))}</span>`;
+const hm = (t) => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+const nf = (n) => Number(n).toLocaleString('en-US');
+const and = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+const pos = (s) => `${s}’s`;
+const teamPlateId = (c) => 'p-' + createHash('sha1').update(`team:${c.id}`).digest('hex').slice(0, 12);
+// A teammate's PR link comes from their summary: only a GitHub pull request address opens.
+const prHref = (pr) => (/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/[0-9]+$/.test(pr?.url || '') ? pr.url : `https://github.com/${String(pr?.repo || '').split('/').map(encodeURIComponent).join('/')}/pull/${Number(pr?.n) || 0}`);
+const teamPrChip = (pr) => `<a class="prc t-${PR_TONE[pr.state] || 'gray'}" href="${e(prHref(pr))}" target="_blank" rel="noopener"><i></i>${e(String(pr.repo).split('/').pop())}#${Number(pr.n)}<span>${e(pr.state)}</span>${svg('out')}</a>`;
+const kvs = (pairs) => `<div class="tvis"><div class="kvs">${pairs.map(([k, v, cls]) => `<div class="kv"><span>${e(k)}</span><b${cls ? ` class="${cls}"` : ''}>${e(v)}</b></div>`).join('')}</div></div>`;
+const vlab = (left, right = '', tone = '') => `<div class="vl"><span>${left}</span>${right ? `<b${tone ? ` class="${tone}"` : ''}>${e(right)}</b>` : ''}</div>`;
+const NC_V = 'Not checked';
+
+/** Who has seen the call, and why it reached you. Seen comes from each dev's own Yes Chef, in their summary. */
+function seenLine(c, name) {
+  const seen = c.who.filter((id) => c.seen[id] != null), not = c.who.filter((id) => c.seen[id] == null);
+  const s = seen.map((id) => `${name(id)} at ${hm(c.seen[id])}`);
+  const r = c.reach;
+  const why = r.why === 'red' ? 'Red calls reach you at once.'
+    : r.why === 'quiet' ? `${and(c.quiet.map((q) => name(q.person)))} ${c.quiet.length > 1 ? 'are' : 'is'} not reporting, so it reached you at once.`
+    : r.why === 'runs' ? `It reached you at the ${r.runs}th failed run.`
+    : r.why === 'time' ? `It reached you after ${r.min} min.`
+    : r.why === 'unseen' ? `It reached you after ${r.min} min unseen.` : '';
+  const head = seen.length ? `<b class="ok">Seen</b> by ${e(and(s))}.${not.length ? ` ${e(and(not.map(name)))} ${not.length > 1 ? 'have' : 'has'} not seen it.` : ''}`
+    : `<b class="no">Not seen</b> by ${e(and(not.map(name)))}.`;
+  return `<p class="tseen">${head} ${e(why)}</p>`;
+}
+
+/** A dev who is not reporting: their data stops at their last report, and the reader says so before anything else. */
+const quietBox = (c, name, now) => c.quiet.map((q) => `<div class="tquiet"><span class="hz" aria-hidden="true"></span><span><b>Not reporting${q.since != null ? ` since ${hm(q.since)}` : ''}.</b> `
+  + `${e(pos(name(q.person)))} Mac has sent nothing${q.since != null ? ` for ${span(Math.max(0, Math.round((now - q.since) / 60000)))}` : ''}, so what it sent last is all Yes Chef knows.</span></div>`).join('');
+
+/** The words and parts of each call: tile title and preview, the reader's lead, Suggested, its body and its actions.
+ *  acts: [kind, word, tooltip], the first one blue. */
+function callWords(c, { name, now, people }) {
+  const f = c.facts, who = name(c.who[0]);
+  const pr = c.prs[0];
+  switch (c.kind) {
+    case 'main': {
+      const n = f.cause?.pr.n, by = f.cause ? name(f.cause.person) : null, br = f.branch;
+      const checks = f.failing.length ? and(f.failing) : 'A required check';
+      const day = new Date(now); day.setHours(0, 0, 0, 0);
+      const merges = f.mergedToday.filter((m) => m.at >= day.getTime() && m.at <= now);
+      const cut = f.cause ? Date.parse(f.cause.pr.mergedAt) : null;
+      const ribbon = merges.length ? `<div class="tvis">${vlab(`Your team’s merges to ${e(br)} today`, c.since != null ? `Red since ${hm(c.since)}` : 'Red', 'red')}`
+        + `<div class="ribbon">${merges.map((m) => `<i${m.n === n ? ' class="r"' : cut != null && m.at > cut ? ' class="a"' : ''} title="#${m.n}, ${e(name(m.person))}, ${hm(m.at)}"></i>`).join('')}</div>`
+        + `<div class="raxis"><span>${hm(merges[0].at)}</span>${f.cause ? `<span>#${n} at ${hm(cut)}</span>` : ''}<span>now</span></div>`
+        + `<div class="wlg">${merges.some((m) => m.n !== n && (cut == null || m.at <= cut)) ? '<span><i class="g"></i>merged</span>' : ''}${f.cause ? `<span><i class="r"></i>#${n}, then red</span>` : ''}`
+        + `${merges.some((m) => cut != null && m.at > cut) ? '<span><i class="a"></i>merged after it</span>' : ''}</div></div>` : '';
+      const waits = f.waiting.length ? `<div class="tvis">${vlab(`Waiting on ${e(br)}`, `${plural(f.waiting.length, 'PR')} can’t merge`)}<div class="tprs">${f.waiting.map((w) => `<span class="tpr">${face(people.get(w.person), 'sm')}#${w.n}</span>`).join('')}</div></div>` : '';
+      const size = f.cause?.pr.size;
+      const facts = kvs([
+        ['PR', f.cause ? `#${n} ${f.cause.ticket.title || ''}`.trim() : NC_V],
+        ['By', f.cause ? `${pos(by)} agent, merged ${hm(cut)}` : NC_V],
+        ['Size', size && Number.isFinite(size.files) ? `${plural(size.files, 'file')}, +${nf(size.added)} −${nf(size.removed)}` : NC_V],
+        [f.failing.length > 1 ? 'Failing checks' : 'Failing check', f.failing.length ? f.failing.join(', ') : NC_V, 'mono'],
+      ]);
+      return {
+        title: f.cause ? `${br} is red after #${n} merged` : `${br} is red`,
+        preview: f.waiting.length ? `${plural(f.waiting.length, 'PR')} can’t merge until ${br} is green.` : `${br} has been red${c.since != null ? ` since ${hm(c.since)}` : ''}.`,
+        lead: `${checks} ${f.failing.length > 1 ? 'have' : 'has'} failed on ${br}${c.since != null ? ` since ${hm(c.since)}` : ''}. `
+          + (f.clean ? `Nothing merged after #${n}, so it is the cause.` : f.cause ? `#${n} merged last before it broke. More merged after it, so a roll back is not clean.` : 'No merge from your team matches the break.'),
+        suggest: f.clean ? `Roll back #${n}` : f.cause ? `Ask ${by} to fix ${br}` : `Find what broke ${br}`,
+        why: f.clean ? `Roll back #${n}. Nothing merged after it, so the revert is clean. ${pos(by)} thread keeps the work.`
+          : f.cause ? `Ask ${pos(by)} agent to fix ${br}. More merged after #${n}, so a revert would undo them too.` : `Open ${pos(br)} failing check on GitHub. No summary from your team names a merge before the break.`,
+        body: ribbon + waits + facts,
+        acts: f.clean ? [['rollback', 'Roll back', `Roll back: ${pos(by)} agent reverts #${n}`], ['reply', 'Reply', `Reply to ${pos(by)} agent`]]
+          : f.cause ? [['reply', 'Reply', `Reply to ${pos(by)} agent`]] : [],
+        reply: f.cause ? by : null,
+      };
+    }
+    case 'overlap': {
+      const top = f.files[0], [A, B] = f.sides, R = name(f.rebaser.person), K = name(f.keeper.person);
+      const kpr = (f.keeper.ticket.prs || []).find((p) => p.state === 'open'), rpr = (f.rebaser.ticket.prs || []).find((p) => p.state === 'open');
+      const same = A.person === B.person;
+      const names = same ? `${pos(name(A.person))} two threads` : `${name(A.person)} and ${name(B.person)}`;
+      const both = kpr && rpr;
+      const card = (s) => { const p = (s.ticket.prs || []).find((x) => x.state === 'open');
+        return `<div class="tcard"><div class="h">${face(people.get(s.person))}${e(name(s.person))}<span class="lb"><i class="gd c-${DOT[s.ticket.place] || 'gray'}"></i>${e(s.ticket.place || NC_V)}</span></div>`
+          + `<div class="t">${e(s.ticket.title || 'Untitled thread')}</div><div class="m">${e([p ? `PR #${p.n}` : 'No PR yet', s.ticket.working ? plural(s.ticket.working, 'agent') : '', s.ticket.startedAt ? `started ${hm(Date.parse(s.ticket.startedAt))}` : ''].filter(Boolean).join(', '))}</div></div>`; };
+      // The file's line map: each side's changed ranges, the shared lines boxed in red.
+      const ends = [...top.a, ...top.b].map((r) => Math.max(r[0], r[1]));
+      const L = Math.max(10, Math.ceil(Math.max(...ends) / 10) * 10);
+      const at = (a, b) => `left:${((a - 1) / L * 100).toFixed(2)}%;width:${(Math.max(1, b - a + 1) / L * 100).toFixed(2)}%`;
+      const lane = (s, rs) => `<div class="tr"><span>${e(name(s.person))}</span><div class="lane">${rs.map((r) => `<i style="${at(r[0], Math.max(r[0], r[1]))}"></i>`).join('')}</div></div>`;
+      const bands = top.shared.map((r) => `<div class="band" style="left:calc(62px + (100% - 62px) * ${((r[0] - 1) / L).toFixed(4)});width:calc((100% - 62px) * ${((r[1] - r[0] + 1) / L).toFixed(4)})"></div>`).join('');
+      const ticks = [1, Math.round(L / 4), Math.round(L / 2), Math.round((3 * L) / 4), L];
+      const s0 = top.shared[0];
+      const lines = s0[0] === s0[1] ? `Line ${s0[0]}` : `Lines ${s0[0]} to ${s0[1]}`;
+      const map = `<div class="tvis">${vlab(`<span class="mono">${e(top.path)}</span>`, `${lines}, both${top.shared.length > 1 ? `, and ${top.shared.length - 1} more` : ''}`, 'red')}<div class="fmap">`
+        + lane(A, top.a) + lane(B, top.b) + bands + `<div class="ticks"><span></span><div>${ticks.map((t) => `<span>${t}</span>`).join('')}</div></div></div>`
+        + (f.files.length > 1 ? `<p class="tmore">Also the same lines of ${plural(f.files.length - 1, 'more file')}: ${e(f.files.slice(1, 4).map((x) => x.path.split('/').pop()).join(', '))}${f.files.length > 4 ? ', …' : ''}</p>` : '') + '</div>';
+      return {
+        title: `${names} both change ${top.path.split('/').pop()}`,
+        preview: both ? 'Both PRs are open. Whoever merges second redoes the work.' : 'Whoever merges second redoes the work.',
+        lead: `Both change ${lines.toLowerCase()} of ${top.path}. Whoever merges second redoes part of the work.`,
+        suggest: `Ask ${R} to rebase`,
+        why: `Ask ${R} to rebase${kpr ? ` on #${kpr.n}` : ''}. ${pos(K)} thread is ${String(f.keeper.ticket.place || 'further along').toLowerCase()} and further along.`,
+        body: `<div class="duo">${card(A)}${card(B)}</div>` + map,
+        acts: [['rebase', 'Rebase', `Rebase: ${pos(R)} agent rebases${kpr ? ` on #${kpr.n}` : ''}`], ['reply', 'Reply', `Reply to ${pos(R)} agent`]],
+        reply: R,
+      };
+    }
+    case 'failing':
+      return {
+        title: `#${pr.n} checks failed ${f.redRuns} runs in a row`,
+        preview: c.since != null ? `${pos(who)} PR has been red since ${hm(c.since)}.` : `${pos(who)} PR keeps failing its checks.`,
+        lead: `${f.ticket.title || 'The thread'}: ${f.redRuns} red runs in a row${c.since != null ? `, the first at ${hm(c.since)}` : ''}.`,
+        suggest: 'Ask for a new approach',
+        why: `Request changes: ask ${pos(who)} agent for a new approach. ${f.redRuns} runs failed in a row.`,
+        body: kvs([['PR', `#${pr.n} ${f.ticket.title || ''}`.trim()], ['By', `${pos(who)} agent${f.ticket.working ? `, ${plural(f.ticket.working, 'agent')}` : ''}`], ['Red runs in a row', String(f.redRuns)], ['Red for', c.since != null ? span(Math.round((now - c.since) / 60000)) : NC_V]]),
+        acts: [['refire', 'Changes', `Request changes: ${pos(who)} agent gets your note`], ['reply', 'Reply', `Reply to ${pos(who)} agent`]],
+        reply: who,
+      };
+    case 'stuck':
+      return {
+        title: `${pos(who)} agent is quiet${pr ? ` on #${pr.n}` : ''}`,
+        preview: `The thread runs, with nothing new since ${hm(c.since)}.`,
+        lead: `${f.ticket.title || 'The thread'}. It is running, but it has sent no message, commit or check since ${hm(c.since)}.`,
+        suggest: 'Ask for status',
+        why: `Reply: ask ${pos(who)} agent where it stands.`,
+        body: kvs([['Agents', f.ticket.working ? `${f.ticket.working}, running` : NC_V], ['Quiet for', span(Math.round((now - c.since) / 60000))], ['PR', pr ? `#${pr.n}, ${pr.state}` : 'None yet'], ['Thread', f.ticket.place || NC_V]]),
+        acts: [['reply', 'Reply', `Reply to ${pos(who)} agent`], ['refire', 'Changes', `Request changes: ${pos(who)} agent gets your note`]],
+        reply: who,
+      };
+    case 'waiting': {
+      const a = f.ask, rec = /^[a-i]$/.test(a.rec || '') ? a.rec : null;
+      return {
+        title: `${pos(who)} agent waits on an answer`,
+        preview: String(a.q || 'An agent asks a question.'),
+        lead: `${f.ticket.title || 'The thread'} has waited on this since ${hm(c.since)}. It does nothing until someone answers.`,
+        suggest: rec ? `Answer ${rec}` : 'Answer it',
+        why: rec ? `Answer ${rec}, the agent’s pick.` : 'Answer it, or reply with what the agent needs.',
+        body: kvs([['Thread', f.ticket.title || NC_V], ['Waiting for', span(Math.round((now - c.since) / 60000))], ['PR', pr ? `#${pr.n}, ${pr.state}` : 'None yet'], [`${who}, last seen`, c.quiet[0]?.since != null ? hm(c.quiet[0].since) : 'Reporting']]),
+        ask: a, rec,
+        acts: [['answer', 'Send answer', `Send your answer to ${pos(who)} agent`], ['reply', 'Reply', `Reply to ${pos(who)} agent`]],
+        reply: who,
+      };
+    }
+    case 'big':
+    default:
+      return {
+        title: `#${pr.n} changes ${nf(f.lines)} lines in ${plural(f.size.files, 'file')}`,
+        preview: 'The limit is 800 lines or 30 files.',
+        lead: 'The limit is 800 lines or 30 files, with lockfiles left out.',
+        suggest: 'Split it',
+        why: `Request changes: ask ${pos(who)} agent to split #${pr.n} into smaller PRs.`,
+        body: kvs([['PR', `#${pr.n} ${f.ticket.title || ''}`.trim()], ['Changed lines', `+${nf(f.size.added)} −${nf(f.size.removed)}`], ['Files', String(f.size.files)], ['By', `${pos(who)} agent`]]),
+        acts: [['refire', 'Changes', `Request changes: ${pos(who)} agent gets your note`], ['reply', 'Reply', `Reply to ${pos(who)} agent`]],
+        reply: who,
+      };
+  }
+}
+
+/** The call's dock. Each action shows only for a role whose boxes allow it (open-kitchen.mjs may); the blue one only
+ *  when it is the suggested action. Nothing here sends yet: the page refuses a team form until the team connection
+ *  lands, and the server has no route for one. */
+function teamDock(c, w, me, id) {
+  const allowed = w.acts.filter(([kind]) => may(me, kind));
+  const blue = allowed.length && allowed[0] === w.acts[0] ? allowed[0][0] : null;
+  // Names come from teammates' summaries, so the tooltip's name is escaped here (btn writes it as markup).
+  const labelled = allowed.map(([kind, word, name]) => btn(kind, { ic: kind === 'reply' ? 'reply' : kind === 'refire' ? 'changes' : 'send', word, name: e(name), key: '' }, kind === blue, ` data-what="${e(name)}"${kind === 'reply' || kind === 'refire' ? ' data-note' : ''}`));
+  const hold = may(me, 'hold') ? btn('hold', ACT.hold, false, ' data-what="Hold until 8:00 tomorrow"') : '';
+  const settle = btn('settle', { ...ACT.settle, name: 'Settle: it leaves your Pass' }, false, ' data-what="Settle"');
+  const rows = [hold ? phoneRow('hold', ACT.hold.name) : '', phoneRow('settle', 'Settle'), allowed.length ? MORE_NOTE : ''];
+  const ask = w.ask && may(me, 'answer') ? `<fieldset class="q-set"><legend>${e(w.ask.q || 'The agent asks')}</legend>`
+    + (Array.isArray(w.ask.options) ? w.ask.options : []).filter((o) => /^[a-i]$/.test(o?.k || '')).map((o) => `<label class="opt"><input type="radio" name="c:0" value="${o.k}" data-key="${o.k}" data-need${o.k === w.rec ? ' data-rec' : ''}><span class="opt-t"><b>${o.k}.</b> ${e(o.t)}${o.k === w.rec ? ' <span class="rec">Recommended</span>' : ''}</span></label>`).join('')
+    + '</fieldset>' : '';
+  const kinds = allowed.map(([kind]) => kind);
+  const note = !allowed.length ? '' : noteField(kinds.includes('refire') ? 'needed for Changes and Reply' : kinds.includes('reply') ? `optional with ${kinds[0] === 'reply' ? 'Hold' : allowed[0][1]}, needed for Reply` : 'optional');
+  const only = allowed.length ? '' : `<p class="dock-who">Your role can see this call. Acting on it needs more from your lead.</p>`;
+  return `<aside class="dock dock-plain" aria-label="Your move"><form class="act team-act" method="post" action="/act" data-plate="${e(id)}">${only}${ask}${note}${bar(labelled, [hold, settle], rows)}</form></aside>`;
+}
+
+/** Everything Your team draws when the page has a team reading. ctx: { icons } from the board, for project marks. */
+function teamParts(team, icons) {
+  const now = Number.isFinite(team.now) ? team.now : Date.now();
+  const ok = openKitchen(team.view, { now });
+  const me = team.view.me;
+  const people = new Map(ok.people.map((p) => [p.id, p]));
+  const name = (id) => people.get(id)?.name || 'Someone';
+  const pm = (p) => mark(p || 'Project', (p && icons.get(p)) || null);
+  const calls = ok.pass.map((c) => ({ c, id: teamPlateId(c), w: callWords(c, { name, now, people }) }));
+  const who = (c) => (c.kind === 'overlap' && c.who.length > 1 ? and(c.who.map(name)) : name(c.who[0]));
+  const age = (c) => (c.since != null ? span(Math.max(0, Math.round((now - c.since) / 60000))) : '');
+  const tile = ({ c, id, w }) => `<button type="button" class="tile call-tile mail team-tile" data-plate="${e(id)}" data-thread="${e(id)}">`
+    + `<span class="ct-top"><span class="proj">${pm(c.project)}<span class="pn">${e(c.project || 'Project')}</span></span><span class="mdl">${e(who(c))}</span>${age(c) ? `<span class="age">${age(c)}</span>` : ''}</span>`
+    + `<span class="q">${e(w.title)}</span><span class="ct-pv">${e(w.preview)}</span>`
+    + `<span class="lbs">${chip(KINDS[c.kind].word, KINDS[c.kind].tone)}<span class="lb tsg">Suggested: <b>${e(w.suggest)}</b></span></span></button>`;
+  const plateOf = ({ c, id, w }) => `<article class="plate team-plate" id="${e(id)}" data-thread="${e(id)}" data-at aria-labelledby="${e(id)}-t">`
+    + `<div class="plate-bar"><span class="proj">${pm(c.project)}${e(c.project || 'Project')}</span><span class="stg"><i class="gd c-${KINDS[c.kind].tone}"></i>${e(KINDS[c.kind].word)}</span><span class="mdl">${e(who(c))}</span>`
+    + `<button type="button" class="close" data-close aria-label="Close"><kbd>esc</kbd>${svg('x')}</button></div>`
+    + `<div class="plate-main"><div class="plate-scroll" tabindex="-1"><header class="plate-head"><h2 class="plate-t" id="${e(id)}-t">${e(w.title)}</h2>`
+    + `<p class="lead"><span class="lead-q">${e(w.lead)}</span></p>${c.prs.length ? `<div class="pr-row">${c.prs.map(teamPrChip).join('')}</div>` : ''}</header>`
+    + `<section class="msg tv">${quietBox(c, name, now)}${seenLine(c, name)}${w.body}<div class="tsug"><b>Suggested</b><span>${e(w.why)}</span></div></section></div>`
+    + teamDock(c, w, me, id) + '</div></article>';
+
+  // The groups, each dev once (open-kitchen.mjs sets the order of precedence): Not reporting, In The Pass, Fixing an
+  // alarm, On track; and Not checked for a dev whose Mac has not reported at all.
+  const GROUPS = [['pass', 'In The Pass', 'blue'], ['alarm', 'Fixing an alarm', 'amber'], ['quiet', 'Not reporting', 'gray'], ['track', 'On track', 'green'], ['unknown', NC_V, 'nc']];
+  const by = Object.fromEntries(GROUPS.map(([k]) => [k, ok.people.filter((p) => p.state === k)]));
+  const live = ok.status === 'live';
+  const why = ok.why === 'offline' ? `Yes Chef’s team connection is down${ok.linkAt ? ` since ${hm(ok.linkAt)}` : ''}.` : 'No one on your team has reported yet.';
+  const segs = live ? GROUPS.flatMap(([k, , tone]) => by[k].map(() => `<i class="c-${tone}"></i>`)).join('') : '';
+  const rows = live ? GROUPS.filter(([k]) => k !== 'unknown' || by[k].length).map(([k, word, tone]) => `<p class="nf tst"><i class="gd c-${tone}"></i><span>${word}</span><span class="n">${by[k].length}</span></p>`).join('')
+    : `<p class="nf tst"><i class="gd c-nc"></i><span>${NC_V}</span><span class="n">–</span></p>`;
+  const card = `<div class="nav-card team-card" role="group" aria-label="Your team"><div class="idrow">${svg('skillet', 'ic who')}<span class="vh">Open kitchen</span><span class="segbar" aria-hidden="true">${segs}</span></div>${rows}</div>`;
+
+  // The quiet line: who else there is, so an empty Pass never reads as "nobody is working".
+  const held = new Map(); for (const c of ok.held) for (const id of c.who) if (!held.has(id)) held.set(id, c);
+  const bits = [];
+  const q = by.quiet;
+  if (q.length === 1) { const p = q[0], t = p.lastSeen ?? p.at; bits.push(`${p.name} is not reporting${Number.isFinite(t) ? ` since ${hm(t)}` : ''}.`); }
+  else if (q.length) bits.push(`${and(q.map((p) => p.name))} are not reporting.`);
+  const al = by.alarm;
+  if (al.length === 1) { const c = held.get(al[0].id); bits.push(`${al[0].name} is fixing an alarm${c?.prs[0] ? ` on #${c.prs[0].n}` : ''}.`); }
+  else if (al.length) bits.push(`${and(al.map((p) => p.name))} are fixing alarms.`);
+  if (by.track.length) bits.push(`${plural(by.track.length, 'person', 'people')} ${by.track.length === 1 ? 'is' : 'are'} on track.`);
+  if (by.unknown.length) bits.push(`${plural(by.unknown.length, 'person', 'people')} not checked.`);
+  const calm = `<p class="tcalm">${svg('done')}<span>${calls.length ? 'Nothing else needs you.' : 'Nothing from your team needs you.'}${bits.length ? ` ${e(bits.join(' '))}` : ''}</span></p>`;
+  const pass = !live ? `<div class="clear team-pass">${svg('cloche')}<p><b>${NC_V}</b></p><p class="muted">${e(why)} Your team’s calls show once it is back.</p></div>`
+    : `<div class="team-pass tp-live"><div class="folder" data-folder="team">${calls.map(tile).join('')}</div>${calm}</div>`;
+  return {
+    ok, card, pass, count: live ? calls.length : '–',
+    plates: calls.map(plateOf).join(''),
+    meta: { name: team.view.teamName || team.name || null, below: ok.people.length, mode: 'open' },
+  };
+}
+
 /** The projects a page shows, from its address: ?p=A&p=B picks A and B; no p is All projects (Dan, 2026-11-10).
  *  Empty and repeated names drop out. Null means All projects. */
 export function pickedFrom(params) {
@@ -620,7 +856,8 @@ function viewMenu({ team, projs, picked, icons, ok }) {
  *  Two views (Dan, 2026-11-07), switched by the logo: the pass, focused (stages as a list on the left, the tickets
  *  that wait on you, the open ticket beside them, like a mail client) and You, expanded (instruments over every
  *  stage as a column, 2026-11-10). The page script picks the view; the markup carries both.
- *  team: the user's team when they have reports (see viewMenu), else null. */
+ *  team: the user's team when they have reports (see viewMenu), else null. With team.view (client/team.mjs Team.view())
+ *  and team.now, Your team draws its calls (Open kitchen); without a view it says "Not checked". */
 export function renderApp({ board, picked = null, link, status, origin, answered = new Map(), projects = [], rules = null, team = null }) {
   const want = picked && picked.length ? new Set(picked) : null;
   // Missing data renders "not checked": without a good poll, show no tickets at all, never an older board.
@@ -643,6 +880,8 @@ export function renderApp({ board, picked = null, link, status, origin, answered
   const projs = [...icons.keys()].sort((a, b) => a.localeCompare(b)).map((nm) => [nm, mark(nm, icons.get(nm)), here.has(nm)]);
   // The rail's footer chip and its menu, and its stand-in in the top bar (phones). The toggle needs reports.
   const footMenu = viewMenu({ team, projs, picked: want ? [...want] : null, icons, ok: status.ok });
+  // Your team, from a team reading (team.view, client/team.mjs's shape). Without one it says "Not checked".
+  const T = team?.view ? teamParts(team, icons) : null;
   const active = STAGES.reduce((x, s) => x + (spots[s] || []).length, 0), held = HELD.reduce((x, s) => x + (spots[s] || []).length, 0);
   // Unknown is not zero: without a good poll the counts read "not checked".
   const n = (v) => (status.ok ? v : 'not checked');
@@ -667,12 +906,14 @@ export function renderApp({ board, picked = null, link, status, origin, answered
     : [...STAGES].reverse().filter((s) => spots[s]?.length).map((s) => `<i class="c-${DOT[s]}" style="flex-grow:${spots[s].length}"></i>`).join('');
   const idrow = `<div class="idrow">${svg('person', 'ic who')}<span class="vh">You</span><span class="segbar" aria-hidden="true">${segs}</span></div>`;
   // The Pass item has no cloche: the app icon beside it is the only one (Dan, 2026-11-08).
-  const nav = `<nav class="stagenav" aria-label="Stages">${nfBtn(folders[0])}<div class="nav-scroll"><div class="nav-card" role="group" aria-label="Your threads">${idrow}${line.map(nfBtn).join('')}</div>`
+  // In Your team the Pass item counts the team's calls instead of yours.
+  const passBtn = T ? nfBtn(folders[0]).replace(/<\/button>$/, `<span class="n tpn">${T.count}</span></button>`) : nfBtn(folders[0]);
+  const nav = `<nav class="stagenav" aria-label="Stages">${passBtn}<div class="nav-scroll">${T ? T.card : ''}<div class="nav-card" role="group" aria-label="Your threads">${idrow}${line.map(nfBtn).join('')}</div>`
     + `<div class="nav-card" role="group" aria-label="Off the line">${off.map(nfBtn).join('')}</div>`;
   const clear = status.ok ? `<div class="clear">${svg('cloche')}<p><b>All clear</b></p><p class="muted">Nothing needs you.</p></div>`
     : `<div class="clear">${svg('cloche')}<p><b>Not checked</b></p><p class="muted">T3 did not answer, so the Pass cannot say what waits on you.</p></div>`;
   // The Pass follows the view: in Your team it would hold your team's calls, which Yes Chef cannot read yet.
-  const teamPass = team ? `<div class="clear team-pass">${svg('cloche')}<p><b>Not checked</b></p><p class="muted">Your team's calls need the team connection, which Yes Chef does not have yet.</p></div>` : '';
+  const teamPass = T ? T.pass : team ? `<div class="clear team-pass">${svg('cloche')}<p><b>Not checked</b></p><p class="muted">Your team's calls need the team connection, which Yes Chef does not have yet.</p></div>` : '';
   const lists = teamPass + `<div class="folder" data-folder="pass">${waiting.length ? waiting.map((k) => passTile(k)).join('') : clear}</div>`
     + folders.slice(1).map(([key]) => `<div class="folder" data-folder="${e(key)}" hidden>${(key === 'Verified' ? verified : key === 'On hold' ? heldAll : spots[key] || []).map((k) => tile(k, key === 'Verified' || key === 'On hold')).join('')}</div>`).join('');
   const pass = `<section class="head" aria-labelledby="head-t"><header class="head-h"><h2 id="head-t">${svg('cloche')}<span class="head-name">The Pass</span></h2>${waiting.length ? `<span class="badge">${waiting.length}</span>` : ''}`
@@ -696,10 +937,10 @@ export function renderApp({ board, picked = null, link, status, origin, answered
   return `<header class="bar"><h1 class="brand">${logo}</h1><ul class="stats" aria-label="Counts">${stats}</ul>${lamps}${footMenu}${gear}</header>${strip}`
     + `<div class="board">${nav}${navFoot}${you}${teamWait}${pass}`
     + `<section class="reader" aria-label="Open ticket"><div class="reader-empty">${svg('cloche')}<p class="muted">Pick a ticket to read it here.</p></div></section></div>${projectOptions}`
-    + (team ? `<script type="application/json" id="yc-team">${JSON.stringify({ name: team.name || null, below: typeof team.below === 'number' ? team.below : null, mode: team.mode === 'open' || team.mode === 'brigade' ? team.mode : null }).replace(/</g, '\\u003c')}</script>` : '')
+    + (team ? `<script type="application/json" id="yc-team">${JSON.stringify(T ? T.meta : { name: team.name || null, below: typeof team.below === 'number' ? team.below : null, mode: team.mode === 'open' || team.mode === 'brigade' ? team.mode : null }).replace(/</g, '\\u003c')}</script>` : '')
     // The saved rules ride each refresh, so a second window's Settings shows them (PR-Agent r3 on #49).
     + (rules ? `<script type="application/json" id="yc-rules-now">${JSON.stringify(rules).replace(/</g, '\\u003c')}</script>` : '')
-    + `<div id="plates" hidden>${shown.filter((k) => k.place !== 'Coordinators').map((k) => plate(k, link, origin, answered, rules)).join('')}</div>`;
+    + `<div id="plates" hidden>${T ? T.plates : ''}${shown.filter((k) => k.place !== 'Coordinators').map((k) => plate(k, link, origin, answered, rules)).join('')}</div>`;
 }
 
 // Settings -> Rules (Dan, 2026-11-08; Kitchen rules until 2026-11-10), laid out like T3 Code's settings: groups of rows, each a title and a
