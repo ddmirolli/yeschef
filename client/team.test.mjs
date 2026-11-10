@@ -653,3 +653,79 @@ test('a dev whose welcome expired unread asks the lead for another, at most once
   assert.equal(relay.sql.exec('SELECT COUNT(*) AS n FROM inbox WHERE to_m = ?', lead.meId).one().n, 0);
   lead.stop(); dev.stop();
 });
+
+// PR-Agent r1 on public #7.
+
+test('a probe the relay never answers ends in a retry, not a stall', async () => {
+  const relay = fakeRelay();
+  const net = fakeNet(relay);
+  const timers = clock(relay);
+  const now = () => relay.now();
+  const lead = new Team({ state: await createTeam({ relay: 'https://relay.test', teamName: 'T', name: 'L', net, now }), net, now, timers, random: () => 1 });
+  lead.start();
+  await until(() => lead.link === 'online');
+  const { link } = await lead.invite();
+  const state = await joinTeam({ link, name: 'D', net, now });
+  lead.stop();
+  // Sockets fail to open, and /me takes the request and never answers.
+  let probes = 0;
+  const hung = { ...net, http: (method, url, ...rest) => (url.endsWith('/me') ? (probes++, new Promise(() => {})) : net.http(method, url, ...rest)), socket: (url) => { net.down = true; return net.socket(url); } };
+  const dev = new Team({ state, net: hung, now, timers, random: () => 1 });
+  dev.start();
+  for (let i = 0; i < 3 && probes === 0; i++) { await until(() => dev.link === 'waiting' || probes > 0, 'a retry or the probe'); if (probes === 0) await timers.advance(dev.retryMs); }
+  assert.equal(probes, 1);
+  assert.equal(dev.link, 'connecting');
+  await timers.advance(15000);
+  assert.equal(dev.link, 'waiting', 'the probe gave up and a retry is set');
+  dev.stop();
+});
+
+test('a hello whose socket was stopped while it read the roster goes no further', async () => {
+  const { relay, net, timers, lead, dev } = await crew();
+  dev.stop();
+  const again = new Team({ state: structuredClone(dev.state), net, now: () => relay.now(), timers });
+  const take = again.takeRoster.bind(again);
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  again.takeRoster = async (r) => { await gate; return take(r); };
+  again.ws = { close() {} }; // the socket this hello came in on
+  const hello = again.hello({ t: 'hello', me: dev.meId, role: 'member', roster: lead.rosterSigned, online: [lead.meId], inbox: [], summaries: [] });
+  again.stop();
+  release();
+  await hello;
+  assert.equal(again.link, 'stopped');
+  assert.equal(again.online.size, 0, 'nobody reads as online on a stopped team');
+  lead.stop();
+});
+
+test('a reconnect does not let a relay hand back an older summary', async () => {
+  const { relay, lead, dev } = await crew();
+  const me = await dev.member();
+  const key = await teamKey(dev.state.key);
+  const where = aad.summary(dev.state.team, dev.meId);
+  const oldBlob = await sealSigned(key, me, { v: 1, tickets: [], more: 0, at: relay.now() - 3600000 }, where);
+  const newBlob = await sealSigned(key, me, { v: 1, tickets: [], more: 0, at: relay.now() }, where);
+  await lead.takeSummary(dev.meId, newBlob, relay.now());
+  // The lead's socket comes back, and the relay's hello carries the hour-old summary.
+  await lead.hello({ t: 'hello', me: lead.meId, role: 'member', roster: lead.rosterSigned, online: [], inbox: [], summaries: [{ m: dev.meId, blob: oldBlob, at: relay.now() }] });
+  assert.equal(lead.summaries.has(dev.meId), false, 'the older one is not shown');
+  lead.stop(); dev.stop();
+});
+
+test('a full list of recent actions refuses new ones rather than forget one that ran', async () => {
+  const { relay, lead, dev, ran } = await crew();
+  const me = await lead.member();
+  const key = await teamKey(lead.state.key);
+  const where = aad.send(lead.state.team, me.id, dev.meId);
+  const seal = (nonce) => sealSigned(key, me, { k: 'act', nonce, at: relay.now(), action: { kind: 'reply', thread: 'th-parser', note: nonce } }, where);
+  const first = await seal('AAAAAAAAAAAAAAAAAAAAAA');
+  await dev.take({ item: 'i1', from: me.id, blob: first });
+  assert.equal(ran.length, 1);
+  // 499 more within the last minutes, refused or not: the list is full of ids still live.
+  for (let i = 0; i < 499; i++) dev.seen.set(`${me.id}:x${i}`, { at: relay.now(), status: 403, text: 'no' });
+  await dev.take({ item: 'i2', from: me.id, blob: await seal('BBBBBBBBBBBBBBBBBBBBBB') });
+  assert.equal(ran.length, 1, 'the new one waits');
+  await dev.take({ item: 'i3', from: me.id, blob: first });
+  assert.equal(ran.length, 1, 'the first one still never runs twice');
+  lead.stop(); dev.stop();
+});

@@ -20,6 +20,8 @@ export const BOARD_FRESH_MS = 60000;
 // A member without the team key asks the lead for another welcome at most this often.
 export const KEY_ASK_MS = 86400000;
 const SUMMARY_TICKETS = 100, SEEN_MAX = 500, STATE_V = 1;
+// A seen id is kept past the last moment its action could still be taken: its age limit plus the clock skew allowed.
+const SEEN_KEEP_MS = ACT_TTL + AUTH_SKEW_MS + 60000;
 
 /** The network as the app has it: fetch for HTTP, the platform's WebSocket for the socket. */
 export const webNet = {
@@ -83,6 +85,7 @@ export class Team {
     this.roster = null;          // the verified roster body
     this.people = new Map();     // id -> { id, sign, dh, invite, name, role, perms }
     this.summaries = new Map();  // id -> { at, body } (opened)
+    this.summaryFloor = new Map(); // id -> the newest signed time taken, kept across reconnects
     this.online = new Set();
     this.pending = new Map();    // asks to join, for inviters: m -> { m, invite, at, name, projects }
     this.invites = new Map();    // id -> { id, until, by, secret }
@@ -185,7 +188,12 @@ export class Team {
     if (code === 4004) return this.end('ended');
     // A socket that never opened shows no reason. After a few, ask the relay what it knows of this Mac.
     if (!opened && this.attempts >= 2) {
-      const why = await this.probe();
+      // The probe has a deadline: a relay that takes the request and never answers must not leave this Mac without a
+      // retry (PR-Agent r1 on public #7).
+      let timer;
+      const why = await Promise.race([this.probe(), new Promise((r) => { timer = this.timers.setTimeout(() => r(null), ASK_MS); })]);
+      this.timers.clearTimeout(timer);
+      if (this.stopped) { this.setLink('stopped'); return; }
       if (why) return this.end(why);
     }
     this.schedule();
@@ -282,11 +290,16 @@ export class Team {
   }
 
   async hello(msg) {
+    // Each await below can outlive its socket (stopped, or closed and replaced): then this hello goes no further, so a
+    // stopped team never reads as online or takes its inbox (PR-Agent r1 on public #7).
+    const ws = this.ws;
+    const gone = () => this.stopped || this.ws !== ws;
     const me = await this.member();
+    if (gone()) return;
     this.meId = me.id;
     if (msg.role === 'pending') { this.attempts = 0; this.setLink('online'); this.emit('team'); return; }
     const took = await this.takeRoster(msg.roster);
-    if (took === 'removed') return;
+    if (took === 'removed' || gone()) return;
     if (!took) {
       // A roster the pinned lead did not sign, or an older one: this relay is not to be trusted with this team.
       this.emit('error', { text: 'The relay sent a team list the lead did not sign, or an older one. Yes Chef stopped talking to it.' });
@@ -301,14 +314,16 @@ export class Team {
     this.setLink('online');
     if (this.state.status === 'pending') { this.state.status = 'member'; this.save(); this.emit('status', { status: 'member' }); }
     // Waiting messages first: the welcome among them carries the team key the rest need.
-    for (const item of msg.inbox || []) await this.take(item);
-    for (const s of msg.summaries || []) await this.takeSummary(s.m, s.blob, s.at);
-    for (const inv of msg.invites || []) await this.takeInvite(inv);
-    for (const p of msg.pending || []) await this.takePending(p);
+    for (const item of msg.inbox || []) { if (gone()) return; await this.take(item); }
+    for (const s of msg.summaries || []) { if (gone()) return; await this.takeSummary(s.m, s.blob, s.at); }
+    for (const inv of msg.invites || []) { if (gone()) return; await this.takeInvite(inv); }
+    for (const p of msg.pending || []) { if (gone()) return; await this.takePending(p); }
+    if (gone()) return;
     this.emit('team');
     if (this.isLead) await this.sendWelcomes();
     // On the roster, but no welcome came: it waited its 7 days on the relay unread. Ask the lead for another.
     else if (!this.state.key) await this.askKey();
+    if (gone()) return;
     this.flushFails = 0;
     // The relay kept our last summary; send only what changed while this Mac was away. A Viewer, or a dev who shares
     // nothing now, has it dropped.
@@ -339,6 +354,7 @@ export class Team {
       return [m.id, { id: m.id, sign: m.sign, dh: m.dh, invite: !!m.invite || m.id === body.lead, name: clean(d.name, 60) || 'Not checked', ...g }];
     }));
     for (const id of [...this.summaries.keys()]) if (!this.people.has(id)) this.summaries.delete(id);
+    for (const id of [...this.summaryFloor.keys()]) if (!this.people.has(id)) this.summaryFloor.delete(id);
     // Made a Viewer: nothing more goes out, and the relay's copy goes (PR-Agent r1 on #79).
     if (sharedBefore === true && !shares(this.me?.role)) this.unshare();
     this.emit('team');
@@ -357,8 +373,10 @@ export class Team {
       // make it look new, and an older one never replaces a newer one (PR-Agent r1 on #79).
       const signed = Number(body?.at);
       if (!Number.isFinite(signed)) { this.summaries.delete(m); this.emit('team'); return; }
-      const prev = this.summaries.get(m);
-      if (prev && signed < prev.at) return;
+      // The floor outlives the shown summary: a reconnect clears what is shown, never the newest time taken, so a
+      // relay cannot hand back an older summary after it (PR-Agent r1 on public #7).
+      if (signed < (this.summaryFloor.get(m) || 0)) return;
+      this.summaryFloor.set(m, signed);
       this.summaries.set(m, { at: Math.min(signed, this.now()), body });
     } catch { this.summaries.delete(m); }
     this.emit('team');
@@ -444,9 +462,12 @@ export class Team {
     // Seen ones get their first answer again; nothing runs twice.
     const had = this.seen.get(seenKey);
     if (had) { await this.reply(sender.id, nonce, had.status, had.text); return; }
+    // An id leaves only once its action is too old to run anyway. A full list of live ids refuses new work rather than
+    // forget one, so a replay never runs twice (PR-Agent r1 on public #7). The refusal is not kept: nothing ran.
+    for (const [k, v] of this.seen) { if (now - v.at < SEEN_KEEP_MS) break; this.seen.delete(k); }
+    if (this.seen.size >= SEEN_MAX) { await this.reply(sender.id, nonce, 429, 'Not run: too many teammate actions in the last few minutes. Try again shortly.'); return; }
     const answer = async (status, text) => {
       this.seen.set(seenKey, { at: now, status, text });
-      for (const [k, v] of this.seen) { if (this.seen.size <= SEEN_MAX && now - v.at < 2 * ACT_TTL) break; this.seen.delete(k); }
       this.save();
       this.emit('acted', { from: sender.id, name: sender.name, kind: body.action?.kind, thread: body.action?.thread, status, text });
       await this.reply(sender.id, nonce, status, text);
