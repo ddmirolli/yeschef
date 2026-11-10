@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { keysCore } from './keys.mjs';
 
 const SERVER = fileURLToPath(new URL('./server.mjs', import.meta.url));
 const clean = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(BRIGADE_|YESCHEF_)/.test(k)));
@@ -32,9 +33,10 @@ test('Settings has no Ticket layout: every ticket uses the bar, and a stored "si
   const src = readFileSync(SERVER, 'utf8');
   assert.doesNotMatch(src, /Ticket layout|name="layout"|Side panel<|pv-side|a-side|a-bottom/);
   assert.doesNotMatch(src, /getItem\('yc\.layout2'\)|store\('yc\.layout2'/);
-  // Density stays, and the keys sheet lists More's key.
+  // Density stays, and Shortcuts lists every command in client/keys.mjs, More's key among them.
   assert.match(src, /<legend>Density<\/legend>/);
-  assert.match(src, /<dt><kbd>\.<\/kbd><\/dt><dd>More: /);
+  assert.match(src, /<div id="kx-list"><\/div>/);
+  assert.deepEqual(keysCore(true).CMD['ticket.more'].keys, ['.']);
   // The bar's CSS: the blue action fills, the menu is a popover, and on a phone it opens as a sheet.
   assert.match(src, /\.abar \.ab\.fill\{background:var\(--accent\);color:#fff\}/);
   assert.match(src, /\.abar \.menu:popover-open\{display:flex/);
