@@ -266,7 +266,8 @@ own Send stay ⌘↵: the suggested action's `!dialog` keeps them apart.
 
 - With nothing changed, every key works exactly as before PR 4.
 - With a change, a new key reaches the page as its command's default key, so each action keeps one code path.
-- A command with no default key runs from the router.
+- A command with no default key runs from the router, in a dialog too. Go to a thread and Send a note to a thread
+  close Settings, New thread or a screenshot first, as ⌘K does.
 - A default key its command gave up does nothing where that command applies, and keeps its meaning elsewhere. The
   same holds when the file gives it back under a when that does not hold there.
 - A plain key typed in a field, or pressed while a dialog is open, is never a shortcut. Nor is ⌘↵ in an open

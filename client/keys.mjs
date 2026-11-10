@@ -95,6 +95,8 @@ export function keysCore(mac) {
    *  keeps its letters; with ⌥ or ⇧ they read from the physical key, as the page did for ⌥⇧⌘A. */
   function comboOf(ev) {
     var k = ev && ev.key;
+    // On a Mac, ⌥ with some letters is a dead key (⌥E starts é): the physical key names it, as Settings records it.
+    if (k === 'Dead' && ev.altKey && /^(Key[A-Z]|Digit[0-9])$/.test(ev.code || '')) k = ev.code.charAt(0) === 'K' ? ev.code.slice(3).toLowerCase() : ev.code.slice(5);
     if (!k || /^(Shift|Meta|Control|Alt|AltGraph|CapsLock|Fn|FnLock|Hyper|Super|OS|Dead|Unidentified|Process)$/.test(k)) return null;
     var code = ev.code || '', name;
     if (k.length === 1 && /^[a-z0-9]$/i.test(k)) name = k.toLowerCase();

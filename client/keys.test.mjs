@@ -267,6 +267,15 @@ test('a default key is off wherever its command applies, unless a key that holds
   assert.deepEqual(K.route(m, 'm', { ticket: true }), { off: 'ticket.merge' });
 });
 
+test('a Mac dead key under ⌥ reads as its physical key', () => {
+  assert.equal(K.comboOf(ev('Dead', { code: 'KeyE', altKey: true })), 'alt+e');
+  assert.equal(K.comboOf(ev('Dead', { code: 'KeyU', altKey: true, metaKey: true })), 'mod+alt+u');
+  assert.equal(K.comboOf(ev('Dead', { code: 'KeyE' })), null, 'a dead key alone is not a key yet');
+  assert.equal(K.comboOf(ev('Dead', { code: 'Quote', altKey: true })), null);
+  const st = K.build([{ key: 'alt+e', command: 'ticket.suggested' }]);
+  assert.deepEqual(K.route(st, K.comboOf(ev('Dead', { code: 'KeyE', altKey: true })), {}), { as: 'mod+enter', id: 'ticket.suggested' });
+});
+
 test('a shifted digit\'s sign reads as the keydown for it', () => {
   assert.equal(K.norm('!'), 'shift+1');
   assert.equal(K.norm('mod+shift+!'), 'mod+shift+1');

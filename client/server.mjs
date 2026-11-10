@@ -1924,6 +1924,7 @@ ${BAR_HTML}
   }
   function uuid(){ return window.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + String(Math.random()).slice(2); }
   var toastTimer = null;
+  // acts: [label, run, command]. A button with a command shows that command's key now (relabel follows a change).
   function toast(msg, acts, ms, bad, forId){
     clearTimeout(toastTimer); toastEl.classList.remove('counting');
     // Over an open ticket sheet the toast lives inside it, so its buttons stay clickable above the modal.
@@ -1931,7 +1932,7 @@ ${BAR_HTML}
     if (toastEl.parentNode !== host) { try { toastEl.hidePopover(); } catch (x) {} host.appendChild(toastEl); }
     $('.t-msg', toastEl).textContent = msg; toastEl.classList.toggle('bad', !!bad);
     var box = $('.t-acts', toastEl); box.textContent = ''; toastKey = null;
-    (acts || []).forEach(function(a){ var b = document.createElement('button'); b.type = 'button'; b.textContent = a[0]; if (a[2]) { var kb = document.createElement('kbd'); kb.textContent = a[2]; b.appendChild(kb); } b.onclick = function(){ hideToast(); a[1](); }; if (a[2] && a[2] === SK()) toastKey = b.onclick; box.appendChild(b); }); yieldKey();
+    (acts || []).forEach(function(a){ var b = document.createElement('button'); b.type = 'button'; b.textContent = a[0]; if (a[2]) { var kb = document.createElement('kbd'); kb.dataset.cmd = a[2]; kb.textContent = keyLabel(a[2]); kb.classList.toggle('nokey', !kb.textContent); b.appendChild(kb); } b.onclick = function(){ hideToast(); a[1](); }; if (a[2] === 'ticket.suggested') toastKey = b.onclick; box.appendChild(b); }); yieldKey();
     try { if (toastEl.matches(':popover-open')) toastEl.hidePopover(); toastEl.showPopover(); } catch (x) {}
     if (ms) toastTimer = setTimeout(hideToast, ms);
     toastFor = forId || null; yieldKey();
@@ -2323,7 +2324,7 @@ ${BAR_HTML}
     var p = pendingSends[pendingSends.length - 1]; if (!p) return false;
     var n = pendingSends.length;
     var left = Math.max(600, p.until - Date.now());
-    toast((n > 1 ? n + ' sends waiting. ' : '') + p.label, [['Undo', p.undo, keyLabel('send.undo')]], left);
+    toast((n > 1 ? n + ' sends waiting. ' : '') + p.label, [['Undo', p.undo, 'send.undo']], left);
     toastEl.style.setProperty('--undo-ms', left + 'ms'); toastEl.classList.remove('counting'); void toastEl.offsetWidth; toastEl.classList.add('counting');
     return true;
   }
@@ -2459,7 +2460,7 @@ ${BAR_HTML}
         // The Retry box says it once for a held form; the form's own line stays empty (hill climb 2 r10, Opus).
         say(f, hold && id !== 'launch' ? '' : more, hold && id !== 'launch' ? '' : 'bad');
         if (id === 'launch') { openLaunch(); say(f, more, 'bad'); }
-        var keep = mine && unconfirmed[id]; toast(named(f, text), (keep ? [['Retry', function(){ retry(id); }, SK()]] : []).concat([['Open', function(){ if (id === 'launch') openLaunch(); else select(id); }]]), keep ? 0 : 8000, true, keep ? id : null);
+        var keep = mine && unconfirmed[id]; toast(named(f, text), (keep ? [['Retry', function(){ retry(id); }, 'ticket.suggested']] : []).concat([['Open', function(){ if (id === 'launch') openLaunch(); else select(id); }]]), keep ? 0 : 8000, true, keep ? id : null);
         return;
       }
       // A refused Retry that the Pass says landed ends the not-confirmed state (a 409 "Already answered"), so its
@@ -2492,7 +2493,7 @@ ${BAR_HTML}
     unconfirmed[id] = { body: body, what: what, text: text, form: f };
     decorate(id);
     say(f, id === 'launch' ? text : '', id === 'launch' ? 'bad' : '');
-    toast(named(f, text), [['Retry', function(){ retry(id); }, SK()], ['Open', function(){ if (id === 'launch') openLaunch(); else select(id); }]], 0, true, id);
+    toast(named(f, text), [['Retry', function(){ retry(id); }, 'ticket.suggested'], ['Open', function(){ if (id === 'launch') openLaunch(); else select(id); }]], 0, true, id);
   }
   function settledUnconfirmed(id){
     if (unconfirmed[id] && unconfirmed[id].form) unconfirmed[id].form.classList.remove('held');
@@ -2966,13 +2967,15 @@ ${BAR_HTML}
     // A changed key is the shortcut's alone, so the browser never also acts on it (Hold on ⌘F opens no Find).
     if (r.as) { ev.preventDefault(); onKey(K.synth(r.as, ev)); return; }
     ev.preventDefault();
-    if (r.run && !dialog && !ev.repeat) RUN[r.run]();
+    if (r.run && !ev.repeat) RUN[r.run]();
   });
   function optionTakes(k){ return !!mounted && $$('fieldset.q-set:not([disabled]) input[type=radio][data-key="' + k + '"]', mounted).length > 0; }
-  // The commands with no default key: the router runs them.
+  // The commands with no default key: the router runs them, in a dialog too. The two that open the bar close the other
+  // dialogs first, as ⌘K does.
+  function barAt(step){ if (!bar) return; if (setDlg.open) setDlg.close(); if (launchDlg.open) launchDlg.close(); if (viewer.open) viewer.close(); bar.openAt(step); }
   var RUN = {
-    'thread.note': function(){ if (bar) bar.openAt('note'); },
-    'thread.goto': function(){ if (bar) bar.openAt('goto'); },
+    'thread.note': function(){ barAt('note'); },
+    'thread.goto': function(){ barAt('goto'); },
     'view.you': function(){ setScope('you'); },
     'view.team': function(){ if (teamNow()) setScope('team'); else toast('View: Team needs a team first.', null, 3000); }
   };
