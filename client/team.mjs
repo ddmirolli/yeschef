@@ -168,6 +168,7 @@ export class Team {
   }
   stop() {
     this.stopped = true;
+    this.attempt = (this.attempt || 0) + 1;
     this.timers.clearTimeout(this.retry); this.retry = null;
     this.timers.clearTimeout(this.summaryTimer); this.summaryTimer = null;
     this.stopBeat();
@@ -187,15 +188,18 @@ export class Team {
   async connect() {
     if (this.stopped || this.ws || this.link === 'connecting') return;
     this.setLink('connecting');
+    // A stop() while this attempt waits on the keys makes it stale: it opens nothing, and a start() after the stop owns
+    // the one socket (PR-Agent r8 on public #7).
+    const attempt = this.attempt = (this.attempt || 0) + 1;
     let ws;
     try {
       const me = await this.member();
       this.meId = me.id;
       const path = `/v1/teams/${this.state.team}/ws`;
       const auth = await authToken(me, { team: this.state.team, method: 'GET', path, now: this.now() });
-      if (this.stopped) return;
+      if (this.stopped || attempt !== this.attempt) return;
       ws = this.net.socket(`${this.state.relay.replace(/^http/, 'ws')}${path}?auth=${encodeURIComponent(auth)}`);
-    } catch { this.lost(1006); return; }
+    } catch { if (attempt === this.attempt) this.lost(1006); return; }
     this.ws = ws;
     let opened = false;
     // The relay's hello has a deadline, counted from when the socket is made: a socket that never opens, or opens and
@@ -682,7 +686,10 @@ export class Team {
         if (this.next === next) this.next = null;
         this.emit('error', { text: `The relay refused this Mac's summary: ${clean(r.text, 200)}` });
       } else {
-        // Offline, a timeout, the cap: try again later, waiting longer each time, up to five minutes.
+        // Offline, a timeout, the cap: try again later, waiting longer each time, up to five minutes. The relay may have
+        // taken it, so what it holds is not known: the next summary goes even if it matches the last one taken
+        // (PR-Agent r8 on public #7).
+        this.sentJson = null;
         this.flushFails = (this.flushFails || 0) + 1;
         this.sentAt = this.now() - this.limits.summaryMs + Math.min(RETRY.cap, this.limits.summaryMs * 2 ** Math.min(this.flushFails, 10));
       }

@@ -18,7 +18,7 @@ export function fakeSql() {
 }
 
 /** A room with a clock you move by hand, and a connect() that opens a socket the way the Worker does. */
-export function fakeRelay({ env = {}, start = Date.UTC(2026, 10, 10, 12), register = null, unregister = null } = {}) {
+export function fakeRelay({ env = {}, start = Date.UTC(2026, 10, 10, 12), register = null, wipe = null, unregister = null } = {}) {
   let clock = start;
   const open = new Set();
   const sql = fakeSql();
@@ -33,8 +33,14 @@ export function fakeRelay({ env = {}, start = Date.UTC(2026, 10, 10, 12), regist
     },
     // register(team, at): the Worker's registry call, so a test can make it fail.
     onCreate: async (team, at) => { if (register) await register(team, at); created.push([team, at]); },
-    // unregister(team, created): runs first, so a test can make the delete fail before anything goes.
-    onDelete: async (team, created) => { if (unregister) await unregister(team, created); deleted.push(team); for (const t of ['team', 'summary', 'invite', 'pending', 'inbox', 'usage']) sql.exec(`DROP TABLE IF EXISTS ${t}`); },
+    // In the Worker's order: storage goes, then the registry row. wipe(team) runs first, so a test can make the delete
+    // fail before anything goes; unregister(team, created) is the registry call.
+    onDelete: async (team, created) => {
+      if (wipe) await wipe(team);
+      for (const t of ['team', 'summary', 'invite', 'pending', 'inbox', 'usage']) sql.exec(`DROP TABLE IF EXISTS ${t}`);
+      deleted.push(team);
+      if (unregister) await unregister(team, created);
+    },
   });
   const base = 'https://relay.test';
   const relay = {

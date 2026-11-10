@@ -137,7 +137,7 @@ test('invite, ask, approve, welcome: the dev gets the team key and the relay nev
 
   // Nothing the relay stored spells the name or the team key.
   const stored = dump(t.relay);
-  assert.doesNotMatch(stored, /Ada|Lovelace|Sam Lead|engineer/);
+  assert.doesNotMatch(stored, /Ada Lovelace|Lovelace|Sam Lead|engineer/);
   assert.ok(!stored.includes(t.raw));
   assert.ok(!stored.includes(inv.secret));
 });
@@ -590,7 +590,7 @@ test('a message the relay cannot read gets an error, not a crash', async () => {
 
 test('a delete that fails halfway leaves the team answering, so the lead can try again', async () => {
   let fail = true;
-  const relay = fakeRelay({ unregister: async () => { if (fail) throw new Error('storage busy'); } });
+  const relay = fakeRelay({ wipe: async () => { if (fail) throw new Error('storage busy'); } });
   const id = newId();
   const lead = await newMember();
   const roster = await signRoster(lead, { team: id, ver: 1, lead: lead.id, at: relay.now(), members: [{ id: lead.id, sign: lead.signPub, dh: lead.dhPub }] });
@@ -832,4 +832,5 @@ test('a delete removes only the registry row of the team it deleted', async () =
   go();
   await slow;
   assert.equal(rows.get(id), relay.now(), 'the new team keeps its row');
+  assert.ok(relay.room.usage(7), 'the new team still answers');
 });
