@@ -17,6 +17,7 @@ import { parseCalls, callKey, imagesIn, imageId, shotPath, isShot, SHOT_TYPES } 
 import { act } from './actions.mjs';
 import { refuse } from './guard.mjs';
 import { BAR_CSS, BAR_HTML, barCore, installBar } from './bar.mjs';
+import { onTheme } from './theme.mjs';
 import { appendFileSync } from 'node:fs';
 
 // The desktop app's pipe. In the app this runs in an Electron utility process and talks over process.parentPort;
@@ -480,6 +481,10 @@ dialog.sheet::backdrop{background:rgba(0,0,0,.36);-webkit-backdrop-filter:blur(5
 .pv{flex:none;display:flex;flex-direction:column;gap:3px;width:92px;height:46px;padding:5px;border-radius:7px;background:var(--fill);box-sizing:border-box}
 .pv i{display:block;border-radius:3px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--sep)}
 .pv-default i{height:16px}.pv-comfortable i{height:10px}.pv-compact i{height:5px}
+/* Appearance previews keep their own colors in either theme: each shows the theme it picks. Match system is split. */
+.pv-theme{background:#E5E5EA;box-shadow:inset 0 0 0 .5px var(--sep)}.pv-theme i{height:14px;background:#FFFFFF;box-shadow:none}
+.pv-dark{background:#1C1C1E}.pv-dark i{background:#3A3A3C}
+.pv-system{background:linear-gradient(90deg,#E5E5EA 50%,#1C1C1E 50%)}.pv-system i{background:linear-gradient(90deg,#FFFFFF 50%,#3A3A3C 50%)}
 #settings .set-done{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12px;color:var(--label2)}
 /* Density: Comfortable shows one summary line; Compact shows the title alone. */
 html.d-comfortable .call-tile{gap:6px;padding:11px 14px 10px}
@@ -1308,11 +1313,12 @@ html.s-team .you{display:none}
 html.s-team .head-b>.team-pass{display:flex}
 html.s-team.v-kitchen .team-wait{display:block;padding:16px 18px;border-radius:16px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--sep)}
 `;
-const STYLE = onScale(CSS + APP_CSS + BAR_CSS);
+// Appearance (theme.mjs): every dark and light rule also answers to the html element's data-theme.
+const STYLE = onScale(onTheme(CSS + APP_CSS + BAR_CSS));
 
 const page = (body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark"><title>Yes Chef</title>
-<script>(function(){var c='v-pass d-default';try{var s=localStorage;c=(s.getItem('yc.view')==='kitchen'?'v-kitchen':'v-pass')+' d-'+({comfortable:1,compact:1}[s.getItem('yc.density')]?s.getItem('yc.density'):'default')}catch(e){}document.documentElement.className=c})()</script><style>${STYLE}</style></head><body class="pass-app"><main id="app">${body}</main>
+<script>(function(){var c='v-pass d-default';try{var s=localStorage;c=(s.getItem('yc.view')==='kitchen'?'v-kitchen':'v-pass')+' d-'+({comfortable:1,compact:1}[s.getItem('yc.density')]?s.getItem('yc.density'):'default');var t=s.getItem('yc.theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}document.documentElement.className=c})()</script><style>${STYLE}</style></head><body class="pass-app"><main id="app">${body}</main>
 <dialog class="sheet" id="sheet" aria-label="Ticket"></dialog>
 <dialog id="viewer" aria-label="Screenshot"><img alt=""><div class="v-bar"><button type="button" data-v="prev" aria-label="Previous screenshot">‹</button><span class="v-cap"></span><button type="button" data-v="next" aria-label="Next screenshot">›</button><span class="v-end"><span class="v-keys"><span class="v-arrows"><kbd>←</kbd> <kbd>→</kbd> move&nbsp;&nbsp;</span><kbd>esc</kbd> close</span><button type="button" data-v="close" aria-label="Close">✕</button></span></div></dialog>
 <div id="toast" popover="manual" role="status"><span class="t-msg"></span><span class="t-acts"></span></div>
@@ -1323,6 +1329,11 @@ const page = (body) => `<!doctype html><html lang="en"><head><meta charset="utf-
 <button type="button" class="set-tab" data-tab="keys">Shortcuts</button></nav>
 <div class="set-panes">
 <section class="set-pane" data-pane="layout">
+<fieldset><legend>Appearance</legend>
+<label class="set-o"><input type="radio" name="theme" value="system"><span>Match system<small>Light or dark, as your system is set</small></span><i class="pv pv-theme pv-system"><i></i><i></i></i></label>
+<label class="set-o"><input type="radio" name="theme" value="light"><span>Light<small>Always light</small></span><i class="pv pv-theme pv-light"><i></i><i></i></i></label>
+<label class="set-o"><input type="radio" name="theme" value="dark"><span>Dark<small>Always dark</small></span><i class="pv pv-theme pv-dark"><i></i><i></i></i></label>
+</fieldset>
 <fieldset><legend>Density</legend>
 <label class="set-o"><input type="radio" name="density" value="default"><span>Default<small>Title and the agent's summary</small></span><i class="pv pv-default"><i></i><i></i></i></label>
 <label class="set-o"><input type="radio" name="density" value="comfortable"><span>Comfortable<small>Title and one summary line</small></span><i class="pv pv-comfortable"><i></i><i></i><i></i></i></label>
@@ -1353,6 +1364,7 @@ ${kitchenPane({ rules, projects, error: rulesError })}
 <dt><kbd>⌘</kbd> <kbd>K</kbd></dt><dd>Actions: search every action, thread and setting. <kbd>↑</kbd> brings back your last action</dd>
 <dt><kbd>⌘</kbd> <kbd>T</kbd></dt><dd>New thread in T3 Code (also <kbd>⌘</kbd> <kbd>N</kbd>)</dd>
 <dt><kbd>⌘</kbd> <kbd>,</kbd></dt><dd>Settings. <kbd>?</kbd> opens Shortcuts</dd>
+<dt><kbd>⌥</kbd> <kbd>⇧</kbd> <kbd>⌘</kbd> <kbd>A</kbd></dt><dd>Appearance: Match system, Light and Dark in turn, as in T3 Code</dd>
 <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Previous and next screenshot in the viewer</dd></dl></section>
 </div></div>
 <p class="set-done"><span role="status">Saved on this Mac.</span><button type="button" class="btn fill" data-settings-done><span class="bl">Done</span><kbd>esc</kbd></button></p></dialog>
@@ -1948,13 +1960,29 @@ ${BAR_HTML}
   }
   // Settings (Gmail-style): density for the lists. Saved on this Mac only. Every ticket's actions sit in one bar at
   // its foot (Dan, 2026-11-10): the Side panel layout is gone, and a stored yc.layout2 is no longer read.
-  var prefs = { density: store('yc.density') || 'default' };
+  var prefs = { density: store('yc.density') || 'default', theme: store('yc.theme') };
   function applyPrefs(){
     if (!/^(default|comfortable|compact)$/.test(prefs.density)) prefs.density = 'default';
     ['default', 'comfortable', 'compact'].forEach(function(d){ root.classList.toggle('d-' + d, prefs.density === d); });
     $$('#settings input[name=density]').forEach(function(r){ r.checked = r.value === prefs.density; });
+    applyTheme();
     fades();
   }
+  // Appearance (PR 3 of the action bar): Match system, Light or Dark, saved on this Mac. Match system stores nothing.
+  // In the desktop app the window's own parts (title bar, menus, the update card) follow too, through the preload bridge.
+  var THEME_NAME = { system: 'Match system', light: 'Light', dark: 'Dark' };
+  function applyTheme(){
+    if (!/^(light|dark)$/.test(prefs.theme)) prefs.theme = 'system';
+    if (prefs.theme === 'system') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', prefs.theme);
+    $$('#settings input[name=theme]').forEach(function(r){ r.checked = r.value === prefs.theme; });
+    try { if (window.yeschef && typeof window.yeschef.theme === 'function') window.yeschef.theme(prefs.theme); } catch (x) {}
+  }
+  function setTheme(t){
+    prefs.theme = t; if (t === 'light' || t === 'dark') store('yc.theme', t); else forget('yc.theme');
+    applyTheme();
+  }
+  // The order of T3 Code's appearance.cycle: Match system, Light, Dark.
+  function cycleTheme(){ setTheme({ system: 'light', light: 'dark', dark: 'system' }[prefs.theme] || 'system'); toast('Appearance: ' + THEME_NAME[prefs.theme], null, 2000); }
   // Settings has sections (Dan, 2026-11-07): Layout and Shortcuts. Cmd+, opens Layout; ? opens Shortcuts.
   function openSettings(tab){
     applyPrefs(); if (typeof krRender === 'function') { krProjects(); krLive(); krRender(); krSay(krErr, !!krErr); }
@@ -2107,7 +2135,9 @@ ${BAR_HTML}
   }
   launchDlg.addEventListener('click', function(ev){ if (ev.target === launchDlg || (ev.target.closest && ev.target.closest('[data-launch-cancel]'))) launchDlg.close(); });
   setDlg.addEventListener('change', function(ev){
-    var r = ev.target; if (r.name !== 'density') return;
+    var r = ev.target;
+    if (r.name === 'theme') { setTheme(r.value); return; }
+    if (r.name !== 'density') return;
     prefs.density = r.value; store('yc.density', r.value); applyPrefs();
   });
   // The action bar's Density rows set it the way Settings does.
@@ -2603,6 +2633,8 @@ ${BAR_HTML}
     if (cmd && ck === ',') { ev.preventDefault(); if (bar) bar.close(); if (launchDlg.open) launchDlg.close(); openSettings('layout'); return; }
     if (cmd && ck === 'k' && bar) { ev.preventDefault(); if (ev.repeat) return; if (setDlg.open) setDlg.close(); if (launchDlg.open) launchDlg.close(); bar.toggle(); return; }
     if (cmd && (ck === 't' || ck === 'n')) { ev.preventDefault(); if (bar) bar.close(); if (setDlg.open) setDlg.close(); openLaunch(); return; }
+    // Option-Shift-Cmd-A: the next Appearance, as T3 Code's appearance.cycle. Option changes ev.key, so read the code.
+    if ((ev.metaKey || ev.ctrlKey) && ev.altKey && ev.shiftKey && ev.code === 'KeyA') { ev.preventDefault(); if (!ev.repeat) cycleTheme(); return; }
     if (bar && bar.isOpen()) return;
     if (setDlg.open) return;
     // The launch dialog: Cmd+Enter launches; every other key is typing.
@@ -2738,7 +2770,7 @@ ${BAR_HTML}
   bar = installBar({
     $: $, $$: $$, store: store, forget: forget, state: state, prefs: prefs, reduce: reduce,
     mounted: function(){ return mounted; }, plateNode: plateNode, keyForm: keyForm, select: select, setFolder: setFolder, listKeyOf: listKeyOf,
-    send: send, setIntent: setIntent, noting: noting, toggleView: toggleView, openLaunch: openLaunch, openSettings: openSettings, setDensity: setDensity,
+    send: send, setIntent: setIntent, noting: noting, toggleView: toggleView, openLaunch: openLaunch, openSettings: openSettings, setDensity: setDensity, setTheme: setTheme,
     liftToast: liftToast, yieldKey: yieldKey, grow: grow, views: viewsNow, setScope: setScope
   }, barCore());
 })();

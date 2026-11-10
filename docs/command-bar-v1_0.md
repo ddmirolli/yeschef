@@ -1,7 +1,7 @@
 # The ⌘K action bar, v1.0
 
 Status: PR 1 built (the bar, its motion, search, history and suggestions). PR 2 built (Send a note to any thread).
-PRs 3 and 4 are below and not built.
+PR 3 built (Appearance). PR 4 is below and not built.
 Approved look and motion: [mocks/command-bar-v3.html](mocks/command-bar-v3.html) (mock v3, Dan, 2026-11-10: "Then yes, build").
 Code: `client/bar.mjs`, tested in `client/bar.test.mjs`, wired into the page in `client/server.mjs`.
 Words: the developer words of `pass-definitions-v1_0.md`. Where the mock uses an older word, the definitions win.
@@ -72,6 +72,7 @@ groups.
 4. **View.**
    - Expand the view or Collapse the view (V).
    - View: You and View: Your team (see below).
+   - Appearance: Match system, Light and Dark (below). The current one shows **Now**.
    - Density: Default, Comfortable and Compact. The current one shows **Now**.
 5. **Settings.** Rules, Keyboard shortcuts (?), Settings (⌘,).
 6. **Threads: on the board.** Threads match only once you type: by title, project and stage, never by preview text.
@@ -113,6 +114,26 @@ PR 2. The mock's compose step, built on the ticket's own Reply.
   thread at The Pass leaves it, as any reply does.
 - **Again.** It becomes the last action, "Send a note to (title)", which opens that thread's note again. Once T3
   confirms the note, the thread is the "your last note went here" suggestion.
+
+## Appearance
+
+PR 3. Before it, the theme followed the system only.
+
+- **Three choices.** Match system, Light and Dark: three rows in the bar's View group, and Appearance at the top of
+  Settings → Layout, each with a small preview of what it picks. Keywords: theme, mode, light, dark, system, auto.
+- **Key.** ⌥⇧⌘A steps Match system, Light, Dark, in T3 Code's `appearance.cycle` order, and a toast names the new
+  one. It works with the bar, Settings or New thread open. Shortcuts lists it.
+- **Saved on this Mac** (`localStorage`: `yc.theme`). Match system saves nothing. The choice is on the page before its
+  first paint, so a Light choice on a dark Mac never flashes dark.
+- **How.** The page's dark and light rules are `prefers-color-scheme` blocks. `client/theme.mjs` writes each one twice
+  when the page is built: once for Match system (a root with no `data-theme`) and once for the choice
+  (`:root[data-theme=dark]` or `light`). The guard sits in `:where()`, so no rule changes weight, and with no choice the
+  page looks as it did. It goes on each selector's first part as "the root, or anything in it", because the view and
+  density classes sit on `<html>` itself (`.v-kitchen .rail .tile`). A block it cannot read stops the build instead of
+  staying half-themed.
+- **The desktop app.** The page tells the app through its bridge (`yeschef.theme`), and the app sets Electron's
+  `nativeTheme`, so the title bar, menus and the update card follow too. Only the board page may set it.
+- **Not changed.** The live pass's own page (`pass.py`). An agent's screenshots stay as the agent took them.
 
 ## Last action and history
 
@@ -156,6 +177,6 @@ Each PR is small, goes into main, and waits for Dan's look.
    open New thread.
 2. **Send a note to any thread (built).** The row "Send a note to a thread…" picks a thread, then a note. It reuses
    the note path (`reply`, sent with mode `queue`, as T3 Code's queue does).
-3. **Appearance.** Dark, Light and Match system, in the bar and in Settings. Today the theme follows the system only.
+3. **Appearance (built).** Dark, Light and Match system, in the bar and in Settings, and ⌥⇧⌘A.
 4. **Editable shortcuts.** Settings → Shortcuts: record a key, resolve a clash (Swap them or Keep), and Reset all.
    Saved in the shape of T3 Code's `keybindings.json`: a key, a command, and when it applies.

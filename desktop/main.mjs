@@ -27,7 +27,7 @@
 // download and the restart from a card in the window or the Yes Chef menu. YESCHEF_UPDATE_FEED points the check at a
 // feed served on 127.0.0.1, to test an update without GitHub; with --capture and YESCHEF_UPDATE_DRILL=restart, quit or
 // quit-now, the hidden window clicks through the update itself (see drill below).
-import { app, BrowserWindow, Menu, autoUpdater as squirrel, dialog, ipcMain, net, protocol, safeStorage, shell, utilityProcess } from 'electron';
+import { app, BrowserWindow, Menu, autoUpdater as squirrel, dialog, ipcMain, nativeTheme, net, protocol, safeStorage, shell, utilityProcess } from 'electron';
 import electronUpdater from 'electron-updater';
 import { createInterface } from 'node:readline';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -293,6 +293,15 @@ function fromWindow(event) {
     return !!win && event.sender === win.webContents && !!frame && frame.parent === null && (isBoard(frame.url) || frame.url.startsWith('data:text/html'));
   } catch { return false; }
 }
+// Appearance: the board's choice (Settings, the action bar, Option-Shift-Cmd-A), so the title bar, menus and the card
+// follow it too. Only the board page in this window sets it, and only to one of the three; anything else is Match system.
+ipcMain.handle('yeschef:theme', (event, t) => {
+  let fromBoard = false;
+  try { const frame = event.senderFrame; fromBoard = !!win && event.sender === win.webContents && !!frame && frame.parent === null && isBoard(frame.url); } catch { fromBoard = false; }
+  if (!fromBoard) return false;
+  nativeTheme.themeSource = t === 'light' || t === 'dark' ? t : 'system';
+  return true;
+});
 // null asks for the card showing now; { card, button } is a click, which counts only on a button of that card.
 ipcMain.handle('yeschef:card', (event, click) => {
   if (!fromWindow(event)) return null;
