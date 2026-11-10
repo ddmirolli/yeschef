@@ -252,9 +252,12 @@ rehearse() {
   password=$(/usr/bin/openssl rand -hex 16)
   echo "::add-mask::$password"
   # A throwaway identity, trusted by nothing, made and deleted inside this step.
-  /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=Yes Chef CI rehearsal" \
-    -addext "keyUsage=critical,digitalSignature" -addext "extendedKeyUsage=critical,codeSigning" \
-    -keyout "$work/key.pem" -out "$work/cert.pem" >/dev/null 2>&1
+  # The extensions come from a config file, which every OpenSSL and LibreSSL reads; LibreSSL before 3.x has no -addext.
+  printf '%s\n' '[req]' 'distinguished_name = dn' 'x509_extensions = ext' 'prompt = no' \
+    '[dn]' 'CN = Yes Chef CI rehearsal' \
+    '[ext]' 'keyUsage = critical,digitalSignature' 'extendedKeyUsage = critical,codeSigning' >"$work/req.cnf"
+  /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 1 -config "$work/req.cnf" \
+    -keyout "$work/key.pem" -out "$work/cert.pem" >/dev/null 2>&1 || die "openssl could not make the rehearsal certificate."
   /usr/bin/openssl pkcs12 -export -inkey "$work/key.pem" -in "$work/cert.pem" -out "$DIR/cert.p12" -passout "pass:$password"
   rm -f "$work/key.pem"
   # The CLI that reads the vault in a release, with no token: downloaded, checked against the pins, started.
