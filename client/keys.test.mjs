@@ -267,6 +267,36 @@ test('a default key is off wherever its command applies, unless a key that holds
   assert.deepEqual(K.route(m, 'm', { ticket: true }), { off: 'ticket.merge' });
 });
 
+test('a shifted digit\'s sign reads as the keydown for it', () => {
+  assert.equal(K.norm('!'), 'shift+1');
+  assert.equal(K.norm('mod+shift+!'), 'mod+shift+1');
+  assert.equal(K.norm(')'), 'shift+0');
+  assert.equal(K.comboOf(ev('!', { code: 'Digit1', shiftKey: true })), K.norm('!'));
+  assert.equal(K.comboOf(ev('!', { code: 'Digit1', shiftKey: true, metaKey: true })), K.norm('mod+!'));
+  assert.equal(K.label('!'), '⇧1');
+  const st = K.build([{ key: '!', command: 'view.you' }]);
+  assert.deepEqual(K.route(st, K.comboOf(ev('!', { code: 'Digit1', shiftKey: true })), {}), { run: 'view.you' });
+  // Other signs keep their own Shift, as before.
+  assert.equal(K.norm('shift+_'), '_');
+});
+
+test('an empty when survives saving where the command has its own', () => {
+  const st = K.build([{ key: 'alt+enter', command: 'ticket.suggested', when: '' }, { key: 'y', command: 'view.you', when: '' }]);
+  assert.deepEqual(st.by['ticket.suggested'], [{ key: 'mod+enter', when: '!dialog' }, { key: 'alt+enter', when: '' }]);
+  const list = K.toList(st);
+  assert.deepEqual(list, [{ key: 'y', command: 'view.you' }, { key: 'alt+enter', command: 'ticket.suggested', when: '' }]);
+  assert.deepEqual(K.build(JSON.parse(JSON.stringify(list))).by, st.by);
+});
+
+test('an open dialog keeps plain keys and ⌘↵', () => {
+  assert.equal(K.dialogKey('r'), true);
+  assert.equal(K.dialogKey('shift+1'), true);
+  assert.equal(K.dialogKey('mod+enter'), true);
+  assert.equal(K.dialogKey('mod+k'), false);
+  assert.equal(K.dialogKey('mod+shift+enter'), false);
+  assert.equal(K.dialogKey('alt+enter'), false);
+});
+
 test('a stand-in keydown is what the page handler reads for that key', () => {
   let stopped = 0;
   const real = { repeat: false, target: 'T', preventDefault: () => { stopped++; } };

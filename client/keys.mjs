@@ -62,6 +62,8 @@ export function keysCore(mac) {
 
   var NAMED = dict({ enter: 1, escape: 1, space: 1, tab: 1, backspace: 1, 'delete': 1, arrowup: 1, arrowdown: 1, arrowleft: 1, arrowright: 1, home: 1, end: 1, pageup: 1, pagedown: 1 });
   var ALIAS = dict({ esc: 'escape', 'return': 'enter', up: 'arrowup', down: 'arrowdown', left: 'arrowleft', right: 'arrowright', del: 'delete' });
+  // A shifted digit's sign, as on a US keyboard: a keydown names the digit with ⇧ (comboOf), so the file's "!" does too.
+  var SHIFT_DIGIT = dict({ '!': '1', '@': '2', '#': '3', '$': '4', '%': '5', '^': '6', '&': '7', '*': '8', '(': '9', ')': '0' });
   var MOD_ALIAS = dict({ mod: 'mod', cmd: 'mod', command: 'mod', meta: 'mod', ctrl: 'mod', control: 'mod', alt: 'alt', option: 'alt', opt: 'alt', shift: 'shift' });
   // The key alone, from the key's own name ("mod++" is mod and the plus key).
   function parse(s) {
@@ -81,6 +83,7 @@ export function keysCore(mac) {
     key = ALIAS[key] || key;
     if (!(key.length === 1 || NAMED[key] || /^f([1-9]|1[0-9]|20)$/.test(key))) return null;
     if (/\s/.test(key)) return null;
+    if (SHIFT_DIGIT[key]) { key = SHIFT_DIGIT[key]; m.shift = true; }
     // A sign carries its own Shift: "?" is the key, never "shift+/".
     if (key.length === 1 && !/^[a-z0-9]$/.test(key)) m.shift = false;
     return { mod: m.mod, alt: m.alt, shift: m.shift, key: key };
@@ -218,13 +221,14 @@ export function keysCore(mac) {
   /** The list to save: what differs from the defaults, then the entries kept for other commands. */
   function toList(st) {
     var out = [];
-    function entry(key, command, when) { var e = { key: key, command: command }; if (when) e.when = when; return e; }
+    // A when is written unless it is empty and the command's own is too: an entry with none takes the command's.
+    function entry(key, command, when, own) { var e = { key: key, command: command }; if (when || own) e.when = when; return e; }
     COMMANDS.forEach(function (c) {
       var now = st.by[c.id], dflt = defaults(c.id);
       if (same(now, dflt)) return;
       if (!now.length && dflt.length) { out.push({ command: '-' + c.id }); return; }
-      dflt.forEach(function (b) { if (!has(now, b)) out.push(entry(b.key, '-' + c.id, b.when)); });
-      now.forEach(function (b) { if (!has(dflt, b)) out.push(entry(b.key, c.id, b.when)); });
+      dflt.forEach(function (b) { if (!has(now, b)) out.push(entry(b.key, '-' + c.id, b.when, c.when)); });
+      now.forEach(function (b) { if (!has(dflt, b)) out.push(entry(b.key, c.id, b.when, c.when)); });
     });
     return out.concat(st.extra);
   }
@@ -320,12 +324,14 @@ export function keysCore(mac) {
   }
   /** Whether a key is plain (no ⌘ or ⌥): it types in a text field, so it never acts there. */
   function plain(key) { return !!key && !/^(mod|alt)\+/.test(key); }
+  /** Whether an open dialog keeps a key for itself: every plain key, and ⌘↵, which sends in the bar and in New thread. */
+  function dialogKey(key) { return plain(key) || key === 'mod+enter'; }
 
   return {
     COMMANDS: COMMANDS, CMD: CMD, FIXED: FIXED, mac: !!mac,
     parse: parse, norm: norm, comboOf: comboOf, glyphs: glyphs, label: label,
     okWhen: okWhen, holds: holds, exclusive: exclusive,
     build: build, toList: toList, keysOf: keysOf, set: set, swap: swap, reset: reset, isDefault: isDefault,
-    clash: clash, refuse: refuse, lookup: lookup, route: route, synth: synth, plain: plain
+    clash: clash, refuse: refuse, lookup: lookup, route: route, synth: synth, plain: plain, dialogKey: dialogKey
   };
 }

@@ -2953,14 +2953,14 @@ ${BAR_HTML}
   // Every key goes through the shortcuts first (client/keys.mjs). With none changed it is onKey, exactly as before.
   // A changed key reaches onKey as the key its command had by default; a command with no default key runs here; a
   // default key its command gave up does nothing where that command applies. A plain key keeps typing in a text field
-  // and belongs to an open dialog, and an option's letter comes first while a question waits.
+  // and belongs to an open dialog, as ⌘↵ does there (it sends), and an option's letter comes first while a question waits.
   document.addEventListener('keydown', function(ev){
     if (kxRec) return;
     if (!KST.changed) { onKey(ev); return; }
     var c = K.comboOf(ev), t = ev.target;
     var typing = !!(t && t.closest && t.closest('textarea, input[type=text], input[type=search], [contenteditable]'));
     var dialog = [barDlg, setDlg, launchDlg, viewer].some(function(d){ return d && d.open; });
-    if (!c || (K.plain(c) && (typing || dialog)) || (/^[a-i]$/.test(c) && optionTakes(c))) { onKey(ev); return; }
+    if (!c || (K.plain(c) && typing) || (dialog && K.dialogKey(c)) || (/^[a-i]$/.test(c) && optionTakes(c))) { onKey(ev); return; }
     var r = K.route(KST, c, { ticket: !!mounted, dialog: dialog });
     if (!r) { onKey(ev); return; }
     if (r.as) { onKey(K.synth(r.as, ev)); return; }

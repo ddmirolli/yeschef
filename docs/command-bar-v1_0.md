@@ -247,12 +247,14 @@ own Send stay ⌘↵: the suggested action's `!dialog` keeps them apart.
   `localStorage` (`yc.keys`). Open the file (Mac app only) opens it in your editor for `.json`, and makes an empty
   one first when there is none.
 - **Shape.** T3 Code's: a list of `{ "key": "mod+shift+u", "command": "view.team", "when": "ticket" }`. A key names
-  `mod`, `alt`, `shift`, then the key, joined with `+`. `mod` is ⌘ on a Mac and Ctrl elsewhere. `when` joins names
+  `mod`, `alt`, `shift`, then the key, joined with `+`. `mod` is ⌘ on a Mac and Ctrl elsewhere. A sign carries its
+  own Shift (`?`), except a shifted digit's, which reads as the digit: `!` is `shift+1`. `when` joins names
   with `&&`, each with an optional `!`: `ticket` (a ticket is open) and `dialog` (the bar, Settings, New thread or a
   screenshot is open). No chords.
 - **Changes only.** The list holds what differs from the defaults, as VS Code's does. An entry adds a key to its
   command. `-command` with a key takes that key away. `-command` with no key takes every key away. An entry with no
-  `when` takes its command's. An empty list is every default.
+  `when` takes its command's; `"when": ""` applies everywhere, and is written out when the command's own is not
+  empty. An empty list is every default.
 - **Edits by hand.** The app reads the file at start and each time the window comes back, so an edit applies when
   you return. An entry Yes Chef cannot use is named under the buttons and skipped: a key it cannot read, a when it
   cannot read, or a key Settings would refuse (macOS's, a fixed key, a suggested-action key with no ⌘ or ⌥). Where
@@ -267,7 +269,8 @@ own Send stay ⌘↵: the suggested action's `!dialog` keeps them apart.
 - A command with no default key runs from the router.
 - A default key its command gave up does nothing where that command applies, and keeps its meaning elsewhere. The
   same holds when the file gives it back under a when that does not hold there.
-- A plain key typed in a field, or pressed while a dialog is open, is never a shortcut.
+- A plain key typed in a field, or pressed while a dialog is open, is never a shortcut. Nor is ⌘↵ in an open
+  dialog: it sends there, in the bar and in New thread.
 - While a question waits, its option letters come before any shortcut.
 
 ## PR split
