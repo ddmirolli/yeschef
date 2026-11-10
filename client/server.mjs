@@ -2968,6 +2968,9 @@ ${BAR_HTML}
   // and belongs to an open dialog, as ⌘↵ does there (it sends), and an option's letter comes first while a question waits.
   document.addEventListener('keydown', function(ev){
     if (kxRec) return;
+    // A key an input method uses while it composes text (Japanese, Chinese) is the method's alone, as in the action bar:
+    // Esc or ⌘↵ then never leaves, or sends half a word. Safari's last key of a composition reads as keyCode 229.
+    if (ev.isComposing || ev.keyCode === 229) return;
     if (!KST.changed) { onKey(ev); return; }
     var c = K.comboOf(ev), t = ev.target;
     var typing = !!(t && t.closest && t.closest('textarea, input[type=text], input[type=search], [contenteditable]'));
@@ -3044,7 +3047,11 @@ ${BAR_HTML}
     var fixed = K.FIXED.filter(function(f){ return hit(['Fixed', f.t, f.d || ''].concat(f.keys.map(K.label))); });
     var html = groups.map(function(g){ return '<h3 class="kgroup">' + escH(g) + '</h3><div class="kr-group kx-group">' + rows[g].join('') + '</div>'; }).join('')
       + (fixed.length ? '<h3 class="kgroup">Fixed</h3><div class="kr-group kx-group">' + fixed.map(kxFixed).join('') + '</div>' : '');
+    // A render keeps the focus where it was, on the same button in the same row: a save that ends later renders too.
+    var fa = document.activeElement, frow = fa && kxList.contains(fa) && fa.closest('[data-kx]'), fsel = null;
+    if (frow) fsel = '[data-kx="' + frow.getAttribute('data-kx') + '"]' + (['data-kx-ed', 'data-kx-reset', 'data-kx-swap', 'data-kx-keep'].filter(function(n){ return fa.hasAttribute(n); }).map(function(n){ return ' [' + n + ']'; })[0] || '');
     kxList.innerHTML = html || '<p class="kx-none">No shortcut matches “' + escH(raw) + '”.</p>';
+    var fback = fsel && kxList.querySelector(fsel); if (fback && fback !== document.activeElement) fback.focus();
     var ra = $('[data-kx-resetall]'); if (ra) ra.disabled = !KST.changed;
     var fb = $('[data-kx-file]'); if (fb) fb.hidden = !KFILE;
     var nt = $('.kx-note'), notes = (kxFileNote ? [kxFileNote] : []).concat(KST.notes || []);

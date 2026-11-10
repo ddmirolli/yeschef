@@ -267,7 +267,8 @@ own Send stay ⌘↵: the suggested action's `!dialog` keeps them apart.
 
 **Routing.**
 
-- With nothing changed, every key works exactly as before PR 4.
+- With nothing changed, every key works exactly as before PR 4, except a key an input method uses while it composes
+  text (Japanese, Chinese): it is the method's alone, as in the action bar.
 - With a change, a new key reaches the page as its command's default key, so each action keeps one code path.
 - A command with no default key runs from the router, in a dialog too. Go to a thread and Send a note to a thread
   close Settings, New thread or a screenshot first, as ⌘K does.
