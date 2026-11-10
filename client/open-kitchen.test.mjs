@@ -634,3 +634,22 @@ test('r4: a Mac whose summary left threads out qualifies the shared files list t
   assert.ok(page({ view: v, now: NOWL }).includes('1 Mac sent only part of its threads.'));
   assert.equal(board(viewL()).files.capped, 0);
 });
+
+// ---- PR B, PR-Agent round 5 ----
+test('r5: a merged thread with one PR of no merge time has no known end, so it is not drawn as merged early', () => {
+  const v = viewL();
+  const maya = who(v, 'maya').summary.tickets.find((k) => k.place === 'Merged');
+  const first = board(v).timeline.rows.find((r) => r.person === 'maya').bars.find((b) => b.thread === maya.thread);
+  assert.ok(first && first.merged !== null);
+  maya.prs.push({ ...maya.prs[0], n: 999, mergedAt: null });
+  assert.equal(board(v).timeline.rows.find((r) => r.person === 'maya').bars.find((b) => b.thread === maya.thread), undefined);
+});
+
+test('r5: checked changes with no repo are not checked, never counted as read', () => {
+  const v = viewL();
+  const B0 = board(v).files;
+  ticket(v, 'ada').changes.repo = null;
+  const F = board(v).files;
+  assert.deepEqual([F.compared, F.unread], [B0.compared - 1, B0.unread + 1]);
+  assert.ok(!F.rows.some((f) => f.path === 'web/src/sidebar.tsx'));
+});

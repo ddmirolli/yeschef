@@ -417,7 +417,8 @@ export function kitchenBoard(ok, { now, want = null }) {
     const threads = c.kind === 'overlap' ? c.facts.sides.map((s) => s.ticket.thread) : [c.thread];
     for (const t of threads) if (t && !callOf.has(t)) callOf.set(t, { id: c.id, kind: c.kind, mine });
   }
-  const mergedAt = (k) => { const ts = k.prs.filter((pr) => pr.state === 'merged' && pr.mergedAt !== null).map((pr) => pr.mergedAt); return ts.length ? Math.max(...ts) : null; };
+  // A thread is done at its last PR's merge: with any merged PR's time missing, when it was done is not known.
+  const mergedAt = (k) => { const ts = k.prs.filter((pr) => pr.state === 'merged').map((pr) => pr.mergedAt); return ts.length && ts.every((t) => t !== null) ? Math.max(...ts) : null; };
   const rowsAll = [];
   for (const p of ok.people) {
     const quietAt = p.state === 'quiet' ? num(p.lastSeen) ?? num(p.at) : null;
@@ -458,9 +459,10 @@ export function kitchenBoard(ok, { now, want = null }) {
 
   // Files two live threads change: one row per file, in one repo and base. Same lines is the Overlap call; different
   // lines are fine; a side with no ranges read is not checked.
+  const readable = (k, live) => comparable(k, live) && !!k.changes.repo;
   const byFile = new Map();
   for (const { k, person, live } of all) {
-    if (!comparable(k, live) || !k.changes.repo) continue;
+    if (!readable(k, live)) continue;
     for (const f of k.changes.files) {
       if (f.x || typeof f.p !== 'string' || !f.p) continue;
       const key = `${k.changes.repo.toLowerCase()}\n${k.changes.base}\n${f.p}`;
@@ -487,9 +489,10 @@ export function kitchenBoard(ok, { now, want = null }) {
   const RANKF = { same: 0, nc: 1, different: 2 };
   files.sort((a, z) => RANKF[a.state] - RANKF[z.state] || a.path.localeCompare(z.path));
   // When the list was read: the oldest read among the threads it compares.
-  const reads = all.filter(({ k, live }) => comparable(k, live)).map(({ k }) => k.changes.at);
-  const unread = all.filter(({ k, live }) => live && Object.hasOwn(STAGE_RANK, k.place ?? '') && k.place !== 'Merged' && k.changes?.state !== 'checked').length;
-  const partial = all.filter(({ k, live }) => comparable(k, live) && (k.changes.more ?? 0) > 0).length;
+  const reads = all.filter(({ k, live }) => readable(k, live)).map(({ k }) => k.changes.at);
+  // Not checked: a live thread at work whose files were not sent, or were sent with no repo to compare them in.
+  const unread = all.filter(({ k, live }) => live && Object.hasOwn(STAGE_RANK, k.place ?? '') && k.place !== 'Merged' && !readable(k, live)).length;
+  const partial = all.filter(({ k, live }) => readable(k, live) && (k.changes.more ?? 0) > 0).length;
   const filesAt = reads.length && reads.every((t) => t !== null) ? Math.min(...reads) : null;
 
   return {
