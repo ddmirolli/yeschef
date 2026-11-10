@@ -1,0 +1,14 @@
+// Yes Chef marketing site: a static-assets Worker on Cloudflare, served at yeschef.codes.
+// Deploy from the repo root with Wrangler 4 and this config. The Cloudflare token and account id
+// come from the RW 1Password service account at run time, never from a file.
+{
+  "name": "yeschef-site",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "../../site"
+  },
+  "routes": [
+    { "pattern": "yeschef.codes", "custom_domain": true }
+  ],
+  "workers_dev": false
+}

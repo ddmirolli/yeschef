@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en" data-view="team">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Yes Chef | The French Brigade layer for agentic dev teams</title>
+  <meta name="description" content="The French Brigade layer for agentic dev teams. Run your team’s T3 Code in our open-source layer, work The Pass like a Chef de Cuisine, and let every agent cook.">
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f7f7f5" media="(prefers-color-scheme: light)">
+  <link rel="icon" href="assets/yeschef-icon.svg" type="image/svg+xml">
+  <link rel="preload" href="fonts/fraunces-latin-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/figtree-latin-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/fraunces-latin-var-italic.woff2" as="font" type="font/woff2" crossorigin>
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Yes Chef | The French Brigade layer for agentic dev teams">
+  <meta property="og:description" content="Run your team’s T3 Code in our open-source layer, work The Pass like a Chef de Cuisine, and let every agent cook.">
+  <script>
+    /* The "I run" view before the first paint: ?view= wins, then the visitor's last pick, then team. */
+    (function () {
+      var view = new URLSearchParams(location.search).get("view");
+      if (view !== "solo" && view !== "team") { try { view = localStorage.getItem("yc.view"); } catch (e) { view = null; } }
+      if (view === "solo" || view === "team") document.documentElement.setAttribute("data-view", view);
+    })();
+  </script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <nav class="nav" aria-label="Site">
+    <div class="nav-inner">
+      <a class="brand" href="#top" aria-label="Yes Chef home">
+        <img src="assets/yeschef-icon.svg" alt="" width="28" height="28">
+        <span>Yes Chef</span>
+      </a>
+      <div class="nav-right">
+        <div class="persona persona-nav">
+          <span class="persona-label" id="persona-nav-label">I run</span>
+          <span class="persona-seg" role="group" aria-labelledby="persona-nav-label">
+            <span class="persona-thumb" aria-hidden="true"></span>
+            <button type="button" data-view="solo" aria-pressed="false">solo</button>
+            <button type="button" data-view="team" aria-pressed="true">team</button>
+          </span>
+        </div>
+        <a class="nav-link" href="/download">Download</a>
+        <a class="nav-link nav-gh" href="https://github.com/ddmirolli/yeschef" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg><span class="nav-gh-text">GitHub</span></a>
+      </div>
+    </div>
+  </nav>
+
+  <main id="main">
+    <section class="hero" id="top">
+      <div class="hero-grid" aria-hidden="true"></div>
+
+      <div class="hero-float" aria-hidden="true">
+        <span class="hero-float-mark hf-opencode"><span class="hero-float-card"><img src="assets/opencode-dark.svg" alt=""><span class="hero-float-station">Rôtisseur</span></span></span>
+        <span class="hero-float-mark hf-antigravity"><span class="hero-float-card"><img src="assets/antigravity.svg" alt=""><span class="hero-float-station">Entremetier</span></span></span>
+        <span class="hero-float-mark hf-claude"><span class="hero-float-card"><img src="assets/claude-ai-icon.svg" alt=""><span class="hero-float-station">Saucier</span></span></span>
+        <span class="hero-float-mark hf-codex"><span class="hero-float-card"><img src="assets/openai_dark.svg" alt=""><span class="hero-float-station">Garde manger</span></span></span>
+        <span class="hero-float-mark hf-grok"><span class="hero-float-card"><img src="assets/grok-dark.svg" alt=""><span class="hero-float-station">Poissonnier</span></span></span>
+        <span class="hero-float-mark hf-t3"><span class="hero-float-card"><img src="assets/t3code-mark.svg" alt=""><span class="hero-float-station">Cuisine</span></span></span>
+        <span class="hero-float-mark hf-gemini"><span class="hero-float-card"><img src="assets/gemini-mark.svg" alt=""><span class="hero-float-station">Tournant</span></span></span>
+        <span class="hero-float-mark hf-cursor"><span class="hero-float-card"><img src="assets/cursor_light.svg" alt=""><span class="hero-float-station">Pâtissier</span></span></span>
+      </div>
+
+      <div class="container hero-inner">
+        <h1 class="hero-title display">
+          <span class="swap" data-rise style="--d:80ms"><span data-swap="solo">The French Brigade layer for agentic coding.</span><span data-swap="team">The French Brigade layer for agentic dev teams.</span></span>
+        </h1>
+        <p class="hero-sub swap" data-rise style="--d:220ms"><span data-swap="solo">Run T3 Code in our <span class="nowrap">open-source</span> layer, work <span class="nowrap">The Pass</span> like a <span class="nowrap">Chef de Cuisine</span>, and let your agents cook.</span><span data-swap="team">Run your team’s T3 Code in our <span class="nowrap">open-source</span> layer, work <span class="nowrap">The Pass</span> like a <span class="nowrap">Chef de Cuisine</span>, and let every agent cook.</span></p>
+        <div class="persona" data-rise style="--d:300ms">
+          <span class="persona-label" id="persona-label">I run</span>
+          <span class="persona-seg" role="group" aria-labelledby="persona-label">
+            <span class="persona-thumb" aria-hidden="true"></span>
+            <button type="button" data-view="solo" aria-pressed="false">solo</button>
+            <button type="button" data-view="team" aria-pressed="true">team</button>
+          </span>
+        </div>
+        <div class="hero-actions" data-rise style="--d:340ms">
+          <a class="btn btn-primary btn-lg" href="/download" data-dl><svg class="btn-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span>Download for Mac</span></a>
+          <p class="dl-meta"><span data-dl-meta>macOS 13 or later, Apple silicon</span><br>Needs T3 Code on the same Mac.</p>
+          <a class="hero-source" href="https://github.com/ddmirolli/yeschef" target="_blank" rel="noopener noreferrer"><svg class="hero-source-mark" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12a11.5 11.5 0 007.86 10.93c.58.1.79-.25.79-.56v-2c-3.2.69-3.88-1.37-3.88-1.37-.52-1.33-1.27-1.69-1.27-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.76 2.68 1.25 3.33.96.1-.75.4-1.25.72-1.54-2.55-.29-5.24-1.27-5.24-5.67 0-1.25.45-2.28 1.18-3.08-.12-.29-.51-1.45.11-3.02 0 0 .96-.31 3.15 1.18a10.96 10.96 0 015.74 0c2.19-1.49 3.15-1.18 3.15-1.18.62 1.57.23 2.73.11 3.02.74.8 1.18 1.83 1.18 3.08 0 4.41-2.7 5.38-5.27 5.66.41.36.78 1.06.78 2.13v3.16c0 .31.21.67.8.56A11.5 11.5 0 0023.5 12C23.5 5.65 18.35.5 12 .5z"/></svg><span>Steal our code (legally)</span><svg class="hero-source-arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg></a>
+        </div>
+
+        <!-- The live demo (Dan, 2026-11-09): the agents view runs the app itself on a made-up kitchen (demo/app.html,
+             built by tools/site_demo.mjs); the devs view is a clickable mock of a lead's Pass (demo/team.html).
+             site.js loads the frame for the view on screen, and the other one on the first flip. -->
+        <div class="demo swap" data-rise style="--d:520ms">
+          <figure class="board demo-fig" data-swap="solo">
+            <div class="board-frame demo-frame"><iframe data-src="demo/app.html" title="Yes Chef demo: the app on a made-up kitchen"></iframe></div>
+            <figcaption>The app itself, on a made-up kitchen. Pick a ticket, answer it, send it out or refire it. The agents answer in a few seconds.</figcaption>
+          </figure>
+          <figure class="board demo-fig" data-swap="team">
+            <div class="board-frame demo-frame"><iframe data-src="demo/team.html" title="Teams demo: a lead’s Pass, a clickable mock"></iframe></div>
+            <figcaption>Teams is in design. This is a clickable mock of a lead’s Pass: handle a card, open the kitchen, switch the mode.</figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section id="modes" aria-labelledby="modes-title">
+      <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+        <symbol id="ic-skillet" viewBox="0 0 24 24"><g transform="translate(8.98 10.62)"><circle r="3.50" fill="currentColor" fill-opacity=".28"/><circle r="5.1" fill="none" stroke="currentColor" stroke-width="1.0"/><g transform="rotate(30)"><path d="M-4.26 -2.8 L-6.98 -1.76 L-7.40 -1.15 L-7.40 1.15 L-6.98 1.76 L-4.26 2.8" fill="none" stroke="currentColor" stroke-width="0.75" stroke-linejoin="miter"/><path d="M4.80 -0.8 L14.85 -1.1 L15.30 -0.65 L15.30 0.65 L14.85 1.1 L4.80 0.8 Z M13.25 0 a.5 .5 0 1 0 1 0 a.5 .5 0 1 0 -1 0 Z" fill="currentColor" fill-rule="evenodd"/></g></g></symbol>
+        <symbol id="ic-toque" viewBox="0 0 24 24"><path d="M7.6 16.1V12.55A3.3 3.3 0 0 1 9.35 6.35A3.05 3.05 0 0 1 14.65 6.35A3.3 3.3 0 0 1 16.4 12.55V16.1" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/><path d="M10.55 12.1V15.3" stroke="currentColor" stroke-width="0.75" stroke-linecap="round"/><path d="M13.45 12.1V15.3" stroke="currentColor" stroke-width="0.75" stroke-linecap="round"/><path d="M6.9 17.75H17.1L16.10 19.15H7.90Z" fill="currentColor"/></symbol>
+      </svg>
+      <div class="container">
+        <div class="section-head">
+          <h2 id="modes-title" class="display swap"><span data-swap="solo">Your rules go out with every thread.</span><span data-swap="team">Choose what waits for your Go.</span></h2>
+          <p class="lede swap"><span data-swap="solo">Settings, Rules: how agents ask you, which bot reviews their pull requests, which tools they use. Set them for all projects or one. <strong>The Pass checks the calls that come back.</strong></span><span data-swap="team">A kitchen runs in one of two modes. You pick one when you open it, and switch in Settings, Rules, for all projects or one. <strong>Shared code waits for a Go in both.</strong></span></p>
+        </div>
+        <div class="swap modes-swap">
+          <div class="rules-spot" data-swap="solo">
+            <div class="kr" aria-label="Rules, as in the app">
+              <div class="kr-r"><div><b>Screenshots in visual calls</b><span>A call about something you can see shows each option, mocked up if it is not built yet.</span></div><i class="kr-sw" aria-label="On"></i></div>
+              <div class="kr-r"><div><b>Decision form</b><span>How agents ask you to decide.</span></div><i class="kr-sel">Numbered and lettered</i></div>
+              <div class="kr-r"><div><b>Pull-request reviewer</b><span>The bot agents wait for, and answer, before they ask you to merge.</span></div><i class="kr-sel">CodeRabbit</i></div>
+              <div class="kr-r"><div><b>Browser</b><span>Where agents test in a browser.</span></div><i class="kr-sel">Browserbase</i></div>
+            </div>
+            <div class="brief-out">
+              <p class="brief-k">What the agent gets, under your prompt</p>
+<div class="brief-pre" aria-label="The rules lines an agent gets"><p>---</p><p>Rules (Yes Chef):</p><p class="bp-i">- A decision about anything I can see (a screen, a layout, a pill, copy on a page) shows a screenshot of each option, labelled with its letter. Mock up an option that is not built yet.</p><p class="bp-i">- CodeRabbit is the pull-request reviewer. Wait for its review and resolve each finding before you ask me to merge. Request no other review bot.</p><p class="bp-i">- Use Browserbase for all browser work. Local Chrome and computer use need my permission.</p></div>
+              <button type="button" class="demo-link" data-demo-rules>Open Rules in the demo</button>
+            </div>
+          </div>
+          <div class="modes" data-swap="team">
+            <div class="mode-card">
+              <h3><span class="mode-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#ic-skillet"/></svg></span>Open kitchen</h3>
+              <p>Each dev ships under your repo’s own rules, and Plating on their tickets is their own look. Only the exceptions reach your pass.</p>
+              <p class="reach"><b class="flag f-coll">Collision</b><b class="flag f-shared">Shared code</b><b class="flag f-unpl">Unplanned</b><b class="flag f-nc">Not checked</b></p>
+              <button type="button" class="demo-link" data-demo-mode="open">Run the demo as an Open kitchen</button>
+            </div>
+            <div class="mode-card">
+              <h3><span class="mode-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#ic-toque"/></svg></span>French Brigade</h3>
+              <p>Every ticket also waits at Plating for a Go from you or a sous chef you allow. Same board, one more kind of card.</p>
+              <p class="reach"><b class="flag f-coll">Collision</b><b class="flag f-shared">Shared code</b><b class="flag f-unpl">Unplanned</b><b class="flag f-nc">Not checked</b><b class="flag f-plate">Plating</b></p>
+              <button type="button" class="demo-link" data-demo-mode="brigade">Run the demo as a French Brigade</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="problem" aria-labelledby="problem-title">
+      <div class="container">
+        <div class="section-head">
+          <h2 id="problem-title" class="display swap"><span data-swap="solo">We kept missing what our agents asked us.</span><span data-swap="team">Nobody sees what your team’s agents are doing.</span></h2>
+          <p class="lede swap"><span data-swap="solo">Running ten agents in T3 Code is easy. Keeping up with them was the hard part. We tried three fixes before we built Yes Chef.</span><span data-swap="team">Each dev runs their own T3 Code, their own subscriptions and their own agents. T3 Code shows you your threads and nobody else’s.</span></p>
+        </div>
+        <div class="problem-grid">
+          <ol class="story">
+            <li><span class="swap"><span data-swap="solo"><b>A coordinator thread.</b> We ran an air traffic control thread to route the work. It became a feed of status updates, and the questions that needed us scrolled past.</span><span data-swap="team"><b>Who’s on what.</b> Each dev’s threads live in their own T3 Code, where nobody else can see them. Standup is everyone reading theirs out loud.</span></span></li>
+            <li><span class="swap"><span data-swap="solo"><b>Agents grading their own work.</b> We let agents review, fix and merge in a loop. Some of it reached production without the final look it needed.</span><span data-swap="team"><b>Two tickets, one file.</b> Two devs’ agents rewrite the same file at the same time, and you find out when the second PR won’t rebase.</span></span></li>
+            <li><span class="swap"><span data-swap="solo"><b>T3 Code’s inbox.</b> We hid working and settled threads. It still filled faster than we could clear it, and rulings got lost or backed up.</span><span data-swap="team"><b>Shared code.</b> A change to auth or a contract merges before the people who build on it have seen it, and their tickets break.</span></span></li>
+          </ol>
+          <figure class="noise" aria-hidden="true">
+            <figcaption class="swap"><span data-swap="solo">Twelve threads. Three need you. Which three?</span><span data-swap="team">Five devs, forty threads. Two changed the same file.</span></figcaption>
+            <div class="noise-window swap"><ul class="noise-feed" data-swap="solo"><li class=""><span class="who">claude · 903</span>pushed 3 commits</li><li class="q"><span class="who">codex · 904</span>Question: per location or whole account?</li><li class=""><span class="who">cursor · 910</span>tests passing</li><li class=""><span class="who">opencode · 901</span>reading the brief</li><li class=""><span class="who">claude · 906</span>opened draft PR #212</li><li class="q"><span class="who">codex · 907</span>Ruling needed: drive time or arrival window?</li><li class=""><span class="who">grok · 908</span>lint fixed</li><li class=""><span class="who">claude · 911</span>rebased on main</li><li class=""><span class="who">cursor · 912</span>4 commits</li><li class="q"><span class="who">claude · 905</span>Ready for your look: lost review alerts</li><li class=""><span class="who">codex · 909</span>retrying the build</li><li class=""><span class="who">opencode · 913</span>tests passing</li><li class=""><span class="who">claude · 903</span>pushed 3 commits</li><li class="q"><span class="who">codex · 904</span>Question: per location or whole account?</li><li class=""><span class="who">cursor · 910</span>tests passing</li><li class=""><span class="who">opencode · 901</span>reading the brief</li><li class=""><span class="who">claude · 906</span>opened draft PR #212</li><li class="q"><span class="who">codex · 907</span>Ruling needed: drive time or arrival window?</li><li class=""><span class="who">grok · 908</span>lint fixed</li><li class=""><span class="who">claude · 911</span>rebased on main</li><li class=""><span class="who">cursor · 912</span>4 commits</li><li class="q"><span class="who">claude · 905</span>Ready for your look: lost review alerts</li><li class=""><span class="who">codex · 909</span>retrying the build</li><li class=""><span class="who">opencode · 913</span>tests passing</li></ul><ul class="noise-feed" data-swap="team"><li class=""><span class="who">maya · claude</span>pushed 3 commits</li><li class="q"><span class="who">kai · codex</span>edited contracts/orchestration.ts</li><li class=""><span class="who">sam · cursor</span>opened draft PR #418</li><li class=""><span class="who">lee · opencode</span>tests passing</li><li class="q"><span class="who">jon · claude</span>edited contracts/orchestration.ts</li><li class=""><span class="who">kai · grok</span>lint fixed</li><li class=""><span class="who">jon · codex</span>Question: group by parent or by project?</li><li class="q"><span class="who">maya · codex</span>changed auth/session.ts</li><li class=""><span class="who">sam · opencode</span>reading the brief</li><li class=""><span class="who">lee · claude</span>rebased on main</li><li class=""><span class="who">kai · claude</span>4 commits</li><li class=""><span class="who">jon · cursor</span>retrying the build</li><li class=""><span class="who">maya · claude</span>pushed 3 commits</li><li class="q"><span class="who">kai · codex</span>edited contracts/orchestration.ts</li><li class=""><span class="who">sam · cursor</span>opened draft PR #418</li><li class=""><span class="who">lee · opencode</span>tests passing</li><li class="q"><span class="who">jon · claude</span>edited contracts/orchestration.ts</li><li class=""><span class="who">kai · grok</span>lint fixed</li><li class=""><span class="who">jon · codex</span>Question: group by parent or by project?</li><li class="q"><span class="who">maya · codex</span>changed auth/session.ts</li><li class=""><span class="who">sam · opencode</span>reading the brief</li><li class=""><span class="who">lee · claude</span>rebased on main</li><li class=""><span class="who">kai · claude</span>4 commits</li><li class=""><span class="who">jon · cursor</span>retrying the build</li></ul></div>
+          </figure>
+        </div>
+        <p class="problem-loop display swap"><span data-swap="solo">So how does a hundred-year-old system from French cooking help your agents ship more code, better code, faster?</span><span data-swap="team">So how does a hundred-year-old system from French cooking help a dev team ship more code, better code, faster?</span></p>
+      </div>
+    </section>
+
+    <section id="brigade" aria-labelledby="brigade-title">
+      <div class="container">
+        <div class="section-head">
+          <h2 id="brigade-title" class="display">French kitchens solved agentic coding a long time ago.</h2>
+          <p class="lede swap"><span data-swap="solo">A great kitchen turns out creative, exacting work night after night, at volume, without it slipping. Escoffier’s French Brigade is how: every cook owns a station, every order is a ticket, many hands cook at once, and the Chef stays at the pass, where every plate is checked before it goes out. <strong>Yes Chef runs your agents the same way, on top of T3 Code, and you stay at the pass.</strong></span><span data-swap="team">A great kitchen turns out creative, exacting work night after night, at volume, without it slipping. Escoffier’s French Brigade is how. Every order is a ticket. Each station owns its part under its chef de partie, many hands cook at once, and the chef de cuisine checks every plate at the pass before it goes out. <strong>Yes Chef runs your team and its agents the same way, on top of T3 Code.</strong></span></p>
+        </div>
+
+        <div class="swap chart-swap">
+          <figure class="chart" data-swap="solo" aria-label="Your brigade: you, The Pass, and your agents">
+            <div class="ch-row"><div class="ch-node ch-you"><b>You</b><span>Chef</span></div></div>
+            <div class="ch-row"><div class="ch-node ch-pass"><b>The Pass</b><span>Questions and finished work, oldest first</span></div></div>
+            <div class="ch-row ch-line">
+              <div class="ch-agent"><span class="line-mark"><img src="assets/claude-ai-icon.svg" alt=""></span><b>Claude Code</b><span>Saucier</span></div>
+              <div class="ch-agent"><span class="line-mark"><img src="assets/openai_dark.svg" alt=""></span><b>Codex</b><span>Garde manger</span></div>
+              <div class="ch-agent"><span class="line-mark"><img src="assets/cursor_light.svg" alt=""></span><b>Cursor</b><span>Pâtissier</span></div>
+              <div class="ch-agent"><span class="line-mark"><img src="assets/opencode-dark.svg" alt=""></span><b>OpenCode</b><span>Rôtisseur</span></div>
+              <div class="ch-agent"><span class="line-mark"><img src="assets/grok-dark.svg" alt=""></span><b>Grok</b><span>Poissonnier</span></div>
+              <div class="ch-agent"><span class="line-mark"><img src="assets/antigravity.svg" alt=""></span><b>Antigravity</b><span>Entremetier</span></div>
+            </div>
+            <figcaption>Each agent works one ticket in its own T3 Code thread. Any agent T3 Code runs gets a station.</figcaption>
+          </figure>
+          <figure class="chart" data-swap="team" aria-label="Your kitchen: you, a sous chef, your staff and their agents">
+            <div class="ch-row"><div class="ch-node ch-you"><b>You</b><span>Chef de cuisine</span></div></div>
+            <div class="ch-row"><div class="ch-node"><b>Maya</b><span>Sous chef, can Go for you</span></div></div>
+            <div class="ch-row ch-staff">
+              <div class="ch-dev"><b>Kai</b><span>Chef de partie, desktop</span><i class="ch-marks"><img src="assets/claude-ai-icon.svg" alt=""><img src="assets/openai_dark.svg" alt=""><img src="assets/grok-dark.svg" alt=""></i><em>Own Pass</em></div>
+              <div class="ch-dev"><b>Jon</b><span>Chef de partie, relay</span><i class="ch-marks"><img src="assets/claude-ai-icon.svg" alt=""><img src="assets/cursor_light.svg" alt=""></i><em>Own Pass</em></div>
+              <div class="ch-dev"><b>Sam</b><span>Commis, mobile</span><i class="ch-marks"><img src="assets/opencode-dark.svg" alt=""><img src="assets/cursor_light.svg" alt=""></i><em>Own Pass</em></div>
+              <div class="ch-dev"><b>Lee</b><span>Commis, mobile</span><i class="ch-marks"><img src="assets/claude-ai-icon.svg" alt=""><img src="assets/opencode-dark.svg" alt=""></i><em>Own Pass</em></div>
+            </div>
+            <figcaption>Each dev keeps their own T3 Code, subscriptions and agents, and runs them from their own Pass. Teams is in design.</figcaption>
+          </figure>
+        </div>
+
+        <div class="wins">
+          <div class="win swap"><div data-swap="solo"><h3>Only what needs you reaches you.</h3><p>A question, a hand-back or a plate lands at the pass, oldest first. Threads still cooking stay on the board and out of your way.</p></div><div data-swap="team"><h3>Each dev keeps their own Pass.</h3><p>Every dev runs their own agents from their own Pass. The kitchen gets a summary of each shared ticket: title, stage, last message, changed file names. Never code.</p></div></div>
+          <div class="win swap"><div data-swap="solo"><h3>Each ticket arrives ready to rule.</h3><p>The question with lettered options and the agent’s pick, the pull requests, and the agent’s screenshots, in one reader.</p></div><div data-swap="team"><h3>Exceptions reach you while both tickets cook.</h3><p>Two devs in one file, a change to shared code, work that fits no course, a Mac that stopped reporting. You hear about it before the rebase fails.</p></div></div>
+          <div class="win swap"><div data-swap="solo"><h3>Your call goes back to the thread.</h3><p>A letter, Go, Refire with a note, or Hold. Yes Chef sends it to the agent’s T3 Code thread, and the next ticket opens.</p></div><div data-swap="team"><h3>Your call goes back to the dev’s agent.</h3><p>Reply, Go, Refire or Hold goes to the dev’s Yes Chef. It checks your role, then acts through the dev’s own T3 Code sign-in.</p></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="gains" aria-labelledby="gains-title">
+      <div class="container">
+        <div class="section-head">
+          <h2 id="gains-title" class="display">Ship faster, spend fewer tokens, keep the bar.</h2>
+          <p class="lede swap"><span data-swap="solo">One dev, many agents. Each agent waits on you less, nobody reads every thread to find the three that need you, and nothing skips your look.</span><span data-swap="team">One lead, many devs, each with many agents. Devs keep shipping on their own, collisions surface early, and the work that needs a lead still gets one.</span></p>
+        </div>
+        <div class="gains">
+          <div class="gain swap"><div data-swap="solo"><h3>Agents wait less.</h3><p>A question lands at the pass the moment the agent asks it. You answer with a letter key from the ticket, without opening the thread. J and K walk the pass, and ⌘↵ takes the agent’s pick.</p></div><div data-swap="team"><h3>Devs wait less.</h3><p>Nobody waits for standup to find out who is in their file. A collision lands at your pass while both tickets cook, and one Reply reaches both devs.</p></div></div>
+          <div class="gain swap"><div data-swap="solo"><h3>The bar holds.</h3><p>Plating waits for your call. Kitchen rules make agents wait for your reviewer and show screenshots of anything you can see, and a visual call with none gets flagged.</p></div><div data-swap="team"><h3>The bar holds.</h3><p>Shared code waits for a Go in both modes. In French Brigade every ticket waits at Plating for you or a sous chef, on the same board.</p></div></div>
+        </div>
+
+        <div class="bill" id="bill">
+          <h3 class="display">Our coordinator threads ate 19% of our tokens.</h3>
+          <p class="bill-lede">Our air traffic control threads kept every ticket in their own context and ran to almost 1M tokens. Yes Chef keeps that on the board instead. We replayed our last 30 days of T3 Code usage with Yes Chef in their place. The replay used 19% fewer tokens, or 14% fewer if you already run auto-compaction.</p>
+          <div class="bill-grid">
+            <div class="bill-stats">
+              <div class="bill-stat"><b>19%</b><span>fewer tokens, auto-compaction off</span><small>38.6B down to 31.3B</small></div>
+              <div class="bill-stat"><b>14%</b><span>fewer tokens, auto-compaction on</span><small>20.2B down to 17.3B</small></div>
+            </div>
+
+            <figure class="bill-chart" aria-labelledby="bill-chart-title">
+              <figcaption id="bill-chart-title" class="bill-chart-title">Our last 30 days, replayed four ways</figcaption>
+              <div class="bill-legend" aria-hidden="true"><span><i class="sw claude"></i>Claude</span><span><i class="sw codex"></i>Codex</span></div>
+              <div class="bill-rows" aria-hidden="true">
+                <div class="bill-row"><span class="bill-lab">Actual</span><span class="bill-bar"><i class="claude" style="width:89.1%" title="Claude 35.63B"></i><i class="codex" style="width:7.4%" title="Codex 2.97B"></i></span><span class="bill-val">38.6B<small>~$12.3k</small></span></div>
+                <div class="bill-row"><span class="bill-lab">Auto Compact</span><span class="bill-bar"><i class="claude" style="width:44.4%" title="Claude 17.77B"></i><i class="codex" style="width:6.0%" title="Codex 2.41B"></i></span><span class="bill-val">20.2B<small>~$8.3k · −48%</small></span></div>
+                <div class="bill-row is-ours"><span class="bill-lab">Yes Chef &gt; ATC</span><span class="bill-bar"><i class="claude" style="width:71.9%" title="Claude 28.74B"></i><i class="codex" style="width:6.5%" title="Codex 2.60B"></i></span><span class="bill-val">31.3B<small>~$10.5k · −19%</small></span></div>
+                <div class="bill-row is-ours"><span class="bill-lab">Both</span><span class="bill-bar"><i class="claude" style="width:37.9%" title="Claude 15.14B"></i><i class="codex" style="width:5.3%" title="Codex 2.13B"></i></span><span class="bill-val">17.3B<small>~$7.4k · −55%</small></span></div>
+              </div>
+              <div class="sr-only">
+                <table>
+                  <caption>Tokens processed, Oct 8 to Nov 7, by scenario</caption>
+                  <thead><tr><th scope="col">Scenario</th><th scope="col">Claude</th><th scope="col">Codex</th><th scope="col">Total</th><th scope="col">Estimated cost</th><th scope="col">Change from actual</th></tr></thead>
+                  <tbody>
+                    <tr><th scope="row">Actual</th><td>35.63B</td><td>2.97B</td><td>38.6B</td><td>about $12.3k</td><td>none</td></tr>
+                    <tr><th scope="row">Auto Compact</th><td>17.77B</td><td>2.41B</td><td>20.2B</td><td>about $8.3k</td><td>−48%</td></tr>
+                    <tr><th scope="row">Yes Chef &gt; ATC</th><td>28.74B</td><td>2.60B</td><td>31.3B</td><td>about $10.5k</td><td>−19%</td></tr>
+                    <tr><th scope="row">Both</th><td>15.14B</td><td>2.13B</td><td>17.3B</td><td>about $7.4k</td><td>−55%</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <p class="bill-note">Total processed tokens, Oct 8 to Nov 7. Bar scale 0 to 40B. Auto Compact caps Claude and Codex at 300k. Yes Chef &gt; ATC removes all 12 ATC threads (7.26B).</p>
+            </figure>
+          </div>
+          <p class="bill-fine">These numbers are modeled from our logs, not measured, and yours will depend on how you work. Both assume a short-lived expo thread that starts fresh from the board. Keep one open all day like our old ATC threads and you save 3% or less. We have not measured the time saved yet, so this page gives no number for it.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="how" aria-labelledby="how-title">
+      <div class="container">
+        <div class="section-head">
+          <h2 id="how-title" class="display swap"><span data-swap="solo">How you run the Pass with ten agents.</span><span data-swap="team">How you run the Pass over five devs.</span></h2>
+          <p class="lede swap"><span data-swap="solo">Yes Chef reads your T3 Code threads and puts each one at a stage. Everything below works in the demo at the top of this page.</span><span data-swap="team">Each dev’s tickets keep their stages. Your Pass shows the exceptions, and the kitchen shows everyone. <strong>Teams is in design.</strong> This is how the mocks work, and the demo at the top follows them.</span></p>
+        </div>
+
+        <ol class="stages">
+          <li style="--c:var(--order)"><b>Backlog</b><span>Not started. The thread has no run yet.</span></li>
+          <li style="--c:var(--prep)"><b>Planned</b><span>No pull request yet.</span></li>
+          <li style="--c:var(--fire)"><b>In progress</b><span>Agents building. The thread is running.</span></li>
+          <li style="--c:var(--tasting)"><b>In review</b><span>A pull request is open.</span></li>
+          <li style="--c:var(--plating)"><b>Ready to merge</b><span>Your look: the agent asks for a decision on an open pull request.</span></li>
+          <li style="--c:var(--sent)"><b>Merged</b><span>Not verified yet.</span></li>
+        </ol>
+
+        <div class="how-grid">
+          <div class="how-block swap">
+            <div data-swap="solo">
+              <h3>What lands at your pass</h3>
+              <ul class="lands">
+                <li><b class="flag f-q">Question</b><span>A thread waits on a T3 Code question, at any stage. The options and the agent’s pick come with it.</span></li>
+                <li><b class="flag f-hb">Hand-back</b><span>The agent finished its turn. You read its last message, then merge or approve it, reply, or settle it.</span></li>
+                <li><b class="flag f-plate">Ready to merge</b><span>A hand-back that asks for a decision on an open pull request, with the screenshots.</span></li>
+              </ul>
+              <p class="how-foot">Everything else stays on the board at its stage. V switches between the pass and the full kitchen.</p>
+            </div>
+            <div data-swap="team">
+              <h3>What lands at a lead’s pass</h3>
+              <ul class="lands">
+                <li><b class="flag f-coll">Overlap</b><span>Two devs’ tickets change the same file at the same time.</span></li>
+                <li><b class="flag f-shared">Shared code</b><span>A ticket changes code others build on: contracts, protocol, auth.</span></li>
+                <li><b class="flag f-unpl">Unplanned</b><span>Work that fits no project.</span></li>
+                <li><b class="flag f-nc">Not checked</b><span>A dev’s Mac stopped reporting. Its tickets show when it was last seen.</span></li>
+                <li><b class="flag f-plate">Ready to merge</b><span>Brigade only: every ticket waits for you or a deputy to merge it.</span></li>
+              </ul>
+              <p class="how-foot">The full kitchen shows every dev’s tickets at their stage, by person or by project.</p>
+            </div>
+          </div>
+          <div class="how-block swap">
+            <div data-swap="solo">
+              <h3>Your calls, from the keyboard</h3>
+              <dl class="keys">
+                <dt><kbd>A</kbd> <kbd>B</kbd> <kbd>C</kbd></dt><dd>Pick an option while a question waits. The next one comes forward.</dd>
+                <dt><kbd>⌘</kbd> <kbd>↵</kbd></dt><dd>The recommended action</dd>
+                <dt><kbd>M</kbd></dt><dd>Merge: the agent merges its pull request</dd>
+                <dt><kbd>A</kbd></dt><dd>Approve: no pull request yet, the agent goes ahead</dd>
+                <dt><kbd>F</kbd></dt><dd>Request changes: say what to fix</dd>
+                <dt><kbd>R</kbd></dt><dd>Reply with a note</dd>
+                <dt><kbd>H</kbd></dt><dd>Hold until 8:00 tomorrow</dd>
+                <dt><kbd>E</kbd></dt><dd>Settle: done, it leaves the pass</dd>
+                <dt><kbd>Z</kbd></dt><dd>Undo the send, for 4 seconds</dd>
+                <dt><kbd>J</kbd> <kbd>K</kbd></dt><dd>Next and previous ticket</dd>
+                <dt><kbd>⌘</kbd> <kbd>K</kbd></dt><dd>Actions: search every action, thread and setting</dd>
+                <dt><kbd>⌘</kbd> <kbd>T</kbd></dt><dd>New thread in T3 Code, with your rules</dd>
+              </dl>
+              <p class="how-foot">Each call is a T3 Code call, capped by the access you granted. <kbd>?</kbd> lists every key.</p>
+            </div>
+            <div data-swap="team">
+              <h3>Your calls, on each card</h3>
+              <dl class="keys">
+                <dt><span class="act">Reply</span></dt><dd>A note to one dev, or to both sides of an overlap</dd>
+                <dt><span class="act act-go">Merge</span></dt><dd>Merge a shared code change, or a Brigade ticket</dd>
+                <dt><span class="act">Request changes</span></dt><dd>Back to In progress, with what to fix</dd>
+                <dt><span class="act">Hold</span></dt><dd>Hold it until 8:00 tomorrow</dd>
+                <dt><span class="act">It’s fine</span></dt><dd>Clear the card. The dev keeps working.</dd>
+                <dt><span class="act">Add to a project</span></dt><dd>Put unplanned work in a project</dd>
+                <dt><kbd>J</kbd> <kbd>K</kbd></dt><dd>Next and previous card</dd>
+                <dt><kbd>Z</kbd></dt><dd>Undo, for 4 seconds</dd>
+              </dl>
+              <p class="how-foot">Your call goes sealed to the dev’s Yes Chef. It checks your role, then acts through the dev’s own T3 Code sign-in. A Merge becomes a message to the dev’s agent.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="start" aria-labelledby="start-title">
+      <div class="container">
+        <div class="section-head">
+          <h2 id="start-title" class="display swap"><span data-swap="solo">Start with the T3 Code you already run.</span><span data-swap="team">Open a kitchen and send one link.</span></h2>
+          <p class="lede swap"><span data-swap="solo">Yes Chef is a Mac app. It adds no agents of its own: T3 Code runs them, and Yes Chef shows you the line and carries your calls.</span><span data-swap="team">No accounts of our own. The invite link is the membership, and each dev connects their own T3 Code. <strong>Teams is in design. These screens are mocks.</strong></span></p>
+        </div>
+        <div class="steps">
+          <div class="step">
+            <span class="step-n">01</span>
+            <h3 class="swap"><span data-swap="solo">Sign in with T3 Code.</span><span data-swap="team">Open a kitchen.</span></h3>
+            <p class="swap"><span data-swap="solo">T3 Connect opens. You approve Yes Chef in T3 Code and choose what it may do, from read only to full access. <b>Your sign-in is the only credential Yes Chef holds</b>, and you can revoke it in T3 Code.</span><span data-swap="team">Download Yes Chef, connect your T3 Code, and pick how the kitchen ships: Open kitchen or French Brigade. <b>You can switch any time.</b></span></p>
+          </div>
+          <div class="step">
+            <span class="step-n">02</span>
+            <h3 class="swap"><span data-swap="solo">Your threads become tickets.</span><span data-swap="team">Invite your staff.</span></h3>
+            <p class="swap"><span data-swap="solo">Your T3 Code projects show up on the board. A thread is a ticket, its subagents are its stations, and its pull requests set the stage. <b>A thread that needs you lands at the pass.</b></span><span data-swap="team">One link, sent any way. Add stations as the team grows, and give each person a title when they join: sous chef, chef de partie, commis. <b>Every role is optional.</b></span></p>
+          </div>
+          <div class="step">
+            <span class="step-n">03</span>
+            <h3 class="swap"><span data-swap="solo">Launch from the Pass.</span><span data-swap="team">They join from their own Mac.</span></h3>
+            <p class="swap"><span data-swap="solo">⌘T starts a new thread in T3 Code, in a new worktree or the project checkout, with your kitchen rules under the prompt. <b>Threads you start in T3 Code show up too.</b></span><span data-swap="team">Each dev opens the link, connects their own T3 Code, switches on the projects to share and presses Join. <b>Nothing is shared before Join</b>, and they can stop sharing any time.</span></p>
+          </div>
+        </div>
+        <div class="swap start-shots">
+          <div class="shots" data-swap="solo">
+            <figure class="board">
+              <div class="board-frame"><picture><source media="(prefers-color-scheme: light)" srcset="assets/app-kitchen-light.png"><img src="assets/app-kitchen-dark.png" width="1440" height="900" loading="lazy" decoding="async" alt="The full kitchen in Yes Chef: the made-up kitchen's T3 Code threads as tickets under Order, Prep, Fire, Tasting, Plating and Sent, with Held on the right."></picture></div>
+              <figcaption>The full kitchen (V): every thread as a ticket, at its stage.</figcaption>
+            </figure>
+            <figure class="board">
+              <div class="board-frame"><picture><source media="(prefers-color-scheme: light)" srcset="assets/app-launch-light.png"><img src="assets/app-launch-dark.png" width="1440" height="900" loading="lazy" decoding="async" alt="New thread in T3 Code, opened over the Pass: a project, what the agent should do, an optional title, and a new worktree or the project checkout. The project's kitchen rules go with it."></picture></div>
+              <figcaption>⌘T: a new thread in T3 Code, with your kitchen rules.</figcaption>
+            </figure>
+          </div>
+          <div class="shots" data-swap="team">
+            <figure class="board">
+              <div class="board-frame"><img src="assets/team-s3-invite.png" width="1440" height="900" loading="lazy" decoding="async" alt="Invite your kitchen staff. A join link to copy, good for 7 days. On the left, the Joined drawer lists Maya, Jon and Sam. On the chart, you are chef de cuisine, Maya is being dropped in as sous chef, Kai leads Desktop as chef de partie, and Mobile and Relay wait for theirs. Add station adds a kind of work."></div>
+              <figcaption>Invite your staff with one link, then drag each person onto the chart.</figcaption>
+            </figure>
+            <figure class="board">
+              <div class="board-frame"><img src="assets/team-s5-join.png" width="1440" height="900" loading="lazy" decoding="async" alt="A dev joins Dan’s kitchen. T3 Code on their Mac is connected, read only for the kitchen. Switches share app and relay and keep blog and dotfiles off. The kitchen sees ticket titles, stages, the latest message and the names of changed files, never code or diffs. Decline or Join."></div>
+              <figcaption>A dev joins: their T3 Code, the projects they share, and what the kitchen sees.</figcaption>
+            </figure>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="close" aria-labelledby="close-title">
+      <div class="container close-inner">
+        <h2 id="close-title" class="display close-title">
+          <span class="close-call swap"><q data-swap="solo">Agents, cook.</q><q data-swap="team">Devs, cook.</q></span>
+          <img class="close-mark" src="assets/yeschef-icon.svg" alt="" width="128" height="128">
+          <span>Yes, Chef!</span>
+        </h2>
+        <a class="btn btn-primary btn-lg" href="/download" data-dl><svg class="btn-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span>Download for Mac</span></a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-brand">
+        <img src="assets/yeschef-icon.svg" alt="" width="20" height="20">
+        <span><b>Yes Chef</b> · an independent product built on T3 Code</span>
+      </div>
+      <div class="footer-links">
+        <a href="https://t3.codes" rel="noopener noreferrer" target="_blank">T3 Code</a>
+        <a href="https://github.com/pingdotgg/t3code" rel="noopener noreferrer" target="_blank">T3 Code source</a>
+        <a href="#problem">The problem</a>
+        <a href="#brigade">French Brigade</a>
+        <a href="#how">How it works</a>
+        <a href="#start">Get started</a>
+        <a href="/download">Download</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="releases.js"></script>
+  <script src="site.js"></script>
+</body>
+</html>

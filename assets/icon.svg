@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- The Yes Chef mark: a cloche with a square-cut dome, a large knob resting on top and a bevelled plate (pass.py ICONS["cloche"]) on its header tile.
+       The cloche spans 70% of the tile's width, centred, as on the app icon (desktop/build/icon.svg; Dan, 2026-11-07). -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3B9BFF"/>
+      <stop offset="1" stop-color="#0066D6"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="17" fill="url(#tile)"/>
+  <g transform="translate(2.94 0.34) scale(2.4216)" fill="#fff"><path d="M4.25 17.4a7.75 7.75 0 0 1 15.5 0" fill="none" stroke="#fff" stroke-width="1.5"/><circle cx="12" cy="7.4" r="1.75"/><path d="M2.75 19h18.5l-1.5 1.5H4.25z"/></g>
+</svg>

@@ -1,0 +1,686 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Team modes mock</title>
+<!-- Mock v2 for docs/team-brigade-brief-v0_1.md (v0.3, 2026-11-10), approved by Dan: "ok yes this is how it should look!".
+     Open and Brigade, collapsed and expanded. Click the cloche to flip views. URL params: mode=open|brigade, view=collapsed|expanded,
+     theme=dark|light, sel=<call index>. People, projects, tickets and numbers are made up. -->
+<style>
+:root{
+  --page:#FFFFFF;--panel:#F2F2F7;--card:#FFFFFF;--label:#1D1D1F;--label2:#636366;--label3:#8E8E93;--label4:#AEAEB2;
+  --sep:rgba(60,60,67,.16);--fill:rgba(118,118,128,.12);--fill2:rgba(118,118,128,.24);--track:rgba(118,118,128,.16);
+  --pass:#0071E3;--pass-t:rgba(0,113,227,.10);
+  --red:#D70015;--red-t:rgba(255,59,48,.12);--amber:#B25000;--amber-t:rgba(255,149,0,.16);
+  --green:#1A7F37;--green-t:rgba(52,199,89,.16);--bar:#34C759;--gray:#8E8E93;--merged:#8250DF;
+  --sh1:0 0 0 .5px rgba(0,0,0,.05),0 1px 3px rgba(0,0,0,.08);
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue","Segoe UI",Roboto,system-ui,sans-serif;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  --page:#1C1C1E;--panel:#2C2C2E;--card:#1C1C1E;--label:#F5F5F7;--label2:#AEAEB2;--label3:#8E8E93;--label4:#636366;
+  --sep:rgba(235,235,245,.13);--fill:rgba(118,118,128,.24);--fill2:rgba(118,118,128,.36);--track:rgba(118,118,128,.28);
+  --pass:#3B9BFF;--pass-t:rgba(10,132,255,.16);
+  --red:#FF6961;--red-t:rgba(255,69,58,.16);--amber:#FF9F0A;--amber-t:rgba(255,159,10,.15);
+  --green:#3FB950;--green-t:rgba(48,209,88,.14);--bar:#30D158;--gray:#8E8E93;--merged:#AB7DF8;
+  --sh1:0 0 0 .5px rgba(255,255,255,.07),0 1px 3px rgba(0,0,0,.45);
+}}
+:root[data-theme=dark]{
+  --page:#1C1C1E;--panel:#2C2C2E;--card:#1C1C1E;--label:#F5F5F7;--label2:#AEAEB2;--label3:#8E8E93;--label4:#636366;
+  --sep:rgba(235,235,245,.13);--fill:rgba(118,118,128,.24);--fill2:rgba(118,118,128,.36);--track:rgba(118,118,128,.28);
+  --pass:#3B9BFF;--pass-t:rgba(10,132,255,.16);
+  --red:#FF6961;--red-t:rgba(255,69,58,.16);--amber:#FF9F0A;--amber-t:rgba(255,159,10,.15);
+  --green:#3FB950;--green-t:rgba(48,209,88,.14);--bar:#30D158;--gray:#8E8E93;--merged:#AB7DF8;
+  --sh1:0 0 0 .5px rgba(255,255,255,.07),0 1px 3px rgba(0,0,0,.45);
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:#6e6e73}
+body{font:14px/1.4 var(--sans);color:var(--label);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;border:0;background:none;padding:0;cursor:pointer}
+.mono{font-family:var(--mono)}
+
+/* Mock controls, outside the app window */
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:18px;padding:12px 16px;background:#3a3a3c;color:#f5f5f7;font-size:13px}
+.bar b{font-weight:600;margin-right:6px}
+.seg{display:inline-flex;padding:2px;border-radius:9px;background:rgba(255,255,255,.12)}
+.seg button{height:28px;padding:0 12px;border-radius:7px;font-size:13px;font-weight:500;color:#f5f5f7}
+.seg button.on{background:#f5f5f7;color:#1d1d1f}
+.bar .hint{color:#f5f5f7}
+.bar .note{margin-left:auto;color:#aeaeb2}
+.bar a{color:#9ecbff}
+
+/* The app window */
+.win{position:relative;width:1440px;height:900px;overflow:hidden;background:var(--page)}
+#stage{position:absolute;inset:0}
+
+/* The cloche is the view switch, as in the app: white on blue collapsed, blue on white expanded. */
+.logo{position:absolute;z-index:5;top:20px;left:20px;width:34px;height:34px;border-radius:9px;perspective:240px;view-transition-name:logo}
+.flip{position:absolute;inset:0;transform-style:preserve-3d;transition:transform .7s cubic-bezier(.65,0,.35,1)}
+.face{position:absolute;inset:0;display:grid;place-items:center;border-radius:9px;-webkit-backface-visibility:hidden;backface-visibility:hidden}
+.face svg{position:relative;top:-1.5px;width:31px;height:31px}
+.f-pass{color:#fff;background:linear-gradient(180deg,#3B9BFF,#0066D6);box-shadow:inset 0 0 0 .5px rgba(0,0,0,.12)}
+.f-x{color:#0071E3;background:#fff;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.14);transform:rotateY(180deg)}
+.logo.x .flip{transform:rotateY(180deg)}
+::view-transition-old(logo){display:none}
+::view-transition-new(logo),::view-transition-group(logo){animation:none}
+::view-transition-old(root),::view-transition-new(root){animation-duration:.45s;animation-timing-function:cubic-bezier(.65,0,.35,1)}
+
+/* Rail */
+.rail{position:absolute;top:20px;left:20px;bottom:20px;width:208px;display:flex;flex-direction:column;gap:12px;view-transition-name:rail}
+.rail .top{display:flex;padding-left:44px}
+.passbtn{flex:1;display:flex;align-items:center;height:34px;padding:0 12px;border-radius:9px;background:var(--panel);font-weight:600;font-size:14.5px}
+.passbtn .n{margin-left:auto;color:var(--pass);font-variant-numeric:tabular-nums}
+.passbtn.on{background:var(--pass-t)}
+.group{border-radius:14px;background:var(--panel);padding:8px 6px 6px}
+.gh{display:flex;align-items:baseline;padding:2px 10px 6px;font-size:12px;font-weight:600;color:var(--label3)}
+.gh i{margin-left:auto;font-style:normal;font-weight:500}
+.ri{display:flex;align-items:center;gap:9px;min-height:32px;padding:0 10px;border-radius:8px;font-size:13.5px}
+.ri .n{margin-left:auto;color:var(--label3);font-variant-numeric:tabular-nums;font-size:12.5px}
+.ri .lbl{flex:1;min-width:0}
+.ri .dot{width:8px;height:8px;border-radius:50%;flex:none}
+.segbar{display:flex;gap:2px;margin:0 10px 8px;height:8px}
+.segbar i{flex:1;border-radius:2px}
+.d-pass{background:var(--pass)}.d-amber{background:var(--amber)}.d-gray{background:var(--gray)}.d-green{background:var(--bar)}.d-red{background:var(--red)}
+.mini{padding:6px 10px 7px;border-radius:8px}
+.mini .row{display:flex;align-items:baseline;gap:6px;font-size:13px}
+.mini .row .v{margin-left:auto;font-size:12px;color:var(--label3);font-variant-numeric:tabular-nums}
+.mini .row .tag{font-size:10.5px;font-weight:600;color:var(--label4);text-transform:none}
+.mini .row .v.red{color:var(--red);font-weight:600}
+.mini .row .v.pass{color:var(--pass);font-weight:600}
+.track{position:relative;height:4px;margin-top:5px;border-radius:2px;background:var(--track)}
+.track>b{position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--bar)}
+.track>b.red{background:var(--red)}.track>b.pass{background:var(--pass)}.track>b.dim{background:var(--label4)}
+.track>u{position:absolute;top:-3px;bottom:-3px;width:1.5px;background:var(--label2);border-radius:1px}
+.rail .foot{margin-top:auto;display:grid;gap:8px}
+.chip{display:flex;align-items:center;gap:8px;height:34px;padding:0 12px;border-radius:9px;background:var(--panel);font-size:13px;font-weight:600}
+.chip i{font-style:normal;margin-left:auto;font-weight:500;font-size:12px;color:var(--label3)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.two div{display:flex;align-items:center;justify-content:center;gap:6px;height:34px;border-radius:9px;background:var(--panel);font-size:13px;color:var(--label2)}
+.live{width:6px;height:6px;border-radius:50%;background:#30D158}
+
+.av{display:inline-grid;place-items:center;flex:none;width:22px;height:22px;border-radius:50%;font:700 9.5px/1 var(--sans);color:#fff;letter-spacing:.02em}
+.av.sm{width:18px;height:18px;font-size:8px}
+.av.md{width:26px;height:26px;font-size:10.5px}
+.c1{background:#5E5CE6}.c2{background:#30A46C}.c3{background:#E5484D}.c4{background:#D9822B}.c5{background:#0091FF}.c6{background:#8E4EC6}.c7{background:#12A594}.c0{background:#636366}
+.stack{display:inline-flex}.stack .av+.av{margin-left:-5px;box-shadow:0 0 0 2px var(--panel)}
+.card .stack .av+.av,.pcard .stack .av+.av{box-shadow:0 0 0 2px var(--card)}
+
+/* Collapsed: The Pass list */
+.list{position:absolute;top:20px;bottom:20px;left:244px;width:348px;border-radius:18px;background:var(--panel);display:flex;flex-direction:column;overflow:hidden}
+.lh{display:flex;align-items:baseline;gap:8px;padding:16px 18px 10px}
+.lh h1{margin:0;font-size:17px;font-weight:600}
+.lh span{font-size:13px;color:var(--label3)}
+.lscroll{flex:1;overflow:auto;padding:0 10px 10px;scrollbar-width:thin;scrollbar-color:var(--fill2) transparent}
+.pcard{display:block;width:100%;text-align:left;padding:12px 14px 12px;border-radius:12px;background:var(--card);margin-bottom:8px;box-shadow:var(--sh1)}
+.pcard.sel{box-shadow:inset 3px 0 0 var(--pass),var(--sh1)}
+.pk{display:flex;font-size:12px;font-weight:700;margin-bottom:3px}
+.pk span{margin-left:auto;font-weight:500;color:var(--label3);font-variant-numeric:tabular-nums}
+.k-red{color:var(--red)}.k-amber{color:var(--amber)}.k-pass{color:var(--pass)}.k-gray{color:var(--label2)}
+.pcard b{display:block;font-size:14px;font-weight:600;line-height:1.3}
+.pcard p{margin:3px 0 0;font-size:12.5px;color:var(--label2);line-height:1.4}
+.pf{display:flex;align-items:center;gap:8px;margin-top:9px}
+.pf .sg{font-size:12px;color:var(--label3)}
+.pf .sg em{font-style:normal;color:var(--label);font-weight:600}
+.allclear{display:flex;align-items:center;gap:10px;margin:14px 4px 4px;padding:12px 14px;border-radius:12px;border:1px dashed var(--sep);font-size:12.5px;color:var(--label3)}
+.allclear svg{flex:none;color:var(--green)}
+
+/* Collapsed: the reader */
+.reader{position:absolute;top:20px;bottom:20px;left:608px;right:20px;border-radius:18px;background:var(--panel);padding:12px;display:flex}
+.rin{flex:1;border-radius:12px;background:var(--card);overflow:auto;padding:26px 30px 28px;scrollbar-width:thin;scrollbar-color:var(--fill2) transparent}
+.rk{display:flex;gap:10px;font-size:12.5px;font-weight:700}
+.rk span{font-weight:500;color:var(--label3)}
+.rin h2{margin:4px 0 6px;font-size:24px;line-height:1.18;font-weight:700;letter-spacing:-.02em}
+.lede{margin:0 0 18px;font-size:14.5px;line-height:1.5;color:var(--label2);max-width:660px}
+.vis{margin-top:14px;padding:14px 16px;border-radius:12px;background:var(--panel)}
+.vl{display:flex;align-items:baseline;gap:10px;margin-bottom:10px;font-size:12px;font-weight:600;color:var(--label3)}
+.vl b{margin-left:auto;font-size:12.5px;color:var(--label);font-weight:600}
+.vl b.red{color:var(--red)}.vl b.amber{color:var(--amber)}.vl b.green{color:var(--green)}
+.sug{display:flex;gap:12px;align-items:flex-start;margin-top:18px;padding:12px 14px;border-radius:12px;background:var(--pass-t);font-size:13.5px;line-height:1.45}
+.sug b{flex:none;color:var(--pass);font-size:12px;font-weight:700;padding-top:1px}
+.acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.btn{height:34px;padding:0 14px;border-radius:9px;background:var(--fill);font-size:13.5px;font-weight:600}
+.btn.pri{background:var(--pass);color:#fff}
+.btn.danger{background:var(--red);color:#fff}
+.btn.sm{height:28px;padding:0 11px;font-size:12.5px;border-radius:8px}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;color:var(--label2);white-space:nowrap}
+.pill::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--pc,var(--gray))}
+
+/* Visual parts */
+.ribbon{display:flex;gap:3px;align-items:flex-end}
+.ribbon i{width:14px;height:22px;border-radius:3px;background:var(--bar);opacity:.85}
+.ribbon i.r{background:var(--red);opacity:1;height:30px}
+.ribbon i.e{background:none;border:1.5px dashed var(--fill2);opacity:1}
+.raxis{display:flex;justify-content:space-between;margin-top:6px;font-size:11.5px;color:var(--label3);font-variant-numeric:tabular-nums}
+.prs{display:flex;flex-wrap:wrap;gap:6px}
+.prc{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px 0 4px;border-radius:14px;background:var(--card);font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums}
+.kvs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 20px}
+.kv span{display:block;font-size:11.5px;color:var(--label3)}
+.kv b{display:block;font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kv b.mono{font-size:12px;font-weight:500}
+.duo{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tcard{padding:12px 14px;border-radius:10px;background:var(--card)}
+.rin>.duo .tcard{background:var(--panel)}
+.tcard .h{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600}
+.tcard .h .pill{margin-left:auto}
+.tcard .t{margin-top:6px;font-size:14px;font-weight:600}
+.tcard .m{margin-top:2px;font-size:12.5px;color:var(--label3)}
+.fmap{position:relative;margin-top:4px}
+.fmap .tr{display:grid;grid-template-columns:52px 1fr;align-items:center;gap:10px;height:26px;font-size:12.5px;font-weight:600}
+.fmap .lane{position:relative;height:12px;border-radius:3px;background:var(--track)}
+.fmap .lane i{position:absolute;top:0;bottom:0;border-radius:3px;background:var(--label3)}
+.fmap .band{position:absolute;top:-3px;height:58px;border-radius:5px;background:var(--red-t);box-shadow:inset 0 0 0 1.5px var(--red)}
+.fmap .ticks{display:grid;grid-template-columns:52px 1fr;gap:10px;margin-top:4px;font-size:11px;color:var(--label3)}
+.fmap .ticks div{display:flex;justify-content:space-between;font-variant-numeric:tabular-nums}
+.meter{position:relative;height:10px;border-radius:5px;background:linear-gradient(90deg,var(--bar),#FFD60A 55%,var(--red))}
+.meter u{position:absolute;top:-5px;width:4px;height:20px;border-radius:2px;background:var(--label);box-shadow:0 0 0 2px var(--panel)}
+.mends{display:flex;justify-content:space-between;margin-top:7px;font-size:11.5px;color:var(--label3)}
+.mends b{color:var(--label);font-weight:600}
+.checks{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.ck{padding:10px 12px;border-radius:10px;background:var(--card)}
+.ck .h{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--label3)}
+.ck .h svg{flex:none}
+.ck b{display:block;margin-top:4px;font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
+.ok{color:var(--green)}.no{color:var(--red)}
+.asm{display:flex;gap:4px;height:16px}
+.asm>div{position:relative;border-radius:5px;background:var(--track);overflow:hidden}
+.asm>div>b{position:absolute;left:0;top:0;bottom:0;background:var(--bar)}
+.asm>div>s{position:absolute;top:0;bottom:0;background:repeating-linear-gradient(135deg,var(--bar) 0 3px,transparent 3px 6px);opacity:.7}
+.asm>div.blk{background:repeating-linear-gradient(135deg,var(--red-t) 0 5px,transparent 5px 10px);box-shadow:inset 0 0 0 1.5px var(--red)}
+.asmL{display:flex;gap:4px;margin-top:5px;font-size:11.5px;color:var(--label3)}
+.asmL>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.asmL>span b{color:var(--label2);font-weight:600}
+.asmL>span.red b{color:var(--red)}
+.chain{display:flex;align-items:center;gap:10px}
+.node{flex:1;padding:10px 12px;border-radius:10px;background:var(--card);font-size:13px}
+.node b{display:block;font-size:13.5px}
+.node span{font-size:12px;color:var(--label3)}
+.node.red{box-shadow:inset 0 0 0 1.5px var(--red)}
+.node.dash{background:none;box-shadow:inset 0 0 0 1.5px var(--fill2)}
+.arr{flex:none;font-size:11.5px;color:var(--label3);text-align:center;line-height:1.2}
+.arr svg{display:block;margin:2px auto 0}
+.cklist{display:grid;gap:7px;font-size:13.5px}
+.cklist div{display:flex;align-items:center;gap:9px}
+.cklist span{margin-left:auto;font-size:12.5px;color:var(--label3)}
+.wbars{display:flex;align-items:flex-end;gap:14px;height:110px;position:relative;padding-top:6px}
+.wbars>div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;font-size:11.5px;color:var(--label3)}
+.wbars>div i{width:100%;max-width:56px;border-radius:5px 5px 2px 2px;background:var(--label4)}
+.wbars>div i.r{background:var(--red)}
+.wbars>div em{font-style:normal;margin-bottom:3px;color:var(--label2);font-weight:600;font-variant-numeric:tabular-nums;position:relative;z-index:1;background:var(--panel);padding:0 4px}
+.wbars .bl{position:absolute;left:0;right:0;height:0;border-top:1.5px dashed var(--label2)}
+.wbars .bl span{position:absolute;left:0;top:-17px;font-size:11px;color:var(--label2);background:var(--panel);padding-right:6px}
+.wax{display:flex;gap:14px;margin-top:5px}.wax span{flex:1;text-align:center;font-size:11.5px;color:var(--label3)}
+
+/* Expanded: board + The Pass column */
+.board{position:absolute;top:20px;bottom:20px;left:244px;right:356px;border-radius:18px;background:var(--panel);display:flex;flex-direction:column;overflow:hidden}
+.bh{display:flex;align-items:baseline;gap:10px;padding:16px 18px 12px}
+.bh h1{margin:0;font-size:17px;font-weight:600}
+.bh span{font-size:13px;color:var(--label3)}
+.bscroll{flex:1;overflow:auto;padding:0 12px 12px;display:flex;flex-direction:column;gap:10px;scrollbar-width:thin;scrollbar-color:var(--fill2) transparent}
+.inst{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.ins{padding:12px 14px 10px;border-radius:12px;background:var(--card);min-width:0}
+.ins .l{font-size:12px;font-weight:600;color:var(--label3)}
+.ins .v{display:flex;align-items:baseline;gap:6px;margin-top:2px}
+.ins .v b{font-size:24px;font-weight:700;letter-spacing:-.01em;font-variant-numeric:tabular-nums;line-height:1.15}
+.ins .v span{font-size:12px;color:var(--label3)}
+.ins .v b.red{color:var(--red)}.ins .v b.green{color:var(--green)}
+.ins svg{display:block;margin-top:4px;width:100%;height:26px}
+.ins .ribbon{margin-top:8px}.ins .ribbon i{width:auto;flex:1;height:18px}.ins .ribbon i.r{height:24px}
+.pnl{border-radius:12px;background:var(--card);padding:12px 14px}
+.ph{display:flex;align-items:baseline;gap:10px;margin-bottom:8px;font-size:12px;font-weight:600;color:var(--label3)}
+.ph b{font-size:13.5px;color:var(--label);font-weight:600}
+.ph .lg{margin-left:auto;display:flex;gap:12px;font-weight:500}
+.ph .lg span{display:inline-flex;align-items:center;gap:5px}
+.sw{display:inline-block;width:14px;height:8px;border-radius:2px;background:var(--label4)}
+.sw.red{background:none;box-shadow:inset 0 0 0 1.5px var(--red)}.sw.amber{background:none;box-shadow:inset 0 0 0 1.5px var(--amber)}
+.sw.off{background:repeating-linear-gradient(135deg,var(--fill2) 0 2px,transparent 2px 4px)}
+.sw.eta{background:none;box-shadow:inset 0 0 0 1px var(--label4);border-style:dashed}
+.mk{display:inline-block;width:8px;height:8px;transform:rotate(45deg);background:var(--merged);border-radius:1px}
+
+/* Open: timeline */
+.tl{position:relative}
+.tlax{display:grid;grid-template-columns:116px 1fr;font-size:11px;color:var(--label3);margin-bottom:2px}
+.tlax .ax{position:relative;height:14px}
+.tlax .ax span{position:absolute;transform:translateX(-50%);font-variant-numeric:tabular-nums}
+.tlr{display:grid;grid-template-columns:116px 1fr;height:30px;align-items:center;border-top:.5px solid var(--sep)}
+.tlr .who{display:flex;align-items:center;gap:7px;min-width:0}
+.tlr .who b{display:block;font-size:12.5px;font-weight:600;line-height:1.1}
+.tlr .who em{display:block;font-style:normal;font-size:10.5px;font-weight:600;line-height:1.2;white-space:nowrap}
+.tlr .plot{position:relative;height:100%}
+.tlb{position:absolute;height:12px;border-radius:3px;background:var(--fill2);font-size:9.5px;line-height:12px;padding:0 5px;color:var(--label2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tlb.red{box-shadow:inset 0 0 0 1.5px var(--red);background:var(--red-t);color:var(--label)}
+.tlb.amber{box-shadow:inset 0 0 0 1.5px var(--amber);background:var(--amber-t);color:var(--label)}
+.tlb.eta{background:none;box-shadow:inset 0 0 0 1px var(--label4);border-radius:0 3px 3px 0}
+.tlb.off{background:repeating-linear-gradient(135deg,var(--fill2) 0 2px,transparent 2px 5px);color:var(--label3);font-style:italic}
+.tlm{position:absolute;width:8px;height:8px;margin:-4px 0 0 -4px;transform:rotate(45deg);background:var(--merged);border-radius:1px}
+.tltag{position:absolute;font-size:10px;font-weight:700;white-space:nowrap;line-height:12px;padding:0 5px;border-radius:3px}
+.tltag.red{color:#fff;background:var(--red)}.tltag.amber{color:#1d1d1f;background:var(--amber)}
+.grid-v{position:absolute;top:0;bottom:0;width:0;border-left:.5px solid var(--sep)}
+.now{position:absolute;top:-16px;bottom:0;width:0;border-left:1.5px solid var(--pass)}
+.now span{position:absolute;top:0;left:4px;font-size:10.5px;font-weight:700;color:var(--pass)}
+.conn{position:absolute;width:0;border-left:2px solid var(--red)}
+.conn span{position:absolute;left:6px;top:50%;transform:translateY(-50%);font:600 10.5px var(--mono);color:var(--red);background:var(--card);padding:1px 4px;border-radius:3px;white-space:nowrap;box-shadow:inset 0 0 0 1px var(--red)}
+.calm{display:flex;align-items:center;gap:8px;height:30px;border-top:.5px solid var(--sep);font-size:12px;color:var(--label3)}
+.sf{display:grid;grid-template-columns:minmax(0,1.3fr) 80px minmax(0,1.6fr);align-items:center;gap:12px;height:32px;border-top:.5px solid var(--sep);font-size:12.5px}
+.sf .f{font:12px var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sf .s{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--label2)}
+.sf .s.red{color:var(--red);font-weight:600}.sf .s.amber{color:var(--amber);font-weight:600}
+
+/* Brigade: features, areas, batches */
+.feat{padding:8px 0 9px;border-top:.5px solid var(--sep)}
+.ph+.feat,.ph+.bt{border-top:0}
+.fh{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
+.fh b{font-size:14px;font-weight:600}
+.fh .p{font-size:12px;color:var(--label3)}
+.fh .st{margin-left:auto;font-size:12px;font-weight:700}
+.fh .c{width:118px;text-align:right;font-size:12px;color:var(--label3);font-variant-numeric:tabular-nums}
+.st.red{color:var(--red)}.st.pass{color:var(--pass)}.st.amber{color:var(--amber)}.st.gray{color:var(--label3)}
+.areas{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.acard{padding:10px 12px;border-radius:10px;background:var(--panel)}
+.acard.over{box-shadow:inset 0 0 0 1.5px var(--red)}
+.acard .h{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600}
+.acard .h .md{margin-left:auto;font-size:10.5px;font-weight:600;color:var(--label3)}
+.acard .h .md.b{color:var(--pass)}
+.acard .v{display:flex;align-items:baseline;gap:6px;margin-top:6px}
+.acard .v b{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums}
+.acard .v b.red{color:var(--red)}
+.acard .v span{font-size:11.5px;color:var(--label3)}
+.acard .track{margin-top:7px}
+.bt{display:flex;align-items:center;gap:12px;padding:7px 0;border-top:.5px solid var(--sep)}
+.bt .num{flex:none;display:grid;place-items:center;border-radius:50%;background:var(--pass-t);color:var(--pass);font-weight:700;font-variant-numeric:tabular-nums}
+.bt .tx{flex:1;min-width:0}
+.bt .tx b{display:block;font-size:13px;font-weight:600}
+.bt .tx span{display:block;font-size:12px;color:var(--label3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.split{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:10px}
+
+/* Expanded: The Pass column */
+.passcol{position:absolute;top:20px;bottom:20px;right:20px;width:320px;border-radius:18px;background:var(--panel);display:flex;flex-direction:column;overflow:hidden}
+.passcol .lh h1{color:var(--pass)}
+.xcard{display:block;width:100%;text-align:left;margin:0 0 8px;padding:11px 13px;border-radius:12px;background:var(--card);box-shadow:var(--sh1)}
+.xcard b{display:block;font-size:13.5px;font-weight:600;line-height:1.3}
+.xcard .acts{margin-top:9px}
+</style>
+</head>
+<body>
+<div class="bar" id="bar">
+  <span><b>Mode</b><span class="seg"><button id="m-open">Open</button><button id="m-brigade">Brigade</button></span></span>
+  <span><b>Theme</b><span class="seg"><button id="t-dark">Dark</button><button id="t-light">Light</button></span></span>
+  <span class="hint">Click the cloche, top left, to expand or collapse.</span>
+  <span class="note">Mock v2, approved by Dan 2026-11-10. Made-up people. Not built.</span>
+</div>
+<div class="win" id="win">
+  <button class="logo" id="logo" aria-label="Expand or collapse"><span class="flip"><span class="face f-pass"><svg><use href="#cloche"/></svg></span><span class="face f-x"><svg><use href="#cloche"/></svg></span></span></button>
+  <div id="stage"></div>
+</div>
+
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="cloche" viewBox="0 0 24 24"><path d="M4.25 17.4a7.75 7.75 0 0 1 15.5 0" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="7.4" r="1.75" fill="currentColor"/><path d="M2.75 19h18.5l-1.5 1.5H4.25z" fill="currentColor"/></symbol>
+  <symbol id="sliders" viewBox="0 0 16 16"><path d="M2 5h7M12 5h2M2 11h2M7 11h7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="10.5" cy="5" r="1.6" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="5.5" cy="11" r="1.6" fill="none" stroke="currentColor" stroke-width="1.4"/></symbol>
+  <symbol id="okc" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="currentColor" opacity=".18"/><path d="M4.8 8.2l2.1 2.1 4.3-4.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="noc" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="currentColor" opacity=".18"/><path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="arrow" viewBox="0 0 28 10"><path d="M1 5h24M21 1.5L25 5l-4 3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+<script>
+const S = { mode: 'open', view: 'collapsed', theme: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light', sel: 0 };
+const q = new URLSearchParams(location.search);
+if (q.get('mode')) S.mode = q.get('mode');
+if (q.get('view')) S.view = q.get('view');
+if (q.get('theme')) S.theme = q.get('theme');
+if (q.get('sel')) S.sel = Number(q.get('sel'));
+
+const T = {
+  maya: { i: 'MR', n: 'Maya', c: 'c1' }, kai: { i: 'KM', n: 'Kai', c: 'c3' }, jon: { i: 'JP', n: 'Jon', c: 'c2' },
+  sam: { i: 'SO', n: 'Sam', c: 'c4' }, lee: { i: 'LA', n: 'Lee', c: 'c0' }, priya: { i: 'PN', n: 'Priya', c: 'c5' },
+  omar: { i: 'OH', n: 'Omar', c: 'c6' }, elena: { i: 'ER', n: 'Elena', c: 'c7' }, ravi: { i: 'RS', n: 'Ravi', c: 'c2' },
+  nina: { i: 'NB', n: 'Nina', c: 'c4' }, ben: { i: 'BC', n: 'Ben', c: 'c5' }, ada: { i: 'AK', n: 'Ada', c: 'c3' },
+  tom: { i: 'TW', n: 'Tom', c: 'c6' }, iris: { i: 'IV', n: 'Iris', c: 'c1' },
+};
+const av = (id, cls = '') => `<span class="av ${T[id].c} ${cls}">${T[id].i}</span>`;
+const stack = (ids, cls = '') => `<span class="stack">${ids.map((i) => av(i, cls)).join('')}</span>`;
+const ico = (id, cls, s = 16) => `<svg class="${cls}" width="${s}" height="${s}"><use href="#${id}"/></svg>`;
+
+// ---------- Small charts ----------
+function spark(vals, color, { w = 200, h = 30, area = true, max } = {}) {
+  const m = max ?? Math.max(...vals), n = vals.length - 1;
+  const pts = vals.map((v, i) => [(i / n) * w, h - 2 - (v / m) * (h - 4)]);
+  const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${area ? `<path d="${d} L${w} ${h} L0 ${h} Z" fill="${color}" opacity=".14"/>` : ''}<path d="${d}" fill="none" stroke="${color}" stroke-width="1.75" vector-effect="non-scaling-stroke" stroke-linejoin="round"/></svg>`;
+}
+function vbars(vals, color, { w = 200, h = 30, avg } = {}) {
+  const m = Math.max(...vals, avg || 0), bw = w / vals.length;
+  const r = vals.map((v, i) => `<rect x="${(i * bw + 1.5).toFixed(1)}" y="${(h - (v / m) * (h - 2)).toFixed(1)}" width="${(bw - 3).toFixed(1)}" height="${((v / m) * (h - 2)).toFixed(1)}" rx="1.5" fill="${color}"/>`).join('');
+  const a = avg ? `<line x1="0" x2="${w}" y1="${(h - (avg / m) * (h - 2)).toFixed(1)}" y2="${(h - (avg / m) * (h - 2)).toFixed(1)}" stroke="var(--label3)" stroke-width="1" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>` : '';
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${r}${a}</svg>`;
+}
+const track = (pct, scale, cls, budget) => `<div class="track"><b class="${cls}" style="width:${Math.min(100, (pct / scale) * 100)}%"></b>${budget != null ? `<u style="left:${(budget / scale) * 100}%"></u>` : ''}</div>`;
+
+// ---------- Data: Open ----------
+const OPEN_PASS = [
+  { lv: 'red', k: 'Main broken', age: '6 min', t: 'main is red after #431 merged', d: '6 PRs can’t merge until main is green.', who: ['ravi'], sug: 'Roll back #431', r: rMain, a: [['danger', 'Roll back #431'], ['', 'Open']] },
+  { lv: 'red', k: 'Overlap', age: '22 min', t: 'Kai and Jon both change orchestration.ts', d: 'Both PRs are open. Whoever merges second redoes the work.', who: ['kai', 'jon'], sug: 'Ask Jon to rebase', r: rOverlap, a: [['pri', 'Ask Jon to rebase'], ['', 'Open']] },
+  { lv: 'amber', k: 'Diverging', age: '41 min', t: 'Two designs for thread nesting', d: 'Jon adds groupId. Priya’s plan adds parentId for the same need.', who: ['jon', 'priya'], sug: 'Keep groupId', r: rDiverge, a: [['pri', 'Keep groupId'], ['', 'Open']] },
+];
+// Everyone, by their state. Units are people; The Pass counts calls.
+const TEAM = [
+  { k: 'In The Pass', cls: 'd-pass', ids: ['ravi', 'kai', 'jon', 'priya'] },
+  { k: 'Fixing an alarm', cls: 'd-amber', ids: ['nina'] },
+  { k: 'Not reporting', cls: 'd-gray', ids: ['lee'] },
+  { k: 'On track', cls: 'd-green', ids: ['maya', 'omar', 'sam', 'elena', 'ben', 'ada', 'tom', 'iris'] },
+];
+const N = 14.05; // now, 14:03
+const TL = [
+  ['ravi', 'In The Pass', 'pass', [{ s: 8.2, e: 11.7, t: 'Updater channel picker #431', m: 1, al: 'red', tag: 'Broke main', ln: 0 }, { s: 11.9, e: N, t: 'Nightly icon', ln: 1 }]],
+  ['kai', 'In The Pass', 'pass', [{ s: 7.5, e: N, t: 'Pin threads to the sidebar #412', al: 'red', ln: 0, eta: 14.4 }, { s: 12.4, e: N, t: 'Sidebar keyboard nav', ln: 1 }]],
+  ['jon', 'In The Pass', 'pass', [{ s: 9.0, e: N, t: 'Group threads by parent #415', al: 'red', ln: 0 }, { s: 6.3, e: 10.5, t: 'Offline banner copy #409', m: 1, ln: 1 }]],
+  ['priya', 'In The Pass', 'pass', [{ s: 10.2, e: N, t: 'Push token store', ln: 1 }, { s: 12.9, e: N, t: 'Plan: push for questions', al: 'amber', tag: 'Diverging', ln: 0 }]],
+  ['nina', 'Fixing an alarm', 'amber', [{ s: 8.0, e: N, t: 'Tray icon states #428', al: 'amber', tag: 'Checks red 3 runs', ln: 0 }, { s: 6.5, e: 9.6, t: 'Tray menu order #419', m: 1, ln: 1 }]],
+  ['lee', 'Not reporting', 'gray', [{ s: 9.0, e: 12.0, t: 'Relay retries', ln: 0 }, { s: 12.0, e: N, t: 'Mac quiet since 12:01', off: 1, ln: 0 }]],
+  ['maya', '', '', [{ s: 6.2, e: N, t: 'Shell stream protocol v3', ln: 0 }, { s: 10.0, e: 12.8, t: 'Sealed summaries #407', m: 1, ln: 1 }]],
+  ['omar', '', '', [{ s: 7.0, e: N, t: 'Relay: inbox expiry #421', ln: 0 }]],
+  ['elena', '', '', [{ s: 8.5, e: 11.2, t: 'Offline banner #417', m: 1, ln: 0 }, { s: 11.5, e: N, t: 'Banner a11y', ln: 1 }]],
+  ['ben', '', '', [{ s: 9.5, e: N, t: 'Diff viewer: word wrap #436', ln: 0, eta: 14.3 }]],
+  ['ada', '', '', [{ s: 10.5, e: N, t: 'Settings search', ln: 0 }]],
+  ['iris', '', '', [{ s: 7.2, e: 13.1, t: 'Export to Markdown #438', m: 1, ln: 0 }, { s: 13.3, e: N, t: 'Export: tables', ln: 1 }]],
+  ['sam', '', '', [{ s: 11.0, e: N, t: 'Pricing page', ln: 0 }]],
+  ['tom', '', '', [{ s: 12.0, e: N, t: 'Keyboard shortcuts sheet', ln: 0 }]],
+];
+
+// ---------- Data: Brigade ----------
+const AREAS = [
+  { n: 'Contracts', o: 'maya', m: 'Brigade', cfr: 2, wk: [3, 2, 4, 1, 3, 2], prs: 14 },
+  { n: 'Server', o: 'omar', m: 'Brigade', cfr: 6, wk: [5, 7, 4, 6, 5, 6], prs: 17 },
+  { n: 'Mobile', o: 'priya', m: 'Brigade', cfr: 9, wk: [6, 8, 7, 9, 8, 9], prs: 11 },
+  { n: 'Desktop', o: 'ravi', m: 'Brigade', cfr: 18, wk: [4, 6, 5, 9, 12, 18], prs: 22 },
+  { n: 'Web', o: 'kai', m: 'Open', cfr: 4, wk: [6, 5, 4, 5, 3, 4], prs: 25 },
+  { n: 'Docs', o: 'tom', m: 'Open', cfr: 0, wk: [0, 1, 0, 0, 0, 0], prs: 6 },
+];
+// Each feature: segments per area [area, tickets, merged, inReview, blocked?]
+const FEATS = [
+  { n: 'Thread groups', p: 'Mobile v1', st: ['red', 'Blocked 40 min'], segs: [['Contracts', 5, 5, 0], ['Server', 4, 4, 0], ['Web', 6, 3, 2], ['Mobile', 5, 0, 0, 1]] },
+  { n: 'Pinned threads', p: 'Desktop polish', st: ['pass', 'Ready for your look'], segs: [['Contracts', 2, 2, 0], ['Web', 4, 4, 0], ['Desktop', 3, 3, 0]] },
+  { n: 'Relay inbox expiry', p: 'Team relay', st: ['amber', 'One-way change'], segs: [['Contracts', 2, 2, 0], ['Server', 5, 3, 1]] },
+  { n: 'Updater channels', p: 'Desktop polish', st: ['gray', 'Shipped 2 h ago'], segs: [['Desktop', 6, 6, 0]] },
+];
+const BATCHES = [
+  { c: 20, t: '20 tickets touch the thread shell', d: 'Contracts. One change to the shell moves all 20.', who: 'maya' },
+  { c: 6, t: '6 tickets about push notifications', d: 'Mobile. All wait on one token store.', who: 'priya' },
+  { c: 4, t: '4 tickets about empty states', d: 'Web. One component, four screens.', who: 'kai' },
+];
+const BRIG_PASS = [
+  { lv: 'red', k: 'Blocked 40 min', age: '40 min', t: 'Grouped list (#420) waits on the push token store', d: 'Holds up Thread groups at 12 of 20.', who: ['priya'], sug: 'Assign the store to Omar', r: rBlocked, a: [['pri', 'Assign to Omar'], ['', 'Open']] },
+  { lv: 'pass', k: 'Ready for your look', age: '8 min', t: 'Pinned threads', d: 'All 9 tickets merged to staging. Checks green.', who: ['kai', 'ravi', 'maya'], sug: 'Ship', r: rReady, a: [['pri', 'Ship'], ['', 'Open preview']] },
+  { lv: 'amber', k: 'One-way change', age: '25 min', t: '#421 deletes old inbox rows', d: 'A rollback can’t bring the rows back.', who: ['omar'], sug: 'Ask for a tested undo', r: rOneWay, a: [['pri', 'Ask for a tested undo'], ['', 'Open']] },
+  { lv: 'amber', k: 'Over budget', age: '1 h', t: 'Desktop: 18% of changes failed this week', d: 'Budget is 10%. Desktop PRs come to you until it’s back under.', who: ['ravi'], sug: 'Keep reviewing Desktop', r: rBudget, a: [['', 'See the 4 changes']] },
+];
+
+const PASS = () => (S.mode === 'open' ? OPEN_PASS : BRIG_PASS);
+const kcls = (lv) => ({ red: 'k-red', amber: 'k-amber', pass: 'k-pass', gray: 'k-gray' }[lv]);
+
+// ---------- Rail ----------
+function rail() {
+  const p = PASS();
+  let mid = '';
+  if (S.mode === 'open') {
+    const segs = TEAM.flatMap((g) => g.ids.map(() => `<i class="${g.cls}"></i>`)).join('');
+    mid = `<div class="group"><div class="gh">Team<i>14 people</i></div><div class="segbar">${segs}</div>
+      ${TEAM.map((g) => `<div class="ri"><span class="dot ${g.cls}"></span><span class="lbl">${g.k}</span>${g.ids.length <= 4 ? stack(g.ids, 'sm') : `<span class="n">${g.ids.length}</span>`}</div>`).join('')}
+    </div>`;
+  } else {
+    mid = `<div class="group"><div class="gh">Features<i>merged</i></div>
+      ${FEATS.map((f) => { const tot = f.segs.reduce((a, s) => a + s[1], 0), mg = f.segs.reduce((a, s) => a + s[2], 0);
+        const cls = f.st[0] === 'red' ? 'red' : f.st[0] === 'pass' ? 'pass' : f.st[0] === 'gray' ? 'dim' : '';
+        const v = f.st[0] === 'pass' ? '<span class="v pass">Ready</span>' : f.st[0] === 'gray' ? '<span class="v">Shipped</span>' : `<span class="v ${f.st[0] === 'red' ? 'red' : ''}">${mg}/${tot}</span>`;
+        return `<div class="mini"><div class="row">${f.n}${v}</div>${track(mg, tot, cls)}</div>`; }).join('')}
+    </div>
+    <div class="group"><div class="gh">Areas<i>failed changes</i></div>
+      ${AREAS.map((a) => `<div class="mini"><div class="row">${a.n}${a.m === 'Open' ? '<span class="tag">Open</span>' : ''}<span class="v ${a.cfr > 10 ? 'red' : ''}">${a.cfr}%</span></div>${track(a.cfr, 20, a.cfr > 10 ? 'red' : '', 10)}</div>`).join('')}
+    </div>`;
+  }
+  const modeChip = S.mode === 'open' ? `<div class="chip">Open<i>all areas</i></div>` : `<div class="chip">Brigade<i>4 of 6 areas</i></div>`;
+  return `<div class="rail">
+    <div class="top"><button class="passbtn ${S.view === 'collapsed' ? 'on' : ''}" data-go="collapsed">The Pass<span class="n">${p.length}</span></button></div>
+    ${mid}
+    <div class="foot">${modeChip}<div class="two"><div><span class="live"></span>Live</div><div><svg width="16" height="16"><use href="#sliders"/></svg></div></div></div>
+  </div>`;
+}
+
+// ---------- Collapsed ----------
+function list() {
+  const p = PASS();
+  const calm = S.mode === 'open'
+    ? 'Nothing else needs you. 8 people on track, Nina is fixing her own alarm, Lee’s Mac is quiet.'
+    : 'Nothing else needs you. 2 features moving, every area but Desktop under budget.';
+  return `<div class="list"><div class="lh"><h1>The Pass</h1><span>${p.length} need you, most urgent first</span></div>
+    <div class="lscroll">${p.map((x, i) => `<button class="pcard ${i === S.sel ? 'sel' : ''}" data-sel="${i}">
+      <div class="pk ${kcls(x.lv)}">${x.k}<span>${x.age}</span></div><b>${x.t}</b><p>${x.d}</p>
+      <div class="pf">${stack(x.who, 'sm')}<span class="sg">Suggested: <em>${x.sug}</em></span></div></button>`).join('')}
+      <div class="allclear">${ico('okc', '', 18)}<span>${calm}</span></div>
+    </div></div>`;
+}
+function reader() {
+  const x = PASS()[Math.min(S.sel, PASS().length - 1)];
+  return `<div class="reader"><div class="rin"><div class="rk ${kcls(x.lv)}">${x.k}<span>${x.age}</span></div>${x.r()}</div></div>`;
+}
+
+function rMain() {
+  const sq = Array.from({ length: 17 }, () => '<i></i>').join('') + '<i class="r"></i>' + '<i class="e"></i>'.repeat(4);
+  const prs = [['kai', '#412'], ['jon', '#415'], ['nina', '#428'], ['omar', '#421'], ['ben', '#436'], ['elena', '#439']];
+  return `<h2>main is red after #431 merged</h2>
+    <p class="lede">test:desktop has failed on main since 11:42. Nothing merged after #431, so it is the cause.</p>
+    <div class="vis"><div class="vl">Every merge to main today<b class="red">Red since 11:42</b></div>
+      <div class="ribbon">${sq}</div><div class="raxis"><span>08:05</span><span>#431 at 11:42</span><span>now</span></div></div>
+    <div class="vis"><div class="vl">Waiting on main<b>6 PRs can’t merge</b></div>
+      <div class="prs">${prs.map(([w, n]) => `<span class="prc">${av(w, 'sm')}${n}</span>`).join('')}</div></div>
+    <div class="vis"><div class="kvs">
+      <div class="kv"><span>PR</span><b>#431 Updater channel picker</b></div>
+      <div class="kv"><span>By</span><b>Ravi’s agent, merged 11:42</b></div>
+      <div class="kv"><span>Size</span><b>5 files, +212 −40</b></div>
+      <div class="kv"><span>Failing test</span><b class="mono">updater › channel switch keeps tag</b></div>
+    </div></div>
+    <div class="sug"><b>Suggested</b><span>Roll back #431. Nothing merged after it, so the revert is clean. Ravi’s thread keeps the work.</span></div>
+    <div class="acts"><button class="btn danger">Roll back #431</button><button class="btn">Open in T3 Code</button><button class="btn">Message Ravi</button></div>`;
+}
+function rOverlap() {
+  const L = 420, pos = (a, b) => `left:${(a / L) * 100}%;width:${((b - a) / L) * 100}%`;
+  return `<h2>Kai and Jon both change orchestration.ts</h2>
+    <p class="lede">Both PRs are open. Whoever merges second redoes part of the work.</p>
+    <div class="duo">
+      <div class="tcard"><div class="h">${av('kai')}Kai<span class="pill" style="--pc:var(--bar)">In review</span></div><div class="t">Pin threads to the sidebar</div><div class="m">PR #412 · 5 agents · ETA 20 min</div></div>
+      <div class="tcard"><div class="h">${av('jon')}Jon<span class="pill" style="--pc:#FF9F0A">In progress</span></div><div class="t">Group threads by parent</div><div class="m">PR #415 · 3 agents · started 09:00</div></div>
+    </div>
+    <div class="vis"><div class="vl"><span class="mono" style="font-weight:500;color:var(--label2)">packages/contracts/src/orchestration.ts</span><b class="red">Lines 120 to 168 changed by both</b></div>
+      <div class="fmap">
+        <div class="tr"><span>Kai</span><div class="lane"><i style="${pos(118, 170)}"></i><i style="${pos(300, 318)}"></i></div></div>
+        <div class="tr"><span>Jon</span><div class="lane"><i style="${pos(120, 168)}"></i><i style="${pos(204, 231)}"></i><i style="${pos(380, 392)}"></i></div></div>
+        <div class="band" style="left:calc(62px + (100% - 62px) * ${120 / L});width:calc((100% - 62px) * ${48 / L})"></div>
+        <div class="ticks"><span></span><div><span>1</span><span>100</span><span>200</span><span>300</span><span>420</span></div></div>
+      </div></div>
+    <div class="sug"><b>Suggested</b><span>Ask Jon to rebase on #412. Kai’s PR is in review and merges first.</span></div>
+    <div class="acts"><button class="btn pri">Ask Jon to rebase</button><button class="btn">Message both</button><button class="btn">It’s fine</button></div>`;
+}
+function rDiverge() {
+  return `<h2>Two designs for thread nesting</h2>
+    <p class="lede">Both add a parent link to a thread, for the same need: show sub-threads under their parent.</p>
+    <div class="vis"><div class="vl">How alike the two plans are<b class="amber">Same need, different field</b></div>
+      <div class="meter" style="background:linear-gradient(90deg,var(--track),var(--amber))"><u style="left:86%"></u></div>
+      <div class="mends"><span>Unrelated</span><span><b>86%</b> alike, read from both plans</span><span>Duplicate</span></div></div>
+    <div class="duo" style="margin-top:14px">
+      <div class="tcard"><div class="h">${av('jon')}Jon<span class="pill" style="--pc:#FF9F0A">In progress</span></div><div class="t"><span class="mono">groupId</span> on ThreadShell</div><div class="m">PR #415 · 3 files · tests written</div></div>
+      <div class="tcard"><div class="h">${av('priya')}Priya<span class="pill">Planned</span></div><div class="t"><span class="mono">parentId</span> on Thread</div><div class="m">Plan only · not started</div></div>
+    </div>
+    <div class="sug"><b>Suggested</b><span>Keep groupId. It is already in a PR, and Priya’s plan changes one field.</span></div>
+    <div class="acts"><button class="btn pri">Keep groupId</button><button class="btn">Keep parentId</button><button class="btn">Talk it through</button></div>`;
+}
+function asm(segs, labels = true) {
+  const tot = segs.reduce((a, s) => a + s[1], 0);
+  const bar = segs.map(([n, t, m, r, b]) => `<div class="${b ? 'blk' : ''}" style="flex:${t}"><b style="width:${(m / t) * 100}%"></b>${r ? `<s style="left:${(m / t) * 100}%;width:${(r / t) * 100}%"></s>` : ''}</div>`).join('');
+  const lab = labels ? `<div class="asmL">${segs.map(([n, t, m, r, b]) => `<span class="${b ? 'red' : ''}" style="flex:${t}"><b>${n}</b> ${b ? 'blocked' : `${m}/${t}`}</span>`).join('')}</div>` : '';
+  return `<div class="asm">${bar}</div>${lab}`;
+}
+function rReady() {
+  return `<h2>Pinned threads</h2>
+    <p class="lede">Desktop polish. All 9 tickets are merged to staging in 5 PRs across three areas. Every check is green.</p>
+    <div class="vis"><div class="vl">Put together on staging<b class="green">9 of 9 tickets</b></div>${asm(FEATS[1].segs)}</div>
+    <div class="vis"><div class="vl">Checks on staging</div><div class="checks">
+      <div class="ck"><div class="h">${ico('okc', 'ok', 14)}Tests</div><b>412 passed</b></div>
+      <div class="ck"><div class="h">${ico('okc', 'ok', 14)}Types</div><b>Clean</b></div>
+      <div class="ck"><div class="h">${ico('okc', 'ok', 14)}End to end</div><b>38 passed</b></div>
+      <div class="ck"><div class="h">${ico('okc', 'ok', 14)}Preview</div><b>Up</b></div></div></div>
+    <div class="vis"><div class="vl">If it goes wrong<b class="green">Undo in seconds</b></div>
+      <div class="meter"><u style="left:6%"></u></div>
+      <div class="mends"><span><b>Two-way</b>: turn off the pinned_threads flag, or redeploy d-812</span><span>One-way</span></div></div>
+    <div class="sug"><b>Suggested</b><span>Ship. It is behind a flag, so you can turn it off in seconds.</span></div>
+    <div class="acts"><button class="btn pri">Ship</button><button class="btn">Request changes</button><button class="btn">Open preview</button></div>`;
+}
+function rOneWay() {
+  return `<h2>#421 deletes old inbox rows</h2>
+    <p class="lede">Relay inbox expiry, by Omar’s agents. The migration deletes inbox rows older than 30 days, about 182,000 on the first run.</p>
+    <div class="vis"><div class="vl">If it goes wrong<b class="red">The rows can’t come back</b></div>
+      <div class="meter"><u style="left:92%"></u></div>
+      <div class="mends"><span>Two-way</span><span><b>One-way</b>: a redeploy restores the code, not the rows</span></div></div>
+    <div class="vis"><div class="vl">Before a one-way change ships</div><div class="cklist">
+      <div>${ico('okc', 'ok', 16)}Dry run on staging<span>181,904 rows</span></div>
+      <div>${ico('noc', 'no', 16)}Backup before the delete<span>none in the PR</span></div>
+      <div>${ico('noc', 'no', 16)}Down migration tested<span>written, not run</span></div></div></div>
+    <div class="sug"><b>Suggested</b><span>Ask Omar’s agents for a backup step and a tested down migration. Then it comes back here.</span></div>
+    <div class="acts"><button class="btn pri">Ask for a tested undo</button><button class="btn">Ship anyway</button><button class="btn">Open #421</button></div>`;
+}
+function rBlocked() {
+  return `<h2>Grouped list (#420) waits on the push token store</h2>
+    <p class="lede">Priya’s PR needs a token store that nobody has started. Priya has not answered in 30 min.</p>
+    <div class="vis"><div class="vl">What waits on what</div><div class="chain">
+      <div class="node red"><b>#420 Grouped list</b><span>Mobile · Priya · blocked 40 min</span></div>
+      <div class="arr">waits on<svg width="28" height="10"><use href="#arrow"/></svg></div>
+      <div class="node dash"><b>Push token store</b><span>Server · no PR yet</span></div>
+      <div class="arr">holds up<svg width="28" height="10"><use href="#arrow"/></svg></div>
+      <div class="node"><b>Thread groups</b><span>12 of 20 tickets merged</span></div></div></div>
+    <div class="vis"><div class="vl">Thread groups, by area</div>${asm(FEATS[0].segs)}</div>
+    <div class="sug"><b>Suggested</b><span>Assign the token store to Omar. Server has two agents free and owns the store.</span></div>
+    <div class="acts"><button class="btn pri">Assign to Omar</button><button class="btn">Message Priya</button><button class="btn">Hold #420</button></div>`;
+}
+function rBudget() {
+  const wk = AREAS[3].wk, m = 20;
+  return `<h2>Desktop: 18% of changes failed this week</h2>
+    <p class="lede">4 of 22 Desktop changes were rolled back or needed a fix. The budget is 10%, so Desktop PRs come to you until it is back under.</p>
+    <div class="vis"><div class="vl">Desktop failed changes, last 6 weeks<b class="red">18% this week</b></div>
+      <div class="wbars"><div class="bl" style="bottom:${(10 / m) * 100}%"><span>budget 10%</span></div>${wk.map((v) => `<div><em>${v}%</em><i class="${v > 10 ? 'r' : ''}" style="height:${(v / m) * 100}%"></i></div>`).join('')}</div>
+      <div class="wax">${['Oct 6', 'Oct 13', 'Oct 20', 'Oct 27', 'Nov 3', 'This week'].map((d) => `<span>${d}</span>`).join('')}</div></div>
+    <div class="vis"><div class="vl">The 4 changes</div><div class="cklist">
+      <div>${ico('noc', 'no', 16)}#431 Updater channel picker<span>broke main, 6 min ago</span></div>
+      <div>${ico('noc', 'no', 16)}#426 Window state on relaunch<span>rolled back</span></div>
+      <div>${ico('noc', 'no', 16)}#419 Tray menu order<span>fixed by #424</span></div>
+      <div>${ico('noc', 'no', 16)}#404 Dock badge count<span>rolled back</span></div></div></div>
+    <div class="sug"><b>Suggested</b><span>Keep reviewing Desktop PRs yourself this week. Three of the four came from the updater work.</span></div>
+    <div class="acts"><button class="btn pri">Keep reviewing Desktop</button><button class="btn">Message Ravi</button><button class="btn">Change the budget</button></div>`;
+}
+
+// ---------- Expanded ----------
+function passCol() {
+  const p = PASS();
+  return `<div class="passcol"><div class="lh"><h1>The Pass</h1><span>${p.length} need you</span></div>
+    <div class="lscroll">${p.map((x, i) => `<button class="xcard" data-open="${i}"><div class="pk ${kcls(x.lv)}">${x.k}<span>${x.age}</span></div><b>${x.t}</b>
+      <div class="acts">${x.a.map(([c, l]) => `<span class="btn sm ${c}" style="display:inline-flex;align-items:center">${l}</span>`).join('')}</div></button>`).join('')}</div></div>`;
+}
+function openBoard() {
+  const t0 = 6, t1 = 14.75, X = (t) => ((t - t0) / (t1 - t0)) * 100;
+  const hours = [6, 7, 8, 9, 10, 11, 12, 13, 14];
+  const grid = hours.map((h) => `<i class="grid-v" style="left:${X(h)}%"></i>`).join('');
+  const rows = TL.map(([id, word, cls, th]) => {
+    const em = word ? `<em class="${{ pass: 'k-pass', amber: 'k-amber', gray: 'k-gray' }[cls]}">${word}</em>` : '';
+    const bars = th.map((b) => {
+      const top = b.ln ? 16 : 3;
+      let h = `<span class="tlb ${b.al || ''} ${b.off ? 'off' : ''}" style="top:${top}px;left:${X(b.s)}%;width:${X(b.e) - X(b.s)}%">${b.t}</span>`;
+      if (b.m) h += `<i class="tlm" style="top:${top + 6}px;left:${X(b.e)}%"></i>`;
+      if (b.eta) h += `<span class="tlb eta" style="top:${top}px;left:${X(b.e)}%;width:${X(b.eta) - X(b.e)}%"></span>`;
+      if (b.tag) h += b.e >= N ? `<span class="tltag ${b.al}" style="top:${top}px;right:calc(${100 - X(b.e)}% + 2px)">${b.tag}</span>` : `<span class="tltag ${b.al}" style="top:${top}px;left:calc(${X(b.e)}% + 8px)">${b.tag}</span>`;
+      return h;
+    }).join('');
+    return `<div class="tlr"><div class="who">${av(id, 'sm')}<span><b>${T[id].n}</b>${em}</span></div><div class="plot">${grid}${bars}</div></div>`;
+  }).join('');
+  // Overlap connector between Kai's and Jon's top lanes, at 10:36, clear of Kai's second bar.
+  const cx = `calc(116px + (100% - 116px) * ${X(10.6) / 100})`;
+  const conn = `<div class="conn" style="left:${cx};top:${16 + 30 + 3 + 12}px;height:${30 - 12 + 2}px"><span>orchestration.ts</span></div>`;
+  const nowL = `calc(116px + (100% - 116px) * ${X(N) / 100})`;
+  const sq = Array.from({ length: 17 }, () => '<i></i>').join('') + '<i class="r"></i>';
+  return `<div class="board"><div class="bh"><h1>All projects</h1><span>Open · 14 people · 15 live threads · 14:03</span></div>
+    <div class="bscroll">
+      <div class="inst">
+        <div class="ins"><div class="l">main</div><div class="v"><b class="red">Red</b><span>since 11:42</span></div><div class="ribbon">${sq}</div></div>
+        <div class="ins"><div class="l">Merged today</div><div class="v"><b>6</b><span>usual by now: 5</span></div>${vbars([0, 1, 1, 0, 1, 2, 0, 1], 'var(--merged)', { avg: 0.75 })}</div>
+        <div class="ins"><div class="l">Waiting for review</div><div class="v"><b>3</b><span>PRs, oldest 2 h</span></div>${vbars([2, 1, 0.6], 'var(--label4)')}</div>
+        <div class="ins"><div class="l">Agents running</div><div class="v"><b>39</b><span>on 15 threads</span></div>${spark([4, 9, 15, 22, 27, 31, 30, 35, 38, 39], 'var(--pass)')}</div>
+      </div>
+      <div class="pnl"><div class="ph"><b>Who’s on what</b>today, one row per person
+        <span class="lg"><span><i class="sw"></i>working</span><span><i class="mk"></i>merged</span><span><i class="sw red"></i>red: in The Pass</span><span><i class="sw amber"></i>amber: watch</span><span><i class="sw off"></i>not reporting</span></span></div>
+        <div class="tl"><div class="tlax"><span></span><div class="ax">${hours.map((h) => `<span style="left:${X(h)}%">${String(h).padStart(2, '0')}:00</span>`).join('')}</div></div>
+          ${rows}${conn}<div class="now" style="left:${nowL};top:14px"><span>now</span></div></div></div>
+      <div class="pnl"><div class="ph"><b>Files two live threads change</b>checked every 3 s</div>
+        <div class="sf" style="border-top:0"><span class="f">contracts/src/orchestration.ts</span>${stack(['kai', 'jon'], 'sm')}<span class="s red">Same lines. In The Pass</span></div>
+        <div class="sf"><span class="f">contracts/src/thread-shell.ts</span>${stack(['jon', 'priya'], 'sm')}<span class="s amber">Two designs. In The Pass</span></div>
+        <div class="sf"><span class="f">web/src/sidebar.tsx</span>${stack(['kai', 'ada'], 'sm')}<span class="s">Different lines. Fine</span></div>
+      </div>
+    </div></div>`;
+}
+function brigadeBoard() {
+  const feats = FEATS.map((f) => { const tot = f.segs.reduce((a, s) => a + s[1], 0), mg = f.segs.reduce((a, s) => a + s[2], 0);
+    return `<div class="feat"><div class="fh"><b>${f.n}</b><span class="p">${f.p}</span><span class="st ${f.st[0]}">${f.st[1]}</span><span class="c">${mg} of ${tot} merged</span></div>${asm(f.segs)}</div>`; }).join('');
+  const areas = AREAS.map((a) => `<div class="acard ${a.cfr > 10 ? 'over' : ''}"><div class="h">${av(a.o, 'sm')}${a.n}<span class="md ${a.m === 'Brigade' ? 'b' : ''}">${a.m}</span></div>
+    <div class="v"><b class="${a.cfr > 10 ? 'red' : ''}">${a.cfr}%</b><span>of ${a.prs} failed</span></div>${track(a.cfr, 20, a.cfr > 10 ? 'red' : '', 10)}</div>`).join('');
+  const batches = BATCHES.map((b) => { const s = 26 + Math.sqrt(b.c) * 4; return `<div class="bt"><span class="num" style="width:${s}px;height:${s}px;font-size:${11 + Math.sqrt(b.c)}px">${b.c}</span><span class="tx"><b>${b.t}</b><span>${b.d}</span></span><button class="btn sm">Assign to ${T[b.who].n}</button></div>`; }).join('');
+  return `<div class="board"><div class="bh"><h1>All projects</h1><span>Brigade in Contracts, Server, Mobile, Desktop · Open in Web, Docs</span></div>
+    <div class="bscroll">
+      <div class="inst">
+        <div class="ins"><div class="l">Failed changes, this week</div><div class="v"><b class="green">7%</b><span>of 95, budget 10%</span></div>${spark([9, 8, 8, 7, 8, 7], 'var(--bar)', { max: 12 })}</div>
+        <div class="ins"><div class="l">Ticket to staging</div><div class="v"><b>6.2 h</b><span>median, was 9.8 h</span></div>${spark([9.8, 9.1, 8.4, 7.9, 6.9, 6.2], 'var(--pass)', { max: 11 })}</div>
+        <div class="ins"><div class="l">Time to roll back</div><div class="v"><b>2</b><span>min median, 3 this month</span></div>${vbars([1.5, 2.4, 2], 'var(--label4)')}</div>
+        <div class="ins"><div class="l">Shipped this week</div><div class="v"><b>3</b><span>features, Mon to Wed</span></div>${vbars([1, 0, 2, 0, 0], 'var(--merged)')}</div>
+      </div>
+      <div class="pnl"><div class="ph"><b>Features</b>each bar is the feature’s tickets, split by area
+        <span class="lg"><span><i class="sw" style="background:var(--bar)"></i>merged</span><span><i class="sw" style="background:repeating-linear-gradient(135deg,var(--bar) 0 2px,transparent 2px 4px)"></i>in review</span><span><i class="sw" style="background:var(--track)"></i>to do</span><span><i class="sw red"></i>blocked</span></span></div>${feats}</div>
+      <div class="split">
+        <div class="pnl"><div class="ph"><b>Areas</b>failed changes this week; the tick is the 10% budget</div><div class="areas">${areas}</div></div>
+        <div class="pnl"><div class="ph"><b>Related tickets</b>one change moves the batch</div>${batches}</div>
+      </div>
+    </div></div>`;
+}
+
+// ---------- Render ----------
+function render() {
+  document.documentElement.dataset.theme = S.theme;
+  document.getElementById('logo').classList.toggle('x', S.view === 'expanded');
+  document.getElementById('stage').innerHTML = rail() + (S.view === 'collapsed' ? list() + reader() : (S.mode === 'open' ? openBoard() : brigadeBoard()) + passCol());
+  for (const [id, on] of [['m-open', S.mode === 'open'], ['m-brigade', S.mode === 'brigade'], ['t-dark', S.theme === 'dark'], ['t-light', S.theme === 'light']])
+    document.getElementById(id).classList.toggle('on', on);
+  fit();
+}
+function setView(v) {
+  if (v === S.view) return render();
+  S.view = v;
+  document.getElementById('logo').classList.toggle('x', v === 'expanded');
+  const swap = () => render();
+  setTimeout(() => (document.startViewTransition ? document.startViewTransition(swap) : swap()), 200);
+}
+function fit() {
+  const w = document.documentElement.clientWidth;
+  document.getElementById('win').style.zoom = w < 1440 ? String(w / 1440) : '';
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.id === 'logo') return setView(S.view === 'collapsed' ? 'expanded' : 'collapsed');
+  if (b.dataset.go) return setView(b.dataset.go);
+  if (b.dataset.open) { S.sel = Number(b.dataset.open); return setView('collapsed'); }
+  if (b.id === 'm-open') { S.mode = 'open'; S.sel = 0; }
+  else if (b.id === 'm-brigade') { S.mode = 'brigade'; S.sel = 0; }
+  else if (b.id === 't-dark') S.theme = 'dark';
+  else if (b.id === 't-light') S.theme = 'light';
+  else if (b.dataset.sel) S.sel = Number(b.dataset.sel);
+  else return;
+  render();
+});
+addEventListener('resize', fit);
+render();
+</script>
+</body>
+</html>

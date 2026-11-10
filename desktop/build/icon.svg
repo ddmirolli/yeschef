@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- The Yes Chef Dock icon: the cloche (pass.py ICONS["cloche"]) on the macOS icon grid (824 tile in a 1024 canvas).
+       Dan, 2026-11-07: the cloche spans 70% of the tile's width (it was 50%). -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3B9BFF"/>
+      <stop offset="1" stop-color="#0066D6"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#tile)"/>
+  <g transform="translate(137.9 104.3) scale(31.178)" fill="#fff"><path d="M4.25 17.4a7.75 7.75 0 0 1 15.5 0" fill="none" stroke="#fff" stroke-width="1.5"/><circle cx="12" cy="7.4" r="1.75"/><path d="M2.75 19h18.5l-1.5 1.5H4.25z"/></g>
+</svg>

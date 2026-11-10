@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Command bar mock</title>
+<!-- Dan, 2026-11-10, after v3: "Let's go with Apple's default of 0.5s", then "yes, build". The default motion is now
+     Apple's default spring (duration 0.5, bounce 0; 735 ms in CSS). The other choices stay in the Motion switch.
+     Mock v3, 2026-11-10: v2's motion, timed from iOS. Rise and sink use the iOS sheet curve as the community mapped it
+     (Ionic Framework, then Vaul: 500 ms, cubic-bezier(0.32, 0.72, 0, 1)). Suggestions pop in after the bar, staggered,
+     like iOS Spotlight's suggestions. ↓ shows suggestions at once (Dan, 1A). ⌘T and ⌘N both open New thread (Dan, 3A).
+     Copied into the repo as docs/mocks/command-bar-v3.html; v1 and v2 are not kept here.
+     Mock v2, 2026-11-10: ⌘K opens empty at the window's center, like Spotlight. It rises as you type, sinks when
+     the field is empty again, and after 5 s empty rises with the last action and suggestions. ↑ in the empty field
+     brings back the last action, like a terminal. ⌘T and the shortcuts are as in v1. Made-up threads. Not built.
+     URL params: s=k|dark|sug|up|note|new|keys|none, theme=dark|light, motion=sheet|spring3|spring5|reduced. -->
+<style>
+:root{
+  --page:#FFFFFF;--panel:#F2F2F7;--card:#FFFFFF;--pop:#FFFFFF;--label:#1D1D1F;--label2:#636366;--label3:#8E8E93;--label4:#AEAEB2;
+  --sep:rgba(60,60,67,.16);--fill:rgba(118,118,128,.12);--fill2:rgba(118,118,128,.20);--track:rgba(118,118,128,.16);
+  --pass:#0071E3;--pass-t:rgba(0,113,227,.10);--sel:rgba(0,113,227,.12);
+  --red:#D70015;--amber:#B25000;--amber-t:rgba(255,149,0,.16);--green:#1A7F37;--merged:#8250DF;
+  --scrim:rgba(0,0,0,.30);
+  --sh-pop:0 0 0 .5px rgba(0,0,0,.10),0 24px 64px rgba(0,0,0,.22),0 4px 14px rgba(0,0,0,.10);
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue","Segoe UI",Roboto,system-ui,sans-serif;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+  --dur:500ms;--ease:cubic-bezier(.32,.72,0,1);--lead:150ms;--stag:40ms;
+}
+/* The motion choices in the mock bar. Default: the iOS sheet curve (Ionic, Vaul). The springs are Apple's
+   critically damped spring (bounce 0), drawn to 0.1% of the travel: 0.3 s settles in 441 ms, 0.5 s in 735 ms. */
+/* --D is the duration in use. Slow-mo (mock only, like the iOS Simulator's Slow Animations) multiplies every timing. */
+:root{--D:calc(var(--dur) * var(--slow,1))}
+:root[data-motion=spring3]{--dur:441ms;--ease:linear(0, 0.0575, 0.1803, 0.3208, 0.4551, 0.5729, 0.6711, 0.7501, 0.8122, 0.8601, 0.8966, 0.924, 0.9445, 0.9596, 0.9708, 0.9789, 0.9848, 0.9891, 0.9922, 0.9944, 0.996, 0.9972, 0.998, 0.9986, 1)}
+:root[data-motion=spring5]{--dur:735ms;--ease:linear(0, 0.0575, 0.1803, 0.3208, 0.4551, 0.5729, 0.6711, 0.7501, 0.8122, 0.8601, 0.8966, 0.924, 0.9445, 0.9596, 0.9708, 0.9789, 0.9848, 0.9891, 0.9922, 0.9944, 0.996, 0.9972, 0.998, 0.9986, 1)}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  --page:#1C1C1E;--panel:#2C2C2E;--card:#1C1C1E;--pop:#2C2C2E;--label:#F5F5F7;--label2:#AEAEB2;--label3:#8E8E93;--label4:#636366;
+  --sep:rgba(235,235,245,.13);--fill:rgba(118,118,128,.24);--fill2:rgba(118,118,128,.36);--track:rgba(118,118,128,.28);
+  --pass:#3B9BFF;--pass-t:rgba(10,132,255,.16);--sel:rgba(10,132,255,.22);
+  --red:#FF6961;--amber:#FF9F0A;--amber-t:rgba(255,159,10,.15);--green:#3FB950;--merged:#AB7DF8;
+  --scrim:rgba(0,0,0,.45);
+  --sh-pop:0 0 0 .5px rgba(255,255,255,.10),0 24px 64px rgba(0,0,0,.6),0 4px 14px rgba(0,0,0,.4);
+}}
+:root[data-theme=dark]{
+  --page:#1C1C1E;--panel:#2C2C2E;--card:#1C1C1E;--pop:#2C2C2E;--label:#F5F5F7;--label2:#AEAEB2;--label3:#8E8E93;--label4:#636366;
+  --sep:rgba(235,235,245,.13);--fill:rgba(118,118,128,.24);--fill2:rgba(118,118,128,.36);--track:rgba(118,118,128,.28);
+  --pass:#3B9BFF;--pass-t:rgba(10,132,255,.16);--sel:rgba(10,132,255,.22);
+  --red:#FF6961;--amber:#FF9F0A;--amber-t:rgba(255,159,10,.15);--green:#3FB950;--merged:#AB7DF8;
+  --scrim:rgba(0,0,0,.45);
+  --sh-pop:0 0 0 .5px rgba(255,255,255,.10),0 24px 64px rgba(0,0,0,.6),0 4px 14px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:#6e6e73}
+body{font:14px/1.4 var(--sans);color:var(--label);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;border:0;background:none;padding:0;cursor:pointer}
+kbd{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 5px;border-radius:5px;background:var(--fill);color:var(--label2);font:500 11.5px/1 var(--sans)}
+kbd+kbd{margin-left:3px}
+[hidden]{display:none !important}
+
+/* The mock's own bar, not the product */
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:16px;padding:12px 16px;background:#3a3a3c;color:#f5f5f7;font-size:13px}
+.bar b{font-weight:600;margin-right:6px}
+.seg{display:inline-flex;flex-wrap:wrap;max-width:100%;background:rgba(255,255,255,.1);border-radius:8px;padding:2px}
+.seg button{padding:4px 10px;border-radius:6px;color:#d1d1d6}
+.seg button[aria-pressed=true]{background:#f5f5f7;color:#1d1d1f;font-weight:600}
+.bar .note{margin-left:auto;color:#aeaeb2}
+.bar #minfo{margin-left:0;flex-basis:100%;color:#d1d1d6}
+.bar a{color:#9ecbff}
+.bar .play{padding:5px 12px;border-radius:8px;background:#0a84ff;color:#fff;font-weight:600}
+.bar .count{min-width:128px;color:#ffd60a;font-variant-numeric:tabular-nums}
+.stage{padding:20px 0;display:flex;justify-content:center}
+.fit{transform-origin:top center}
+
+/* The app window, behind */
+.win{position:relative;width:1440px;height:900px;overflow:hidden;background:var(--page)}
+.rail{position:absolute;top:20px;left:20px;bottom:20px;width:208px;display:flex;flex-direction:column;gap:12px}
+.rtop{display:flex;gap:10px;align-items:center}
+.logo{width:34px;height:34px;border-radius:9px;background:var(--pass);color:#fff;display:grid;place-items:center}
+.logo svg{width:24px;height:24px}
+.rpass{flex:1;display:flex;justify-content:space-between;align-items:center;height:34px;padding:0 12px;border-radius:9px;background:var(--pass-t);font-weight:600}
+.rpass span{color:var(--pass)}
+.rgroup{background:var(--panel);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:9px;font-size:13px}
+.rgroup h4{margin:0;font-size:12px;font-weight:500;color:var(--label3)}
+.rrow{display:flex;justify-content:space-between;color:var(--label2)}
+.rfoot{margin-top:auto;display:flex;flex-direction:column;gap:8px}
+.chip{display:flex;justify-content:space-between;padding:9px 12px;border-radius:9px;background:var(--panel);font-size:13px}
+.chip span{color:var(--label3)}
+.list{position:absolute;top:20px;left:244px;width:330px;bottom:20px;background:var(--panel);border-radius:14px;padding:16px 10px;display:flex;flex-direction:column;gap:8px}
+.list h3{margin:0 6px 4px;font-size:17px}.list h3 small{font-size:12.5px;font-weight:400;color:var(--label3);margin-left:6px}
+.pc{background:var(--card);border-radius:11px;padding:11px 13px;display:flex;flex-direction:column;gap:3px}
+.pc.sel{box-shadow:inset 3px 0 0 var(--pass)}
+.pc .w{display:flex;justify-content:space-between;font-size:12.5px;font-weight:600}.pc .w span{color:var(--label3);font-weight:400}
+.pc b{font-size:14px}.pc p{margin:0;color:var(--label2);font-size:13px}
+.pc .sug{font-size:12.5px;color:var(--label3)}.pc .sug b{color:var(--label);font-size:12.5px}
+.c-amber{color:var(--amber)}.c-blue{color:var(--pass)}.c-gray{color:var(--label3)}.c-red{color:var(--red)}
+.reader{position:absolute;top:20px;left:590px;right:20px;bottom:20px;background:var(--panel);border-radius:14px;padding:12px}
+.rd{background:var(--card);border-radius:12px;height:100%;padding:30px 34px;display:flex;flex-direction:column;gap:14px}
+.rd .w{font-size:13px;font-weight:600}.rd .w span{color:var(--label3);font-weight:400;margin-left:8px}
+.rd h2{margin:0;font-size:24px;letter-spacing:-.01em}
+.rd p{margin:0;color:var(--label2);font-size:15px;max-width:640px}
+.opts{display:flex;flex-direction:column;gap:8px;max-width:640px}
+.opt{display:flex;gap:12px;align-items:center;padding:12px 14px;border-radius:10px;background:var(--panel)}
+.opt kbd{background:var(--card)}
+.opt.rec{box-shadow:inset 0 0 0 1.5px var(--pass)}
+.opt small{margin-left:auto;color:var(--pass);font-weight:600;font-size:12px}
+.acts{display:flex;gap:10px}
+.btn{height:34px;padding:0 14px;border-radius:9px;background:var(--fill);font-weight:600;font-size:13.5px;display:inline-flex;align-items:center;gap:8px}
+.btn.fill{background:var(--pass);color:#fff}.btn.fill kbd{background:rgba(255,255,255,.22);color:#fff}
+
+/* The scrim and the pop-over */
+.scrim{position:absolute;inset:0;background:var(--scrim);opacity:0;visibility:hidden;transition:opacity .2s ease,visibility 0s linear .2s}
+.on .scrim{opacity:1;visibility:visible;transition:opacity .2s ease}
+.pop{position:absolute;left:50%;top:112px;transform:translateX(-50%);width:660px;background:var(--pop);border-radius:16px;box-shadow:var(--sh-pop);overflow:hidden;display:none}
+.pop.show{display:block}
+.qrow{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:.5px solid var(--sep)}
+.qrow svg{width:18px;height:18px;color:var(--label3);flex:none}
+.qrow input{flex:1;border:0;outline:0;background:none;font:400 18px/1.3 var(--sans);color:var(--label);min-width:0}
+.qrow input::placeholder{color:var(--label4)}
+.crumb{flex:none;display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:7px;background:var(--pass-t);color:var(--pass);font-weight:600;font-size:13px}
+.res{max-height:520px;overflow:auto;padding:6px 8px 8px;scrollbar-width:thin;scrollbar-color:var(--fill2) transparent}
+.gh{padding:10px 10px 4px;font-size:12px;font-weight:600;color:var(--label3);display:flex;gap:6px}
+.gh span{font-weight:400}
+.it{display:flex;align-items:center;gap:12px;padding:8px 10px;border-radius:9px;min-height:40px}
+.it.sel{background:var(--sel)}
+.it .ic{flex:none;width:26px;height:26px;border-radius:7px;background:var(--fill);display:grid;place-items:center;color:var(--label2)}
+.it .ic svg{width:15px;height:15px}
+.it .ic.blue{background:var(--pass);color:#fff}
+.it .ic.av{border-radius:50%;color:#fff;font:700 10px/1 var(--sans)}
+.it .t{display:flex;flex-direction:column;min-width:0}
+.it .t b{font-weight:500;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.it .t small{color:var(--label3);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.it .k{margin-left:auto;display:flex;align-items:center;gap:8px;flex:none}
+.tag{font-size:11.5px;font-weight:600;padding:2px 7px;border-radius:6px;background:var(--pass-t);color:var(--pass)}
+.tag.on{background:var(--fill);color:var(--label2)}
+.st{font-size:12px;font-weight:600}
+.foot{display:flex;align-items:center;gap:16px;padding:10px 16px;border-top:.5px solid var(--sep);background:var(--panel);font-size:12px;color:var(--label3)}
+.foot span{display:inline-flex;align-items:center;gap:6px}
+.foot .r{margin-left:auto}
+.empty{padding:28px;text-align:center;color:var(--label3)}
+
+/* ⌘K moves like Spotlight. Empty: the field alone, at the window's center (--cy, set from the field's height).
+   Typing or suggestions: up at the v1 position, and the list unfolds below. One transform and one grid row,
+   so typing mid-move just retargets: nothing waits for the motion. */
+#bar{display:block;visibility:hidden;opacity:0;pointer-events:none;transform:translate(-50%,var(--y,0px));
+  transition:transform var(--D) var(--ease),opacity .16s ease,visibility 0s linear .16s}
+#bar.show{visibility:visible;opacity:1;pointer-events:auto;transition:transform var(--D) var(--ease),opacity .16s ease}
+#bar.center{--y:var(--cy,309px)}
+#bar .qrow{border-bottom:0}
+#bar .drop{display:grid;grid-template-rows:1fr;opacity:1;transition:grid-template-rows var(--D) var(--ease),opacity var(--D) ease}
+#bar .drop>div{min-height:0;overflow:hidden;border-top:.5px solid var(--sep)}
+#bar.center .drop{grid-template-rows:0fr;opacity:0}
+/* Reduce motion: no slide. The bar fades out, moves, and fades back in. */
+:root[data-motion=reduced] #bar{transition:opacity .1s ease,visibility 0s linear .1s}
+:root[data-motion=reduced] #bar.show{transition:opacity .1s ease}
+:root[data-motion=reduced] #bar .drop{transition:opacity .1s ease}
+#bar.dip{opacity:0 !important}
+#bar.snap,#bar.snap .drop{transition:none !important}
+.lasthint{display:inline-flex;align-items:center;gap:6px;color:var(--label3);font-size:12.5px;white-space:nowrap;flex:none}
+/* Suggestions pop in after the bar starts to rise, one after another, like iOS Spotlight's suggestions. */
+@keyframes rowpop{from{opacity:0;transform:translateY(10px) scale(.97)}to{opacity:1;transform:none}}
+@keyframes rowfade{from{opacity:0}to{opacity:1}}
+#res.popin{overflow:hidden}
+#res.popin .it,#res.popin .gh{animation:rowpop var(--D) var(--ease) both;animation-delay:calc((var(--lead) + var(--i,0) * var(--stag)) * var(--slow,1))}
+:root[data-motion=reduced] #res.popin .it,:root[data-motion=reduced] #res.popin .gh{animation:rowfade .2s ease both;animation-delay:.1s}
+.btn.sm{height:26px;font-size:12px;padding:0 10px;font-weight:500;white-space:nowrap}
+.foot .r{flex:none}
+
+/* Note composer, inside the bar */
+.compose{padding:16px 18px;display:flex;flex-direction:column;gap:12px}
+.to{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;background:var(--panel)}
+.to .t b{font-size:14px;font-weight:600}.to .t small{color:var(--label3);font-size:12.5px}
+textarea{width:100%;border:0;outline:0;resize:none;background:var(--panel);border-radius:10px;padding:12px 14px;font:400 15px/1.45 var(--sans);color:var(--label)}
+.crow{display:flex;align-items:center;gap:10px}
+.crow .hint{color:var(--label3);font-size:12.5px}
+.crow .sp{margin-left:auto}
+
+/* New thread */
+.nt h2{margin:0;font-size:15px;font-weight:600;padding:16px 18px 0;display:flex;align-items:center;gap:10px}
+.nt h2 .logo{width:24px;height:24px;border-radius:6px}.nt h2 .logo svg{width:17px;height:17px}
+.nt h2 kbd{margin-left:auto}
+.nt textarea{margin:12px 18px 0;width:calc(100% - 36px);min-height:150px;font-size:16px;background:none;padding:2px 0}
+.pick{display:flex;flex-wrap:wrap;gap:8px;padding:6px 18px 14px}
+.pk{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 10px;border-radius:8px;background:var(--fill);font-size:13px;font-weight:500}
+.pk small{color:var(--label3);font-weight:400}
+.pk svg{width:10px;height:10px;color:var(--label3)}
+.nt .foot{justify-content:flex-start}
+
+/* Settings: shortcuts */
+.set{width:760px}
+.set .top{display:flex;align-items:center;gap:6px;padding:14px 16px;border-bottom:.5px solid var(--sep)}
+.set .top .tb{padding:6px 12px;border-radius:8px;font-weight:500;color:var(--label2);font-size:13.5px}
+.set .top .tb.on{background:var(--fill);color:var(--label);font-weight:600}
+.set .top .q{margin-left:auto;display:flex;align-items:center;gap:8px;height:30px;padding:0 10px;border-radius:8px;background:var(--fill);color:var(--label3);font-size:13px;width:220px}
+.set .top .q svg{width:13px;height:13px}
+.kl{padding:4px 16px 8px;max-height:560px;overflow:auto}
+.kh{padding:14px 0 6px;font-size:12px;font-weight:600;color:var(--label3)}
+.kr{display:flex;align-items:center;gap:12px;padding:8px 10px;border-radius:9px}
+.kr:nth-child(even){background:transparent}
+.kr .n{font-size:14px}
+.kr .n small{display:block;color:var(--label3);font-size:12px}
+.kr .keys{margin-left:auto;display:flex;align-items:center;gap:8px}
+.kr .ed{font-size:12.5px;color:var(--pass);font-weight:600;padding:4px 8px;border-radius:6px}
+.kr.rec{background:var(--sel)}
+.recbox{display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 10px;border-radius:7px;border:1.5px dashed var(--pass);color:var(--pass);font-size:12.5px;font-weight:600}
+.kr.clash{background:var(--amber-t);flex-wrap:wrap}
+.clashmsg{flex-basis:100%;display:flex;align-items:center;gap:10px;padding:6px 0 2px;font-size:13px;color:var(--label2)}
+.clashmsg b.c-amber{font-weight:700}
+.clashmsg .btn{height:28px;font-size:12.5px;padding:0 10px}
+.set .foot .r{display:flex;gap:8px}
+.set .foot .btn{height:28px;font-size:12.5px;padding:0 10px;white-space:nowrap}
+.set .foot .r{flex:none}
+
+.toast{position:absolute;left:50%;bottom:28px;transform:translateX(-50%);background:#1d1d1f;color:#f5f5f7;padding:10px 16px;border-radius:10px;font-size:13px;opacity:0;transition:opacity .2s}
+.toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="bar">
+  <span><b>Show</b><span class="seg" id="segS">
+    <button data-s="k">⌘K empty</button><button data-s="dark">Typing "dark"</button><button data-s="sug">After 5 s</button><button data-s="up">↑ Last action</button><button data-s="note">⌘K note</button><button data-s="new">⌘T</button><button data-s="keys">Shortcuts</button><button data-s="none">Closed</button>
+  </span></span>
+  <span><b>Motion</b><span class="seg" id="segM"><button data-m="spring5">Apple default 0.5 s</button><button data-m="sheet">iOS sheet 500 ms</button><button data-m="spring3">Spring 0.3 s</button><button data-m="reduced">Reduced</button></span></span>
+  <span><b>Theme</b><span class="seg" id="segT"><button data-t="dark">Dark</button><button data-t="light">Light</button></span></span>
+  <span class="seg"><button id="slow" aria-pressed="false">Slow-mo ×10</button></span>
+  <button class="play" id="play">▶ Play: open, type, delete, wait</button>
+  <span class="count" id="count"></span>
+  <span class="note" id="minfo"></span>
+  <span class="note">Mock v3, 2026-11-10. Made-up threads. Not built. Try ⌘K, type, delete, wait, ↑, ↓. A browser keeps ⌘T and ⌘N, so use the button. Earlier versions are not kept in the repo.</span>
+</div>
+<div class="stage"><div class="fit" id="fit">
+<div class="win" id="win">
+  <svg width="0" height="0" style="position:absolute"><defs>
+    <symbol id="cloche" viewBox="0 0 24 24"><path d="M4.25 17.4a7.75 7.75 0 0 1 15.5 0" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="7.4" r="1.75" fill="currentColor"/><path d="M2.75 19h18.5l-1.5 1.5H4.25z" fill="currentColor"/></symbol>
+    <symbol id="search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.4 10.4 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+    <symbol id="plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+    <symbol id="note" viewBox="0 0 16 16"><path d="M3 3.5h10v7H7l-3 2.5v-2.5H3z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
+    <symbol id="jump" viewBox="0 0 16 16"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="moon" viewBox="0 0 16 16"><path d="M12.5 10A5.2 5.2 0 0 1 6 3.5a5.2 5.2 0 1 0 6.5 6.5z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
+    <symbol id="sun" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.8" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.5v1.7M8 12.8v1.7M1.5 8h1.7M12.8 8h1.7M3.4 3.4l1.2 1.2M11.4 11.4l1.2 1.2M3.4 12.6l1.2-1.2M11.4 4.6l1.2-1.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></symbol>
+    <symbol id="auto" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 2.5a5.5 5.5 0 0 1 0 11z" fill="currentColor"/></symbol>
+    <symbol id="rows" viewBox="0 0 16 16"><path d="M3 4.5h10M3 8h10M3 11.5h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+    <symbol id="key" viewBox="0 0 16 16"><rect x="1.8" y="4" width="12.4" height="8" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M4.5 6.7h.01M7 6.7h.01M9.5 6.7h.01M12 6.7h.01M5 9.4h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol>
+    <symbol id="gear" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M3.6 12.4 5 11M11 5l1.4-1.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol>
+    <symbol id="rules" viewBox="0 0 16 16"><path d="M4 2.5h8v11H4z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M6 5.5h4M6 8h4M6 10.5h2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></symbol>
+    <symbol id="expand" viewBox="0 0 16 16"><path d="M9.5 2.5h4v4M6.5 13.5h-4v-4M13.5 2.5 9 7M2.5 13.5 7 9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="hold" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 5v3.2l2 1.3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol>
+    <symbol id="ext" viewBox="0 0 16 16"><path d="M9 3h4v4M13 3 7.5 8.5M11 9.5V13H3V5h3.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="check" viewBox="0 0 16 16"><path d="m3.5 8.3 3 3 6-6.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="merge" viewBox="0 0 16 16"><circle cx="4.5" cy="3.5" r="1.6" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="4.5" cy="12.5" r="1.6" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="11.5" cy="8" r="1.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M4.5 5.1v5.8M4.5 5.6c0 2 1.6 2.4 5.4 2.4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></symbol>
+    <symbol id="chev" viewBox="0 0 10 10"><path d="m2.5 4 2.5 2.5L7.5 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  </defs></svg>
+
+  <aside class="rail">
+    <div class="rtop"><span class="logo"><svg><use href="#cloche"/></svg></span><div class="rpass">The Pass <span>3</span></div></div>
+    <div class="rgroup"><h4>Threads</h4>
+      <div class="rrow">Working <span>6</span></div><div class="rrow">Waiting on you <span>1</span></div><div class="rrow">In review <span>2</span></div><div class="rrow">Merged today <span>4</span></div></div>
+    <div class="rfoot"><div class="chip">yeschef <span>All projects</span></div><div class="chip">Live <span>14:03</span></div></div>
+  </aside>
+  <section class="list">
+    <h3>The Pass<small>3 need you, most urgent first</small></h3>
+    <div class="pc sel"><div class="w"><span class="c-amber" style="color:var(--amber);font-weight:600">Waiting</span><span>12 min</span></div><b>Push token store asks where to keep tokens</b><p>The agent stopped to ask one question.</p><div class="sug">Suggested: <b>A. Keychain</b></div></div>
+    <div class="pc"><div class="w"><span class="c-blue" style="color:var(--pass);font-weight:600">Ready to merge</span><span>25 min</span></div><b>#412 Grouped list</b><p>Checks green. Preview up.</p><div class="sug">Suggested: <b>Merge</b></div></div>
+    <div class="pc"><div class="w"><span style="color:var(--label3);font-weight:600">In review</span><span>1 h</span></div><b>#409 Updater channels</b><p>PR-Agent found two things. The agent is fixing them.</p><div class="sug">Suggested: <b>Wait</b></div></div>
+  </section>
+  <section class="reader"><div class="rd">
+    <div class="w" style="color:var(--amber)">Waiting<span>12 min</span></div>
+    <h2>Push token store asks where to keep tokens</h2>
+    <p>The agent can save the push token in the macOS Keychain or in a file in the app's data folder. It recommends the Keychain.</p>
+    <div class="opts">
+      <div class="opt rec"><kbd>A</kbd> Keychain, per user <small>Recommended</small></div>
+      <div class="opt"><kbd>B</kbd> A file in the data folder</div>
+    </div>
+    <div class="acts"><span class="btn fill">Answer A <kbd>⌘↵</kbd></span><span class="btn">Reply</span><span class="btn">Hold</span><span class="btn">Open in T3 Code</span></div>
+  </div></section>
+
+  <div class="scrim" id="scrim"></div>
+
+  <!-- ⌘K: the action bar -->
+  <div class="pop" id="bar" role="dialog" aria-label="Actions">
+    <div class="qrow"><svg><use href="#search"/></svg><span class="crumb" id="crumb" hidden></span><input id="q" placeholder="Search actions, threads and settings" autocomplete="off" spellcheck="false"><span class="lasthint" id="lasthint"><kbd>↑</kbd>Last action<kbd>↓</kbd>Suggestions</span><kbd>esc</kbd></div>
+    <div class="drop"><div>
+      <div class="res" id="res"></div>
+      <div class="foot" id="bfoot"></div>
+    </div></div>
+  </div>
+
+  <!-- ⌘K, Send a note: step 2 -->
+  <div class="pop" id="notew" role="dialog" aria-label="Send a note">
+    <div class="qrow"><svg><use href="#search"/></svg><span class="crumb">Send a note <svg width="10" height="10"><use href="#jump"/></svg> Push notifications batch</span><input placeholder="" disabled><kbd>esc</kbd></div>
+    <div class="compose">
+      <div class="to"><span class="ic av" style="width:28px;height:28px;border-radius:50%;background:#AF52DE;display:grid;place-items:center;color:#fff;font:700 10px/1 var(--sans)">YC</span><span class="t"><b>Push notifications batch</b><br><small>yeschef · working, 3 agents · the note waits for its current turn</small></span></div>
+      <textarea rows="4">Use the same Keychain item name as the token store thread, yeschef-push. Don't add a second one.</textarea>
+      <div class="crow"><span class="hint">Goes to the agent as your message, queued like T3 Code's own queue.</span><span class="sp"></span><span class="btn">Back</span><span class="btn fill">Send <kbd>⌘↵</kbd></span></div>
+    </div>
+  </div>
+
+  <!-- ⌘T: new thread -->
+  <div class="pop nt" id="new" role="dialog" aria-label="New thread in T3 Code">
+    <h2><span class="logo"><svg><use href="#cloche"/></svg></span>New thread in T3 Code<kbd>esc</kbd></h2>
+    <textarea id="ntq" placeholder="What should the agent do? The first line becomes the title.">Add a "Copy link" action to each call in The Pass.
+It copies the T3 Code link of the call's thread. Keep the existing actions as they are, and add a test.</textarea>
+    <div class="pick">
+      <span class="pk"><small>Project</small> yeschef <svg><use href="#chev"/></svg></span>
+      <span class="pk"><small>Workspace</small> New worktree <svg><use href="#chev"/></svg></span>
+      <span class="pk"><small>Model</small> T3 Code's default</span>
+      <span class="pk"><small>Rules</small> yeschef's go with it</span>
+    </div>
+    <div class="foot"><span><kbd>⌘</kbd><kbd>↵</kbd> Launch</span><span><kbd>esc</kbd> Cancel</span><span>Today's New thread dialog, as a quick box</span><span class="r"><span class="btn fill" style="height:28px;font-size:12.5px">Launch <kbd>⌘↵</kbd></span></span></div>
+  </div>
+
+  <!-- Settings, Shortcuts tab -->
+  <div class="pop set" id="keys" role="dialog" aria-label="Settings">
+    <div class="top"><span class="tb">Layout</span><span class="tb">Rules</span><span class="tb on">Shortcuts</span><span class="q"><svg><use href="#search"/></svg>Search shortcuts</span></div>
+    <div class="kl">
+      <div class="kh">App</div>
+      <div class="kr"><span class="n">Action bar</span><span class="keys"><kbd>⌘</kbd><kbd>K</kbd><span class="ed">Change</span></span></div>
+      <div class="kr"><span class="n">New thread in T3 Code<small>⌘N is T3 Code's own new-thread key</small></span><span class="keys"><kbd>⌘</kbd><kbd>T</kbd><span class="c-gray" style="font-size:12.5px">or</span><kbd>⌘</kbd><kbd>N</kbd><span class="ed">Change</span></span></div>
+      <div class="kr rec"><span class="n">Send a note to a thread<small>Recording. Press the keys, or esc to leave it without one</small></span><span class="keys"><span class="recbox">⌥ ⌘ N …</span></span></div>
+      <div class="kr"><span class="n">Settings</span><span class="keys"><kbd>⌘</kbd><kbd>,</kbd><span class="ed">Change</span></span></div>
+      <div class="kr"><span class="n">Appearance: next<small>Match system, light, dark</small></span><span class="keys"><kbd>⌥</kbd><kbd>⇧</kbd><kbd>⌘</kbd><kbd>A</kbd><span class="ed">Change</span></span></div>
+      <div class="kh">On a call</div>
+      <div class="kr"><span class="n">The suggested action</span><span class="keys"><kbd>⌘</kbd><kbd>↵</kbd><span class="ed">Change</span></span></div>
+      <div class="kr"><span class="n">Merge</span><span class="keys"><kbd>M</kbd><span class="ed">Change</span></span></div>
+      <div class="kr clash"><span class="n">Reply</span><span class="keys"><kbd>H</kbd><span class="ed">Change</span></span>
+        <span class="clashmsg"><b class="c-amber" style="color:var(--amber)">Taken</b> H is already Hold until 8:00 tomorrow. <span class="btn">Swap them</span><span class="btn">Keep R</span></span></div>
+      <div class="kr"><span class="n">Hold until 8:00 tomorrow</span><span class="keys"><kbd>H</kbd><span class="ed">Change</span></span></div>
+    </div>
+    <div class="foot"><span>Saved on this Mac, in the same shape as T3 Code's keybindings.json: a key, a command, and when it applies.</span><span class="r"><span class="btn">Open the file</span><span class="btn">Reset all</span></span></div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+</div></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const ic = (id, cls = '') => `<span class="ic ${cls}"><svg><use href="#${id}"/></svg></span>`;
+const keys = (...k) => k.map((x) => `<kbd>${x}</kbd>`).join('');
+const esc = (t) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const S = {
+  s: 'k', btn: 'k', theme: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
+  motion: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'reduced' : 'spring5',
+  q: '', sel: 0, step: null, up: false, sug: false, hist: -1, pop: false,
+};
+const qp = new URLSearchParams(location.search);
+if (qp.get('s')) S.btn = qp.get('s');
+if (qp.get('theme')) S.theme = qp.get('theme');
+if (qp.get('motion')) S.motion = qp.get('motion');
+
+// What ⌘K lists once you type. The first group follows the open call; the rest are always there.
+const CMDS = [
+  { g: 'This call: Push token store asks where to keep tokens', id: 'ansA', t: 'Answer A: Keychain, per user', d: 'Recommended by the agent', icon: ic('check', 'blue'), k: keys('⌘', '↵'), tag: 'Suggested' },
+  { g: 'This call: Push token store asks where to keep tokens', id: 'ansB', t: 'Answer B: A file in the data folder', icon: ic('check'), k: keys('B') },
+  { g: 'This call: Push token store asks where to keep tokens', id: 'reply', t: 'Reply to this thread', d: 'A note to its agent', icon: ic('note'), k: keys('R') },
+  { g: 'This call: Push token store asks where to keep tokens', id: 'hold', t: 'Hold until 8:00 tomorrow', icon: ic('hold'), k: keys('H') },
+  { g: 'This call: Push token store asks where to keep tokens', id: 'open', t: 'Open in T3 Code', icon: ic('ext'), k: keys('O') },
+  { g: 'The Pass', id: 'merge412', t: 'Merge #412 Grouped list', d: 'Checks green, preview up', icon: ic('merge'), k: keys('M') },
+  { g: 'Threads', id: 'new', t: 'New thread in T3 Code', icon: ic('plus'), k: keys('⌘', 'T') },
+  { g: 'Threads', id: 'note', t: 'Send a note to a thread…', d: 'Pick any thread, write, send', icon: ic('note') },
+  { g: 'Threads', id: 'goto', t: 'Go to a thread…', icon: ic('jump') },
+  { g: 'View', id: 'expand', t: 'Expand the view', d: 'The cloche flip', icon: ic('expand'), k: keys('V') },
+  { g: 'View', id: 'ap-dark', kw: 'theme mode light dark system', t: 'Appearance: Dark', icon: ic('moon'), k: keys('⌥', '⇧', '⌘', 'A'), now: () => S.theme === 'dark' },
+  { g: 'View', id: 'ap-light', kw: 'theme mode light dark system', t: 'Appearance: Light', icon: ic('sun'), now: () => S.theme === 'light' },
+  { g: 'View', id: 'ap-auto', kw: 'theme mode light dark system auto', t: 'Appearance: Match system', icon: ic('auto') },
+  { g: 'View', id: 'dens', t: 'Density: Compact', d: 'Titles only', icon: ic('rows') },
+  { g: 'Settings', id: 'rules', t: 'Rules for yeschef', icon: ic('rules') },
+  { g: 'Settings', id: 'keys', t: 'Keyboard shortcuts', d: 'See and change every key', icon: ic('key'), k: keys('?') },
+  { g: 'Settings', id: 'set', t: 'Settings', icon: ic('gear'), k: keys('⌘', ',') },
+];
+const AV = (txt, bg) => `<span class="ic av" style="background:${bg}">${txt}</span>`;
+const THREADS = [
+  { id: 'th1', t: 'Push notifications batch', d: 'yeschef · working, 3 agents', icon: AV('YC', '#AF52DE'), st: ['Working', 'var(--green)'] },
+  { id: 'th2', t: 'Push token store', d: 'yeschef · asks you a question', icon: AV('YC', '#AF52DE'), st: ['Waiting', 'var(--amber)'] },
+  { id: 'th3', t: 'Dark mode for the settings page', d: 'reviewwheel · #388 in review', icon: AV('RW', '#FF9500'), st: ['In review', 'var(--label3)'] },
+  { id: 'th4', t: '#412 Grouped list', d: 'yeschef · ready to merge', icon: AV('YC', '#AF52DE'), st: ['Ready to merge', 'var(--pass)'] },
+  { id: 'th5', t: 'Updater channels', d: 'yeschef · #409 in review', icon: AV('YC', '#AF52DE'), st: ['In review', 'var(--label3)'] },
+];
+// Your actions, newest first. ↑ in the empty field walks back through them, like a terminal's history.
+const HIST = [
+  { id: 'note:th1', t: 'Send a note to Push notifications batch', when: '4 min ago', icon: ic('note') },
+  { id: 'ap-dark', t: 'Appearance: Dark', when: '25 min ago', icon: ic('moon') },
+  { id: 'merge407', t: 'Merge #407 Shortcut list', when: '1 h ago', icon: ic('merge') },
+];
+// Suggested from the screen you are on (the open call) and from what is likely next (The Pass, your last note).
+const SUG = [
+  { id: 'ansA', t: 'Answer A: Keychain, per user', d: 'The call on screen. The agent recommends A.', icon: ic('check', 'blue'), k: keys('⌘', '↵') },
+  { id: 'merge412', t: 'Merge #412 Grouped list', d: 'Next in The Pass. Checks green, preview up.', icon: ic('merge'), k: keys('M') },
+  { id: 'th1', jump: true, t: 'Go to Push notifications batch', d: "Your last note waits there for the agent's current turn.", icon: AV('YC', '#AF52DE') },
+];
+
+// What each motion choice is, and where its numbers come from. Mock only.
+const MINFO = {
+  sheet: 'Rise and sink: 500 ms, cubic-bezier(0.32, 0.72, 0, 1), the iOS sheet as Ionic mapped it and Vaul uses it. Suggestions pop in from +150 ms, 40 ms apart.',
+  spring3: "Rise and sink: Apple's spring, bounce 0, 0.3 s (settles in 441 ms). The closest Apple spring to the iOS sheet curve, per openclaw #188162.",
+  spring5: "Rise and sink: Apple's default spring, duration 0.5, bounce 0 (settles in 735 ms), Dan's pick. Suggestions pop in from +150 ms, 40 ms apart.",
+  reduced: 'Reduce motion: the bar fades out, moves, and fades in. No slide.',
+};
+const blank = () => !S.q && !S.step && S.hist < 0;
+
+function items() {
+  const q = S.q.trim().toLowerCase();
+  if (S.step === 'note') return THREADS.filter((x) => !q || (x.t + ' ' + x.d).toLowerCase().includes(q)).map((x) => ({ ...x, g: 'Pick a thread', pick: true }));
+  if (S.hist >= 0) { const h = HIST[S.hist]; return [{ ...h, g: S.hist === 0 ? 'Last action' : `Earlier action: ${S.hist + 1} of ${HIST.length}`, d: h.when, k: keys('↵') }]; }
+  if (!q) {
+    if (!S.sug) return [];
+    const last = HIST.length ? [{ ...HIST[0], g: 'Last action', d: HIST[0].when, k: keys('↑') }] : [];
+    return [...last, ...SUG.map((x) => ({ ...x, g: 'Suggested: from this screen and your last action' }))];
+  }
+  const hit = (x) => (x.t + ' ' + (x.d || '') + ' ' + (x.kw || '')).toLowerCase().includes(q);
+  const out = CMDS.filter(hit);
+  out.push(...THREADS.filter(hit).map((x) => ({ ...x, g: 'Threads matching', jump: true })));
+  return out;
+}
+
+function render() {
+  const all = items();
+  S.sel = Math.max(0, Math.min(S.sel, all.length - 1));
+  const q = $('q');
+  if (q.value !== S.q) q.value = S.q;
+  q.placeholder = S.step === 'note' ? 'Which thread? Type its name' : 'Search actions, threads and settings';
+  const crumb = $('crumb'); crumb.hidden = S.step !== 'note'; crumb.textContent = 'Send a note';
+  $('lasthint').hidden = !(blank() && !S.sug && HIST.length);
+  // Empty and not suggesting: the list folds away with what it last held, so the fold has something to fold.
+  if (blank() && !S.sug) return;
+  let html = '', g = null, n = 0;
+  all.forEach((x, i) => {
+    if (x.g !== g) { g = x.g; const [a, b] = g.split(': '); html += `<div class="gh" style="--i:${n++}">${b ? `${a}<span>${b}</span>` : a}</div>`; }
+    const right = x.st ? `<span class="st" style="color:${x.st[1]}">${x.st[0]}</span>` : '';
+    const now = x.now && x.now() ? '<span class="tag on">Now</span>' : '';
+    const tag = x.tag ? `<span class="tag">${x.tag}</span>` : '';
+    html += `<div class="it${i === S.sel ? ' sel' : ''}" data-i="${i}" style="--i:${n++}">${x.icon}<span class="t"><b>${x.t}</b>${x.d ? `<small>${x.d}</small>` : ''}</span><span class="k">${tag}${now}${right}${x.k || ''}</span></div>`;
+  });
+  $('res').classList.toggle('popin', S.pop); S.pop = false;
+  $('res').innerHTML = html || (S.sug ? '<div class="empty">No recent actions. Suggestions show here.</div>' : `<div class="empty">Nothing matches “${esc(S.q)}”. Try a thread name, an action or a setting.</div>`);
+  let f;
+  if (S.hist >= 0) f = `<span>${keys('↑')} Earlier</span><span>${keys('↓')} Later</span><span>${keys('↵')} Run again</span><span class="r">Like ↑ in a terminal</span>`;
+  else if (S.sug && !S.q && !S.step) f = `<span>${keys('↑', '↓')} Move</span><span>${keys('↵')} Run</span><span class="r"><button class="btn sm" id="clearh">Clear recent actions</button></span>`;
+  else f = `<span>${keys('↑', '↓')} Move</span><span>${keys('↵')} Run</span>${S.step ? `<span>${keys('⌫')} Back</span>` : ''}<span class="r">Every action has its shortcut on the right</span>`;
+  $('bfoot').innerHTML = f;
+  const sel = document.querySelector('#res .it.sel'); if (sel) sel.scrollIntoView({ block: 'nearest' });
+}
+
+// Up (typing position) or down (the window's center). Snap skips the motion, for opening and for the state buttons.
+const bar = $('bar');
+function place(up, snap = false) {
+  clearTimeout(place.t);
+  if (snap) { bar.classList.add('snap'); bar.classList.remove('dip'); bar.classList.toggle('center', !up); void bar.offsetHeight; bar.classList.remove('snap'); S.up = up; return; }
+  if (S.up === up) return;
+  S.up = up;
+  if (S.motion !== 'reduced') { bar.classList.toggle('center', !up); return; }
+  bar.classList.add('dip');
+  place.t = setTimeout(() => { bar.classList.toggle('center', !S.up); bar.classList.remove('dip'); }, 110);
+}
+
+// The five-second count: empty at the center for 5 s, then up with the last action and suggestions.
+let countT = 0, sinkT = 0, countEnd = 0;
+function startCount() {
+  clearTimeout(countT); countEnd = Date.now() + 5000;
+  countT = setTimeout(() => { countEnd = 0; if (S.s === 'k' && blank() && !S.sug) showSug(); }, 5000);
+}
+function stopCount() { clearTimeout(countT); countEnd = 0; }
+function showSug() { clearTimeout(sinkT); stopCount(); S.sug = true; S.sel = 0; S.pop = true; render(); place(true); }
+
+// After the field changes. Text: up now. Empty: wait a beat (250 ms) so a quick retype does not bounce it, then down and count.
+function changed() {
+  S.sel = 0; clearTimeout(sinkT);
+  if (!blank()) { stopCount(); S.sug = false; render(); place(true); return; }
+  S.sug = false; render();
+  sinkT = setTimeout(() => { if (S.s === 'k' && blank() && !S.sug) { place(false); startCount(); } }, 250);
+}
+
+function recall(i) { clearTimeout(sinkT); stopCount(); S.sug = false; S.hist = i; S.q = HIST[i].t; S.sel = 0; render(); place(true); }
+
+function show() {
+  document.documentElement.dataset.theme = S.theme;
+  document.documentElement.dataset.motion = S.motion;
+  $('win').classList.toggle('on', S.s !== 'none');
+  bar.classList.toggle('show', S.s === 'k');
+  for (const id of ['notew', 'new', 'keys']) $(id).classList.toggle('show', S.s === id.replace('notew', 'note'));
+  for (const b of document.querySelectorAll('#segS button')) b.setAttribute('aria-pressed', b.dataset.s === S.btn);
+  for (const b of document.querySelectorAll('#segT button')) b.setAttribute('aria-pressed', b.dataset.t === S.theme);
+  for (const b of document.querySelectorAll('#segM button')) b.setAttribute('aria-pressed', b.dataset.m === S.motion);
+  $('minfo').textContent = MINFO[S.motion] || '';
+  if (S.s === 'k') setTimeout(() => $('q').focus(), 0);
+  if (S.s === 'new') setTimeout(() => $('ntq').focus(), 0);
+}
+
+// Jump straight to a state. ⌘K and the "⌘K empty" button open live: centered, with the count running.
+function go(btn) {
+  clearTimeout(sinkT); stopCount();
+  const k = ['k', 'dark', 'sug', 'up'].includes(btn);
+  S.btn = btn; S.s = k ? 'k' : btn;
+  S.q = ''; S.sel = 0; S.step = null; S.sug = false; S.hist = -1;
+  if (btn === 'dark') S.q = 'dark';
+  if (btn === 'sug') S.sug = true;
+  if (btn === 'up' && HIST.length) { S.hist = 0; S.q = HIST[0].t; }
+  if (k) { render(); place(!blank() || S.sug, true); }
+  show();
+  if (k && blank() && !S.sug) startCount();
+}
+
+function toast(t) { const el = $('toast'); el.textContent = t; el.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('show'), 1800); }
+
+// Whatever you run becomes the last action.
+function remember(x, t = x.t) {
+  const i = HIST.findIndex((h) => h.t === t); if (i >= 0) HIST.splice(i, 1);
+  HIST.unshift({ id: x.id, t, when: 'Just now', icon: x.icon }); HIST.length = Math.min(HIST.length, 5);
+}
+
+function run(x) {
+  if (!x) return;
+  if (x.pick) { remember({ id: 'note:' + x.id, icon: ic('note') }, `Send a note to ${x.t}`); go('note'); return; }
+  if (x.id === 'note') { S.step = 'note'; S.q = ''; S.hist = -1; changed(); return; }
+  if (String(x.id).startsWith('note:')) { remember(x); go('note'); return; }
+  if (x.id === 'new') { remember(x); go('new'); return; }
+  if (x.id === 'keys') { remember(x); go('keys'); return; }
+  if (x.id === 'ap-dark' || x.id === 'ap-light') { remember(x); S.theme = x.id.slice(3); go('none'); toast(`Appearance: ${S.theme === 'dark' ? 'Dark' : 'Light'}`); return; }
+  if (x.id === 'ap-auto') { remember(x); S.theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; go('none'); toast('Appearance: Match system'); return; }
+  const t = x.jump && !x.t.startsWith('Go to') ? `Go to ${x.t}` : x.t;
+  remember(x, t); go('none'); toast(`Mock: would run “${t}”`);
+}
+
+// ▶ Play: open, type "dark", hold, delete it, then the live count takes over.
+let PLAY = 0;
+const stopPlay = () => { PLAY++; };
+async function play() {
+  const tok = ++PLAY, live = () => tok === PLAY, w = (ms) => new Promise((r) => setTimeout(r, ms));
+  go('k'); await w(1100);
+  for (const ch of 'dark') { if (!live()) return; S.q += ch; S.hist = -1; changed(); await w(170); }
+  await w(1800);
+  while (S.q) { if (!live()) return; S.q = S.q.slice(0, -1); changed(); await w(130); }
+}
+
+$('q').addEventListener('input', (e) => { stopPlay(); S.q = e.target.value; S.hist = -1; changed(); });
+$('res').addEventListener('click', (e) => { const it = e.target.closest('.it'); if (it) run(items()[+it.dataset.i]); });
+// Hover moves the highlight without rebuilding the rows, so it never cuts the pop-in short.
+$('res').addEventListener('mousemove', (e) => {
+  const it = e.target.closest('.it'); if (!it || +it.dataset.i === S.sel) return;
+  S.sel = +it.dataset.i; for (const r of document.querySelectorAll('#res .it')) r.classList.toggle('sel', r === it);
+});
+$('bfoot').addEventListener('click', (e) => { if (e.target.closest('#clearh')) { HIST.length = 0; S.sel = 0; render(); $('q').focus(); toast('Recent actions cleared'); } });
+$('scrim').addEventListener('click', () => { stopPlay(); go('none'); });
+$('segS').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { stopPlay(); go(b.dataset.s); } });
+$('segT').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { S.theme = b.dataset.t; show(); } });
+$('segM').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { S.motion = b.dataset.m; show(); } });
+$('play').addEventListener('click', () => play());
+$('slow').addEventListener('click', (e) => { const on = e.currentTarget.getAttribute('aria-pressed') !== 'true'; e.currentTarget.setAttribute('aria-pressed', on); document.documentElement.style.setProperty('--slow', on ? 10 : 1); });
+document.addEventListener('keydown', (e) => {
+  if (!['Meta', 'Control', 'Shift', 'Alt'].includes(e.key)) stopPlay();
+  const mod = e.metaKey || e.ctrlKey;
+  if (mod && /^k$/i.test(e.key)) { e.preventDefault(); go(S.s === 'k' ? 'none' : 'k'); return; }
+  if (mod && /^[tn]$/i.test(e.key)) { e.preventDefault(); go('new'); return; }
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    if (S.s !== 'k') { go('none'); return; }
+    // Esc clears first (the bar sinks), then closes.
+    if (S.step || S.q) { S.step = null; S.q = ''; S.hist = -1; changed(); return; }
+    go('none'); return;
+  }
+  if (S.s !== 'k') return;
+  const n = items().length;
+  if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (S.hist >= 0) { if (S.hist < HIST.length - 1) recall(S.hist + 1); return; }
+    if (blank() && HIST.length && (!S.sug || S.sel === 0)) { recall(0); return; }
+    if (blank() && !S.sug) return;
+    if (n) { S.sel = (S.sel - 1 + n) % n; render(); }
+    return;
+  }
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (S.hist >= 0) { if (S.hist > 0) recall(S.hist - 1); else { S.hist = -1; S.q = ''; changed(); } return; }
+    if (blank() && !S.sug) { showSug(); return; }
+    if (n) { S.sel = (S.sel + 1) % n; render(); }
+    return;
+  }
+  if (e.key === 'Enter') { e.preventDefault(); if (!blank() || S.sug) run(items()[S.sel]); return; }
+  if (e.key === 'Backspace' && S.step && !S.q) { e.preventDefault(); S.step = null; changed(); }
+});
+
+// Mock only: the count, in the top bar.
+setInterval(() => { const left = countEnd ? Math.ceil((countEnd - Date.now()) / 1000) : 0; $('count').textContent = left > 0 ? `Suggestions in ${left} s` : ''; }, 200);
+
+// The 1440 window shrinks to fit a narrow screen.
+function fit() { const k = Math.min(1, (innerWidth - 16) / 1440); const f = $('fit'); f.style.transform = `scale(${k})`; f.style.height = `${900 * k}px`; }
+addEventListener('resize', fit); fit();
+// Dead center: the field's middle on the window's middle. 112 px is where the bar sits once up.
+bar.style.setProperty('--cy', `${450 - bar.querySelector('.qrow').offsetHeight / 2 - 112}px`);
+go(S.btn);
+</script>
+</body>
+</html>

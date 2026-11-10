@@ -1,0 +1,131 @@
+// Calls and screenshots inside an agent's own T3 message (docs/pass-calls-v1_0.md). Dan, 2026-11-06: the Pass
+// replaces the ATC, so a build thread asks Dan directly. It writes its decision as lettered options, and its
+// screenshots as Markdown images; the Pass reads both from T3 and sends the answer back to that thread.
+import { createHash } from 'node:crypto';
+import { realpathSync } from 'node:fs';
+import { basename, extname, join, sep } from 'node:path';
+
+// "a. text", "a) text", "(a) text", "**a.** text", "- a. text". Letters run a, b, c... with no gaps.
+const OPTION = /^\s*(?:[-*]\s+)?(?:\*\*)?\(?([a-zA-Z])[.)](?:\*\*)?\s+(\S.*?)\s*$/;
+// "(recommended)", "- recommended", or a trailing "recommended"; never "not recommended" (PR-Agent r1 on #17).
+const RECOMMENDED_INLINE = /\((?:my\s+)?recommend(?:ed|ation)\)|\s[-–—]\s*recommended\b|(?<!\b(?:not|never|n't)\s+)(?<!n't\s+)\brecommended\s*$/i;
+// The letter must stand alone: "a." "a," "(a)" or the line's end, so "I recommend a phased rollout" names no option
+// (PR-Agent r7 on #17). A capital letter before a word ("A for today") counts only when the options are capitals.
+const RECOMMEND_LINE = /\brecommend(?:ation|ed|s)?\b\W{0,8}(?:option\s+)?\(?\*{0,2}([a-z])\b(?![a-z'])(?:(?=\s*[.,;:)*]|\s*$)|(?=\s+\w))/i;
+// Options are lettered a, b, c or A, B, C; one block keeps one case.
+const letterOf = (m) => m[1].toLowerCase();
+// A lettered list is a call only when something says it is a choice.
+const CUE = /\?\s*\**\s*$|\b(decision|decide|call|choose|pick|ruling|options?|your look|send it out)\b/i;
+const LABEL_ONLY = /^(options?|choices?)\s*:?\s*$/i;
+
+const strip = (s) => s.replace(/^\s*(?:[-*]\s+|\d+[.)]\s+)/, '').replace(/\*\*/g, '').replace(/`/g, '').trim();
+const clean = (s) => s.replace(/\*\*/g, '').replace(RECOMMENDED_INLINE, '').trim();
+
+/** Each lettered option block in a message, as { question, options: [{ letter, text }], recommend }. */
+export const parseCalls = (text) => scanCalls(text).map(({ recLine, ...c }) => c);
+/** For each call parseCalls finds, the line (of text.split('\n')) its recommendation came from, or -1. Kept out of the
+ *  calls themselves, so a call's key does not change (PR-Agent r7 on #50). */
+export const recommendLines = (text) => scanCalls(text).map((c) => c.recLine);
+
+function scanCalls(text) {
+  // Lines inside a code fence are examples, never a question (PR-Agent r3 on #17). They stay as blanks, so lines keep their places.
+  let fenced = false;
+  const lines = String(text || '').split('\n').map((line) => {
+    if (/^\s*(```|~~~)/.test(line)) { fenced = !fenced; return ''; }
+    return fenced ? '' : line;
+  });
+  const calls = [];
+  for (let i = 0; i < lines.length; i++) {
+    const first = OPTION.exec(lines[i]);
+    if (!first || letterOf(first) !== 'a') continue;
+    const upper = first[1] === 'A';
+    const options = [];
+    const indent = (line) => /^\s*/.exec(line)[0].length;
+    let j = i, recommend = null, recLine = -1;
+    for (; j < lines.length; j++) {
+      const m = OPTION.exec(lines[j]);
+      if (m && m[1] === String.fromCharCode((upper ? 65 : 97) + options.length)) {
+        if (RECOMMENDED_INLINE.test(m[2])) recommend = letterOf(m);
+        options.push({ letter: letterOf(m), text: clean(m[2]) });
+      } else if (!lines[j].trim()) {
+        // A blank line inside the block: the next line decides whether the block goes on.
+      } else if (!m && indent(lines[j]) > indent(lines[i])) {
+        // A line indented under an option adds to it.
+        options[options.length - 1].text += ' ' + clean(lines[j].trim().replace(/^[-*]\s+/, ''));
+      } else break;
+    }
+    if (options.length < 2) continue;
+    // The question: the nearest line above the block that is not a bare "Options:" label.
+    let q = '';
+    for (let k = i - 1; k >= 0 && k >= i - 4; k--) {
+      const s = strip(lines[k]);
+      if (!s || LABEL_ONLY.test(s)) continue;
+      q = s; break;
+    }
+    // A recommendation line: inside the block's trailing lines, before the next block.
+    if (!recommend) {
+      for (let k = j, seen = 0; k < lines.length && seen < 3; k++) {
+        if (!lines[k].trim()) continue;
+        if (OPTION.exec(lines[k])) break;
+        seen++;
+        const m = RECOMMEND_LINE.exec(lines[k]);
+        const alone = m && /^\s*[.,;:)*]|^\s*$/.test(lines[k].slice(m.index + m[0].length));
+        // A line that starts as a label, "Recommendation: a now.", names its option even with words after the letter (Dan, 2026-11-08).
+        const label = m && /^\s*(?:[-*]\s+)?\**recommend(?:ation|ed|s)?\**\s*:/i.test(lines[k]);
+        if (m && (alone || label || (upper && m[1] === m[1].toUpperCase())) && options.some((o) => o.letter === m[1].toLowerCase())) { recommend = m[1].toLowerCase(); recLine = k; break; }
+      }
+    }
+    // Only this block's own question or recommendation makes it a call, never the next section's heading (PR-Agent r2 on #17).
+    if (!CUE.test(q) && !recommend) { i = j - 1; continue; }
+    calls.push({ question: q.replace(/:\s*$/, '') || 'Your call', options, recommend, recLine });
+    i = j - 1;
+  }
+  return calls;
+}
+
+/** One key per call message, so an answer always names the exact message it answers. */
+export const callKey = (itemId, calls) => createHash('sha1').update(String(itemId) + '\n' + JSON.stringify(calls)).digest('hex').slice(0, 16);
+
+const IMAGE_EXT = /\.(png|jpe?g|webp|gif)$/i;
+const MD_IMAGE = /!\[([^\]\n]*)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g;
+const CODE_PATH = /`((?:\/|~\/)[^`\s]+)`/g;
+
+/** Screenshots a message shows: Markdown images (a local path or https), and image paths written in code. */
+export function imagesIn(text) {
+  const out = new Map();
+  const s = String(text || '');
+  for (const m of s.matchAll(MD_IMAGE)) if (usable(m[2])) out.set(m[2], { src: m[2], alt: m[1].trim() });
+  for (const m of s.matchAll(CODE_PATH)) if (IMAGE_EXT.test(m[1]) && usable(m[1]) && !out.has(m[1])) out.set(m[1], { src: m[1], alt: m[1].split('/').pop() });
+  return [...out.values()];
+}
+const usable = (src) => /^https:\/\//i.test(src) || ((src.startsWith('/') || src.startsWith('~/')) && IMAGE_EXT.test(src.replace(/[?#].*$/, '')));
+
+/** The address the page uses for one screenshot: https as is, a local file through the Pass's /img route. */
+export const imageUrl = (src) => (/^https:\/\//i.test(src) ? src : '/img/' + imageId(src));
+export const imageId = (src) => createHash('sha1').update(src).digest('hex').slice(0, 20);
+
+/** The text with its Markdown images taken out (the page shows them as a set of screenshots). */
+export const withoutImages = (text) => String(text || '').replace(MD_IMAGE, '').replace(/\n{3,}/g, '\n\n');
+
+// Serving a screenshot from this Mac (client/server.mjs, /img). The server serves only paths that an agent's
+// message on the current board names; these checks then confine them further.
+export const SHOT_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif' };
+const realOr = (p) => { try { return realpathSync(p); } catch { return null; } };
+const under = (file, root) => file === root || file.startsWith(root.endsWith(sep) ? root : root + sep);
+
+/** The real file behind a screenshot path, or null: an image extension, under one of `roots` (real paths),
+ *  and no hidden folder on the way (keys, configs), except T3's own `~/.t3` (worktrees, attachments). */
+export function shotPath(src, { home, roots }) {
+  const file = realOr(src.startsWith('~/') ? join(home, src.slice(2)) : src);
+  if (!file || !SHOT_TYPES[extname(file).toLowerCase()] || !roots.some((r) => under(file, r))) return null;
+  const t3 = join(realOr(home) || home, '.t3');
+  const rest = under(file, t3) ? file.slice(t3.length) : file;
+  if (rest.split(sep).slice(0, -1).some((part) => part.startsWith('.')) || basename(file).startsWith('.')) return null;
+  return file;
+}
+
+/** The bytes start like a PNG, JPEG, WebP, or GIF. */
+export function isShot(bytes) {
+  const head = bytes.subarray(0, 12).toString('latin1');
+  return head.startsWith('\x89PNG') || (bytes[0] === 0xff && bytes[1] === 0xd8) || (head.startsWith('RIFF') && head.slice(8, 12) === 'WEBP') || head.startsWith('GIF8');
+}

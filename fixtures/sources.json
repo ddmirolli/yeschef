@@ -1,0 +1,422 @@
+{
+ "prs": {
+  "reviewwheel/reviewwheel#3101": {
+   "number": 3101,
+   "title": "feat(replies): draft a reply when a review lands",
+   "url": "https://github.com/reviewwheel/reviewwheel/pull/3101",
+   "state": "OPEN",
+   "isDraft": false,
+   "baseRefName": "staging",
+   "mergeCommit": null,
+   "statusCheckRollup": [
+    {
+     "__typename": "CheckRun",
+     "status": "COMPLETED",
+     "conclusion": "SUCCESS"
+    },
+    {
+     "__typename": "CheckRun",
+     "status": "IN_PROGRESS",
+     "conclusion": ""
+    }
+   ],
+   "body": ""
+  },
+  "reviewwheel/reviewwheel#3102": {
+   "number": 3102,
+   "title": "copy(replies): reply draft tone presets",
+   "url": "https://github.com/reviewwheel/reviewwheel/pull/3102",
+   "state": "OPEN",
+   "isDraft": true,
+   "baseRefName": "staging",
+   "mergeCommit": null,
+   "statusCheckRollup": [],
+   "body": ""
+  },
+  "reviewwheel/reviewwheel#3110": {
+   "number": 3110,
+   "title": "perf(website): inline the pricing hero image",
+   "url": "https://github.com/reviewwheel/reviewwheel/pull/3110",
+   "state": "OPEN",
+   "isDraft": false,
+   "baseRefName": "main",
+   "mergeCommit": null,
+   "statusCheckRollup": [
+    {
+     "__typename": "CheckRun",
+     "status": "COMPLETED",
+     "conclusion": "SUCCESS"
+    },
+    {
+     "__typename": "CheckRun",
+     "status": "COMPLETED",
+     "conclusion": "FAILURE"
+    }
+   ],
+   "body": ""
+  },
+  "reviewwheel/reviewwheel#3120": {
+   "number": 3120,
+   "title": "feat(alerts): lost review alert card",
+   "url": "https://github.com/reviewwheel/reviewwheel/pull/3120",
+   "state": "OPEN",
+   "isDraft": false,
+   "baseRefName": "staging",
+   "mergeCommit": null,
+   "statusCheckRollup": [
+    {
+     "__typename": "CheckRun",
+     "status": "COMPLETED",
+     "conclusion": "SUCCESS"
+    }
+   ],
+   "body": "## Problem\nOwners missed lost reviews because the alert sat under the fold.\n\n## Solution\nOne alert card with the reviewer's name and a Recover button.\n\n## Evidence\nLight and dark at 1440 and 390. Council 9, 9, 10."
+  },
+  "reviewwheel/reviewwheel#3121": {
+   "number": 3121,
+   "title": "design(alerts): alert card tokens for dark mode",
+   "url": "https://github.com/reviewwheel/reviewwheel/pull/3121",
+   "state": "OPEN",
+   "isDraft": false,
+   "baseRefName": "staging",
+   "mergeCommit": null,
+   "statusCheckRollup": [
+    {
+     "__typename": "CheckRun",
+     "status": "COMPLETED",
+     "conclusion": "SUCCESS"
+    }
+   ],
+   "body": "Elevated gray surface tokens for the alert card."
+  },
+  "reviewwheel/reviewwheel#3090": {
+   "number": 3090,
+   "title": "fix(requests): skip opted-out contacts on every channel",
+   "url": "https://github.com/reviewwheel/reviewwheel/pull/3090",
+   "state": "MERGED",
+   "isDraft": false,
+   "baseRefName": "staging",
+   "mergeCommit": {
+    "oid": "aaa111"
+   },
+   "statusCheckRollup": [
+    {
+     "__typename": "CheckRun",
+     "status": "COMPLETED",
+     "conclusion": "SUCCESS"
+    }
+   ],
+   "body": ""
+  },
+  "reviewwheel/reviewwheel#3080": {
+   "number": 3080,
+   "title": "docs(help): billing answers",
+   "url": "https://github.com/reviewwheel/reviewwheel/pull/3080",
+   "state": "MERGED",
+   "isDraft": false,
+   "baseRefName": "main",
+   "mergeCommit": {
+    "oid": "bbb222"
+   },
+   "statusCheckRollup": [
+    {
+     "__typename": "CheckRun",
+     "status": "COMPLETED",
+     "conclusion": "SUCCESS"
+    }
+   ],
+   "body": ""
+  },
+  "reviewwheel/reviewwheel#3050": {
+   "number": 3050,
+   "title": "fix(signup): ask for the business once",
+   "url": "https://github.com/reviewwheel/reviewwheel/pull/3050",
+   "state": "MERGED",
+   "isDraft": false,
+   "baseRefName": "staging",
+   "mergeCommit": {
+    "oid": "ccc333"
+   },
+   "statusCheckRollup": [
+    {
+     "__typename": "CheckRun",
+     "status": "COMPLETED",
+     "conclusion": "SUCCESS"
+    }
+   ],
+   "body": ""
+  },
+  "reviewwheel/reviewwheel#3060": {
+   "number": 3060,
+   "title": "feat(ads): cost per booked job",
+   "url": "https://github.com/reviewwheel/reviewwheel/pull/3060",
+   "state": "OPEN",
+   "isDraft": false,
+   "baseRefName": "staging",
+   "mergeCommit": null,
+   "statusCheckRollup": [
+    {
+     "__typename": "CheckRun",
+     "status": "COMPLETED",
+     "conclusion": "SUCCESS"
+    },
+    {
+     "__typename": "CheckRun",
+     "status": "IN_PROGRESS",
+     "conclusion": ""
+    }
+   ],
+   "body": ""
+  },
+  "ddmirolli/dispatcher#88": {
+   "number": 88,
+   "title": "feat(board): tech cards",
+   "url": "https://github.com/ddmirolli/dispatcher/pull/88",
+   "state": "OPEN",
+   "isDraft": false,
+   "baseRefName": "main",
+   "mergeCommit": null,
+   "statusCheckRollup": [
+    {
+     "__typename": "CheckRun",
+     "status": "COMPLETED",
+     "conclusion": "SUCCESS"
+    }
+   ],
+   "body": "Tech cards with the next job. The call on this dish picks the time field."
+  },
+  "ddmirolli/dispatcher#91": "fail"
+ },
+ "linear": {
+  "REV-901": {
+   "identifier": "REV-901",
+   "title": "Weekly review digest for owners",
+   "url": "https://linear.app/demo/issue/REV-901",
+   "state": {
+    "name": "Backlog"
+   }
+  },
+  "REV-902": {
+   "identifier": "REV-902",
+   "title": "One-tap Google connect on welcome",
+   "url": "https://linear.app/demo/issue/REV-902",
+   "state": {
+    "name": "Todo"
+   }
+  },
+  "REV-903": {
+   "identifier": "REV-903",
+   "title": "Instant reply drafts",
+   "url": "https://linear.app/demo/issue/REV-903",
+   "state": {
+    "name": "In Progress"
+   }
+  },
+  "REV-904": {
+   "identifier": "REV-904",
+   "title": "Pricing page under one second",
+   "url": "https://linear.app/demo/issue/REV-904",
+   "state": {
+    "name": "In Progress"
+   }
+  },
+  "REV-905": {
+   "identifier": "REV-905",
+   "title": "Lost review alerts",
+   "url": "https://linear.app/demo/issue/REV-905",
+   "state": {
+    "name": "In Review"
+   }
+  },
+  "DSP-12": {
+   "identifier": "DSP-12",
+   "title": "Tech cards on the dispatch board",
+   "url": "https://linear.app/demo/issue/DSP-12",
+   "state": {
+    "name": "In Review"
+   }
+  },
+  "REV-906": {
+   "identifier": "REV-906",
+   "title": "Opt-out on every channel",
+   "url": "https://linear.app/demo/issue/REV-906",
+   "state": {
+    "name": "Done"
+   }
+  },
+  "REV-907": {
+   "identifier": "REV-907",
+   "title": "Billing help articles",
+   "url": "https://linear.app/demo/issue/REV-907",
+   "state": {
+    "name": "Done"
+   }
+  },
+  "REV-908": {
+   "identifier": "REV-908",
+   "title": "Single business step in signup",
+   "url": "https://linear.app/demo/issue/REV-908",
+   "state": {
+    "name": "Done"
+   }
+  },
+  "REV-909": {
+   "identifier": "REV-909",
+   "title": "Second onboarding video",
+   "url": "https://linear.app/demo/issue/REV-909",
+   "state": {
+    "name": "Canceled"
+   }
+  },
+  "REV-910": {
+   "identifier": "REV-910",
+   "title": "Cost per booked job",
+   "url": "https://linear.app/demo/issue/REV-910",
+   "state": {
+    "name": "In Progress"
+   }
+  },
+  "REV-911": {
+   "identifier": "REV-911",
+   "title": "Pause review requests",
+   "url": "https://linear.app/demo/issue/REV-911",
+   "state": {
+    "name": "Blocked"
+   }
+  },
+  "DSP-14": "fail"
+ },
+ "threads": {
+  "mcp:demo-thread-expo": {
+   "title": "Expo, Thursday service",
+   "status": "running",
+   "activeRunId": "run:demo",
+   "model": "claude-opus-5-5",
+   "pendingRequestCount": 0,
+   "settled": false,
+   "archived": false,
+   "updatedMinutesAgo": 0
+  },
+  "mcp:demo-thread-902": {
+   "title": "App UI: empty states for the inbox",
+   "status": "running",
+   "activeRunId": "run:demo",
+   "model": "claude-opus-5-5",
+   "pendingRequestCount": 0,
+   "settled": false,
+   "archived": false,
+   "updatedMinutesAgo": 1
+  },
+  "mcp:demo-thread-903": {
+   "title": "Backend: draft a reply when a review lands",
+   "status": "completed",
+   "activeRunId": null,
+   "model": "claude-opus-5-5",
+   "pendingRequestCount": 0,
+   "settled": false,
+   "archived": false,
+   "updatedMinutesAgo": 14
+  },
+  "mcp:demo-thread-903w": {
+   "title": "Words: reply tone guide",
+   "status": "running",
+   "activeRunId": "run:demo",
+   "model": "gpt-6.1-sol",
+   "pendingRequestCount": 0,
+   "settled": false,
+   "archived": false,
+   "updatedMinutesAgo": 2
+  },
+  "mcp:demo-thread-904": {
+   "title": "Website: pricing page structured data",
+   "status": "waiting",
+   "activeRunId": null,
+   "model": "claude-opus-5-5",
+   "pendingRequestCount": 1,
+   "settled": false,
+   "archived": false,
+   "updatedMinutesAgo": 6
+  },
+  "mcp:demo-thread-905": {
+   "title": "App UI: alerts after dark",
+   "status": "completed",
+   "activeRunId": null,
+   "model": "claude-opus-5-5",
+   "pendingRequestCount": 0,
+   "settled": false,
+   "archived": false,
+   "updatedMinutesAgo": 3
+  },
+  "mcp:demo-thread-905d": {
+   "title": "Design: alert contrast pass",
+   "status": "running",
+   "activeRunId": "run:demo",
+   "model": "claude-fable-5-1",
+   "pendingRequestCount": 0,
+   "settled": false,
+   "archived": false,
+   "updatedMinutesAgo": 1
+  },
+  "mcp:demo-thread-d12": {
+   "title": "Dispatch: crew calendar",
+   "status": "completed",
+   "activeRunId": null,
+   "model": "claude-opus-5-5",
+   "pendingRequestCount": 0,
+   "settled": false,
+   "archived": false,
+   "updatedMinutesAgo": 40
+  },
+  "mcp:demo-thread-906": {
+   "title": "Backend: webhook retries",
+   "status": "interrupted",
+   "activeRunId": null,
+   "model": "claude-opus-5-5",
+   "pendingRequestCount": 0,
+   "settled": false,
+   "archived": false,
+   "updatedMinutesAgo": 95
+  },
+  "mcp:demo-thread-907": {
+   "title": "Words: onboarding emails",
+   "status": "completed",
+   "activeRunId": null,
+   "model": "claude-opus-5-5",
+   "pendingRequestCount": 0,
+   "settled": false,
+   "archived": false,
+   "updatedMinutesAgo": 200
+  },
+  "mcp:demo-thread-908": {
+   "title": "App UI: settings sheet",
+   "status": "completed",
+   "activeRunId": null,
+   "model": "claude-opus-5-5",
+   "pendingRequestCount": 0,
+   "settled": true,
+   "archived": false,
+   "updatedMinutesAgo": 300
+  },
+  "mcp:demo-thread-910": {
+   "title": "Data: first-party segments",
+   "status": "completed",
+   "activeRunId": null,
+   "model": "claude-opus-5-5",
+   "pendingRequestCount": 0,
+   "settled": true,
+   "archived": false,
+   "updatedMinutesAgo": 1500
+  },
+  "mcp:demo-thread-911": {
+   "title": "Backend: Stripe test key",
+   "status": "completed",
+   "activeRunId": null,
+   "model": "claude-opus-5-5",
+   "pendingRequestCount": 0,
+   "settled": false,
+   "archived": false,
+   "updatedMinutesAgo": 30
+  },
+  "mcp:demo-thread-d14": "fail"
+ }
+}
