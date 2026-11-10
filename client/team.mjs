@@ -519,7 +519,14 @@ export class Team {
     try {
       let blob = null;
       if (!next.forget) {
-        blob = await this.sealSummary(next.body);
+        try { blob = await this.sealSummary(next.body); } catch (ex) {
+          // A key or member that does not load fails the same way every time: wait as for a failed send, so the
+          // re-flush below does not spin (own review on the public PR).
+          this.flushFails = (this.flushFails || 0) + 1;
+          this.sentAt = this.now() - this.limits.summaryMs + Math.min(RETRY.cap, this.limits.summaryMs * 2 ** Math.min(this.flushFails, 10));
+          this.emit('error', { text: `Yes Chef could not seal this Mac's summary: ${clean(String(ex?.message || ex), 200)}` });
+          return;
+        }
         // Sealing waits on WebCrypto. A project dropped, or a Viewer made, while it ran replaced this summary or ended
         // sharing: it goes nowhere, and the newer one or the check above decides what does (PR-Agent r2 on #79).
         if (this.next !== next || !shares(this.me?.role) || !this.state.shared?.length) return;

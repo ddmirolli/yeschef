@@ -608,6 +608,22 @@ test('a summary sealed while its project was dropped never goes out', async () =
   lead.stop(); dev.stop();
 });
 
+test('a summary that fails to seal backs off, not a hot loop', async () => {
+  const { relay, timers, lead, dev } = await crew();
+  let seals = 0;
+  dev.sealSummary = async () => { seals++; throw new Error('the saved key does not import'); };
+  const errors = [];
+  dev.on((e) => e.type === 'error' && errors.push(e.text));
+  dev.board(boardNow(relay.now()));
+  await settle(); await settle(); await settle();
+  assert.equal(seals, 1, 'one try, then a wait');
+  assert.equal(dev.flushing, false);
+  assert.match(errors[0], /could not seal/);
+  await timers.advance(20000);
+  assert.equal(seals, 2, 'tried again after the wait');
+  lead.stop(); dev.stop();
+});
+
 test('a dev whose welcome expired unread asks the lead for another, at most once a day', async () => {
   const relay = fakeRelay();
   const net = fakeNet(relay);
