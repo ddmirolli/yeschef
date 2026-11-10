@@ -3007,7 +3007,7 @@ ${BAR_HTML}
         + '<button type="button" class="kx-ed" data-kx-ed="' + c.id + '" aria-label="Change the key for ' + escH(c.t) + '">Change</button>';
     var more = '';
     if (cl) more = '<div class="kx-msg" role="alert"><b>Taken</b><span>' + escH(cl.text) + '</span>'
-      + (cl.canTake ? '<button type="button" class="btn kx-b" data-kx-swap>' + (keys.length ? 'Swap them' : 'Take it') + '</button>' : '')
+      + (cl.canTake ? '<button type="button" class="btn kx-b" data-kx-swap>' + (cl.gives && cl.gives.length ? 'Swap them' : 'Take it') + '</button>' : '')
       + '<button type="button" class="btn kx-b" data-kx-keep>' + (keys.length ? 'Keep ' + escH(keys.map(K.label).join(' or ')) : 'Cancel') + '</button></div>';
     else if (rec && kxHint) more = '<p class="kx-hint" role="alert">' + escH(kxHint) + '</p>';
     return '<div class="kr-row kx-row' + (over ? ' kr-over' : '') + (rec ? ' kx-rec' : '') + (cl ? ' kx-clash' : '') + '" data-kx="' + c.id + '"' + (rec ? ' tabindex="-1"' : '') + '>'
@@ -3037,6 +3037,11 @@ ${BAR_HTML}
     if (nt) { nt.hidden = !notes.length; nt.textContent = notes.length ? (KFILE ? 'keybindings.json: ' : 'Saved shortcuts: ') + notes.slice(0, 3).join(' ') + (notes.length > 3 ? ' And ' + (notes.length - 3) + ' more.' : '') : ''; }
   }
   function kxSay(text){ var l = $('.kx-live'); if (l) l.textContent = text || ''; }
+  // What a change does to the other commands, in words, before it applies: " Hold until 8:00 tomorrow: H."
+  function kxOthers(st, id){
+    return K.COMMANDS.filter(function(c){ return c.id !== id && K.keysOf(st, c.id).join(' ') !== K.keysOf(KST, c.id).join(' '); })
+      .map(function(c){ var ks = K.keysOf(st, c.id); return ' ' + c.t + ': ' + (ks.length ? ks.map(K.label).join(' or ') : 'no key') + '.'; }).join('');
+  }
   function kxFocus(id){ var b = $('[data-kx-ed="' + id + '"]'); if (b) b.focus(); }
   function kxStart(id){
     kxRec = id; kxClash = null; kxHint = ''; kxMods = ''; kxRender();
@@ -3074,7 +3079,7 @@ ${BAR_HTML}
     if (cl && (cl.reserved || cl.fixed)) { kxHint = cl.text; kxMods = ''; kxRender(); var r = $('.kx-row.kx-rec'); if (r) r.focus(); kxSay(cl.text); return; }
     kxRec = null; kxHint = ''; kxMods = '';
     if (cl) {
-      kxClash = { id: id, key: c, other: cl.other, text: cl.text, canTake: cl.canTake }; kxRender();
+      kxClash = { id: id, key: c, other: cl.other, text: cl.text, canTake: cl.canTake, gives: cl.gives }; kxRender();
       var sb = $('[data-kx-swap]') || $('[data-kx-keep]'); if (sb) sb.focus();
       return;
     }
@@ -3093,8 +3098,8 @@ ${BAR_HTML}
     if (kxRec && !t.closest('.kx-row.kx-rec')) kxStop(false);
     var ed = t.closest('[data-kx-ed]'); if (ed) { kxStart(ed.dataset.kxEd); return; }
     var rs = t.closest('[data-kx-reset]');
-    if (rs) { var rid = rs.dataset.kxReset, dk = K.CMD[rid].keys; kxApply(K.reset(KST, rid), rid, K.CMD[rid].t + (dk.length ? ': ' + dk.map(K.label).join(' or ') + ' again.' : ' has no key again.')); return; }
-    if (t.closest('[data-kx-swap]') && kxClash) { var c = kxClash; kxApply(K.swap(KST, c.id, c.key, c.other), c.id, K.CMD[c.id].t + ': ' + K.label(c.key) + '. ' + K.CMD[c.other].t + ': ' + (K.keysOf(K.swap(KST, c.id, c.key, c.other), c.other).map(K.label).join(' or ') || 'no key') + '.'); return; }
+    if (rs) { var rid = rs.dataset.kxReset, dk = K.CMD[rid].keys, rst = K.reset(KST, rid); kxApply(rst, rid, K.CMD[rid].t + (dk.length ? ': ' + dk.map(K.label).join(' or ') + ' again.' : ' has no key again.') + kxOthers(rst, rid)); return; }
+    if (t.closest('[data-kx-swap]') && kxClash) { var c = kxClash, sst = K.swap(KST, c.id, c.key); if (sst) kxApply(sst, c.id, K.CMD[c.id].t + ': ' + K.label(c.key) + '.' + kxOthers(sst, c.id)); return; }
     if (t.closest('[data-kx-keep]') && kxClash) { var kid = kxClash.id; kxClash = null; kxRender(); kxFocus(kid); kxSay('Kept as it was.'); return; }
     if (t.closest('[data-kx-resetall]')) { kxApply(K.build([]), null, 'Every shortcut has its default key again.'); var q = $('#kx-q'); if (q) q.focus(); return; }
     if (t.closest('[data-kx-file]') && KFILE) KFILE.open().then(function(r){ if (r && r.error) { kxFileNote = 'Could not open the file: ' + r.error; kxRender(); } }, function(){});

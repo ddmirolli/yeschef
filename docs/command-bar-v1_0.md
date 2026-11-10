@@ -201,11 +201,14 @@ and clashes), tested in `client/keys.test.mjs`. The Mac app's file: `desktop/key
 - **Refused keys.** A key macOS keeps (⌘Q, ⌘W, ⌘H, ⌘M, ⌘Tab and the like) or a fixed key says why in the row, and
   recording goes on. The suggested action's key also works while you write a note, so it needs ⌘ or ⌥.
 - **Clash.** A key another command has, where both can apply, turns the row orange: "Taken. H is already Hold until
-  8:00 tomorrow." **Swap them** gives each command the other's key. **Keep R** leaves both as they were. A command
-  with no key offers **Take it** and **Cancel**. The Action bar always keeps a key, so a command with none cannot take
-  ⌘K from it.
-- **Reset.** A changed row shows the Rules dot and Reset, which gives that command its default back. **Reset all**
-  gives every command its default and empties the list.
+  8:00 tomorrow." **Swap them** gives each command the other's key. **Keep R** leaves both as they were. The other
+  command gets only keys it could record itself: no fixed key, nothing another command has there, and ⌘ or ⌥ for
+  the suggested action. When it gets none, the button reads **Take it**; a command with no key offers **Take it**
+  and **Cancel**. The Action bar and the suggested action always keep a key, so when a swap would leave either
+  without one, the row offers only Keep: "⌘↵ is already The suggested action, which always keeps a key."
+- **Reset.** A changed row shows the Rules dot and Reset, which gives that command its default back. A command that
+  had one of those keys gives it up. Left with no key, it gets its own default back when that is free, so Reset on
+  one side of a swap undoes it. **Reset all** gives every command its default and empties the list.
 - **Labels.** Every key label shows the key now in use: the action bar's tooltips, the More menu, the ⌘K rows, toasts
   and the lines that say why a key did nothing. A command with no key shows none. Outside a Mac the labels read Ctrl,
   Alt and Shift.
@@ -251,16 +254,19 @@ own Send stay ⌘↵: the suggested action's `!dialog` keeps them apart.
   command. `-command` with a key takes that key away. `-command` with no key takes every key away. An entry with no
   `when` takes its command's. An empty list is every default.
 - **Edits by hand.** The app reads the file at start and each time the window comes back, so an edit applies when
-  you return. An entry Yes Chef cannot use is named under the buttons and skipped. An entry for a command Yes Chef
-  does not have is kept as written. A file that is not valid JSON is named and not read. The next change in Settings
-  writes it again.
+  you return. An entry Yes Chef cannot use is named under the buttons and skipped: a key it cannot read, a when it
+  cannot read, or a key Settings would refuse (macOS's, a fixed key, a suggested-action key with no ⌘ or ⌥). Where
+  two commands get one key and both can apply, the later entry has it, and an entry beats a default, as in VS Code.
+  An entry for a command Yes Chef does not have is kept as written. A file that is not valid JSON is named and not
+  read. The next change in Settings writes it again.
 
 **Routing.**
 
 - With nothing changed, every key works exactly as before PR 4.
 - With a change, a new key reaches the page as its command's default key, so each action keeps one code path.
 - A command with no default key runs from the router.
-- A default key its command gave up does nothing where that command applies, and keeps its meaning elsewhere.
+- A default key its command gave up does nothing where that command applies, and keeps its meaning elsewhere. The
+  same holds when the file gives it back under a when that does not hold there.
 - A plain key typed in a field, or pressed while a dialog is open, is never a shortcut.
 - While a question waits, its option letters come before any shortcut.
 

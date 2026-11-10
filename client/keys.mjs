@@ -36,7 +36,9 @@ export function keysCore(mac) {
     { id: 'ticket.more', g: CALL, t: 'More', d: 'The actions that are not in the row', keys: ['.'], when: 'ticket' },
     { id: 'ticket.open', g: CALL, t: 'Open in T3 Code', keys: ['o'], when: 'ticket' }
   ];
-  var CMD = {};
+  // Every table below is looked up by a name from the file or a key, so none has Object's names ("constructor").
+  function dict(o) { var d = Object.create(null); for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) d[k] = o[k]; return d; }
+  var CMD = Object.create(null);
   COMMANDS.forEach(function (c) { CMD[c.id] = c; });
   // Keys that never change: shown in the list, and refused when recorded, with what they do.
   var FIXED = [
@@ -47,20 +49,20 @@ export function keysCore(mac) {
     { keys: ['escape'], t: 'Leave the note, close a ticket or a dialog' },
     { keys: ['mod+r'], t: 'Refresh' }
   ];
-  var FIXED_KEY = {
+  var FIXED_KEY = dict({
     j: 'moves to the next ticket', k: 'moves to the previous ticket', arrowdown: 'moves to the next ticket', arrowup: 'moves to the previous ticket',
     arrowleft: 'moves between questions and screenshots', arrowright: 'moves between questions and screenshots',
     space: 'pages down the message', 'shift+space': 'pages up the message', escape: 'closes and leaves', enter: 'presses the button in focus',
     tab: 'moves the focus', 'shift+tab': 'moves the focus', 'mod+r': 'refreshes Yes Chef'
-  };
+  });
   // What the system keeps for itself.
-  var RESERVED = {};
+  var RESERVED = Object.create(null);
   ['mod+q', 'mod+w', 'mod+h', 'mod+alt+h', 'mod+m', 'mod+c', 'mod+v', 'mod+x', 'mod+a', 'mod+z', 'mod+shift+z', 'mod+tab', 'mod+space', 'mod+`',
     'mod+shift+3', 'mod+shift+4', 'mod+shift+5', 'mod+alt+escape'].forEach(function (k) { RESERVED[k] = 1; });
 
-  var NAMED = { enter: 1, escape: 1, space: 1, tab: 1, backspace: 1, 'delete': 1, arrowup: 1, arrowdown: 1, arrowleft: 1, arrowright: 1, home: 1, end: 1, pageup: 1, pagedown: 1 };
-  var ALIAS = { esc: 'escape', 'return': 'enter', up: 'arrowup', down: 'arrowdown', left: 'arrowleft', right: 'arrowright', del: 'delete' };
-  var MOD_ALIAS = { mod: 'mod', cmd: 'mod', command: 'mod', meta: 'mod', ctrl: 'mod', control: 'mod', alt: 'alt', option: 'alt', opt: 'alt', shift: 'shift' };
+  var NAMED = dict({ enter: 1, escape: 1, space: 1, tab: 1, backspace: 1, 'delete': 1, arrowup: 1, arrowdown: 1, arrowleft: 1, arrowright: 1, home: 1, end: 1, pageup: 1, pagedown: 1 });
+  var ALIAS = dict({ esc: 'escape', 'return': 'enter', up: 'arrowup', down: 'arrowdown', left: 'arrowleft', right: 'arrowright', del: 'delete' });
+  var MOD_ALIAS = dict({ mod: 'mod', cmd: 'mod', command: 'mod', meta: 'mod', ctrl: 'mod', control: 'mod', alt: 'alt', option: 'alt', opt: 'alt', shift: 'shift' });
   // The key alone, from the key's own name ("mod++" is mod and the plus key).
   function parse(s) {
     if (typeof s !== 'string') return null;
@@ -99,7 +101,7 @@ export function keysCore(mac) {
     else name = k.toLowerCase();
     return norm((ev.metaKey || ev.ctrlKey ? 'mod+' : '') + (ev.altKey ? 'alt+' : '') + (ev.shiftKey ? 'shift+' : '') + (name === '+' ? '+' : name));
   }
-  var GLYPH = { enter: '↵', escape: 'esc', space: 'Space', tab: '⇥', backspace: '⌫', 'delete': '⌦', arrowup: '↑', arrowdown: '↓', arrowleft: '←', arrowright: '→', home: '↖', end: '↘', pageup: '⇞', pagedown: '⇟' };
+  var GLYPH = dict({ enter: '↵', escape: 'esc', space: 'Space', tab: '⇥', backspace: '⌫', 'delete': '⌦', arrowup: '↑', arrowdown: '↓', arrowleft: '←', arrowright: '→', home: '↖', end: '↘', pageup: '⇞', pagedown: '⇟' });
   /** The keys of one key, in the order a Mac menu shows them: ["⌥", "⇧", "⌘", "A"]. */
   function glyphs(c) {
     var p = parse(c); if (!p) return [];
@@ -118,7 +120,10 @@ export function keysCore(mac) {
   function lits(w) { return w ? String(w).split('&&').map(function (x) { return x.replace(/\s+/g, ''); }) : []; }
   /** Whether a when holds in ctx ({ ticket: true, dialog: false }). A name ctx does not have is false. */
   function holds(w, ctx) {
-    return lits(w).every(function (t) { var neg = t.charAt(0) === '!'; return !!(ctx && ctx[neg ? t.slice(1) : t]) !== neg; });
+    return lits(w).every(function (t) {
+      var neg = t.charAt(0) === '!', n = neg ? t.slice(1) : t;
+      return !!(ctx && Object.prototype.hasOwnProperty.call(ctx, n) && ctx[n]) !== neg;
+    });
   }
   /** Two whens that can never hold together ("x" and "!x"): their keys do not clash. */
   function exclusive(a, b) {
@@ -130,11 +135,36 @@ export function keysCore(mac) {
   function defaults(id) { var c = CMD[id]; return c.keys.map(function (k) { return { key: k, when: c.when || '' }; }); }
   function has(list, b) { return list.some(function (x) { return x.key === b.key && x.when === b.when; }); }
   function same(a, b) { return a.length === b.length && a.every(function (x) { return has(b, x); }); }
+  /** Why id can never have key, as a sentence: { reserved, why } for a key the system keeps, { fixed, why } for a
+   *  fixed key or a send key with no ⌘ or ⌥. null when id can have it. Settings and the file both use it. */
+  function refuse(id, key) {
+    var c = CMD[id], l = label(key);
+    if (RESERVED[key]) return { reserved: true, why: l + ' belongs to ' + (mac ? 'macOS' : 'your system') + '.' };
+    if (FIXED_KEY[key]) return { fixed: true, why: l + ' ' + FIXED_KEY[key] + ' and stays that way.' };
+    if (c.mod && !/^(mod|alt)\+/.test(key)) return { fixed: true, why: c.t + ' also works while you write a note, so its key needs ' + (mac ? '⌘ or ⌥' : 'Ctrl or Alt') + '.' };
+    return null;
+  }
+  /** The commands other than id that have key where when can apply too: with id, they would clash. */
+  function holders(by, key, when, id) {
+    var out = [];
+    COMMANDS.forEach(function (o) {
+      if (o.id !== id && by[o.id].some(function (b) { return b.key === key && !exclusive(b.when, when); })) out.push(o.id);
+    });
+    return out;
+  }
+  /** Takes key from those commands, in by. Returns their ids. */
+  function takeFrom(by, key, when, id) {
+    var hs = holders(by, key, when, id);
+    hs.forEach(function (h) { by[h] = by[h].filter(function (b) { return b.key !== key || exclusive(b.when, when); }); });
+    return hs;
+  }
   /** The keys in use from a saved list: { by: { command: [{ key, when }] }, notes, extra, changed }. notes say what in
-   *  the list was not used; extra keeps the entries for commands Yes Chef does not have. */
+   *  the list was not used; extra keeps the entries for commands Yes Chef does not have. An entry Settings would refuse
+   *  is skipped. A key that two commands have where both can apply goes to the later entry, and an entry beats a
+   *  default, as in VS Code. */
   function build(list) {
     var by = {}, notes = [], extra = [];
-    COMMANDS.forEach(function (c) { by[c.id] = defaults(c.id); });
+    COMMANDS.forEach(function (c) { by[c.id] = defaults(c.id).map(function (b) { b.at = -1; return b; }); });
     if (list != null && !Array.isArray(list)) notes.push('The file is not a list, so every key is its default.');
     (Array.isArray(list) ? list : []).forEach(function (e, i) {
       var at = 'Entry ' + (i + 1);
@@ -147,11 +177,39 @@ export function keysCore(mac) {
       var k = norm(e.key);
       if (!k) { notes.push(at + ': “' + String(e.key).slice(0, 40) + '” is not a key Yes Chef can read.'); return; }
       if (off) { by[id] = by[id].filter(function (b) { return b.key !== k; }); return; }
-      if (!has(by[id], { key: k, when: w })) by[id].push({ key: k, when: w });
+      var no = refuse(id, k);
+      if (no) { notes.push(at + ' is not used: ' + no.why); return; }
+      var dup = by[id].filter(function (b) { return b.key === k && b.when === w; })[0];
+      if (dup) dup.at = i; else by[id].push({ key: k, when: w, at: i });
     });
-    COMMANDS.forEach(function (c) {
-      if (c.need && !by[c.id].length) { by[c.id] = defaults(c.id); notes.push(c.t + ' always has a key, so it keeps ' + label(c.keys[0]) + '.'); }
+    // The latest entry first: it takes its key from every command that has it where both can apply.
+    var claims = [];
+    COMMANDS.forEach(function (c) { by[c.id].forEach(function (b) { if (b.at >= 0) claims.push({ id: c.id, b: b }); }); });
+    claims.sort(function (p, q) { return q.b.at - p.b.at; });
+    claims.forEach(function (p) {
+      if (by[p.id].indexOf(p.b) < 0) return;
+      holders(by, p.b.key, p.b.when, p.id).forEach(function (h) {
+        by[h] = by[h].filter(function (x) {
+          if (x.key !== p.b.key || exclusive(x.when, p.b.when)) return true;
+          if (x.at >= 0) notes.push('Entry ' + (x.at + 1) + ' is not used: entry ' + (p.b.at + 1) + ' gives ' + label(x.key) + ' to ' + CMD[p.id].t + '.');
+          return false;
+        });
+      });
     });
+    // A command that always keeps a key, left with none, gets its default back from whichever command has it.
+    var again = true;
+    while (again) {
+      again = false;
+      COMMANDS.forEach(function (c) {
+        if (!c.need || by[c.id].length) return;
+        again = true;
+        by[c.id] = defaults(c.id);
+        var lost = [];
+        c.keys.forEach(function (k) { takeFrom(by, k, c.when || '', c.id).forEach(function (h) { if (lost.indexOf(h) < 0) lost.push(h); }); });
+        notes.push(c.t + ' always has a key, so it keeps ' + label(c.keys[0]) + (lost.length ? ', not ' + lost.map(function (h) { return CMD[h].t; }).join(' or ') : '') + '.');
+      });
+    }
+    COMMANDS.forEach(function (c) { by[c.id] = by[c.id].map(function (b) { return { key: b.key, when: b.when }; }); });
     return state(by, notes, extra);
   }
   function state(by, notes, extra) {
@@ -174,33 +232,54 @@ export function keysCore(mac) {
   /** The command's keys now. */
   function keysOf(st, id) { return (st.by[id] || []).map(function (b) { return b.key; }); }
   /** id now has only key. */
-  function set(st, id, key) { var s = copy(st); s.by[id] = [{ key: key, when: CMD[id].when || '' }]; return state(s.by, [], s.extra); }
-  /** id takes key from other, and other takes id's keys ("Swap them"; with none, other is left without one). */
-  function swap(st, id, key, other) {
-    var s = copy(st), old = keysOf(st, id).filter(function (k) { return k !== key; });
-    s.by[id] = [{ key: key, when: CMD[id].when || '' }];
-    s.by[other] = s.by[other].filter(function (b) { return b.key !== key; });
-    old.forEach(function (k) { var b = { key: k, when: CMD[other].when || '' }; if (!has(s.by[other], b)) s.by[other].push(b); });
+  function set(st, id, key) { var s = copy(st), w = CMD[id].when || ''; s.by[id] = [{ key: key, when: w }]; takeFrom(s.by, key, w, id); return state(s.by, [], s.extra); }
+  /** Swap them: id gets key, every command that had it where both apply gives it up, and the first of them gets id's
+   *  other keys, each one it can have. { blocked: command } when a command that always keeps a key would be left
+   *  without one; else { st, other, gives }, where gives are the keys other got. */
+  function trade(st, id, key) {
+    var s = copy(st), w = CMD[id].when || '', old = keysOf(st, id).filter(function (k) { return k !== key; });
+    s.by[id] = [{ key: key, when: w }];
+    var hs = takeFrom(s.by, key, w, id), other = hs[0], gives = [];
+    if (other) {
+      var ow = CMD[other].when || '';
+      old.forEach(function (k) {
+        if (refuse(other, k) || holders(s.by, k, ow, other).length || has(s.by[other], { key: k, when: ow })) return;
+        s.by[other].push({ key: k, when: ow });
+        gives.push(k);
+      });
+    }
+    for (var i = 0; i < hs.length; i++) if (CMD[hs[i]].need && !s.by[hs[i]].length) return { blocked: hs[i] };
+    return { st: state(s.by, [], s.extra), other: other, gives: gives };
+  }
+  /** The keys after Swap them, or null when clash() says it cannot be done. */
+  function swap(st, id, key) { return trade(st, id, key).st || null; }
+  /** Its default keys whether they are free: no other command has one where both can apply. */
+  function free(by, id) { var w = CMD[id].when || ''; return CMD[id].keys.every(function (k) { return !holders(by, k, w, id).length; }); }
+  /** id gets its default keys back, and a command that had one of them gives it up. A command left with no key gets
+   *  its own defaults back when they are free, and always when it must keep a key. */
+  function reset(st, id) {
+    var s = copy(st), queue = [id], done = {};
+    function back(r) {
+      s.by[r] = defaults(r);
+      CMD[r].keys.forEach(function (k) {
+        takeFrom(s.by, k, CMD[r].when || '', r).forEach(function (h) { if (!s.by[h].length && (CMD[h].need || free(s.by, h))) queue.push(h); });
+      });
+    }
+    while (queue.length) { var r = queue.shift(); if (!done[r]) { done[r] = 1; back(r); } }
     return state(s.by, [], s.extra);
   }
-  function reset(st, id) { var s = copy(st); s.by[id] = defaults(id); return state(s.by, [], s.extra); }
   function isDefault(st, id) { return same(st.by[id], defaults(id)); }
-  /** Why key cannot simply go to id: { reserved }, { fixed }, { other: command }, or null when it is free.
-   *  Only commands whose whens can hold together clash. */
+  /** Why key cannot simply go to id: { reserved } or { fixed } with the words, or { other, text, canTake, gives } when
+   *  a command has it where both can apply, or null when it is free. canTake: Swap them works. gives: the keys other
+   *  would get; with none, the button reads Take it. */
   function clash(st, id, key) {
-    var c = CMD[id], l = label(key);
-    if (RESERVED[key]) return { reserved: true, text: l + ' belongs to ' + (mac ? 'macOS' : 'your system') + '. Press another key.' };
-    if (FIXED_KEY[key]) return { fixed: true, text: l + ' ' + FIXED_KEY[key] + ' and stays that way. Press another key.' };
-    if (c.mod && !/^(mod|alt)\+/.test(key)) return { fixed: true, text: 'This key also works while you write a note, so it needs ' + (mac ? '⌘ or ⌥' : 'Ctrl or Alt') + '. Press another key.' };
-    for (var i = 0; i < COMMANDS.length; i++) {
-      var o = COMMANDS[i];
-      if (o.id === id) continue;
-      if (st.by[o.id].some(function (b) { return b.key === key && !exclusive(b.when, c.when || ''); })) {
-        // A command that always keeps a key can trade it, never give it up.
-        return { other: o.id, text: l + ' is already ' + o.t + '.', canTake: !(o.need && !keysOf(st, id).filter(function (k) { return k !== key; }).length) };
-      }
-    }
-    return null;
+    var no = refuse(id, key);
+    if (no) return { reserved: !!no.reserved, fixed: !!no.fixed, text: no.why + ' Press another key.' };
+    var hs = holders(st.by, key, CMD[id].when || '', id);
+    if (!hs.length) return null;
+    var t = trade(st, id, key), names = hs.map(function (h) { return CMD[h].t; }).join(' and ');
+    var tail = !t.blocked ? '.' : hs.length > 1 ? '. ' + CMD[t.blocked].t + ' always keeps a key.' : ', which always keeps a key.';
+    return { other: hs[0], text: label(key) + ' is already ' + names + tail, canTake: !t.blocked, gives: t.gives || [] };
   }
   /** The command a key runs here, or null. */
   function lookup(st, key, ctx) {
@@ -211,7 +290,8 @@ export function keysCore(mac) {
     return null;
   }
   /** What the page does with a key: null, as it always has; { as: key, id }, the key the command had by default;
-   *  { run: id } for a command with no default key; { off: id } for a default key its command no longer has. */
+   *  { run: id } for a command with no default key; { off: id } for a default key that no command has here while its
+   *  own command applies here, since the page would still act on it. */
   function route(st, key, ctx) {
     if (!key) return null;
     var id = lookup(st, key, ctx);
@@ -222,11 +302,11 @@ export function keysCore(mac) {
     }
     for (var i = 0; i < COMMANDS.length; i++) {
       var d = COMMANDS[i];
-      if (d.keys.indexOf(key) >= 0 && holds(d.when, ctx) && keysOf(st, d.id).indexOf(key) < 0) return { off: d.id };
+      if (d.keys.indexOf(key) >= 0 && holds(d.when, ctx)) return { off: d.id };
     }
     return null;
   }
-  var KEYNAME = { enter: 'Enter', escape: 'Escape', space: ' ', tab: 'Tab', backspace: 'Backspace', 'delete': 'Delete', arrowup: 'ArrowUp', arrowdown: 'ArrowDown', arrowleft: 'ArrowLeft', arrowright: 'ArrowRight', home: 'Home', end: 'End', pageup: 'PageUp', pagedown: 'PageDown' };
+  var KEYNAME = dict({ enter: 'Enter', escape: 'Escape', space: ' ', tab: 'Tab', backspace: 'Backspace', 'delete': 'Delete', arrowup: 'ArrowUp', arrowdown: 'ArrowDown', arrowleft: 'ArrowLeft', arrowright: 'ArrowRight', home: 'Home', end: 'End', pageup: 'PageUp', pagedown: 'PageDown' });
   /** A stand-in keydown for a key, from the real one ev: what the page's handler reads, and preventDefault. */
   function synth(key, ev) {
     var p = parse(key), k = p.key;
@@ -246,6 +326,6 @@ export function keysCore(mac) {
     parse: parse, norm: norm, comboOf: comboOf, glyphs: glyphs, label: label,
     okWhen: okWhen, holds: holds, exclusive: exclusive,
     build: build, toList: toList, keysOf: keysOf, set: set, swap: swap, reset: reset, isDefault: isDefault,
-    clash: clash, lookup: lookup, route: route, synth: synth, plain: plain
+    clash: clash, refuse: refuse, lookup: lookup, route: route, synth: synth, plain: plain
   };
 }

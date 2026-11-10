@@ -145,6 +145,128 @@ test('the file: unknown commands are kept, bad entries are named, a command that
   assert.deepEqual(K.keysOf(K.build([{ command: '-ticket.hold' }]), 'ticket.hold'), []);
 });
 
+// No key belongs to two commands where both can apply.
+const noClash = (st) => {
+  for (const a of K.COMMANDS) for (const b of K.COMMANDS) {
+    if (a.id >= b.id) continue;
+    for (const x of st.by[a.id]) for (const y of st.by[b.id]) {
+      assert.ok(x.key !== y.key || K.exclusive(x.when, y.when), `${x.key} is both ${a.id} and ${b.id}`);
+    }
+  }
+};
+
+test('names from the file never reach Object\'s own names', () => {
+  const st = K.build([{ key: 'x', command: 'constructor' }, { command: '-toString' }, { key: 'y', command: '__proto__' }, { key: 'z', command: 'hasOwnProperty' }]);
+  assert.equal(st.extra.length, 4);
+  assert.equal(st.changed, false);
+  assert.match(st.notes.join('\n'), /constructor is not a Yes Chef command/);
+  assert.equal(K.norm('constructor+a'), null);
+  assert.equal(K.norm('toString'), null);
+  assert.equal(K.holds('constructor', {}), false);
+  assert.equal(K.holds('!toString', {}), true);
+  assert.equal(K.label('valueOf'), '');
+});
+
+test('the file: an entry Settings would refuse is named and skipped', () => {
+  const st = K.build([{ key: 'j', command: 'ticket.hold' }, { key: 'mod+q', command: 'view.you' }, { key: 'r', command: 'ticket.suggested' }, { key: 'space', command: 'view.toggle' }]);
+  assert.equal(st.changed, false);
+  assert.deepEqual(st.notes, [
+    'Entry 1 is not used: J moves to the next ticket and stays that way.',
+    'Entry 2 is not used: ⌘Q belongs to macOS.',
+    'Entry 3 is not used: The suggested action also works while you write a note, so its key needs ⌘ or ⌥.',
+    'Entry 4 is not used: Space pages down the message and stays that way.',
+  ]);
+  assert.equal(K.route(st, 'j', { ticket: true }), null, 'J still moves on');
+});
+
+test('the file: a key two commands have goes to the later entry, and an entry beats a default', () => {
+  const a = K.build([{ key: 'r', command: 'ticket.hold' }]);
+  assert.deepEqual(K.keysOf(a, 'ticket.hold'), ['h', 'r']);
+  assert.deepEqual(K.keysOf(a, 'ticket.reply'), []);
+  assert.deepEqual(a.notes, []);
+  assert.deepEqual(K.route(a, 'r', { ticket: true }), { as: 'h', id: 'ticket.hold' });
+  noClash(a);
+  const b = K.build([{ key: 'q', command: 'ticket.hold' }, { key: 'q', command: 'ticket.reply' }]);
+  assert.deepEqual(K.keysOf(b, 'ticket.hold'), ['h']);
+  assert.deepEqual(K.keysOf(b, 'ticket.reply'), ['r', 'q']);
+  assert.deepEqual(b.notes, ['Entry 1 is not used: entry 2 gives Q to Reply.']);
+  noClash(b);
+  // Whens that never meet keep both.
+  const c = K.build([{ key: 'q', command: 'view.you', when: '!ticket' }, { key: 'q', command: 'ticket.hold' }]);
+  assert.deepEqual([K.keysOf(c, 'view.you'), K.keysOf(c, 'ticket.hold')], [['q'], ['h', 'q']]);
+  // A command that always keeps a key takes its default back, and says from whom.
+  const d = K.build([{ key: 'mod+k', command: 'view.you' }]);
+  assert.deepEqual([K.keysOf(d, 'commandPalette.toggle'), K.keysOf(d, 'view.you')], [['mod+k'], []]);
+  assert.deepEqual(d.notes, ['Action bar always has a key, so it keeps ⌘K, not View: You.']);
+  // Two that must keep a key, one losing its last key to the other's default: both end with one.
+  const e = K.build([{ command: '-commandPalette.toggle' }, { key: 'mod+enter', command: 'commandPalette.toggle' }, { command: '-ticket.suggested' }]);
+  assert.deepEqual([K.keysOf(e, 'commandPalette.toggle'), K.keysOf(e, 'ticket.suggested')], [['mod+k'], ['mod+enter']]);
+  noClash(e);
+  // What Settings writes reads back with no notes.
+  const sw = K.swap(K.build([]), 'ticket.reply', 'h');
+  assert.deepEqual(K.build(K.toList(sw)).notes, []);
+});
+
+test('Swap them gives the other command only keys it can have, and never leaves a must-have command without one', () => {
+  const st = K.build([]);
+  // Reply to ⌘↵: the suggested action cannot have R (it needs ⌘ or ⌥) and must keep a key, so only Keep.
+  const c = K.clash(st, 'ticket.reply', 'mod+enter');
+  assert.equal(c.other, 'ticket.suggested');
+  assert.equal(c.canTake, false);
+  assert.equal(c.text, '⌘↵ is already The suggested action, which always keeps a key.');
+  assert.equal(K.swap(st, 'ticket.reply', 'mod+enter'), null);
+  // The Action bar to ⌘↵: ⌘K suits the suggested action, so they trade.
+  const p = K.clash(st, 'commandPalette.toggle', 'mod+enter');
+  assert.deepEqual([p.canTake, p.gives], [true, ['mod+k']]);
+  const ps = K.swap(st, 'commandPalette.toggle', 'mod+enter');
+  assert.deepEqual([K.keysOf(ps, 'commandPalette.toggle'), K.keysOf(ps, 'ticket.suggested')], [['mod+enter'], ['mod+k']]);
+  noClash(ps);
+  // A key id gives up that a third command has where the other applies stays with the third: Take it.
+  const f = K.build([{ key: 'x', command: 'view.you', when: '!ticket' }, { key: 'x', command: 'ticket.open' }]);
+  const t = K.clash(f, 'view.you', 'v');
+  assert.deepEqual([t.other, t.canTake, t.gives], ['view.toggle', true, []]);
+  const ts = K.swap(f, 'view.you', 'v');
+  assert.deepEqual([K.keysOf(ts, 'view.you'), K.keysOf(ts, 'view.toggle'), K.keysOf(ts, 'ticket.open')], [['v'], [], ['o', 'x']]);
+  noClash(ts);
+  // Every pair of commands and every default key: a swap Settings offers leaves no clash and every must-have key.
+  for (const a of K.COMMANDS) for (const b of K.COMMANDS) for (const k of b.keys) {
+    if (a.id === b.id) continue;
+    const cl = K.clash(st, a.id, k);
+    if (!cl || !cl.canTake) continue;
+    const s2 = K.swap(st, a.id, k);
+    noClash(s2);
+    for (const n of K.COMMANDS.filter((x) => x.need)) assert.ok(K.keysOf(s2, n.id).length, `${a.id} ${k}: ${n.id}`);
+    for (const g of cl.gives) assert.equal(K.refuse(cl.other, g), null, `${cl.other} ${g}`);
+  }
+});
+
+test('Reset takes its keys back, and a command left with none gets its own back when they are free', () => {
+  const sw = K.swap(K.build([]), 'ticket.reply', 'h');
+  const r = K.reset(sw, 'ticket.reply');
+  assert.deepEqual([K.keysOf(r, 'ticket.reply'), K.keysOf(r, 'ticket.hold')], [['r'], ['h']], 'Reset on one side undoes the swap');
+  assert.equal(r.changed, false);
+  // Hold's own H is taken, so Hold keeps no key rather than clash.
+  const s2 = K.swap(sw, 'view.toggle', 'r');
+  assert.deepEqual([K.keysOf(s2, 'view.toggle'), K.keysOf(s2, 'ticket.hold')], [['r'], ['v']]);
+  const r2 = K.reset(s2, 'ticket.reply');
+  assert.deepEqual([K.keysOf(r2, 'ticket.reply'), K.keysOf(r2, 'view.toggle'), K.keysOf(r2, 'ticket.hold')], [['r'], [], ['v']]);
+  noClash(r2);
+  // A must-have command always gets its key back, and may in turn take one.
+  const ps = K.swap(K.build([]), 'commandPalette.toggle', 'mod+enter');
+  const r3 = K.reset(ps, 'ticket.suggested');
+  assert.deepEqual([K.keysOf(r3, 'commandPalette.toggle'), K.keysOf(r3, 'ticket.suggested')], [['mod+k'], ['mod+enter']]);
+  noClash(r3);
+});
+
+test('a default key is off wherever its command applies, unless a key that holds there claims it', () => {
+  const st = K.build([{ key: 'mod+enter', command: '-ticket.suggested' }, { key: 'mod+enter', command: 'ticket.suggested', when: '!ticket' }]);
+  assert.deepEqual(K.route(st, 'mod+enter', { ticket: true }), { off: 'ticket.suggested' }, 'on a ticket ⌘↵ never sends');
+  assert.equal(K.route(st, 'mod+enter', { ticket: false }), null);
+  assert.equal(K.route(st, 'mod+enter', { ticket: true, dialog: true }), null, 'a dialog keeps its own ⌘↵');
+  const m = K.build([{ key: 'm', command: '-ticket.merge' }, { key: 'm', command: 'ticket.merge', when: 'ticket && dialog' }]);
+  assert.deepEqual(K.route(m, 'm', { ticket: true }), { off: 'ticket.merge' });
+});
+
 test('a stand-in keydown is what the page handler reads for that key', () => {
   let stopped = 0;
   const real = { repeat: false, target: 'T', preventDefault: () => { stopped++; } };
