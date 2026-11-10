@@ -12,7 +12,8 @@ import { dirname, extname, isAbsolute, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { signIn, connect } from './t3mcp.mjs';
 import { createKeys, createLive } from './t3live.mjs';
-import { boardThreads } from './shells.mjs';
+import { boardThreads, changeTargets } from './shells.mjs';
+import { createChanges } from './changes.mjs';
 import { buildBoard, renderApp, kitchenPane } from './board.mjs';
 import { readRuns, dayStart, trackWaits, mayRunToday } from './you.mjs';
 import { normalize as normalRules, change as changeRule } from './kitchen.mjs';
@@ -174,6 +175,10 @@ const live = createLive({ origin: ORIGIN, keys, log: (m) => console.log(m), onCh
 } });
 let parentGeneration = -1, projectsRev = -1;
 const questionCache = new Map();
+// Changed files and line ranges per thread: a read-only git diff in each thread's folder (client/changes.mjs).
+// Nothing on the board shows them yet; the team summary and the Overlap and Too big calls read them with
+// changes.get(threadId) and changes.subscribe(fn).
+const changes = createChanges({ log: (m) => console.log(m) });
 
 // Run times for the You view (Dan, 2026-11-10): each thread that ran today, read once per run state. t3_thread_read
 // lists a thread's recent runs with their start and end times (runLimit, read on 2026-11-10). A read that fails, or
@@ -226,6 +231,7 @@ async function refresh() {
     const shells = new Map(live.threads().map((s) => [s.id, s]));
     const picked = boardThreads([...shells.values()], { now: t0, link: linkFor });
     const byId = new Map(picked.threads.map((t) => [t.threadId, t]));
+    changes.want(changeTargets(picked.threads, shells, live.project));
     // A running or waiting station needs its ticket even when that ticket settled long ago. The stream carries
     // every active thread; a parent it lacks is read over MCP, as before. If any stays unresolved, the board
     // is incomplete and the page says "not checked".
@@ -3006,6 +3012,7 @@ if (!DESKTOP) web.listen(PORT, '127.0.0.1', () => console.log(`The Pass prototyp
 let stopping = null;
 function stopLive() {
   return (stopping ??= (async () => {
+    changes.stop();
     await live.stop();
     try { console.log(`Revoked ${await keys.revokeMine()} read-only stream key(s).`); }
     catch (ex) { console.log(`Could not revoke the stream key: ${String(ex.message).slice(0, 120)}`); }

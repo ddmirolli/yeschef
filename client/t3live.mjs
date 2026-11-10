@@ -370,6 +370,8 @@ export function createLive({
     },
     threads: () => [...threads.values()],
     thread: (id) => threads.get(id) ?? null,
+    /** A project's shell (title, workspaceRoot), as the stream last had it. */
+    project: (id) => projects.get(id) ?? null,
     projectsRev: () => data.projectsRev,
     generation: () => data.generation,
     /** A second consumer: fn({ ids, all, live }) after every change to the store or to health. Returns unsubscribe.
