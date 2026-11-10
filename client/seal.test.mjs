@@ -96,7 +96,7 @@ test('a seal opens only with its key and in its place', async () => {
   await assert.rejects(open(other, blob, aad.summary(T, 'a')));
   await assert.rejects(open(k, blob, aad.summary(T, 'b')));
   const [iv, ct] = blob.split('.');
-  await assert.rejects(open(k, `${iv}.${ct.slice(0, -2)}AA`, aad.summary(T, 'a')));
+  await assert.rejects(open(k, `${iv}.${ct[0] === 'A' ? 'B' : 'A'}${ct.slice(1)}`, aad.summary(T, 'a')));
   await assert.rejects(open(k, 'nonsense', aad.summary(T, 'a')));
 });
 
