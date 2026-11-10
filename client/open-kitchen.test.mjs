@@ -13,13 +13,17 @@ const who = (v, id) => v.people.find((p) => p.id === id);
 const ticket = (v, id) => who(v, id).summary.tickets[0];
 const read = (v) => openKitchen(v, { now: NOW });
 const kinds = (calls) => calls.map((c) => `${c.kind}:${c.who.join('+')}`);
+// Today's merges count from local midnight, so a test of them anchors the made-up team at 14:03 local time, on any TZ.
+const NOWL = new Date(2026, 10, 10, 14, 3).getTime();
+const agoL = (m) => NOWL - m * MIN;
+const viewL = () => fixtureView(NOWL);
 
 test('the made-up team gives the approved mock’s Pass: red first, then amber by age', () => {
   const ok = read(view());
   assert.equal(ok.status, 'live');
   assert.deepEqual(kinds(ok.pass), ['main:ravi', 'overlap:kai+jon', 'failing:nina', 'waiting:lee', 'big:iris', 'stuck:omar']);
   assert.deepEqual(ok.pass.map((c) => c.reach.why), ['red', 'red', 'runs', 'quiet', 'unseen', 'unseen']);
-  // Ben marked his own alarm Seen, so it stays his.
+  // Ben marked their own alarm Seen, so it stays theirs.
   assert.deepEqual(kinds(ok.held), ['failing:ben']);
   const state = Object.fromEntries(ok.people.map((p) => [p.id, p.state]));
   assert.deepEqual(Object.entries(state).filter(([, s]) => s !== 'track').map(([id, s]) => `${id}:${s}`).sort(),
@@ -199,7 +203,7 @@ test('the thresholds are the brief’s defaults', () => {
 const page = (team) => renderApp({ board: { tickets: [], runsChecked: false }, link: () => 'x', status: { ok: true, at: NOW, ms: 1 }, origin: 'https://t3.example', team });
 
 test('Your team draws The Pass’s calls, the rail card, the quiet line and a reader for each', () => {
-  const html = page({ view: view(), now: NOW });
+  const html = page({ view: viewL(), now: NOWL });
   assert.equal((html.match(/class="tile call-tile mail team-tile"/g) || []).length, 6);
   assert.equal((html.match(/<article class="plate team-plate"/g) || []).length, 6);
   assert.match(html, /<div class="folder" data-folder="team">/);
@@ -417,15 +421,15 @@ test('review r6: a summary that is not an object with tickets is not checked, ne
 });
 
 // ---- PR B: Your team, expanded ----
-const board = (v, want = null) => kitchenBoard(read(v), { now: NOW, want });
+const board = (v, want = null) => kitchenBoard(openKitchen(v, { now: NOWL }), { now: NOWL, want });
 const hmOf = (t) => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
 test('expanded: the instruments from the made-up team', () => {
-  const B = board(view());
+  const B = board(viewL());
   assert.equal(B.people, 14);
   assert.equal(B.base.state, 'red');
-  assert.equal(B.base.since, ago(141));
-  assert.deepEqual(B.base.merges.map((m) => `${m.n}:${m.tone}`), ['425:ok', '427:ok', '429:ok', '430:ok', '431:red']);
+  assert.equal(B.base.since, agoL(141));
+  assert.deepEqual(B.base.merges.map((m) => `${m.n}:${m.tone}`), ['425:merged', '427:merged', '429:merged', '430:merged', '431:red']);
   // One mark per merge it counts, so the base and Merged today agree (brief, departure 1).
   assert.equal(B.merged.count, B.base.merges.length);
   assert.equal(B.merged.byHour.reduce((a, n) => a + n, 0), 5);
@@ -436,12 +440,12 @@ test('expanded: the instruments from the made-up team', () => {
 });
 
 test('expanded: Who’s on what puts In The Pass first, links the Overlap, and hatches a quiet Mac', () => {
-  const B = board(view());
+  const B = board(viewL());
   const T = B.timeline;
   assert.deepEqual(T.rows.map((r) => r.state).filter((s, i, a) => a.indexOf(s) === i), ['pass', 'alarm', 'quiet', 'track']);
   const lee = T.rows.find((r) => r.person === 'lee');
-  assert.equal(lee.quiet.since, ago(122));
-  assert.equal(lee.bars[0].end, ago(122), 'a quiet dev’s bar stops at their last report');
+  assert.equal(lee.quiet.since, agoL(122));
+  assert.equal(lee.bars[0].end, agoL(122), 'a quiet dev’s bar stops at their last report');
   assert.equal(lee.bars[0].call.kind, 'waiting');
   const ravi = T.rows.find((r) => r.person === 'ravi');
   assert.deepEqual(ravi.bars.map((b) => [b.title, b.call?.kind || null, b.merged !== null]), [['Updater channel picker', 'main', true], ['Nightly icon', null, false]]);
@@ -451,39 +455,39 @@ test('expanded: Who’s on what puts In The Pass first, links the Overlap, and h
 });
 
 test('expanded: files two live threads change, same lines first', () => {
-  const F = board(view()).files;
+  const F = board(viewL()).files;
   assert.deepEqual(F.rows.map((f) => [f.path, f.state, f.people.join('+')]), [['contracts/src/orchestration.ts', 'same', 'kai+jon'], ['web/src/sidebar.tsx', 'different', 'kai+ada']]);
   assert.ok(F.rows[0].call.mine);
-  assert.equal(F.at, ago(1));
+  assert.equal(F.at, agoL(1));
 });
 
 test('expanded: what no summary says stays not checked, never a guess', () => {
-  let v = view();
+  let v = viewL();
   delete ticket(v, 'kai').prs[0].readyAt;
   assert.equal(board(v).review.ages, null, 'one PR with no ready time leaves the ages not checked');
-  v = view();
+  v = viewL();
   who(v, 'ravi').summary.bases = [];
   assert.equal(board(v).base.state, null);
-  v = view();
+  v = viewL();
   delete ticket(v, 'ada').changes.files[0].r;
   const F = board(v).files;
   assert.equal(F.rows.find((f) => f.path === 'web/src/sidebar.tsx').state, 'nc');
-  v = view();
+  v = viewL();
   delete ticket(v, 'kai').changes.at;
   assert.equal(board(v).files.at, null);
   // A thread with no start time is counted, not drawn; work merged before today is not drawn at all.
-  v = view();
+  v = viewL();
   delete ticket(v, 'tom').startedAt;
   const tom = board(v).timeline.rows.find((r) => r.person === 'tom');
   assert.deepEqual([tom.bars.length, tom.untimed], [0, 1]);
-  v = view();
-  who(v, 'maya').summary.tickets[1].prs[0].mergedAt = new Date(NOW - 30 * 60 * MIN).toISOString();
+  v = viewL();
+  who(v, 'maya').summary.tickets[1].prs[0].mergedAt = new Date(NOWL - 30 * 60 * MIN).toISOString();
   assert.equal(board(v).timeline.rows.find((r) => r.person === 'maya').bars.length, 1);
-  assert.equal(kitchenBoard(openKitchen({ ...view(), link: 'offline' }, { now: NOW }), { now: NOW }), null);
+  assert.equal(kitchenBoard(openKitchen({ ...viewL(), link: 'offline' }, { now: NOWL }), { now: NOWL }), null);
 });
 
 test('expanded: a picked project narrows the board', () => {
-  const B = board(view(), new Set(['Quillo']));
+  const B = board(viewL(), new Set(['Quillo']));
   assert.deepEqual(B.timeline.rows.map((r) => r.person).sort(), ['elena', 'lee', 'nina', 'tom']);
   assert.equal(B.base.state, null, 'the red base is in another project’s repo');
   assert.equal(B.merged.count, 0);
@@ -491,7 +495,7 @@ test('expanded: a picked project narrows the board', () => {
 });
 
 test('expanded: the page draws the board and The Pass as a column; each opens a call that is in the page', () => {
-  const html = page({ view: view(), now: NOW });
+  const html = page({ view: viewL(), now: NOWL });
   assert.match(html, /<section class="tboard"/);
   assert.ok(!html.includes('class="team-wait"'), 'the board replaces the waiting panel');
   assert.equal((html.match(/class="xc"/g) || []).length, 6);
@@ -501,10 +505,61 @@ test('expanded: the page draws the board and The Pass as a column; each opens a 
   // Every colour carries a word: the legend says what red and amber mean.
   for (const w of ['working', 'merged', 'red: act now', 'amber: decide soon', 'not reporting']) assert.ok(html.includes(w), w);
   assert.ok(html.includes('usual by now: not checked'));
-  assert.ok(html.includes(`Mac quiet since ${hmOf(ago(122))}`));
+  assert.ok(html.includes(`Mac quiet since ${hmOf(agoL(122))}`));
   assert.ok(html.includes('6 need you, most urgent first.'));
   // The suggestion button is the call's first action, and only for a role that may take it.
   assert.match(html, /data-team-act="rollback">Roll back #431</);
-  const v = view(); v.me = { ...v.me, role: 'engineer', perms: ['see'] };
-  assert.ok(!page({ view: v, now: NOW }).includes('data-team-act='), 'See only: Open, never the suggestion');
+  const v = viewL(); v.me = { ...v.me, role: 'engineer', perms: ['see'] };
+  assert.ok(!page({ view: v, now: NOWL }).includes('data-team-act='), 'See only: Open, never the suggestion');
+});
+
+// ---- PR B, PR-Agent round 1 ----
+test('r1: a merge is red only in the base’s current run of red; no merge is ever called green', () => {
+  let v = viewL();
+  who(v, 'ravi').summary.bases[0].requiredResult = 'passing';
+  assert.ok(board(v).base.merges.every((m) => m.tone === 'merged'), 'a green base now says nothing about earlier merges');
+  v = viewL();
+  who(v, 'ravi').summary.bases[0].redSince = null;
+  assert.deepEqual(board(v).base.merges.map((m) => m.tone), ['merged', 'merged', 'merged', 'merged', 'red'], 'the red commit itself is still red');
+  const html = page({ view: viewL(), now: NOWL });
+  assert.ok(!html.includes('merged while green'));
+});
+
+test('r1: lines from two merge bases are not checked, never Different lines. Fine', () => {
+  const v = viewL();
+  ticket(v, 'ada').changes.mergeBase = 'b1';
+  const f = board(v).files.rows.find((r) => r.path === 'web/src/sidebar.tsx');
+  assert.deepEqual([f.state, f.near], ['nc', true]);
+  assert.ok(page({ view: v, now: NOWL }).includes('Lines not checked: two merge bases'));
+});
+
+test('r1: live threads whose files were not sent are counted, so an empty list is never an all clear', () => {
+  const v = viewL();
+  const F0 = board(v).files;
+  const before = F0.unread;
+  delete ticket(v, 'ada').changes;
+  const F = board(v).files;
+  assert.equal(F.unread, before + 1);
+  assert.equal(F.compared, F0.compared - 1);
+  assert.match(page({ view: v, now: NOWL }), new RegExp(`${F.unread} live threads? not checked`));
+});
+
+test('r1: a merged PR with no time makes the count a floor, never dropped', () => {
+  const v = viewL();
+  const n = board(v).merged.count;
+  ticket(v, 'kai').prs[0].state = 'merged';
+  ticket(v, 'kai').prs[0].mergedAt = null;
+  const M = board(v).merged;
+  assert.deepEqual([M.count, M.untimed], [n, 1]);
+  assert.ok(page({ view: v, now: NOWL }).includes('at least: 1 merge with no time'));
+});
+
+test('r1: a call’s word is inside its bar, so a click on the word opens the call', () => {
+  const html = page({ view: viewL(), now: NOWL });
+  const tags = (html.match(/<span class="tltag /g) || []).length;
+  const inBar = /<(button|span) (?:type="button" )?class="tlb[^"]*"[^>]*>(?:<span class="tlt">[^<]*<\/span>)?<span class="tltag [^>]*>[^<]*<\/span><\/\1>/g;
+  const inButton = [...html.matchAll(inBar)].filter((m) => m[1] === 'button').length;
+  assert.ok(tags > 0);
+  assert.equal([...html.matchAll(inBar)].length, tags, 'every tag is inside its bar');
+  assert.ok(inButton > 0, 'a call in The Pass: the bar and its word are one button');
 });

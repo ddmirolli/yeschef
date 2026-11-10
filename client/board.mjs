@@ -779,12 +779,12 @@ function boardOf({ ok, now, want, name, people, plateOf }) {
   const v1 = b.state === 'red' ? `<b class="red">Red</b><span>${b.since !== null ? `since ${hm(b.since)}` : 'since not checked'}${b.count > 1 ? `, ${e(and(b.red.map((r) => short(r.repo))))}` : ''}</span>`
     : b.state === 'green' ? `<b class="green">Green</b><span>${e(b.count > 1 ? `${b.count} repos` : short(b.repos[0]))}</span>`
     : NOT(b.count ? 'a required check has no result yet' : 'no Mac online has read it');
-  const TONE1 = { red: ['r', 'red'], ok: ['g', 'merged while green'], nc: ['n', 'base not checked'] };
-  const rib = b.merges.length ? `<div class="kribbon" role="img" aria-label="${e(`${plural(b.merges.length, 'merge')} today`)}">${b.merges.map((m) => `<i class="${TONE1[m.tone][0]}" title="${e(`#${m.n}, ${name(m.person)}, ${hm(m.at)}: ${TONE1[m.tone][1]}`)}"></i>`).join('')}</div>`
+  const rib = b.merges.length ? `<div class="kribbon" role="img" aria-label="${e(`${plural(b.merges.length, 'merge')} today`)}">${b.merges.map((m) => `<i${m.tone === 'red' ? ' class="r"' : ''} title="${e(`#${m.n}, ${name(m.person)}, ${hm(m.at)}${m.tone === 'red' ? `, while ${label1} is red` : ''}`)}"></i>`).join('')}</div>`
     + `<span class="cap"><span>${plural(b.merges.length, 'merge')}</span>${b.merges.some((m) => m.tone === 'red') ? `<span class="red">red: since ${b.since !== null ? hm(b.since) : 'the break'}</span>` : ''}</span>` : '';
   // 2. Merged today: the count and bars by hour. "Usual by now" needs weeks of merge times, which no summary sends.
   const m = B.merged;
-  const v2 = `<b>${m.count}</b><span>usual by now: not checked</span>`;
+  // Merges with no time may be today's: the count is then a floor, and says so.
+  const v2 = m.untimed ? `<b>${m.count}</b><span>at least: ${plural(m.untimed, 'merge')} with no time</span>` : `<b>${m.count}</b><span>usual by now: not checked</span>`;
   const hh = (h) => `${String(h).padStart(2, '0')}:00`;
   const mbars = bars(m.byHour, `Merges by hour from ${hh(m.from)}: ${m.byHour.join(', ')}`).replace('class="vbars"', 'class="vbars mg"')
     + `<span class="cap"><span>${hh(m.from)}</span><span>now</span></span>`;
@@ -814,13 +814,14 @@ function boardOf({ ok, now, want, name, people, plateOf }) {
       const top = row.bars.some((y) => y.lane === 1) ? LANE[x.lane] : 9;
       const call = x.call, tone = call ? KINDS[call.kind].tone : '', open = call && call.mine ? plateOf(call.id) : null;
       const label = `${x.title || 'Untitled thread'}${x.pr ? ` #${x.pr.n}` : ''}`;
-      const tip = `${label}. ${x.place}${call ? `, ${KINDS[call.kind].word}${call.mine ? ' in The Pass' : `, ${name(row.person)} holds it`}` : ''}. Started ${x.clip ? 'before' : ''} ${hm(x.start)}${x.merged !== null ? `, merged ${hm(x.merged)}` : ''}.`;
-      // The call's word sits inside the bar's right end, clear of the merge mark, so it never covers the next bar.
-      const tag = call ? `<span class="tltag ${tone}" style="top:${top}px;right:calc(${(100 - Number(X(x.end))).toFixed(2)}% + ${x.merged !== null ? 7 : 1}px)">${e(KINDS[call.kind].word)}</span>` : '';
+      const tip = `${label}. ${x.place}${call ? `, ${KINDS[call.kind].word}${call.mine ? ' in The Pass' : `, ${name(row.person)} holds it`}` : ''}. Started ${x.clip ? 'before ' : ''}${hm(x.start)}${x.merged !== null ? `, merged ${hm(x.merged)}` : ''}.`;
+      // The call's word is part of its bar, at the right end and clear of the merge mark: a click on it opens the call,
+      // and the title shortens before it, so it never covers the next bar or the title.
+      const tag = call ? `<span class="tltag ${tone}"${x.merged !== null ? ' style="margin-right:6px"' : ''}>${e(KINDS[call.kind].word)}</span>` : '';
       const attrs = `class="tlb${tone ? ` ${tone}` : ''}${x.clip ? ' clip' : ''}" style="top:${top}px;left:${X(x.start)}%;width:${W(x.start, x.end)}%" title="${e(tip)}"`;
-      const words = (x.end - x.start) / total > 0.07 ? e(label) : '';
-      const bar = open ? `<button type="button" ${attrs} data-team-open="${e(open)}" aria-label="${e(tip)}">${words}</button>` : `<span ${attrs}>${words}</span>`;
-      return bar + (x.merged !== null ? `<i class="tlm" style="top:${top + 6}px;left:${X(x.merged)}%" title="${e(`Merged ${hm(x.merged)}`)}"></i>` : '') + tag;
+      const words = (x.end - x.start) / total > 0.07 ? `<span class="tlt">${e(label)}</span>` : '';
+      const bar = open ? `<button type="button" ${attrs} data-team-open="${e(open)}" aria-label="${e(tip)}">${words}${tag}</button>` : `<span ${attrs}>${words}${tag}</span>`;
+      return bar + (x.merged !== null ? `<i class="tlm" style="top:${top + 6}px;left:${X(x.merged)}%" title="${e(`Merged ${hm(x.merged)}`)}"></i>` : '');
     }).join('');
     const top0 = row.bars.some((y) => y.lane === 1) ? LANE[0] : 9;
     const quiet = row.quiet ? `<span class="tlb off" style="top:${top0}px;left:${X(row.quiet.since)}%;width:${W(row.quiet.since, T.to)}%">Mac quiet since ${hm(row.quiet.since)}</span>` : '';
@@ -848,14 +849,16 @@ function boardOf({ ok, now, want, name, people, plateOf }) {
   const F = B.files;
   const FS = { same: ['Same lines. In The Pass', 'red'], different: ['Different lines. Fine', ''], nc: ['Lines not checked', 'gray'] };
   const frow = (f) => {
-    const [word, tone] = f.state === 'same' && !(f.call && f.call.mine) ? ['Same lines', 'red'] : FS[f.state];
+    const [word, tone] = f.state === 'same' && !(f.call && f.call.mine) ? ['Same lines', 'red'] : f.state === 'nc' && f.near ? ['Lines not checked: two merge bases', 'gray'] : FS[f.state];
     const open = f.call && f.call.mine ? plateOf(f.call.id) : null;
     const inner = `<span class="f" title="${e(`${f.repo}: ${f.path}`)}">${e(f.path)}</span><span class="fc">${f.people.map((id) => face(people.get(id), 'sm')).join('')}</span><span class="s${tone ? ` ${tone}` : ''}">${e(word)}</span>`;
     return open ? `<button type="button" class="sf" role="listitem" data-team-open="${e(open)}">${inner}</button>` : `<div class="sf" role="listitem">${inner}</div>`;
   };
+  // Threads whose changes were not read could share any file, so the list never reads as all clear while some are out.
+  const out = F.unread ? `${plural(F.unread, 'live thread')} not checked: ${F.unread === 1 ? 'its' : 'their'} changed files were not sent.` : '';
   const fbody = !F.compared ? `<p class="nc-l"><b>Not checked</b> No live thread has sent its changed files.</p>`
-    : F.rows.length ? `<div class="sfl" role="list">${F.rows.slice(0, 8).map(frow).join('')}</div>${F.rows.length > 8 ? `<p class="tmore">And ${plural(F.rows.length - 8, 'more file')}.</p>` : ''}`
-    : `<p class="nc-l">No file is changed by two live threads.</p>`;
+    : F.rows.length ? `<div class="sfl" role="list">${F.rows.slice(0, 8).map(frow).join('')}</div>${F.rows.length > 8 ? `<p class="tmore">And ${plural(F.rows.length - 8, 'more file')}.</p>` : ''}${out ? `<p class="tmore">${e(out)}</p>` : ''}`
+    : out ? `<p class="nc-l">No file is changed by two of the ${plural(F.compared, 'thread')} read. ${e(out)}</p>` : `<p class="nc-l">No file is changed by two live threads.</p>`;
   const files = `<section class="pnl" aria-labelledby="tb-f"><header class="ph"><h3 id="tb-f">Files two live threads change</h3><span>${F.at !== null ? `checked ${hm(F.at)}` : 'check time not checked'}</span></header>${fbody}</section>`;
   return `<section class="tboard" aria-labelledby="tb-t">${head(sub)}<div class="you-b">${inst}${who}${files}</div></section>`;
 }

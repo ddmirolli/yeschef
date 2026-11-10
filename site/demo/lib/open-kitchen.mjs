@@ -348,29 +348,32 @@ export function kitchenBoard(ok, { now, want = null }) {
   const calls = [...ok.pass.map((c) => ({ c, mine: true })), ...ok.held.map((c) => ({ c, mine: false }))].filter(({ c }) => inProj(c.project));
 
   // Merges today, each PR once: a merge stays done, so a quiet dev's merges count too.
-  const merges = [], seenPr = new Set();
+  // A merged PR with no time may or may not be today's: it is counted apart, never as today's or as not.
+  const merges = [], seenPr = new Set(), untimed = new Set();
   for (const { k, person } of all) for (const pr of k.prs) {
-    if (pr.state !== 'merged' || pr.mergedAt === null || pr.mergedAt < d0 || pr.mergedAt > now) continue;
+    if (pr.state !== 'merged') continue;
     const key = prKey(pr.repo, pr.n);
-    if (seenPr.has(key)) continue;
+    if (pr.mergedAt === null) { untimed.add(key); continue; }
+    if (pr.mergedAt < d0 || pr.mergedAt > now || seenPr.has(key)) continue;
     seenPr.add(key);
     merges.push({ n: pr.n, repo: pr.repo, branch: pr.base, at: pr.mergedAt, sha: pr.mergeSha, person, thread: k.thread });
   }
   merges.sort((a, z) => a.at - z.at || a.n - z.n);
+  for (const key of seenPr) untimed.delete(key);
 
   // The base instrument: the bases Macs online now read, narrowed to the picked projects' repos.
   const repos = new Set(all.flatMap(({ k }) => [...k.prs.map((pr) => pr.repo), k.changes?.repo].filter(Boolean).map((r) => r.toLowerCase())));
   const bases = ok.bases.filter((b) => !want || repos.has(b.repo.toLowerCase()));
   const red = bases.filter((b) => b.requiredResult === 'failing');
   const baseOf = (m) => (m.branch ? bases.find((b) => b.repo.toLowerCase() === m.repo.toLowerCase() && b.branch === m.branch) || null : null);
-  // Each merge's mark: red at and after the first red commit of a red base, green into a base that was green, and
-  // not checked where no base was read or the break has no time.
+  // Each merge's mark: red when it is in the base's current run of red (the first red commit, or a merge after it
+  // while the base is still red). Anything else is a plain merge: the base's result now says nothing about how it
+  // stood at an earlier merge, so no merge is ever called green.
   const tone = (m) => {
     const b = baseOf(m);
-    if (!b || b.requiredResult === null) return 'nc';
-    if (b.requiredResult !== 'failing') return b.requiredResult === 'passing' ? 'ok' : 'nc';
+    if (!b || b.requiredResult !== 'failing') return 'merged';
     if (m.sha && m.sha === b.redSha) return 'red';
-    return b.redSince === null ? 'nc' : m.at >= b.redSince ? 'red' : 'ok';
+    return b.redSince !== null && m.at >= b.redSince ? 'red' : 'merged';
   };
   const base = {
     branches: [...new Set(bases.map((b) => b.branch))], count: bases.length, repos: bases.map((b) => b.repo),
@@ -384,7 +387,7 @@ export function kitchenBoard(ok, { now, want = null }) {
   const hNow = new Date(now).getHours();
   const h0 = Math.max(0, Math.min(hNow - 5, ...merges.map((m) => new Date(m.at).getHours())));
   const hours = Array.from({ length: hNow - h0 + 1 }, (_, i) => h0 + i);
-  const merged = { count: merges.length, from: h0, byHour: hours.map((h) => merges.filter((m) => new Date(m.at).getHours() === h).length), usual: null };
+  const merged = { count: merges.length, untimed: untimed.size, from: h0, byHour: hours.map((h) => merges.filter((m) => new Date(m.at).getHours() === h).length), usual: null };
 
   // Waiting for review: open PRs, not drafts, on live threads In review. Their age needs the time each was marked ready
   // (proposed `pr.readyAt`); with any one missing, the ages say not checked rather than a part of them.
@@ -452,7 +455,7 @@ export function kitchenBoard(ok, { now, want = null }) {
       if (f.x || typeof f.p !== 'string' || !f.p) continue;
       const key = `${k.changes.repo.toLowerCase()}\n${k.changes.base}\n${f.p}`;
       if (!byFile.has(key)) byFile.set(key, { path: f.p, repo: k.changes.repo, sides: [] });
-      byFile.get(key).sides.push({ person, thread: k.thread, r: f.r, at: k.changes.at });
+      byFile.get(key).sides.push({ person, thread: k.thread, r: f.r, at: k.changes.at, mb: k.changes.mergeBase });
     }
   }
   const overlapCalls = calls.filter(({ c }) => c.kind === 'overlap');
@@ -460,25 +463,28 @@ export function kitchenBoard(ok, { now, want = null }) {
   for (const f of byFile.values()) {
     if (new Set(f.sides.map((s) => s.thread)).size < 2) continue;
     const call = overlapCalls.find(({ c }) => c.facts.files.some((x) => x.path === f.path) && c.facts.sides.every((s) => f.sides.some((x) => x.thread === s.ticket.thread)));
-    const read = f.sides.every((s) => Array.isArray(s.r));
+    // Lines compare only from one merge base: from two, "different lines" could be the same code moved.
+    const oneBase = f.sides.every((s) => s.mb && s.mb === f.sides[0].mb);
+    const read = oneBase && f.sides.every((s) => Array.isArray(s.r));
     let same = false;
     for (let i = 0; i < f.sides.length && read; i++) for (let j = i + 1; j < f.sides.length; j++) {
       if (f.sides[i].r.some((x) => f.sides[j].r.some((y) => overlaps(span(x), span(y))))) same = true;
     }
     const state = call || same ? 'same' : read ? 'different' : 'nc';
-    files.push({ path: f.path, repo: f.repo, people: [...new Set(f.sides.map((s) => s.person))], state, call: call ? { id: call.c.id, mine: call.mine } : null,
+    files.push({ path: f.path, repo: f.repo, near: !oneBase, people: [...new Set(f.sides.map((s) => s.person))], state, call: call ? { id: call.c.id, mine: call.mine } : null,
       at: f.sides.every((s) => s.at !== null) ? Math.min(...f.sides.map((s) => s.at)) : null });
   }
   const RANKF = { same: 0, nc: 1, different: 2 };
   files.sort((a, z) => RANKF[a.state] - RANKF[z.state] || a.path.localeCompare(z.path));
   // When the list was read: the oldest read among the threads it compares.
   const reads = all.filter(({ k, live }) => comparable(k, live)).map(({ k }) => k.changes.at);
+  const unread = all.filter(({ k, live }) => live && Object.hasOwn(STAGE_RANK, k.place ?? '') && k.place !== 'Merged' && k.changes?.state !== 'checked').length;
   const filesAt = reads.length && reads.every((t) => t !== null) ? Math.min(...reads) : null;
 
   return {
     people: rowsAll.length, threads: liveTickets.length,
     base, merged, review, agents,
     timeline: { from: winFrom, to: now, rows: rowsAll, links },
-    files: { rows: files, at: filesAt, compared: reads.length },
+    files: { rows: files, at: filesAt, compared: reads.length, unread },
   };
 }
