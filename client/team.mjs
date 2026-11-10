@@ -112,9 +112,21 @@ export class Team {
   // ---- state and events ----
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
   emit(type, data = {}) { for (const fn of [...this.listeners]) { try { fn({ type, ...data }); } catch { /* a listener's fault is its own */ } } }
-  save() { this.state.seen = [...this.seen]; try { this.saveFn(this.state); return true; } catch { return false; } }
+  save() {
+    this.state.seen = [...this.seen];
+    // A store that answers later (the desktop app's Keychain) reports here too: a failed write shows as unsaved, never
+    // as an unhandled rejection (PR-Agent r5 on public #7).
+    try {
+      const p = this.saveFn(this.state);
+      if (p && typeof p.then === 'function') p.then(() => this.saved(true), () => this.saved(false));
+      else this.saved(true);
+      return true;
+    } catch { this.saved(false); return false; }
+  }
+  /** The last save's outcome. The screens say "Not saved" until a later save gets through. */
+  saved(ok) { const was = this.unsaved; this.unsaved = !ok; if (was !== this.unsaved) this.emit('team'); }
   /** Save and wait until the store says it is written. False when it failed: whatever needed it does not go ahead. */
-  async saveNow() { this.state.seen = [...this.seen]; try { await this.saveFn(this.state); return true; } catch { return false; } }
+  async saveNow() { this.state.seen = [...this.seen]; try { await this.saveFn(this.state); this.saved(true); return true; } catch { this.saved(false); return false; } }
   setLink(link) { if (this.link !== link) { this.link = link; this.linkAt = this.now(); this.emit('link', { link }); } }
   async member() { return this.meCache || (this.meCache = await loadMember(this.state.me)); }
   async teamKey() { if (!this.key && this.state.key) this.key = await teamKey(this.state.key); return this.key; }
@@ -266,6 +278,15 @@ export class Team {
     this.emit('status', { status });
   }
 
+  /** Drop the socket and open a new one: the relay's hello brings the current team. */
+  refresh() {
+    const ws = this.ws;
+    if (!ws) return;
+    this.ws = null; this.stopBeat();
+    try { ws.close(4000, 'Reading the team again.'); } catch { /* gone */ }
+    this.lost(1006, true);
+  }
+
   startBeat() {
     this.stopBeat();
     this.beat = this.timers.setInterval(() => this.ping(), PING_MS);
@@ -376,7 +397,9 @@ export class Team {
       this.state.rosterHash = digest;
       // The floor is waited for. When it does not reach the disk this Mac still takes the newer roster (the older one
       // grants more), and the screens say the team is not saved (PR-Agent r4 on public #7).
-      this.unsaved = !(await this.saveNow());
+      // Taking it even so is the safer way: the older roster is the one that grants more. A later save that gets
+      // through writes this floor too, and the "Not saved" notice stays until one does.
+      await this.saveNow();
       if (body.ver < (this.roster?.ver || 0)) return false;
     }
     const myId = this.meId || (await this.member()).id;
@@ -390,6 +413,8 @@ export class Team {
     if (body.ver < (this.roster?.ver || 0)) return false;
     this.roster = body;
     this.rosterSigned = roster;
+    // A roster this lead signed and kept for its answer leaves once one at or past its version is in place.
+    if (this.state.unsent) { let u = null; try { u = JSON.parse(this.state.unsent.body).ver; } catch { u = null; } if (!(u > body.ver)) { delete this.state.unsent; this.save(); } }
     this.people = new Map(body.members.map((m) => {
       const d = detail[m.id] || {};
       const g = m.id === body.lead ? grant('lead') : grant(d.role, d.perms);
@@ -460,6 +485,8 @@ export class Team {
         let w = null;
         if (from === this.roster?.lead) { try { w = await openFrom(me, sender.dh, blob, aad.welcome(this.state.team, from, me.id)); } catch { w = null; } }
         if (typeof w?.teamKey !== 'string') { ack = false; this.later.push({ t: 'inbox', item, from, blob, at }); return; }
+        // Removed, declined or stopped while the welcome was opened: the key is not kept (PR-Agent r5 on public #7).
+        if (this.stopped || (this.state.status !== 'member' && this.state.status !== 'pending')) { ack = false; return; }
         this.state.key = w.teamKey; this.key = null;
         if (w.teamName) this.state.teamName = clean(w.teamName, 80);
         this.save();
@@ -513,7 +540,11 @@ export class Team {
     if (had) return this.reply(sender.id, nonce, had.status, had.text);
     // An id leaves only once its action is too old to run anyway. A full list of live ids refuses new work rather than
     // forget one, so a replay never runs twice (PR-Agent r1 on public #7). The refusal is not kept: nothing ran.
-    for (const [k, v] of this.seen) { if (now - v.at < SEEN_KEEP_MS) break; this.seen.delete(k); }
+    // Against the latest time this Mac has seen, so a clock set forward and back again cannot drop an id and then take
+    // its action again (PR-Agent r5 on public #7).
+    const high = Math.max(now, Number(this.state.clockHigh) || 0);
+    this.state.clockHigh = high;
+    for (const [k, v] of this.seen) { if (high - v.at < SEEN_KEEP_MS) break; this.seen.delete(k); }
     if (this.seen.size >= SEEN_MAX) return this.reply(sender.id, nonce, 429, 'Not run: too many teammate actions in the last few minutes. Try again shortly.');
     const answer = async (status, text) => {
       this.seen.set(seenKey, { at: now, status, text });
@@ -529,6 +560,7 @@ export class Team {
     const gate = (t) => {
       const at = Number(body.at);
       if (!Number.isFinite(at) || t - at > ACT_TTL || at - t > AUTH_SKEW_MS) return [409, 'Not run: that action is too old. Look again and send it fresh.'];
+      if (high - at > ACT_TTL) return [409, 'Not run: this teammate\'s Mac clock went back. Send it again once their clock is right.'];
       if (this.stopped || this.state.status !== 'member') return [409, 'Not run: this Mac is no longer on the team.'];
       const from = this.people.get(sender.id);
       if (!from) return [403, 'Not run: the sender is no longer on the team.'];
@@ -661,10 +693,15 @@ export class Team {
   /** The dev changed which projects they share. Sharing nothing drops the relay's copy. Dropping a project rebuilds the
    *  waiting summary from the last board at once, so a summary queued before the change never carries that project's
    *  tickets, and the relay's copy is replaced within the limit (PR-Agent r1 on #79). */
-  share(projectIds) {
+  /** Resolves false when the new list did not reach the disk. It is in use here all the same (PR-Agent r5 on public #7). */
+  async share(projectIds) {
     const before = new Set(this.state.shared || []);
     this.state.shared = [...new Set(projectIds.map(String))];
-    this.save();
+    const ok = await this.saveNow();
+    this.shareNow(before);
+    return ok;
+  }
+  shareNow(before) {
     if (!this.state.shared.length) { this.unshare(); return; }
     if (![...before].some((id) => !this.state.shared.includes(id))) return; // only added: the next board sends them
     if (this.lastBoard && shares(this.me?.role)) {
@@ -704,11 +741,14 @@ export class Team {
     const held = this.state.unsent;
     if (held) {
       const hb = await readRoster(held, { team: this.state.team, leadSignPub: this.state.leadSign });
-      if (!hb || hb.ver !== (this.roster?.ver || 0) + 1) { delete this.state.unsent; await this.saveNow(); }
+      // It leaves only once a roster at or past its version is in place here. Until then no new roster is signed, so
+      // the relay never holds two at one version (PR-Agent r5 on public #7).
+      if (!hb || hb.ver <= (this.roster?.ver || 0)) { delete this.state.unsent; await this.saveNow(); }
       else {
         const r0 = await this.say({ t: 'roster', roster: held });
         if (r0.t === 'ok') { delete this.state.unsent; await this.saveNow(); await this.takeRoster(held); return stale; }
-        if (r0.code === 'stale' && Number(r0.ver) >= hb.ver) { delete this.state.unsent; await this.saveNow(); return stale; }
+        // The relay is past this Mac's roster: read the team again (the next hello brings it). Nothing is signed till then.
+        if (r0.code === 'stale') { this.refresh(); return stale; }
         return r0;
       }
     }
@@ -727,8 +767,9 @@ export class Team {
     this.state.unsent = roster;
     if (!(await this.saveNow())) { delete this.state.unsent; return { t: 'err', code: 'save', text: 'Not changed: Yes Chef could not save. Try again shortly.' }; }
     const r = await this.say({ t: 'roster', roster });
-    if (r.t === 'ok' || (r.code === 'stale' && Number(r.ver) >= ver)) { delete this.state.unsent; await this.saveNow(); }
-    if (r.t === 'ok') await this.takeRoster(roster);
+    if (r.t === 'ok') { delete this.state.unsent; await this.saveNow(); await this.takeRoster(roster); }
+    // Refused or unanswered, it is kept: it leaves once a roster at or past its version is in place here.
+    else if (r.code === 'stale') this.refresh();
     return r;
   }
 

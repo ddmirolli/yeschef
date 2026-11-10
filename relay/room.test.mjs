@@ -756,3 +756,24 @@ test('HTTP requests that arrive together hold their places under the cap until t
   assert.equal(out.filter((r) => r.status === 429).length, 2);
   assert.equal(room.held, 0, 'every place is given back');
 });
+
+test('upgrades that arrive together still leave one key at most its socket limit', async () => {
+  const t = await team();
+  const room = t.relay.room, route = room.route.bind(room);
+  // Each upgrade waits on its way out, as it does through the Worker's own awaits.
+  room.route = async (...a) => { const out = await route(...a); await new Promise((r) => setTimeout(r, 5)); return out; };
+  await Promise.all(Array.from({ length: 8 }, () => t.ws(t.lead)));
+  room.route = route;
+  assert.equal(room.socketsOf(t.lead.id).length, room.cfg.maxSockets);
+});
+
+test('a team deleted and made again the same day arms its alarm again', async () => {
+  const t = await team();
+  const lead = t.lead;
+  const path = `/v1/teams/${t.id}`;
+  const del = await t.relay.http('DELETE', path, undefined, { authorization: `YesChef ${await authToken(lead, { team: t.id, method: 'DELETE', path, now: t.relay.now() })}` });
+  assert.equal(del.status, 200);
+  const before = t.relay.alarms.length;
+  assert.equal((await t.relay.http('POST', path, { roster: await t.rosterNow(1) })).status, 201);
+  assert.ok(t.relay.alarms.length > before, 'the new team armed an alarm');
+});
