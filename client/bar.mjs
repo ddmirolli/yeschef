@@ -381,6 +381,7 @@ export function installBar(app, core) {
     [['default', 'Default', 'Title and the agent’s summary'], ['comfortable', 'Comfortable', 'Title and one summary line'], ['compact', 'Compact', 'Titles only, the most tickets on screen']].forEach(function (d) {
       out.push({ id: 'density:' + d[0], g: 'View', t: 'Density: ' + d[1], d: d[2], kw: 'list rows size dense spacing', icon: ic('rows'), now: app.prefs.density === d[0], run: function () { app.setDensity(d[0]); } });
     });
+    out.push({ id: 'team', g: 'Settings', t: 'Invite your team', d: 'Make a team, send the link, add each dev to the chart', kw: 'team invite join link relay roles chart members deputy engineer area', icon: ic('team'), run: function () { location.href = '/team'; } });
     out.push({ id: 'rules', g: 'Settings', t: 'Rules', d: 'Sent with every thread Yes Chef starts', kw: 'brief reviewer browser tracker council screenshots house notes', icon: ic('rules'), run: function () { app.openSettings('rules'); } });
     out.push({ id: 'keys', g: 'Settings', t: 'Keyboard shortcuts', d: 'Every key in one list', kw: 'keys hotkeys keybindings', icon: ic('key'), k: ['?'], run: function () { app.openSettings('keys'); } });
     out.push({ id: 'settings', g: 'Settings', t: 'Settings', d: 'Layout, rules and shortcuts', kw: 'preferences options layout', icon: ic('gear'), k: ['⌘', ','], run: function () { app.openSettings('layout'); } });
@@ -391,7 +392,7 @@ export function installBar(app, core) {
     if (p[0] === 'tk') return ic(p[2] === 'open' ? 'ext' : ICON[p[4]] || 'check');
     if (p[0] === 'go') return ic('jump');
     if (p[0] === 'note') return ic('note');
-    return ic({ 'new': 'plus', view: p[1] === 'you' || p[1] === 'team' ? p[1] : 'expand', density: 'rows', rules: 'rules', keys: 'key', settings: 'gear' }[p[0]] || 'check');
+    return ic({ 'new': 'plus', view: p[1] === 'you' || p[1] === 'team' ? p[1] : 'expand', density: 'rows', rules: 'rules', keys: 'key', settings: 'gear', team: 'team' }[p[0]] || 'check');
   }
   function histRow(r, i, n) {
     return { id: r.id, g: i === 0 ? 'Last action' : 'Earlier action: ' + (i + 1) + ' of ' + n, t: r.t, hist: r.t, f: r.f, d: core.ago(r.at, Date.now()), icon: iconFor(r.id), k: ['↵'] };

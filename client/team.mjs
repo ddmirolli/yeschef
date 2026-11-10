@@ -7,7 +7,7 @@
 // the socket's health kept apart from how fresh the data is, and a cached summary never shown as live.
 import {
   newId, isId, newMember, saveMember, loadMember, authToken, AUTH_SKEW_MS, signRoster, readRoster, newTeamKey, teamKey,
-  seal, open, aad, sealSigned, openSigned, sealTo, openFrom, newInvite, readInvite, joinRequest, openJoin,
+  seal, open, aad, sealSigned, openSigned, sealTo, openFrom, newInvite, readInvite, joinRequest, openJoin, matchCode, inviteLink,
 } from './seal.mjs';
 import { grant, allows, refusal, signature, shares } from './roles.mjs';
 
@@ -45,7 +45,7 @@ export async function createTeam({ relay, teamName, name, net = webNet, now = Da
   const raw = newTeamKey();
   const key = await teamKey(raw);
   const people = { [me.id]: { name: clean(name, 60), ...grant('lead') } };
-  const detail = await seal(key, people, aad.detail(team, 1));
+  const detail = await seal(key, { people, areas: [] }, aad.detail(team, 1));
   const roster = await signRoster(me, { team, ver: 1, lead: me.id, at: now(), members: [{ id: me.id, sign: me.signPub, dh: me.dhPub, invite: true }], detail });
   const res = await net.http('POST', `${relay}/v1/teams/${team}`, { roster });
   if (res.status !== 201) throw new Error(failText(res));
@@ -63,8 +63,11 @@ export async function joinTeam({ link, name, projects = [], shared = [], net = w
   if (!ask.name) throw new Error('Type your name first.');
   const res = await net.http('POST', `${inv.relay}/v1/teams/${inv.team}/join`, await joinRequest(inv, me, ask));
   if (res.status !== 202) throw new Error(failText(res));
+  // The six digits the lead sees beside this ask (Dan's 2a). Worked out once here: the invite's secret is not kept.
+  const code = await matchCode({ team: inv.team, invite: inv.invite, secret: inv.secret, sign: me.signPub, dh: me.dhPub });
   return { v: STATE_V, relay: inv.relay, team: inv.team, teamName: inv.teamName, leadName: inv.leadName, leadSign: inv.leadSignPub,
-    me: await saveMember(me), name: ask.name, key: null, status: 'pending', shared: [...shared], seen: [], rosterVer: 0 };
+    me: await saveMember(me), name: ask.name, key: null, status: 'pending', shared: [...shared], seen: [], rosterVer: 0, code,
+    projects: ask.projects };
 }
 
 /** The live team. state: from createTeam or joinTeam. save(state): called whenever it changes.
@@ -86,6 +89,7 @@ export class Team {
     this.people = new Map();     // id -> { id, sign, dh, invite, name, role, perms }
     this.summaries = new Map();  // id -> { at, body } (opened)
     this.summaryFloor = new Map(); // id -> the newest signed time taken, kept across reconnects
+    this.areas = [];             // [{ id, name }] from the roster the lead signed: names only until Rules gives them projects
     this.online = new Set();
     this.pending = new Map();    // asks to join, for inviters: m -> { m, invite, at, name, projects }
     this.invites = new Map();    // id -> { id, until, by, secret }
@@ -117,14 +121,16 @@ export class Team {
     const live = this.link === 'online';
     return {
       status: this.state.status, link: this.link, linkAt: this.linkAt, team: this.state.team, teamName: this.state.teamName,
-      me: this.me ? { id: this.meId, name: this.me.name, role: this.me.role, perms: this.me.perms } : { id: this.meId, name: this.state.name, role: null, perms: [] },
-      lead: this.isLead,
+      me: this.me ? { id: this.meId, name: this.me.name, role: this.me.role, perms: this.me.perms, area: this.me.area } : { id: this.meId, name: this.state.name, role: null, perms: [], area: null },
+      lead: this.isLead, leadName: this.people.get(this.roster?.lead)?.name || this.state.leadName || '',
+      code: this.state.status === 'pending' ? this.state.code || null : null, asked: this.state.projects || [],
+      areas: this.areas.map((a) => ({ ...a })),
       people: [...this.people.values()].map((p) => {
         const s = this.summaries.get(p.id);
-        return { id: p.id, name: p.name, role: p.role, perms: p.perms, online: live && this.online.has(p.id),
+        return { id: p.id, name: p.name, role: p.role, perms: p.perms, area: p.area, online: live && this.online.has(p.id),
           summary: s?.body || null, at: s?.at || null, live: live && !!s };
       }),
-      pending: [...this.pending.values()],
+      pending: [...this.pending.values()].map(({ m, at, code, name, projects }) => ({ m, at, code, name, projects })),
       invites: [...this.invites.values()].map(({ id, until, by }) => ({ id, until, by })),
     };
   }
@@ -361,10 +367,13 @@ export class Team {
     const key = await this.teamKey();
     let detail = {};
     if (key) { try { detail = await open(key, body.detail, aad.detail(this.state.team, body.ver)); } catch { detail = {}; } }
+    // The areas and each member's area travel sealed in the roster the lead signs, as roles do: the relay never sees them.
+    this.areas = readAreas(detail?.areas);
+    const people = detail?.people && typeof detail.people === 'object' ? detail.people : {};
     this.people = new Map(body.members.map((m) => {
-      const d = detail[m.id] || {};
+      const d = people[m.id] || {};
       const g = m.id === body.lead ? grant('lead') : grant(d.role, d.perms);
-      return [m.id, { id: m.id, sign: m.sign, dh: m.dh, invite: !!m.invite || m.id === body.lead, name: clean(d.name, 60) || 'Not checked', ...g }];
+      return [m.id, { id: m.id, sign: m.sign, dh: m.dh, invite: !!m.invite || m.id === body.lead, name: clean(d.name, 60) || 'Not checked', ...g, area: areaFor(g.role, d.area, this.areas) }];
     }));
     for (const id of [...this.summaries.keys()]) if (!this.people.has(id)) this.summaries.delete(id);
     for (const id of [...this.summaryFloor.keys()]) if (!this.people.has(id)) this.summaryFloor.delete(id);
@@ -411,7 +420,9 @@ export class Team {
     if (!inv) { if (!this.state.key) this.later.push({ t: 'pending', pending: p }); return; }
     try {
       const ask = await openJoin(inv.secret, { team: this.state.team, ...p });
-      this.pending.set(p.m, { m: p.m, invite: p.invite, at: p.at, sign: p.sign, dh: p.dh, name: clean(ask.name, 60) || 'No name', projects: (ask.projects || []).map((x) => clean(x, 80)).slice(0, 50) });
+      // The same six digits as on the dev's waiting screen, from the keys this ask came with (Dan's 2a).
+      const code = await matchCode({ team: this.state.team, invite: p.invite, secret: inv.secret, sign: p.sign, dh: p.dh });
+      this.pending.set(p.m, { m: p.m, invite: p.invite, at: p.at, sign: p.sign, dh: p.dh, code, name: clean(ask.name, 60) || 'No name', projects: (ask.projects || []).map((x) => clean(x, 80)).slice(0, 50) });
     } catch { /* an ask that does not open or is not signed by its key: not shown */ }
     this.emit('team');
   }
@@ -645,16 +656,18 @@ export class Team {
   async revoke(id) { const r = await this.say({ t: 'revoke', invite: id }); if (r.t === 'ok') { this.invites.delete(id); this.emit('team'); } return r; }
   async decline(m) { const r = await this.say({ t: 'decline', m }); if (r.t === 'ok') { this.pending.delete(m); this.emit('team'); } return r; }
 
-  /** A new roster from the lead: people is the full list as Map id -> { sign, dh, name, role, perms }. */
-  async pushRoster(people) {
+  /** A new roster from the lead: people is the full list as Map id -> { sign, dh, name, role, perms, area }; areas is
+   *  the team's list of { id, name }. */
+  async pushRoster(people, areas = this.areas) {
     if (!this.isLead) return { t: 'err', code: 'role', text: 'Only the lead can change the team.' };
     const me = await this.member();
     const ver = this.roster.ver + 1;
-    const detail = {};
+    const list = readAreas(areas);
+    const detail = { people: {}, areas: list };
     const members = [];
     for (const [id, p] of people) {
       const g = id === me.id ? grant('lead') : grant(p.role, p.perms);
-      detail[id] = { name: clean(p.name, 60), ...g };
+      detail.people[id] = { name: clean(p.name, 60), ...g, area: areaFor(g.role, p.area, list) };
       members.push({ id, sign: p.sign, dh: p.dh, ...(g.perms.includes('invite') ? { invite: true } : {}) });
     }
     const roster = await signRoster(me, { team: this.state.team, ver, lead: me.id, at: this.now(), members, detail: await seal(await this.teamKey(), detail, aad.detail(this.state.team, ver)) });
@@ -663,14 +676,14 @@ export class Team {
     return r;
   }
 
-  current() { return new Map([...this.people].map(([id, p]) => [id, { sign: p.sign, dh: p.dh, name: p.name, role: p.role, perms: p.perms }])); }
+  current() { return new Map([...this.people].map(([id, p]) => [id, { sign: p.sign, dh: p.dh, name: p.name, role: p.role, perms: p.perms, area: p.area }])); }
 
   /** Approve an ask: the dev joins the roster with a role, then gets the team key sealed to their own key. */
-  async approve(m, role = 'engineer', perms) {
+  async approve(m, role = 'engineer', perms, area = null) {
     const ask = this.pending.get(m);
     if (!ask) return { t: 'err', code: 'gone', text: 'That ask is no longer waiting.' };
     const people = this.current();
-    people.set(m, { sign: ask.sign, dh: ask.dh, name: ask.name, ...grant(role, perms) });
+    people.set(m, { sign: ask.sign, dh: ask.dh, name: ask.name, ...grant(role, perms), area });
     // The welcome is owed from before the roster goes: if the relay takes the roster but its answer is lost, the next
     // connect finds the dev on the roster and sends it then. sendWelcomes() drops one whose dev never made the roster,
     // so a refused roster owes nothing (PR-Agent r1 on #79).
@@ -721,11 +734,38 @@ export class Team {
     await this.sendWelcomes();
   }
 
-  async setRole(m, role, perms) {
+  async setRole(m, role, perms, area = null) {
     const people = this.current();
     if (!people.has(m) || m === this.meId) return { t: 'err', code: 'bad', text: 'That person is not on the team.' };
-    people.set(m, { ...people.get(m), ...grant(role, perms) });
+    people.set(m, { ...people.get(m), ...grant(role, perms), area });
     return this.pushRoster(people);
+  }
+
+  /** The lead adds an area by name. It holds a name only until Rules gives it projects and a mode. */
+  async addArea(name) {
+    const n = clean(name, AREA_NAME);
+    if (!n) return { t: 'err', code: 'bad', text: 'Type a name for the area.' };
+    if (this.areas.length >= AREA_MAX) return { t: 'err', code: 'full', text: `A team holds up to ${AREA_MAX} areas.` };
+    if (this.areas.some((a) => a.name.toLowerCase() === n.toLowerCase())) return { t: 'err', code: 'bad', text: 'There is an area with that name.' };
+    return this.pushRoster(this.current(), [...this.areas, { id: newId(), name: n }]);
+  }
+
+  /** The lead renames an area or takes it away. Its people stay on the team, with no area. */
+  async renameArea(id, name) {
+    const n = clean(name, AREA_NAME);
+    if (!n || !this.areas.some((a) => a.id === id)) return { t: 'err', code: 'bad', text: 'That area is not on the team.' };
+    return this.pushRoster(this.current(), this.areas.map((a) => (a.id === id ? { ...a, name: n } : a)));
+  }
+  async removeArea(id) {
+    if (!this.areas.some((a) => a.id === id)) return { t: 'err', code: 'bad', text: 'That area is not on the team.' };
+    return this.pushRoster(this.current(), this.areas.filter((a) => a.id !== id));
+  }
+
+  /** The links of the open invites this Mac can read, to show and copy again. */
+  links({ site } = {}) {
+    const leadName = this.people.get(this.roster?.lead)?.name || '';
+    return [...this.invites.values()].filter((i) => i.secret && i.until > this.now()).sort((a, b) => b.until - a.until)
+      .map((i) => ({ id: i.id, until: i.until, by: i.by, link: inviteLink({ site, relay: this.state.relay, team: this.state.team, invite: i.id, secret: i.secret, leadSignPub: this.state.leadSign, until: i.until, leadName, teamName: this.state.teamName }) }));
   }
 
   async remove(m) {
@@ -734,6 +774,23 @@ export class Team {
     people.delete(m);
     return this.pushRoster(people);
   }
+}
+
+const AREA_MAX = 20, AREA_NAME = 40;
+/** The areas from a roster, cleaned: ids, names, no repeats, at most AREA_MAX. */
+function readAreas(list) {
+  const out = [], ids = new Set();
+  for (const a of Array.isArray(list) ? list : []) {
+    const name = clean(a?.name, AREA_NAME);
+    if (!isId(a?.id) || !name || ids.has(a.id)) continue;
+    ids.add(a.id); out.push({ id: a.id, name });
+    if (out.length >= AREA_MAX) break;
+  }
+  return out;
+}
+/** A member's area: only an Area owner or an Engineer sits in one, and only one that is on the list. */
+function areaFor(role, area, areas) {
+  return (role === 'owner' || role === 'engineer') && areas.some((a) => a.id === area) ? area : null;
 }
 
 /** This dev's summary for the team: the tickets in the projects they share, newest first, the ones waiting on a person

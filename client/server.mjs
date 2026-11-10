@@ -18,6 +18,7 @@ import { act } from './actions.mjs';
 import { refuse } from './guard.mjs';
 import { BAR_CSS, BAR_HTML, barCore, installBar } from './bar.mjs';
 import { appendFileSync } from 'node:fs';
+import { teamHost } from './teamhost.mjs';
 
 // The desktop app's pipe. In the app this runs in an Electron utility process and talks over process.parentPort;
 // started by Node with an IPC channel it uses process.send. Alone (node client/server.mjs) it has neither: the web prototype.
@@ -242,6 +243,7 @@ async function poll() {
   const tick = JSON.stringify({ ok: status.ok, at: status.at, error: status.error || null });
   for (const res of clients) res.write(`event: tick\ndata: ${tick}\n\n`);
   if (DESKTOP) pipe.send({ type: 'tick', data: tick });
+  if (status.ok) team.board(board);
 }
 
 // The prototype's own rules, after the shared pass.py ones.
@@ -2768,8 +2770,41 @@ const holds = new Map();
 const answered = new Map();
 const audit = (line) => { try { appendFileSync(join(OUT, 'actions.jsonl'), JSON.stringify(line) + '\n', { mode: 0o600 }); } catch { /* the log never blocks an action's result */ } };
 
+// The team (step 3b, client/teamhost.mjs). Its state holds private keys: the desktop app seals it with the Keychain-held
+// key (desktop/main.mjs, team-please and team-save); the web prototype keeps it in memory only.
+let teamMem = null;
+const teamStore = DESKTOP ? {
+  load: () => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { pipe.off(hear); reject(new Error('the Keychain did not answer')); }, 120000);
+    function hear(m) { if (m && m.type === 'team') { clearTimeout(timer); pipe.off(hear); if (m.error) reject(new Error(m.error)); else resolve(m.state || null); } }
+    pipe.on(hear);
+    pipe.send({ type: 'team-please' });
+  }),
+  save: (state) => pipe.send({ type: 'team-save', state }),
+} : { load: () => teamMem, save: (state) => { teamMem = state; } };
+const team = teamHost({
+  store: teamStore,
+  // A teammate's action runs as one of this dev's own, through the same capped sign-in, with the sender's name on it.
+  run: async (input, prefix, extra) => {
+    if (!status.ok) return { status: 503, text: 'Not checked: this board is not current.' };
+    if (!canOperate) return { status: 403, text: 'Not run: this Yes Chef is signed in read only.' };
+    const out = await act({ board, t3, input, holds: extra?.holds || holds, answered: extra?.answered || answered, projects, rules, prefix });
+    audit({ at: new Date().toISOString(), kind: input.kind, thread: input.thread, login: 'teammate', status: out.status });
+    if (out.status === 200) wake?.();
+    return out;
+  },
+  boardOf: () => ({ board, ok: status.ok, at: status.at }),
+  projectsOf: () => projects,
+  t3Ok: () => status.ok,
+});
+
 // One path for every action, whichever door it came through (the tailnet page or the desktop app).
 async function runAct(input, line) {
+  if (input.kind === 'team') {
+    const out = await team.act(input);
+    audit({ ...line, team: String(input.op || '').slice(0, 20), status: out.status });
+    return out;
+  }
   if (input.kind === 'rules') {
     // A save of one rule older than a save of the same rule this page already sent is skipped: two saves that cross
     // on the way land in the order they were made (PR-Agent r8 on #49). Other rules are never held back by it
@@ -2835,6 +2870,8 @@ function route(url) {
   const project = url.searchParams.get('p');
   const app = () => renderApp({ board, project, link, status, origin: ORIGIN, answered, projects, rules: rulesNow() });
   const html = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' };
+  const teamPage = team.route(url);
+  if (teamPage) return teamPage;
   if (url.pathname === '/') return { status: 200, headers: html, body: page(app()) };
   if (url.pathname === '/app') return { status: 200, headers: html, body: app() };
   if (url.pathname.startsWith('/icon/')) {
@@ -2945,6 +2982,7 @@ canOperate = String(auth.scope || '').split(' ').includes('orchestration:operate
 t3 = connect(auth);
 envId = (await t3.call('t3_environment_read', {})).environmentId;
 await poll();
+team.start();
 // Never overlap polls: the next one starts POLL_MS after the last one ends, or at once after an action.
 var wake = null;
 (async function loop() { for (;;) { await new Promise((r) => { wake = r; setTimeout(r, POLL_MS); }); wake = null; await poll(); } })();
