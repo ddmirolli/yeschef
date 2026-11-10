@@ -1,0 +1,24 @@
+// Your own Yes Chef relay (relay/README.md). Deploy from the repo root with Wrangler 4:
+//   npx wrangler@4 deploy --config relay/wrangler.jsonc
+// It lands at https://yeschef-relay.<your-subdomain>.workers.dev. Yes Chef's own relay uses deploy/relay/wrangler.jsonc.
+{
+  "name": "yeschef-relay",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-11-01",
+  "durable_objects": {
+    "bindings": [
+      { "name": "TEAMS", "class_name": "Team" },
+      { "name": "REGISTRY", "class_name": "Registry" }
+    ]
+  },
+  // SQLite-backed objects: the only kind Cloudflare's free plan runs.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Team", "Registry"] }],
+  "vars": {
+    // One summary update per member per this many milliseconds.
+    "SUMMARY_MIN_MS": "10000",
+    // The caps. Empty is no cap.
+    "MAX_DEVS": "",
+    "MAX_DAILY_REQUESTS": ""
+  },
+  "workers_dev": true
+}
