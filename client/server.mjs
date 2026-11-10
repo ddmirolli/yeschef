@@ -2149,7 +2149,8 @@ ${BAR_HTML}
     $$('#settings .set-tab').forEach(function(b){ if (b.dataset.tab === tab) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current'); });
     $$('#settings .set-pane').forEach(function(p){ p.hidden = p.dataset.pane !== tab; });
     if (tab === 'keys') kxRender();
-    if (!setDlg.open) { setDlg.showModal(); liftToast(); yieldKey(); }
+    // showModal focuses the first tab, Layout; the open section's tab takes focus, so ? never rings Layout.
+    if (!setDlg.open) { setDlg.showModal(); liftToast(); yieldKey(); var curTab = $('#settings .set-tab[aria-current]'); if (curTab) curTab.focus(); }
     fades();
   }
   setDlg.addEventListener('click', function(ev){ var t = ev.target.closest && ev.target.closest('.set-tab'); if (t) openSettings(t.dataset.tab); });
