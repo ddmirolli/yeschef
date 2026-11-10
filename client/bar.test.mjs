@@ -29,6 +29,17 @@ test('a step\'s choice shows at the top once a typed word starts its name', () =
   assert.equal(core.nestedHit('  ', hay, 'Dark'), false);
 });
 
+test('in a step, a typed name puts its own choice first: keep holds the group order only, never the rows\' order', () => {
+  const step = [
+    { t: 'System', d: 'Light or dark, as your Mac is set', g: 'Appearance', kw: 'mode theme' },
+    { t: 'Light', d: 'Always light', g: 'Appearance', kw: 'mode theme' },
+    { t: 'Dark', d: 'Always dark', g: 'Appearance', kw: 'mode theme' },
+  ];
+  assert.deepEqual(core.filter(step, 'dark', true).map((r) => r.t), ['Dark', 'System']);
+  assert.deepEqual(core.filter(step, 'light', true).map((r) => r.t), ['Light', 'System']);
+  assert.deepEqual(core.filter(step, '', true).map((r) => r.t), ['System', 'Light', 'Dark'], 'empty: the step\'s own order');
+});
+
 test('recent actions: newest first, no copies, five at most, malformed entries dropped', () => {
   let l = [];
   for (let i = 1; i <= 7; i++) l = core.pushRecent(l, 'a' + i, 'Action ' + i, i);
