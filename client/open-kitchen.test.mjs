@@ -703,3 +703,22 @@ test('r8: a call’s word may shorten, and never leaves its bar', async () => {
   assert.ok(css.includes('.tlb:has(.tltag){display:flex;padding-right:0;overflow:hidden}'));
   assert.ok(css.includes('.tlb .tltag{position:static;flex:0 1 auto;min-width:0;'));
 });
+
+// ---- PR B, PR-Agent round 9 ----
+test('r9: in a picked project, a PR whose copy there says open is counted as merged when another copy says so', () => {
+  const v = viewL();
+  const merged = who(v, 'maya').summary.tickets.find((k) => k.place === 'Merged');
+  who(v, 'tom').summary.tickets[0].prs = [{ ...merged.prs[0], state: 'open', mergedAt: null }];
+  const M = board(v, new Set(['Quillo'])).merged;
+  assert.deepEqual([M.count, M.untimed], [1, 0]);
+});
+
+test('r9: a missing merge base is not checked, never said to be two merge bases', () => {
+  const v = viewL();
+  delete ticket(v, 'ada').changes.mergeBase;
+  const f = board(v).files.rows.find((r) => r.path === 'web/src/sidebar.tsx');
+  assert.deepEqual([f.state, f.near], ['nc', false]);
+  const html = page({ view: v, now: NOWL });
+  assert.ok(!html.includes('two merge bases'));
+  assert.ok(html.includes('Lines not checked'));
+});

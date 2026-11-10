@@ -349,14 +349,19 @@ export function kitchenBoard(ok, { now, want = null }) {
 
   // Merges today, each PR once: a merge stays done, so a quiet dev's merges count too.
   // A merged PR with no time may or may not be today's: it is counted apart, never as today's or as not.
-  // A PR's merge time is settled across every summary first (a copy in any project may give it), then the picked
-  // projects' PRs are counted with it. A PR is untimed only when no copy of it says when it merged.
-  const timeOf = new Map();
-  for (const { k } of ok.tickets) for (const pr of k.prs) if (pr.state === 'merged' && pr.mergedAt !== null && !timeOf.has(prKey(pr.repo, pr.n))) timeOf.set(prKey(pr.repo, pr.n), pr.mergedAt);
+  // A merge is final, so whether a PR merged, and when, is settled across every summary first (a copy in any project
+  // may say so, while another still says open); then the picked projects' PRs are counted with it. A PR is untimed
+  // only when no copy of it says when it merged.
+  const done = new Set(), timeOf = new Map();
+  for (const { k } of ok.tickets) for (const pr of k.prs) if (pr.state === 'merged') {
+    const key = prKey(pr.repo, pr.n);
+    done.add(key);
+    if (pr.mergedAt !== null && !timeOf.has(key)) timeOf.set(key, pr.mergedAt);
+  }
   const merges = [], seenPr = new Set(), untimed = new Set();
   for (const { k, person } of all) for (const pr of k.prs) {
-    if (pr.state !== 'merged') continue;
     const key = prKey(pr.repo, pr.n);
+    if (!done.has(key)) continue;
     const at = pr.mergedAt ?? timeOf.get(key) ?? null;
     if (at === null) { untimed.add(key); continue; }
     if (at < d0 || at > now || seenPr.has(key)) continue;
@@ -401,8 +406,7 @@ export function kitchenBoard(ok, { now, want = null }) {
 
   // Waiting for review: open PRs, not drafts, on live threads In review. Their age needs the time each was marked ready
   // (proposed `pr.readyAt`); with any one missing, the ages say not checked rather than a part of them.
-  // A merge is final: a PR that any summary, live or old, reports merged never waits, whatever another copy says.
-  const done = new Set(ok.tickets.flatMap(({ k }) => k.prs.filter((pr) => pr.state === 'merged').map((pr) => prKey(pr.repo, pr.n))));
+  // A PR that any summary, live or old, reports merged (`done`, above) never waits, whatever another copy says.
   const rv = new Map();
   for (const { k, person, live } of all) if (live && k.place === 'In review') for (const pr of k.prs) {
     const key = prKey(pr.repo, pr.n);
@@ -488,7 +492,7 @@ export function kitchenBoard(ok, { now, want = null }) {
       if (f.sides[i].r.some((x) => f.sides[j].r.some((y) => overlaps(span(x), span(y))))) same = true;
     }
     const state = call || same ? 'same' : read ? 'different' : 'nc';
-    files.push({ path: f.path, repo: f.repo, near: !oneBase, people: [...new Set(f.sides.map((s) => s.person))], state, call: call ? { id: call.c.id, mine: call.mine } : null,
+    files.push({ path: f.path, repo: f.repo, near: new Set(f.sides.map((s) => s.mb).filter(Boolean)).size > 1, people: [...new Set(f.sides.map((s) => s.person))], state, call: call ? { id: call.c.id, mine: call.mine } : null,
       at: f.sides.every((s) => s.at !== null) ? Math.min(...f.sides.map((s) => s.at)) : null });
   }
   const RANKF = { same: 0, nc: 1, different: 2 };
