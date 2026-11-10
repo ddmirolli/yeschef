@@ -903,11 +903,12 @@ export function renderApp({ board, picked = null, link, status, origin, answered
   const off = [['Verified', 'Verified', verified.length], ['On hold', 'On hold', heldAll.length]];
   const folders = [['pass', 'The Pass', waiting.length], ...line, ...off];
   const nfBtn = ([key, label, c]) => `<button type="button" class="nf${status.ok && !c && key !== 'pass' ? ' zero' : ''}" data-folder="${e(key)}">${key === 'pass' ? '' : DOT[key] ? `<i class="gd c-${DOT[key]}"></i>` : key === 'Verified' ? svg('done', 'ic vd') : '<i class="gd c-gray"></i>'}<span>${e(label)}</span><span class="n">${status.ok ? c : '–'}</span></button>`;
-  // You (Dan, 2026-11-10): the person, then a bar with one piece per thread in its stage's colour, in the rows' order.
+  // You (Dan, 2026-11-10): the person, then a bar with one piece per thread in its stage's colour. The bar reads left to
+  // right along the line, Backlog to Merged (Dan, 2026-11-10), though the rows below list Merged first.
   // A long line shows one piece per stage, sized by its count, so each stays wide enough to see.
-  const lineTickets = [...STAGES].reverse().flatMap((s) => spots[s] || []);
+  const lineTickets = STAGES.flatMap((s) => spots[s] || []);
   const segs = lineTickets.length <= 24 ? lineTickets.map((k) => `<i class="c-${DOT[k.place]}"></i>`).join('')
-    : [...STAGES].reverse().filter((s) => spots[s]?.length).map((s) => `<i class="c-${DOT[s]}" style="flex-grow:${spots[s].length}"></i>`).join('');
+    : STAGES.filter((s) => spots[s]?.length).map((s) => `<i class="c-${DOT[s]}" style="flex-grow:${spots[s].length}"></i>`).join('');
   const idrow = `<div class="idrow">${svg('person', 'ic who')}<span class="vh">You</span><span class="segbar" aria-hidden="true">${segs}</span></div>`;
   // The Pass item has no cloche: the app icon beside it is the only one (Dan, 2026-11-08).
   // In Your team the Pass item counts the team's calls instead of yours.
