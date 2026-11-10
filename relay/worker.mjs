@@ -60,11 +60,17 @@ export class Registry extends DurableObject {
     super(ctx, env);
     ctx.storage.sql.exec('CREATE TABLE IF NOT EXISTS teams (id TEXT PRIMARY KEY, created INTEGER NOT NULL) WITHOUT ROWID');
   }
-  add(id, created) { this.ctx.storage.sql.exec('INSERT INTO teams (id, created) VALUES (?, ?) ON CONFLICT(id) DO NOTHING', id, created); }
-  /** One id, or a list of them in one call. */
-  remove(ids) { for (const id of [].concat(ids)) this.ctx.storage.sql.exec('DELETE FROM teams WHERE id = ?', id); }
+  /** A team made again under an id takes the new time, so a row listed before it was made again is told apart. */
+  add(id, created) { this.ctx.storage.sql.exec('INSERT INTO teams (id, created) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET created = excluded.created', id, created); }
+  /** One id, or a list. An { id, created } leaves only if it is still that row. */
+  remove(ids) {
+    for (const r of [].concat(ids)) {
+      if (typeof r === 'string') this.ctx.storage.sql.exec('DELETE FROM teams WHERE id = ?', r);
+      else this.ctx.storage.sql.exec('DELETE FROM teams WHERE id = ? AND created = ?', String(r.id), Number(r.created));
+    }
+  }
   list(after, limit) {
-    return this.ctx.storage.sql.exec('SELECT id FROM teams WHERE id > ? ORDER BY id LIMIT ?', after || '', limit).toArray().map((r) => r.id);
+    return this.ctx.storage.sql.exec('SELECT id, created FROM teams WHERE id > ? ORDER BY id LIMIT ?', after || '', limit).toArray().map((r) => ({ id: r.id, created: r.created }));
   }
   count() { return this.ctx.storage.sql.exec('SELECT COUNT(*) AS n FROM teams').one().n; }
 }

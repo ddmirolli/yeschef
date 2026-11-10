@@ -539,8 +539,8 @@ test('a team whose delete stopped before the registry heard leaves the registry 
   const ids = new Set(['a1', 'b2', 'c3']);
   const calls = [];
   const reg = {
-    list: async (after, n) => [...ids].sort().filter((id) => id > after).slice(0, n),
-    remove: async (gone) => { calls.push(gone); for (const id of [].concat(gone)) ids.delete(id); },
+    list: async (after, n) => [...ids].sort().filter((id) => id > after).slice(0, n).map((id) => ({ id, created: 1 })),
+    remove: async (gone) => { calls.push(gone.map((r) => r.id)); for (const r of gone) ids.delete(r.id); },
     count: async () => ids.size,
   };
   // b2's data went, but its registry row stayed (its delete failed after deleteAll).
@@ -776,4 +776,31 @@ test('a team deleted and made again the same day arms its alarm again', async ()
   const before = t.relay.alarms.length;
   assert.equal((await t.relay.http('POST', path, { roster: await t.rosterNow(1) })).status, 201);
   assert.ok(t.relay.alarms.length > before, 'the new team armed an alarm');
+});
+
+test('a team deleted and made again while usage is read keeps its new registry row', async () => {
+  // The registry as the Worker keeps it: id -> when it was made.
+  const rows = new Map([['a1', 1], ['b2', 1]]);
+  const reg = {
+    list: async (after, n) => [...rows].sort().filter(([id]) => id > after).slice(0, n).map(([id, created]) => ({ id, created })),
+    remove: async (gone) => { for (const r of gone) if (rows.get(r.id) === r.created) rows.delete(r.id); },
+    count: async () => rows.size,
+  };
+  // b2 reads as gone because it was deleted, then made again (registered anew) before the page finished.
+  const usageOf = async (id) => { if (id === 'b2') { rows.set('b2', 2); return null; } return { team: id, days: [] }; };
+  await usagePage(reg, usageOf);
+  assert.equal(rows.get('b2'), 2, 'the new row stays');
+});
+
+test('a revoked invite leaves the other inviters\' open links', async () => {
+  const t = await team();
+  const lws = await t.ws(t.lead);
+  const deputy = await newMember();
+  t.people.set(deputy.id, { m: deputy, name: 'Dee Puty', role: 'deputy', invite: true });
+  assert.equal((await t.push(lws)).t, 'ok');
+  const dws = await t.ws(deputy);
+  const inv = await t.invite(lws);
+  dws.drain();
+  assert.equal((await lws.say({ t: 'revoke', id: 'r', invite: inv.record.invite })).t, 'ok');
+  assert.deepEqual(dws.last('invite-gone'), { t: 'invite-gone', invite: inv.record.invite });
 });

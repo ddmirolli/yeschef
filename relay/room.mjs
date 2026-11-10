@@ -472,6 +472,8 @@ export class Room {
         if (!this.isLead(me) && inv.by !== me) return no('role', 'Only the lead or the person who made it can revoke an invite.');
         this.rows('DELETE FROM invite WHERE id = ?', msg.invite);
         this.drop(this.rows('SELECT m FROM pending WHERE invite = ?', msg.invite).map((p) => p.m), 'The invite was revoked.');
+        // The other inviters drop it from their open links too (PR-Agent r6 on public #6).
+        this.broadcast({ t: 'invite-gone', invite: msg.invite }, { except: me, to: (id) => this.canInvite(id) });
         return ok();
       }
       case 'decline': {
@@ -544,9 +546,12 @@ export class Room {
  *  leaves the registry here, in one call, so the list heals itself and stops counting a team that is gone
  *  (PR-Agent r3 on #78). */
 export async function usagePage(reg, usageOf, { after = '', days = 7, page = 40 } = {}) {
-  const ids = await reg.list(after, page);
-  const read = await Promise.all(ids.map(async (id) => [id, await usageOf(id, days)]));
-  const gone = read.filter(([, u]) => !u).map(([id]) => id);
+  const rows = await reg.list(after, page);
+  const ids = rows.map((r) => r.id);
+  const read = await Promise.all(rows.map(async (r) => [r, await usageOf(r.id, days)]));
+  // Each gone row leaves only as it was listed (its id and when it was made): a team deleted and made again while this
+  // page was read keeps its new row (PR-Agent r6 on public #6).
+  const gone = read.filter(([, u]) => !u).map(([r]) => ({ id: r.id, created: r.created }));
   if (gone.length) await reg.remove(gone);
   return { teams: read.map(([, u]) => u).filter(Boolean), total: await reg.count(), next: ids.length === page ? ids[ids.length - 1] : null };
 }
