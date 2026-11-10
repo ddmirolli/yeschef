@@ -22,7 +22,8 @@ export function readKeybindings(file) {
   catch { return { error: 'keybindings.json is not valid JSON. Fix it there, or change a key here to write it again.' }; }
 }
 
-/** The list as the board may save it: at most 500 entries, each with a command and only string fields. */
+/** The list as the board may save it: at most 500 entries, each with a command, and key, command and when as short
+ *  text. An entry's other fields (an args for a command Yes Chef does not have) are kept as written, as JSON. */
 export function cleanKeybindings(list) {
   if (!Array.isArray(list)) return { error: 'Shortcuts must be a list.' };
   if (list.length > MAX_ENTRIES) return { error: `Shortcuts hold at most ${MAX_ENTRIES} entries.` };
@@ -34,6 +35,14 @@ export function cleanKeybindings(list) {
       if (!Object.hasOwn(e, f) || e[f] === undefined) continue;
       if (typeof e[f] !== 'string' || e[f].length > MAX_FIELD) return { error: `A shortcut's ${f} must be text of at most ${MAX_FIELD} characters.` };
       entry[f] = e[f];
+    }
+    for (const f of Object.keys(e)) {
+      if (FIELDS.includes(f) || e[f] === undefined) continue;
+      let v;
+      try { v = JSON.stringify(e[f]); } catch { return { error: `A shortcut's ${f.slice(0, 40)} is not JSON.` }; }
+      if (v === undefined) continue;
+      // A field named __proto__ stays a field: defineProperty never sets the prototype.
+      Object.defineProperty(entry, f, { value: JSON.parse(v), enumerable: true, writable: true, configurable: true });
     }
     out.push(entry);
   }

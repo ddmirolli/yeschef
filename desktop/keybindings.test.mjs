@@ -43,14 +43,20 @@ test('a file that is not JSON is named, never guessed at', () => {
   } finally { rmSync(d, { recursive: true, force: true }); }
 });
 
-test('only a list of commands with short text fields is saved; other fields are dropped', () => {
+test('only a list of commands with short text fields is saved; other fields are kept as written', () => {
   assert.match(cleanKeybindings({}).error, /must be a list/);
   assert.match(cleanKeybindings(Array(MAX_ENTRIES + 1).fill({ command: 'x' })).error, /at most 500/);
   assert.match(cleanKeybindings([{ key: 'h' }]).error, /needs a command/);
   assert.match(cleanKeybindings(['h']).error, /needs a command/);
   assert.match(cleanKeybindings([{ key: 7, command: 'x' }]).error, /key must be text/);
   assert.match(cleanKeybindings([{ key: 'k'.repeat(201), command: 'x' }]).error, /at most 200/);
-  assert.deepEqual(cleanKeybindings([{ key: 'h', command: 'x', args: { a: 1 }, __proto__: { when: 'y' } }]), { list: [{ key: 'h', command: 'x' }] });
+  // Inherited fields are never read; an own field another app wrote stays, as JSON.
+  assert.deepEqual(cleanKeybindings([{ key: 'h', command: 'x', args: { a: 1 }, __proto__: { when: 'y' } }]), { list: [{ key: 'h', command: 'x', args: { a: 1 } }] });
+  const odd = JSON.parse('[{"command":"x","__proto__":{"p":1},"skip":null}]');
+  const kept = cleanKeybindings(odd).list[0];
+  assert.equal(Object.getPrototypeOf(kept), Object.prototype, 'a __proto__ field never becomes the prototype');
+  assert.equal(JSON.stringify(kept), '{"command":"x","__proto__":{"p":1},"skip":null}');
+  assert.deepEqual(cleanKeybindings([{ command: 'x', f() {} }]), { list: [{ command: 'x' }] }, 'nothing that is not JSON');
   const d = dir();
   try {
     const f = join(d, 'keybindings.json');
@@ -63,6 +69,16 @@ test('only a list of commands with short text fields is saved; other fields are 
     const most = big.slice(0, 100);
     assert.deepEqual(writeKeybindings(f, most), { ok: true });
     assert.deepEqual(readKeybindings(f), { list: most }, 'what is written reads back');
+  } finally { rmSync(d, { recursive: true, force: true }); }
+});
+
+test('a change in Settings keeps another command\'s entry as written, args too', () => {
+  const d = dir();
+  try {
+    const f = join(d, 'keybindings.json');
+    const theirs = { key: 'mod+shift+t', command: 'terminal.split', when: 'terminalFocus', args: { cwd: 'here', n: 2 } };
+    assert.deepEqual(writeKeybindings(f, [{ key: 'y', command: 'view.you' }, theirs]), { ok: true });
+    assert.deepEqual(readKeybindings(f).list, [{ key: 'y', command: 'view.you' }, theirs]);
   } finally { rmSync(d, { recursive: true, force: true }); }
 });
 

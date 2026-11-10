@@ -181,6 +181,8 @@ export function keysCore(mac) {
       var off = e.command.charAt(0) === '-', id = off ? e.command.slice(1) : e.command, c = CMD[id];
       if (!c) { extra.push(e); notes.push(at + ': ' + e.command + ' is not a Yes Chef command.'); return; }
       if (!okWhen(e.when)) { notes.push(at + ': Yes Chef cannot read its when.'); return; }
+      // A when that can never hold ("ticket && !ticket") would take its key from other commands and never use it.
+      if (!off && exclusive(e.when, e.when)) { notes.push(at + ' is not used: its when can never hold.'); return; }
       var w = e.when == null ? (c.when || '') : lits(e.when).join(' && ');
       if (off && (e.key == null || e.key === '')) { by[id] = []; return; }
       var k = norm(e.key);

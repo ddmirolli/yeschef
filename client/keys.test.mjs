@@ -207,6 +207,15 @@ test('the file: a key two commands have goes to the later entry, and an entry be
   assert.deepEqual(K.build(K.toList(sw)).notes, []);
 });
 
+test('the file: an entry whose when can never hold is skipped, and takes no key', () => {
+  const st = K.build([{ key: 'v', command: 'view.you', when: 'ticket && !ticket' }]);
+  assert.deepEqual([K.keysOf(st, 'view.toggle'), K.keysOf(st, 'view.you')], [['v'], []]);
+  assert.deepEqual(st.notes, ['Entry 1 is not used: its when can never hold.']);
+  assert.equal(st.changed, false);
+  // Taking a key away needs no when that holds.
+  assert.deepEqual(K.keysOf(K.build([{ key: 'v', command: '-view.toggle', when: 'a && !a' }]), 'view.toggle'), []);
+});
+
 test('Swap them gives the other command only keys it can have, and never leaves a must-have command without one', () => {
   const st = K.build([]);
   // Reply to ⌘↵: the suggested action cannot have R (it needs ⌘ or ⌥) and must keep a key, so only Keep.
