@@ -60,6 +60,7 @@ export class Room {
     this.written = 0;     // rows the current request or message wrote, before the usage row's own write
     this.creating = false; // true while a new team waits on the registry: nothing else may use it yet
     this.held = 0;        // requests and messages taken under the cap and still running, so a burst cannot pass it
+    this.holding = new WeakSet(); // the HTTP requests among them, given back just before they are tallied
     this.team = undefined; // the team row, read once per wake
     this.members = null;  // id -> roster entry, from the team row
     this.today = null;    // { day, n }: requests and messages taken so far today, for the daily cap
@@ -137,6 +138,8 @@ export class Room {
   /** Take one place under today's cap for work that waits before it is counted. False when the cap is reached.
    *  Every true is given back with release(), just before that work is tallied (PR-Agent r3 on public #6). */
   reserve() { if (this.overCap()) return false; this.held++; return true; }
+  /** reserve() for an HTTP request: its place is held until fetch() tallies it, through every await on the way out. */
+  hold(request) { if (!this.reserve()) return false; this.holding.add(request); return true; }
   release() { this.held = Math.max(0, this.held - 1); }
 
   /** Expired invites, the asks on them, and messages nobody took in time. An ask that ends with its invite goes
@@ -175,7 +178,17 @@ export class Room {
   send(ws, value) { try { this.sockets.send(ws, value); } catch { /* a socket that went away hears nothing */ } }
   /** Every member socket, or one member's. Pending sockets only when asked. */
   socketsOf(id = null, { pending = false } = {}) {
-    return this.sockets.list(id).filter((ws) => { const a = this.sockets.info(ws); return a && (pending || a.role === 'member'); });
+    // A member socket counts only while its member is on the roster: one that slipped past a removal hears nothing
+    // (PR-Agent r4 on public #6).
+    return this.sockets.list(id).filter((ws) => { const a = this.sockets.info(ws); return a && (pending || (a.role === 'member' && !!this.member(a.m))); });
+  }
+  /** The socket's role as of now, read again just before the Worker accepts it, with no wait in between: a member
+   *  removed or an ask declined after route() said yes gets no socket (PR-Agent r4 on public #6). Null: refuse it. */
+  admit(up) {
+    if (!up || !this.teamRow() || this.creating) return null;
+    if (this.member(up.m)) return { m: up.m, role: 'member' };
+    if (this.one('SELECT m FROM pending WHERE m = ?', up.m)) return { m: up.m, role: 'pending' };
+    return null;
   }
   broadcast(value, { except = null, to = null } = {}) {
     for (const ws of this.socketsOf()) {
@@ -201,6 +214,7 @@ export class Room {
     }
     // The daily cap is checked where a request is known to come from the team (route), never before: a stranger who
     // knows the team id must not spend it.
+    if (this.holding.delete(request)) this.release();
     this.tally(1, 0, this.bodySize.get(request) || 0, { refused: out instanceof Response && out.status >= 400 });
     return out;
   }
@@ -231,13 +245,13 @@ export class Room {
     const method = request.method;
     if (rest === '' && method === 'POST') return this.create(team, await this.readJson(request));
     if (!this.team) return fail(404, 'No such team on this relay.');
-    if (rest === 'join' && method === 'POST') return this.join(team, await this.readJson(request));
+    if (rest === 'join' && method === 'POST') return this.join(team, await this.readJson(request), request);
     if (rest === 'ws' && method === 'GET') {
       if ((request.headers.get('upgrade') || '').toLowerCase() !== 'websocket') return fail(426, 'Open this address as a WebSocket.');
       this.prune();
       const m = await this.signedIn(url.searchParams.get('auth'), { team, method, path: url.pathname });
       if (!m) return fail(401, 'The relay does not know this member, or the sign-in token is old.');
-      if (this.overCap()) return this.capped();
+      if (!this.hold(request)) return this.capped();
       const role = this.member(m.id) ? 'member' : 'pending';
       // One Mac may hold a few sockets (a restart before the old one closed). Past the limit the oldest gives way.
       const mine = this.socketsOf(m.id, { pending: true });
@@ -251,7 +265,7 @@ export class Room {
       const auth = (request.headers.get('authorization') || '').replace(/^YesChef\s+/i, '');
       const m = await this.signedIn(auth, { team, method, path: url.pathname });
       if (!m) return json(401, { error: 'The relay does not know this member, or the sign-in token is old.', now: this.now() });
-      if (this.overCap()) return this.capped();
+      if (!this.hold(request)) return this.capped();
       return json(200, { m: m.id, role: this.member(m.id) ? 'member' : 'pending', now: this.now() });
     }
     if (rest === '' && method === 'DELETE') {
@@ -306,7 +320,7 @@ export class Room {
     return json(201, { team, ver: 1 });
   }
 
-  async join(team, body) {
+  async join(team, body, request) {
     this.prune();
     const { invite, proof, sign, dh, blob, sig } = body || {};
     if (!isId(invite) || typeof proof !== 'string' || !isKey(sign) || !isKey(dh) || !isBlob(blob, 4096) || typeof sig !== 'string') return fail(400, 'That ask to join is not complete.');
@@ -316,8 +330,9 @@ export class Room {
     // The signing key must sign the ask: proof the asker holds it, bound to the key agreement key and the sealed ask.
     if (!(await verify(sign, sig, joinText(this.team.id, invite, dh, blob)))) return fail(403, 'That ask to join is not signed by its key.');
     const m = await memberId(sign);
-    // The cap after the last wait, so asks that arrive together cannot all pass it (PR-Agent r3 on public #6).
-    if (this.overCap()) return this.capped();
+    // The cap after the last wait, and its place held until the ask is counted, so asks that arrive together cannot all
+    // pass it (PR-Agent r3 and r4 on public #6).
+    if (!this.hold(request)) return this.capped();
     // The invite again, after the last wait: a revoke that landed while the keys were checked ends this ask too
     // (PR-Agent r2 on public #6).
     if (!this.one('SELECT id FROM invite WHERE id = ? AND until >= ?', invite, this.now())) return fail(410, 'This invite has ended. Ask the lead for a new link.');

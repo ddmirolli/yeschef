@@ -39,9 +39,12 @@ export class Team extends DurableObject {
   async fetch(request) {
     const out = await this.room.fetch(request);
     if (!out.upgrade) return out;
+    // Checked again here, with nothing awaited before the accept: route() said yes a few steps ago.
+    const up = this.room.admit(out.upgrade);
+    if (!up) return new Response(JSON.stringify({ error: 'The relay does not know this member, or the sign-in token is old.' }), { status: 401, headers: { 'content-type': 'application/json; charset=utf-8' } });
     const [client, server] = Object.values(new WebSocketPair());
-    this.ctx.acceptWebSocket(server, [`m:${out.upgrade.m}`]);
-    server.serializeAttachment(out.upgrade);
+    this.ctx.acceptWebSocket(server, [`m:${up.m}`]);
+    server.serializeAttachment(up);
     this.room.opened(server);
     return new Response(null, { status: 101, webSocket: client });
   }

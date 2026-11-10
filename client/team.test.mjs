@@ -5,7 +5,7 @@ import { Team, createTeam, joinTeam, summarize, RETRY, ACT_TTL, BOARD_FRESH_MS }
 import { grant, allows, refusal, signature, DEFAULTS, PERMS, shares } from './roles.mjs';
 import { buildBoard } from './board.mjs';
 import { act } from './actions.mjs';
-import { sealSigned, aad, teamKey, newMember } from './seal.mjs';
+import { sealSigned, aad, teamKey, newMember, signRoster } from './seal.mjs';
 
 const MIN = 60000;
 const P = 'proj-app', Q = 'proj-private';
@@ -834,4 +834,83 @@ test('an answer the relay did not take leaves the action on the relay, so it com
   assert.equal(ran.length, 1);
   assert.ok(sent.some((m) => m.t === 'done'));
   lead.stop(); dev.stop();
+});
+
+test('two edits that cross never sign two rosters with one version', async () => {
+  const { lead, dev } = await crew();
+  const sent = [];
+  const say = lead.say.bind(lead);
+  lead.say = async (msg) => { if (msg.t === 'roster') sent.push(msg.roster); return say(msg); };
+  const [a, b] = await Promise.all([lead.setRole(dev.meId, 'viewer'), lead.setRole(dev.meId, 'deputy')]);
+  assert.equal(a.t, 'ok');
+  assert.equal(b.code, 'stale', 'the second edit read the older team');
+  const vers = sent.map((r) => JSON.parse(r.body).ver);
+  assert.equal(new Set(vers).size, vers.length, 'one roster per version');
+  lead.stop(); dev.stop();
+});
+
+test('a second roster the lead signed at a version this Mac took is refused', async () => {
+  const { lead, dev } = await crew();
+  assert.equal((await lead.setRole(dev.meId, 'viewer')).t, 'ok');
+  await until(() => dev.me?.role === 'viewer', 'the dev a Viewer');
+  const body = JSON.parse(lead.rosterSigned.body);
+  const { v, ...rest } = body;
+  const sibling = await signRoster(await lead.member(), { ...rest, at: body.at + 1 });
+  assert.equal(await dev.takeRoster(sibling), false);
+  assert.equal(dev.state.rosterHash.length, 64);
+  lead.stop(); dev.stop();
+});
+
+test('a roster whose answer was lost goes again as it was, never signed anew', async () => {
+  const { lead, dev } = await crew();
+  const sent = [];
+  const say = lead.say.bind(lead);
+  let lose = true;
+  lead.say = async (msg) => {
+    if (msg.t !== 'roster') return say(msg);
+    sent.push(msg.roster);
+    const r = await say(msg);
+    if (lose) { lose = false; return { t: 'err', code: 'closed', text: 'Not sent: the relay did not answer.' }; }
+    return r;
+  };
+  assert.equal((await lead.setRole(dev.meId, 'viewer')).code, 'closed');
+  assert.ok(lead.state.unsent, 'kept until the relay answers');
+  const again = await lead.setRole(dev.meId, 'deputy');
+  assert.equal(again.code, 'stale');
+  assert.equal(sent[1].body, sent[0].body, 'the same roster went again');
+  assert.equal(lead.state.unsent, undefined);
+  lead.stop(); dev.stop();
+});
+
+test('a roster floor that does not reach the disk is said on the screen', async () => {
+  const { lead, dev } = await crew();
+  dev.saveFn = async () => { throw new Error('disk full'); };
+  assert.equal((await lead.setRole(dev.meId, 'viewer')).t, 'ok');
+  await until(() => dev.me?.role === 'viewer', 'the newer roster taken all the same');
+  assert.equal(dev.view().unsaved, true);
+  lead.stop(); dev.stop();
+});
+
+test('a project dropped while the action\'s id is saved stops the action', async () => {
+  const { relay, lead, dev, ran } = await crew();
+  const me = await lead.member();
+  const key = await teamKey(lead.state.key);
+  const blob = await sealSigned(key, me, { k: 'act', nonce: 'HHHHHHHHHHHHHHHHHHHHHH', at: relay.now(), action: { kind: 'reply', thread: 'th-parser', note: 'late share' } }, aad.send(lead.state.team, me.id, dev.meId));
+  const saveFn = dev.saveFn;
+  dev.saveFn = async (s) => { if (dev.state.shared.length) { dev.state.shared = []; } return saveFn(s); };
+  await dev.take({ item: 'i1', from: me.id, blob });
+  assert.equal(ran.length, 0);
+  lead.stop(); dev.stop();
+});
+
+test('a clock set right while /me was out is not read as a removal', async () => {
+  const { relay, net, timers, lead, dev } = await crew();
+  dev.stop();
+  let off = -10 * MIN;
+  const http = net.http.bind(net);
+  const fixing = { ...net, http: async (...a) => { const r = await http(...a); off = 0; return r; } };
+  const again = new Team({ state: structuredClone(dev.state), net: fixing, now: () => relay.now() + off, timers, random: () => 1 });
+  assert.equal(await again.probe(), null);
+  assert.equal(again.state.status, 'member');
+  again.stop(); lead.stop();
 });
