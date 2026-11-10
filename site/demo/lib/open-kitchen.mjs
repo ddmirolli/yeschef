@@ -44,6 +44,27 @@ const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const arr = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object') : []);
 // A PR from a teammate's summary counts only with a whole number and an owner/name repo: both reach the page's markup.
 const okPr = (pr) => Number.isInteger(pr.n) && pr.n > 0 && typeof pr.repo === 'string' && /^[\w.-]+\/[\w.-]+$/.test(pr.repo);
+const str = (v) => (typeof v === 'string' ? v : null);
+// Every field the calls and the screens read from a teammate's summary, as its own type or null (not checked). The
+// detectors and the readers read only this copy, so an odd value in a summary can never throw or reach the markup.
+function cleanTicket(k) {
+  const pr = (x) => ({ repo: x.repo, n: x.n, state: str(x.state), url: str(x.url), base: str(x.base), draft: x.draft === true,
+    mergedAt: ms(x.mergedAt), mergeSha: str(x.mergeSha),
+    size: x.size && typeof x.size === 'object' ? { files: num(x.size.files), added: num(x.size.added), removed: num(x.size.removed), overAt: ms(x.size.overAt) } : null,
+    checks: x.checks && typeof x.checks === 'object' ? { result: str(x.checks.result), redRuns: num(x.checks.redRuns), runs: arr(x.checks.runs).map((r) => ({ at: ms(r.at), result: str(r.result) })) } : null });
+  const c = k.changes && typeof k.changes === 'object' ? k.changes : null;
+  const a = k.ask && typeof k.ask === 'object' ? k.ask : null;
+  return {
+    thread: str(k.thread), title: str(k.title), project: str(k.project), place: str(k.place), working: num(k.working) ?? 0,
+    startedAt: ms(k.startedAt), updatedAt: ms(k.updatedAt), last: str(k.last),
+    prs: arr(k.prs).filter(okPr).map(pr),
+    ask: a ? { at: ms(a.at), q: str(a.q), rec: str(a.rec), options: arr(a.options).map((o) => ({ k: str(o.k), t: str(o.t) })) } : null,
+    changes: c ? { state: str(c.state), repo: str(c.repo), base: str(c.base), mergeBase: str(c.mergeBase), headAt: ms(c.headAt), more: num(c.more),
+      files: arr(c.files).map((f) => ({ p: str(f.p), r: Array.isArray(f.r) ? f.r.filter(rng) : null, a: num(f.a), d: num(f.d), x: !!f.x })) } : null,
+  };
+}
+const cleanBase = (b) => ({ repo: str(b.repo), branch: str(b.branch), sha: str(b.sha), title: str(b.title), requiredResult: str(b.requiredResult),
+  redSha: str(b.redSha), redSince: ms(b.redSince), at: num(b.at), failing: (Array.isArray(b.failing) ? b.failing : []).filter((x) => typeof x === 'string').slice(0, 5) });
 const prKey = (repo, n) => `${String(repo).toLowerCase()}#${n}`;
 
 /** Who is below me. Until 3b's chart carries `under`, a lead has everyone on the roster below them and nobody else
@@ -68,7 +89,7 @@ export function reporting(p, { now, link, rules = RULES }) {
   if (p.online) return true;
   const last = num(p.lastSeen) ?? num(p.at);
   if (last === null) return null;
-  const live = arr(p.summary.tickets).some((k) => k.working > 0);
+  const live = arr(p.summary.tickets).some((k) => num(k.working) > 0);
   return !(live && now - last >= rules.quietMin * MIN);
 }
 
@@ -83,30 +104,31 @@ export function reporting(p, { now, link, rules = RULES }) {
  *  a Mac is away), deduplicated by the newest read. */
 function mainBroken(people, tickets) {
   const bases = new Map();
-  for (const p of people) for (const b of p.reporting && p.online === true ? arr(p.summary?.bases) : []) {
-    if (!b?.repo || !b.branch) continue;
-    const key = `${String(b.repo).toLowerCase()}@${b.branch}`, have = bases.get(key);
+  for (const p of people) for (const b of p.reporting && p.online === true ? arr(p.summary?.bases).map(cleanBase) : []) {
+    if (!b.repo || !b.branch) continue;
+    const key = `${b.repo.toLowerCase()}@${b.branch}`, have = bases.get(key);
     if (!have || (num(b.at) ?? 0) > (num(have.at) ?? 0)) bases.set(key, b);
   }
   const out = [];
   for (const [key, b] of bases) {
     if (b.requiredResult !== 'failing') continue; // null is not checked, never a guess
-    const red = ms(b.redSince);
+    const red = b.redSince;
     const repo = key.slice(0, key.lastIndexOf('@'));
     // A PR counts against this base only when it targets this branch (proposed `pr.base`); a PR with no base is left out.
     const inRepo = tickets.flatMap(({ k, p, live }) => arr(k.prs).map((pr) => ({ pr, k, p, live })))
-      .filter(({ pr }) => String(pr.repo).toLowerCase() === repo && pr.base === b.branch);
+      .filter(({ pr }) => pr.repo.toLowerCase() === repo && pr.base === b.branch);
     const merged = inRepo.filter(({ pr }) => pr.state === 'merged' && ms(pr.mergedAt) !== null).sort((a, z) => ms(a.pr.mergedAt) - ms(z.pr.mergedAt));
-    const redSha = typeof b.redSha === 'string' && b.redSha ? b.redSha : null;
+    const redSha = b.redSha || null;
     const cause = redSha ? merged.find(({ pr }) => pr.mergeSha === redSha) || null : null;
     const open = new Map();
     for (const x of inRepo) if (x.live && x.pr.state === 'open' && !open.has(prKey(x.pr.repo, x.pr.n))) open.set(prKey(x.pr.repo, x.pr.n), x);
     const waiting = [...open.values()];
     out.push({
       id: callId('main', key, red), kind: 'main', subject: key, since: red,
-      who: cause ? [cause.p.id] : [], thread: cause?.k.thread || null, project: cause?.k.project || null,
+      // With no cause, the project is the one the team's work on this base belongs to, so a picked project still finds it.
+      who: cause ? [cause.p.id] : [], thread: cause?.k.thread || null, project: cause?.k.project || inRepo.find((x) => x.k.project)?.k.project || null,
       prs: cause ? [cause.pr] : [], holds: waiting.length,
-      facts: { repo: b.repo, branch: b.branch, sha: b.sha || null, title: b.title || null, failing: (Array.isArray(b.failing) ? b.failing : []).filter((x) => typeof x === 'string').slice(0, 5),
+      facts: { repo: b.repo, branch: b.branch, sha: b.sha, title: b.title, failing: b.failing,
         cause: cause ? { pr: cause.pr, ticket: cause.k, person: cause.p.id } : null, clean: !!cause && b.sha === redSha,
         mergedToday: merged.map(({ pr, p }) => ({ n: pr.n, at: ms(pr.mergedAt), person: p.id })),
         waiting: waiting.map(({ pr, p }) => ({ n: pr.n, person: p.id })) },
@@ -128,7 +150,7 @@ function overlap(tickets) {
   const out = [];
   for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) {
     const A = live[i], B = live[j], ca = A.k.changes, cb = B.k.changes;
-    if (!ca.repo || String(ca.repo).toLowerCase() !== String(cb.repo).toLowerCase() || ca.base !== cb.base) continue;
+    if (!ca.repo || !cb.repo || ca.repo.toLowerCase() !== cb.repo.toLowerCase() || ca.base !== cb.base) continue;
     const files = [];
     for (const fa of arr(ca.files)) {
       if (fa.x || !Array.isArray(fa.r) || typeof fa.p !== 'string' || !fa.p) continue;
@@ -199,7 +221,7 @@ function stuck(tickets, now, rules) {
 function waiting(tickets, now, rules) {
   const out = [];
   for (const { k, p } of tickets) {
-    const at = k.ask && typeof k.ask === 'object' ? ms(k.ask.at) : null;
+    const at = k.ask ? k.ask.at : null;
     if (at === null || now - at < rules.waitMin * MIN) continue;
     out.push({ id: callId('waiting', k.thread, at), kind: 'waiting', subject: k.thread, since: at, who: [p.id], thread: k.thread, project: k.project,
       prs: arr(k.prs).filter((pr) => pr.state === 'open').slice(0, 1), holds: 1, facts: { ask: k.ask, ticket: k } });
@@ -269,10 +291,10 @@ export function may(me, action) {
 export function openKitchen(view, { now = Date.now(), rules = RULES } = {}) {
   const team = below(view);
   if (view?.link !== 'online') return { status: 'not-checked', why: 'offline', linkAt: num(view?.linkAt), people: team.map((p) => ({ ...p, state: 'unknown', reporting: null })), pass: [], held: [] };
-  const people = team.map((p) => ({ ...p, reporting: reporting(p, { now, link: view.link, rules }) }));
+  const people = team.filter((p) => typeof p.id === 'string').map((p) => ({ ...p, name: str(p.name), reporting: reporting(p, { now, link: view.link, rules }) }));
   if (!people.some((p) => p.summary)) return { status: 'not-checked', why: 'no-summaries', people: people.map((p) => ({ ...p, state: 'unknown' })), pass: [], held: [] };
   const quiet = new Set(people.filter((p) => p.reporting === false).map((p) => p.id));
-  const tickets = people.flatMap((p) => arr(p.summary?.tickets).map((k) => ({ k: { ...k, prs: arr(k.prs).filter(okPr) }, p, live: p.reporting === true })));
+  const tickets = people.flatMap((p) => arr(p.summary?.tickets).map((k) => ({ k: cleanTicket(k), p, live: p.reporting === true }))).filter(({ k }) => k.thread);
   // Only a reporting dev's data raises a call: a quiet Mac's is old. Two exceptions: a question still waits while its
   // dev is away, and that is when it reaches the lead; and a merge that is done stays done, so Main broken reads every
   // dev's merges for its history (its open PRs and its base reads still need a live Mac).

@@ -624,7 +624,7 @@ function callWords(c, { name, now, people }) {
       const checks = f.failing.length ? and(f.failing) : 'A required check';
       const day = new Date(now); day.setHours(0, 0, 0, 0);
       const merges = f.mergedToday.filter((m) => m.at >= day.getTime() && m.at <= now);
-      const cut = f.cause ? Date.parse(f.cause.pr.mergedAt) : null;
+      const cut = f.cause ? f.cause.pr.mergedAt : null;
       const ribbon = merges.length ? `<div class="tvis">${vlab(`Your team’s merges to ${e(br)} today`, c.since != null ? `Red since ${hm(c.since)}` : 'Red', 'red')}`
         + `<div class="ribbon">${merges.map((m) => `<i${m.n === n ? ' class="r"' : cut != null && m.at > cut ? ' class="a"' : ''} title="#${m.n}, ${e(name(m.person))}, ${hm(m.at)}"></i>`).join('')}</div>`
         + `<div class="raxis"><span>${hm(merges[0].at)}</span>${f.cause ? `<span>#${n} at ${hm(cut)}</span>` : ''}<span>now</span></div>`
@@ -633,19 +633,19 @@ function callWords(c, { name, now, people }) {
       const waits = f.waiting.length ? `<div class="tvis">${vlab(`Waiting on ${e(br)}`, `${plural(f.waiting.length, 'PR')} can’t merge`)}<div class="tprs">${f.waiting.map((w) => `<span class="tpr">${face(people.get(w.person), 'sm')}#${w.n}</span>`).join('')}</div></div>` : '';
       const size = f.cause?.pr.size;
       const facts = kvs([
-        ['PR', f.cause ? `#${n} ${f.cause.ticket.title || ''}`.trim() : NC_V],
+        f.cause ? ['PR', `#${n} ${f.cause.ticket.title || ''}`.trim()] : ['Repo', f.repo],
         ['By', f.cause ? `${pos(by)} agent, merged ${hm(cut)}` : NC_V],
         ['Size', size && Number.isFinite(size.files) ? `${plural(size.files, 'file')}, +${nf(size.added)} −${nf(size.removed)}` : NC_V],
         [f.failing.length > 1 ? 'Failing checks' : 'Failing check', f.failing.length ? f.failing.join(', ') : NC_V, 'mono'],
       ]);
       return {
-        title: f.cause ? `${br} is red after #${n} merged` : `${br} is red`,
+        title: f.cause ? `${br} is red after #${n} merged` : `${br} is red in ${f.repo}`,
         preview: f.waiting.length ? `${plural(f.waiting.length, 'PR')} can’t merge until ${br} is green.` : `${br} has been red${c.since != null ? ` since ${hm(c.since)}` : ''}.`,
         lead: `${checks} ${f.failing.length > 1 ? 'have' : 'has'} failed on ${br}${c.since != null ? ` since ${hm(c.since)}` : ''}. `
-          + (f.clean ? `Nothing merged after #${n}, so it is the cause.` : f.cause ? `#${n} merged last before it broke. More merged after it, so a roll back is not clean.` : 'No merge from your team matches the break.'),
+          + (f.clean ? `#${n} is the first red commit, and nothing came after it.` : f.cause ? `#${n} is the first red commit. More came after it, so a roll back is not clean.` : 'No PR from your team is the first red commit.'),
         suggest: f.clean ? `Roll back #${n}` : f.cause ? `Ask ${by} to fix ${br}` : `Find what broke ${br}`,
-        why: f.clean ? `Roll back #${n}. Nothing merged after it, so the revert is clean. ${pos(by)} thread keeps the work.`
-          : f.cause ? `Ask ${pos(by)} agent to fix ${br}. More merged after #${n}, so a revert would undo them too.` : `Open ${pos(br)} failing check on GitHub. No summary from your team names a merge before the break.`,
+        why: f.clean ? `Roll back #${n}. Nothing came after it, so the revert is clean. ${pos(by)} thread keeps the work.`
+          : f.cause ? `Ask ${pos(by)} agent to fix ${br}. More came after #${n}, so a revert would not be clean.` : `Open ${pos(br)} failing check in ${f.repo} on GitHub. No PR from your team is the first red commit.`,
         body: ribbon + waits + facts,
         acts: f.clean ? [['rollback', 'Roll back', `Roll back: ${pos(by)} agent reverts #${n}`], ['reply', 'Reply', `Reply to ${pos(by)} agent`]]
           : f.cause ? [['reply', 'Reply', `Reply to ${pos(by)} agent`]] : [],
@@ -660,7 +660,7 @@ function callWords(c, { name, now, people }) {
       const both = kpr && rpr;
       const card = (s) => { const p = (s.ticket.prs || []).find((x) => x.state === 'open');
         return `<div class="tcard"><div class="h">${face(people.get(s.person))}${e(name(s.person))}<span class="lb"><i class="gd c-${DOT[s.ticket.place] || 'gray'}"></i>${e(s.ticket.place || NC_V)}</span></div>`
-          + `<div class="t">${e(s.ticket.title || 'Untitled thread')}</div><div class="m">${e([p ? `PR #${p.n}` : 'No PR yet', s.ticket.working ? plural(s.ticket.working, 'agent') : '', s.ticket.startedAt ? `started ${hm(Date.parse(s.ticket.startedAt))}` : ''].filter(Boolean).join(', '))}</div></div>`; };
+          + `<div class="t">${e(s.ticket.title || 'Untitled thread')}</div><div class="m">${e([p ? `PR #${p.n}` : 'No PR yet', s.ticket.working ? plural(s.ticket.working, 'agent') : '', s.ticket.startedAt != null ? `started ${hm(s.ticket.startedAt)}` : ''].filter(Boolean).join(', '))}</div></div>`; };
       // The file's line map: each side's changed ranges, the shared lines boxed in red.
       const ends = [...top.a, ...top.b].map((r) => Math.max(r[0], r[1]));
       const L = Math.max(10, Math.ceil(Math.max(...ends) / 10) * 10);
@@ -758,15 +758,17 @@ function teamDock(c, w, me, id) {
 }
 
 /** Everything Your team draws when the page has a team reading. ctx: { icons } from the board, for project marks. */
-function teamParts(team, icons) {
+function teamParts(team, icons, want = null) {
   const now = Number.isFinite(team.now) ? team.now : Date.now();
   const ok = openKitchen(team.view, { now });
   const me = team.view.me;
   const people = new Map(ok.people.map((p) => [p.id, p]));
   const name = (id) => people.get(id)?.name || 'Someone';
   const pm = (p) => mark(p || 'Project', (p && icons.get(p)) || null);
-  const calls = ok.pass.map((c) => ({ c, id: teamPlateId(c), w: callWords(c, { name, now, people }) }));
-  const who = (c) => (c.kind === 'overlap' && c.who.length > 1 ? and(c.who.map(name)) : name(c.who[0]));
+  // A picked project narrows the team's calls too; a call with no known project shows under All projects only.
+  const calls = ok.pass.filter((c) => !want || (c.project !== null && want.has(c.project))).map((c) => ({ c, id: teamPlateId(c), w: callWords(c, { name, now, people }) }));
+  // A red base with no named cause has nobody to name: the tile names its repo instead.
+  const who = (c) => (!c.who.length ? (c.facts.repo || 'Not checked') : c.kind === 'overlap' && c.who.length > 1 ? and(c.who.map(name)) : name(c.who[0]));
   const age = (c) => (c.since != null ? span(Math.max(0, Math.round((now - c.since) / 60000))) : '');
   const tile = ({ c, id, w }) => `<button type="button" class="tile call-tile mail team-tile" data-plate="${e(id)}" data-thread="${e(id)}">`
     + `<span class="ct-top"><span class="proj">${pm(c.project)}<span class="pn">${e(c.project || 'Project')}</span></span><span class="mdl">${e(who(c))}</span>${age(c) ? `<span class="age">${age(c)}</span>` : ''}</span>`
@@ -795,11 +797,11 @@ function teamParts(team, icons) {
   const held = new Map(); for (const c of ok.held) for (const id of c.who) if (!held.has(id)) held.set(id, c);
   const bits = [];
   const q = by.quiet;
-  if (q.length === 1) { const p = q[0], t = p.lastSeen ?? p.at; bits.push(`${p.name} is not reporting${Number.isFinite(t) ? ` since ${hm(t)}` : ''}.`); }
-  else if (q.length) bits.push(`${and(q.map((p) => p.name))} are not reporting.`);
+  if (q.length === 1) { const p = q[0], t = p.lastSeen ?? p.at; bits.push(`${name(p.id)} is not reporting${Number.isFinite(t) ? ` since ${hm(t)}` : ''}.`); }
+  else if (q.length) bits.push(`${and(q.map((p) => name(p.id)))} are not reporting.`);
   const al = by.alarm;
-  if (al.length === 1) { const c = held.get(al[0].id); bits.push(`${al[0].name} is fixing an alarm${c?.prs[0] ? ` on #${c.prs[0].n}` : ''}.`); }
-  else if (al.length) bits.push(`${and(al.map((p) => p.name))} are fixing alarms.`);
+  if (al.length === 1) { const c = held.get(al[0].id); bits.push(`${name(al[0].id)} is fixing an alarm${c?.prs[0] ? ` on #${c.prs[0].n}` : ''}.`); }
+  else if (al.length) bits.push(`${and(al.map((p) => name(p.id)))} are fixing alarms.`);
   if (by.track.length) bits.push(`${plural(by.track.length, 'person', 'people')} ${by.track.length === 1 ? 'is' : 'are'} on track.`);
   if (by.unknown.length) bits.push(`${plural(by.unknown.length, 'person', 'people')} not checked.`);
   const calm = `<p class="tcalm">${svg('done')}<span>${calls.length ? 'Nothing else needs you.' : 'Nothing from your team needs you.'}${bits.length ? ` ${e(bits.join(' '))}` : ''}</span></p>`;
@@ -808,7 +810,7 @@ function teamParts(team, icons) {
   return {
     ok, card, pass, count: live ? calls.length : '–',
     plates: calls.map(plateOf).join(''),
-    meta: { name: team.view.teamName || team.name || null, below: ok.people.length, mode: 'open' },
+    meta: { name: [team.view.teamName, team.name].find((x) => typeof x === 'string' && x) || null, below: ok.people.length, mode: 'open' },
   };
 }
 
@@ -883,7 +885,7 @@ export function renderApp({ board, picked = null, link, status, origin, answered
   // The rail's footer chip and its menu, and its stand-in in the top bar (phones). The toggle needs reports.
   const footMenu = viewMenu({ team, projs, picked: want ? [...want] : null, icons, ok: status.ok });
   // Your team, from a team reading (team.view, client/team.mjs's shape). Without one it says "Not checked".
-  const T = team?.view ? teamParts(team, icons) : null;
+  const T = team?.view ? teamParts(team, icons, want) : null;
   const active = STAGES.reduce((x, s) => x + (spots[s] || []).length, 0), held = HELD.reduce((x, s) => x + (spots[s] || []).length, 0);
   // Unknown is not zero: without a good poll the counts read "not checked".
   const n = (v) => (status.ok ? v : 'not checked');

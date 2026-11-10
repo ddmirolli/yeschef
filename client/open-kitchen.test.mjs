@@ -354,3 +354,34 @@ test('review r3: odd times read as not checked; two PRs with one number in two r
   assert.equal(ids.length, 2);
   assert.notEqual(ids[0], ids[1]);
 });
+
+test('review r4: any odd value at any place in a summary still draws the page', () => {
+  const evil = [{ toString: null }, [1], 7, null, true, '<b>x</b>'];
+  const base = view();
+  const paths = [];
+  const walk = (o, path) => {
+    if (o && typeof o === 'object') for (const k of Object.keys(o)) walk(o[k], [...path, k]);
+    else paths.push(path);
+  };
+  base.people.forEach((p, i) => walk(p, ['people', i]));
+  assert.ok(paths.length > 300, `walked ${paths.length} leaves`);
+  for (const path of paths) for (const bad of evil) {
+    const v = view();
+    let o = v; for (const k of path.slice(0, -1)) o = o[k];
+    o[path.at(-1)] = bad;
+    let html;
+    assert.doesNotThrow(() => { html = page({ view: v, now: NOW }); }, `${path.join('.')} = ${JSON.stringify(bad)}`);
+    assert.ok(!html.includes('<b>x</b>'), path.join('.'));
+  }
+});
+
+test('review r4: a picked project narrows the team’s calls; a red base with no cause names its repo', () => {
+  const v = view();
+  const html = renderApp({ board: { tickets: [], runsChecked: false }, picked: ['Quillo'], link: () => 'x', status: { ok: true, at: NOW, ms: 1 }, origin: 'https://t3.example', team: { view: v, now: NOW } });
+  const tiles = html.match(/class="tile call-tile mail team-tile"/g) || [];
+  assert.equal(tiles.length, 2, 'Nina’s Failing and Lee’s Waiting');
+  who(v, 'ravi').summary.bases[0].redSha = 'd001';
+  const m = read(v).pass.find((c) => c.kind === 'main');
+  assert.equal(m.project, 'Fernpay', 'the team’s work on that base names the project');
+  assert.match(page({ view: v, now: NOW }), /main is red in acme\/fernpay/);
+});
