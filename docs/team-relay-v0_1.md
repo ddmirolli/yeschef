@@ -64,7 +64,7 @@ The relay checks only who may change the team. What a role may do to a dev's thr
 
 **The summary.** Only from the projects the dev shares, and nothing from coordinator threads. Per ticket: the thread id and title, the project, the stage, whether it waits on a person, agents working, open questions, whether the agent asked a decision, up to five PRs (repository, number, state, link), and the last update. No messages, no code. At most 100 tickets, waiting ones first, cut to fit 64 KiB. It goes only when it changed, at most once per the relay's limit, always the newest, and is cut again if its sealed size is over the limit. A Viewer sends none, and a dev made a Viewer sends a forget. Sharing nothing sends a forget. Dropping a project rebuilds the waiting summary at once, so the dropped project's tickets never go out, even when a summary was being sealed at that moment. A summary the relay refuses is dropped; a relay that does not answer is tried again after 20 seconds, then 40, up to 5 minutes. A teammate's screen shows the time the dev's Mac signed, not the relay's, and an older summary never replaces a newer one.
 
-**Roles.** The words Dan approved on 2026-11-10. The Deputy's boxes are the ones Dan approved; the others are proposed.
+**Roles.** The words Dan approved on 2026-11-10. The Deputy's boxes are the ones Dan approved. Engineer = See only is Dan's ruling of 2026-11-10. The Area owner and Viewer defaults are proposed.
 
 | Role | Boxes by default |
 |---|---|

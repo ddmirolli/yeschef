@@ -1,6 +1,7 @@
 // Team roles and what each may do to another dev's threads (the role dialog: docs/mocks/team/s4-role.png). The relay never sees these: they
 // travel sealed inside the roster the lead signs, and each dev's Yes Chef checks them before it acts.
-// Words: the map Dan approved on 2026-11-10. The defaults below Deputy are proposed, not ruled.
+// Words: the map Dan approved on 2026-11-10. Engineer = See only is Dan's ruling of 2026-11-10. The Area owner and Viewer
+// defaults are proposed, not ruled.
 
 export const ROLES = ['lead', 'deputy', 'owner', 'engineer', 'viewer'];
 export const ROLE_NAMES = { lead: 'Lead', deputy: 'Deputy', owner: 'Area owner', engineer: 'Engineer', viewer: 'Viewer' };
@@ -16,12 +17,13 @@ export const PERMS = [
 ];
 const KEYS = PERMS.map((p) => p.key);
 
-/** Each role's boxes before the lead changes them. The Deputy's are the ones Dan approved; the others are proposed. */
+/** Each role's boxes before the lead changes them. The Deputy's are the ones Dan approved, and the Engineer's
+ *  (See only) is Dan's ruling of 2026-11-10. The Area owner's and the Viewer's are proposed. */
 export const DEFAULTS = {
   lead: KEYS,
   deputy: ['see', 'reply', 'projects', 'invite'],
   owner: ['see', 'reply', 'merge'],
-  engineer: ['see'],
+  engineer: ['see'], // ruled, Dan 2026-11-10
   viewer: ['see'],
 };
 
