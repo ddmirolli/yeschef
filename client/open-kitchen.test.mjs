@@ -135,7 +135,10 @@ test('Failing rises at 3 red runs, reaches the lead after 15 minutes unseen, and
   const ben = () => read(view()).held.find((c) => c.who[0] === 'ben');
   assert.equal(ben().facts.redRuns, 3);
   assert.equal(ben().since, ago(30));
+  // Unseen, its wait starts at the third red run, not the first.
   let v = view(); who(v, 'ben').summary.seen = {};
+  assert.ok(read(v).held.some((c) => c.who[0] === 'ben'), 'the third run was 2 min ago');
+  for (const r of ticket(v, 'ben').prs[0].checks.runs) r.at -= 20 * MIN;
   assert.deepEqual(read(v).pass.find((c) => c.who[0] === 'ben').reach, { lead: true, why: 'unseen', min: 15 });
   v = view(); ticket(v, 'ben').prs[0].checks.redRuns = 2;
   assert.ok(![...read(v).pass, ...read(v).held].some((c) => c.who[0] === 'ben'));
@@ -302,11 +305,36 @@ test('review r1: a bad PR number never reaches the page; bad ranges drop; Stuck 
   assert.equal(read(v).pass.find((c) => c.kind === 'overlap').facts.near, true);
   assert.match(page({ view: v, now: NOW }), /About lines 120 to 168/);
   // Stuck rises at 20 min quiet and reaches the lead 15 min later, unseen.
-  const call = { kind: 'stuck', since: ago(25), who: ['omar'], facts: {} };
-  assert.equal(reach(call, { now: NOW }).lead, false);
-  assert.equal(reach({ ...call, since: ago(36) }, { now: NOW }).lead, true);
+  v = view(); ticket(v, 'omar').updatedAt = new Date(ago(25)).toISOString();
+  assert.ok(read(v).held.some((c) => c.kind === 'stuck'), 'quiet 25 min: risen 5 min ago, still the dev’s');
+  ticket(v, 'omar').updatedAt = new Date(ago(36)).toISOString();
+  assert.ok(read(v).pass.some((c) => c.kind === 'stuck'), 'risen 16 min ago, unseen: the lead’s');
   // Failing needs a Mac online now.
   v = view();
   Object.assign(who(v, 'nina'), { online: false, lastSeen: ago(3) });
   assert.ok(!read(v).pass.some((c) => c.kind === 'failing' && c.who[0] === 'nina'));
+});
+
+test('review r2: pathless files, merges to another branch, a quiet Mac’s merges, and Too big with no time', () => {
+  // Files with no path never match.
+  let v = view();
+  for (const id of ['kai', 'jon']) ticket(v, id).changes.files.push({ r: [[1, 400]] });
+  assert.doesNotThrow(() => page({ view: v, now: NOW }));
+  assert.equal(read(v).pass.filter((c) => c.kind === 'overlap').length, 1);
+  // A merge to another branch is never main's cause, and its open PRs do not wait on main.
+  v = view();
+  ticket(v, 'ravi').prs[0].base = 'release';
+  const m = read(v).pass.find((c) => c.kind === 'main');
+  assert.notEqual(m.facts.cause?.pr.n, 431);
+  v = view(); ticket(v, 'iris').prs[0].base = undefined;
+  assert.ok(!read(v).pass.find((c) => c.kind === 'main').facts.waiting.some((w) => w.n === 440));
+  // Ravi's Mac goes quiet: his merge still dates the break (Maya reads the base now).
+  v = view();
+  who(v, 'maya').summary.bases = [{ ...who(v, 'ravi').summary.bases[0], at: ago(1) }];
+  Object.assign(who(v, 'ravi'), { online: false, lastSeen: ago(60), at: ago(60) });
+  assert.equal(read(v).pass.find((c) => c.kind === 'main').facts.cause.pr.n, 431);
+  // Too big with no overAt: its age is not checked, so time never sends it to the lead.
+  v = view(); delete ticket(v, 'iris').prs[0].size.overAt;
+  const big = read(v).held.find((c) => c.kind === 'big');
+  assert.equal(big.since, null);
 });

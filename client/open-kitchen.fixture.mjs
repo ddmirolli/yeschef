@@ -12,7 +12,7 @@ export function fixtureView(now = Date.UTC(2026, 10, 10, 14, 3)) {
   const ago = (m) => now - m * MIN;
   const t = (thread, project, place, title, more = {}) => ({ thread, title, project, place, atPass: false, working: 1, asks: 0, call: false, prs: [],
     updatedAt: iso(ago(3)), startedAt: iso(ago(240)), ...more });
-  const pr = (repo, n, state, more = {}) => ({ repo, n, state, url: `https://github.com/${repo}/pull/${n}`, draft: false, mergedAt: null, size: null, checks: null, ...more });
+  const pr = (repo, n, state, more = {}) => ({ repo, n, state, url: `https://github.com/${repo}/pull/${n}`, base: 'main', draft: false, mergedAt: null, size: null, checks: null, ...more });
   const runs = (greens, reds, from, every = 14) => [...Array(greens + reds)].map((_, i) => ({ at: ago(from - i * every), sha: `c${i}`, title: `run ${i + 1}`, result: i < greens ? 'passing' : 'failing' }));
   const ch = (repo, files, more = {}) => ({ state: 'checked', at: ago(1), repo, base: 'main', mergeBase: 'b0', files, head: 'h1', headAt: iso(ago(30)), more: 0, size: null, ...more });
 
@@ -35,7 +35,7 @@ export function fixtureView(now = Date.UTC(2026, 10, 10, 14, 3)) {
     person('ravi', 'Ravi', ravi, { summary: { v: 1, tickets: ravi, more: 0, seen: { [callId('main', 'acme/fernpay@main', mainRed)]: ago(4) },
       bases: [{ repo: 'acme/fernpay', branch: 'main', sha: 'f431', title: 'Updater channel picker (#431)', committedAt: iso(mainRed), redSince: iso(mainRed), result: 'failing', requiredResult: 'failing', failing: ['test:desktop'], at: ago(2) }] } }),
     person('kai', 'Kai', [kai]), person('jon', 'Jon', [jon]), person('nina', 'Nina', [nina]),
-    person('iris', 'Iris', [t('mcp:iris-1', 'Fernpay', 'In review', 'Export: tables', { startedAt: iso(ago(51)), prs: [pr('acme/fernpay', 440, 'open', { size: { files: 41, added: 1079, removed: 161, at: ago(3) } })],
+    person('iris', 'Iris', [t('mcp:iris-1', 'Fernpay', 'In review', 'Export: tables', { startedAt: iso(ago(51)), prs: [pr('acme/fernpay', 440, 'open', { size: { files: 41, added: 1079, removed: 161, at: ago(3), overAt: iso(ago(51)) } })],
       changes: ch('acme/fernpay', [['packages/export/src/tables/a.ts', 598, 42], ['packages/export/src/markdown/b.ts', 262, 48], ['apps/web/src/export/c.ts', 131, 59], ['packages/contracts/src/d.ts', 88, 12], ['pnpm-lock.yaml', 2104, 0, 1]].map(([p, a, d, x]) => ({ p, r: [[1, a]], a, d, ...(x ? { x: 1 } : {}) }))) })]),
     person('omar', 'Omar', [t('mcp:omar-1', 'Loopline', 'In progress', 'Relay: inbox expiry', { working: 2, updatedAt: iso(ago(38)), last: 'Running the expiry migration against the staging copy. On about 180,000 rows it can take a while.',
       prs: [pr('acme/loopline', 421, 'open', { checks: { result: 'passing', redRuns: 0, at: ago(53), runs: runs(3, 0, 80, 13) } })], changes: ch('acme/loopline', [], { headAt: iso(ago(61)) }) })]),

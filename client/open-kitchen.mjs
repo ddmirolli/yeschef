@@ -92,12 +92,14 @@ function mainBroken(people, tickets) {
     if (b.requiredResult !== 'failing') continue; // null is not checked, never a guess
     const red = ms(b.redSince);
     const repo = key.slice(0, key.lastIndexOf('@'));
-    const inRepo = tickets.flatMap(({ k, p }) => arr(k.prs).map((pr) => ({ pr, k, p }))).filter(({ pr }) => String(pr.repo).toLowerCase() === repo);
+    // A PR counts against this base only when it targets this branch (proposed `pr.base`); a PR with no base is left out.
+    const inRepo = tickets.flatMap(({ k, p, live }) => arr(k.prs).map((pr) => ({ pr, k, p, live })))
+      .filter(({ pr }) => String(pr.repo).toLowerCase() === repo && pr.base === b.branch);
     const merged = inRepo.filter(({ pr }) => pr.state === 'merged' && ms(pr.mergedAt) !== null).sort((a, z) => ms(a.pr.mergedAt) - ms(z.pr.mergedAt));
     const cause = red === null ? null : [...merged].reverse().find(({ pr }) => ms(pr.mergedAt) <= red + MIN) || null;
     const after = cause ? merged.filter(({ pr }) => ms(pr.mergedAt) > ms(cause.pr.mergedAt)) : [];
     const open = new Map();
-    for (const x of inRepo) if (x.pr.state === 'open' && !open.has(prKey(x.pr.repo, x.pr.n))) open.set(prKey(x.pr.repo, x.pr.n), x);
+    for (const x of inRepo) if (x.live && x.pr.state === 'open' && !open.has(prKey(x.pr.repo, x.pr.n))) open.set(prKey(x.pr.repo, x.pr.n), x);
     const waiting = [...open.values()];
     out.push({
       id: callId('main', key, red), kind: 'main', subject: key, since: red,
@@ -128,7 +130,7 @@ function overlap(tickets) {
     if (!ca.repo || String(ca.repo).toLowerCase() !== String(cb.repo).toLowerCase() || ca.base !== cb.base) continue;
     const files = [];
     for (const fa of arr(ca.files)) {
-      if (fa.x || !Array.isArray(fa.r)) continue;
+      if (fa.x || !Array.isArray(fa.r) || typeof fa.p !== 'string' || !fa.p) continue;
       const fb = arr(cb.files).find((f) => f.p === fa.p);
       if (!fb || fb.x || !Array.isArray(fb.r)) continue;
       const shared = [];
@@ -168,7 +170,9 @@ function failing(tickets, rules) {
     const runs = arr(c.runs);
     const streak = runs.slice(-n);
     const since = streak.length === n ? ms(streak[0].at) : null;
-    out.push({ id: callId('failing', `${k.thread}#${pr.n}`, since), kind: 'failing', subject: k.thread, since, who: [p.id], thread: k.thread, project: k.project,
+    // The call rose at the run that made the count: its wait for Seen starts there.
+    const rose = streak.length === n ? ms(streak[rules.failRuns - 1].at) : null;
+    out.push({ id: callId('failing', `${k.thread}#${pr.n}`, since), kind: 'failing', subject: k.thread, since, rose, who: [p.id], thread: k.thread, project: k.project,
       prs: [pr], holds: 1, facts: { redRuns: n, runs, pr, ticket: k } });
   }
   return out;
@@ -184,7 +188,7 @@ function stuck(tickets, now, rules) {
     if (!marks.length) continue;
     const last = Math.max(...marks);
     if (now - last < rules.stuckMin * MIN) continue;
-    out.push({ id: callId('stuck', k.thread, last), kind: 'stuck', subject: k.thread, since: last, who: [p.id], thread: k.thread, project: k.project,
+    out.push({ id: callId('stuck', k.thread, last), kind: 'stuck', subject: k.thread, since: last, rose: last + rules.stuckMin * MIN, who: [p.id], thread: k.thread, project: k.project,
       prs: arr(k.prs).filter((pr) => pr.state === 'open').slice(0, 1), holds: 1, facts: { last: k.last || null, quietSince: last, ticket: k } });
   }
   return out;
@@ -203,7 +207,8 @@ function waiting(tickets, now, rules) {
 }
 
 /** Too big: an open PR over 800 changed lines or 30 files, lockfiles and generated files left out. A size GitHub only
- *  gave in part (`size: null`) is not checked. since: the thread's start, until a summary says when the call rose. */
+ *  gave in part (`size: null`) is not checked. since: when the dev's Mac first saw the PR over the limit (proposed
+ *  `size.overAt`); with none, the call's age is not checked and it never reaches the lead by time. */
 function tooBig(tickets, rules) {
   const out = [];
   for (const { k, p, live } of tickets) for (const pr of live ? arr(k.prs) : []) {
@@ -211,7 +216,7 @@ function tooBig(tickets, rules) {
     if (pr.state !== 'open' || !s || num(s.added) === null || num(s.removed) === null || num(s.files) === null) continue;
     const lines = s.added + s.removed;
     if (lines <= rules.bigLines && s.files <= rules.bigFiles) continue;
-    const since = ms(k.startedAt);
+    const since = ms(s.overAt);
     out.push({ id: callId('big', `${k.thread}#${pr.n}`, since), kind: 'big', subject: k.thread, since, who: [p.id], thread: k.thread, project: k.project,
       prs: [pr], holds: 1, facts: { lines, size: s, pr, ticket: k, changes: k.changes?.state === 'checked' ? k.changes : null } });
   }
@@ -221,18 +226,19 @@ function tooBig(tickets, rules) {
 /** Does this call reach the lead's Pass, and why. Open kitchen: a call goes first to its dev, and reaches the lead
  *  when it is red; when nobody marks it Seen within its time; or when its own rule says so. seen: { person id: at }. */
 export function reach(call, { seen = {}, quiet = new Set(), now, rules = RULES }) {
-  // A Stuck call rises 20 minutes after its last activity, so its wait for Seen starts then, not at the activity.
-  const from = call.since === null ? null : call.kind === 'stuck' ? call.since + rules.stuckMin * MIN : call.since;
-  const age = from === null ? 0 : Math.max(0, (now - from) / MIN);
+  // The wait for Seen starts when the call rose (`rose`: Stuck 20 minutes after its last activity, Failing at the run
+  // that made the count), else at `since`. With neither, the age is not checked, and time never raises it.
+  const from = call.rose !== undefined ? call.rose : call.since;
+  const age = from === null ? null : Math.max(0, (now - from) / MIN);
   const anySeen = call.who.some((id) => seen[id]);
   if (KINDS[call.kind].tone === 'red') return { lead: true, why: 'red' };
   if (call.kind === 'waiting') {
     if (call.who.some((id) => quiet.has(id))) return { lead: true, why: 'quiet' };
-    return age >= rules.waitLeadMin ? { lead: true, why: 'time', min: rules.waitLeadMin } : { lead: false };
+    return age !== null && age >= rules.waitLeadMin ? { lead: true, why: 'time', min: rules.waitLeadMin } : { lead: false };
   }
   if (call.kind === 'failing' && call.facts.redRuns >= rules.failLeadRuns) return { lead: true, why: 'runs', runs: call.facts.redRuns };
   const limit = call.kind === 'stuck' ? rules.escalateMin : call.kind === 'big' ? rules.bigLeadMin : rules.escalateMin;
-  if (!anySeen && age >= limit) return { lead: true, why: 'unseen', min: limit };
+  if (!anySeen && age !== null && age >= limit) return { lead: true, why: 'unseen', min: limit };
   return { lead: false };
 }
 
@@ -266,9 +272,10 @@ export function openKitchen(view, { now = Date.now(), rules = RULES } = {}) {
   if (!people.some((p) => p.summary)) return { status: 'not-checked', why: 'no-summaries', people: people.map((p) => ({ ...p, state: 'unknown' })), pass: [], held: [] };
   const quiet = new Set(people.filter((p) => p.reporting === false).map((p) => p.id));
   const tickets = people.flatMap((p) => arr(p.summary?.tickets).map((k) => ({ k: { ...k, prs: arr(k.prs).filter(okPr) }, p, live: p.reporting === true })));
-  // Only a reporting dev's data raises a call: a quiet Mac's is old. Waiting is the exception: a question still waits
-  // while its dev is away, and that is when it reaches the lead.
-  const calls = [...mainBroken(people, tickets.filter((t) => t.live)), ...overlap(tickets), ...failing(tickets, rules), ...stuck(tickets, now, rules), ...waiting(tickets, now, rules), ...tooBig(tickets, rules)];
+  // Only a reporting dev's data raises a call: a quiet Mac's is old. Two exceptions: a question still waits while its
+  // dev is away, and that is when it reaches the lead; and a merge that is done stays done, so Main broken reads every
+  // dev's merges for its history (its open PRs and its base reads still need a live Mac).
+  const calls = [...mainBroken(people, tickets), ...overlap(tickets), ...failing(tickets, rules), ...stuck(tickets, now, rules), ...waiting(tickets, now, rules), ...tooBig(tickets, rules)];
   const byId = new Map(people.map((p) => [p.id, p]));
   for (const c of calls) {
     c.seen = Object.fromEntries(c.who.map((id) => [id, num(byId.get(id)?.summary?.seen?.[c.id])]).filter(([, at]) => at !== null));
