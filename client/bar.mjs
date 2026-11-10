@@ -8,6 +8,7 @@
 // (client/bar.test.mjs). installBar() runs in the page. server.mjs inlines barCore and installBar by their source
 // text, so neither may use anything outside itself: no imports, no names from this module. Both are ES5, like the
 // page script.
+import { ICON } from './board.mjs';
 
 // Motion: Apple's default spring, duration 0.5 s, bounce 0. In CSS that is 735 ms with this linear() curve: the
 // critically damped spring drawn to 0.1% of the travel, as in the mock's spring5 rule (Dan, 2026-11-10).
@@ -110,7 +111,8 @@ export const BAR_CSS = `
   .cb-compose{padding:12px}.cb-compose textarea{font-size:16px}.cb-crow{flex-wrap:wrap}.cb-crow .cb-why{flex-basis:100%}}
 `;
 
-// Icons: the mock's set, plus Request changes, Settle, Collapse and the two views.
+// Icons: the mock's set, plus Request changes, Settle and Collapse. The two views use the app's own person and toque
+// (APP_ICONS), as the footer chip does (Dan, 2026-11-10).
 const ICONS = {
   search: '<circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.4 10.4 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
   plus: '<path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>',
@@ -132,14 +134,16 @@ const ICONS = {
   refire: '<path d="M12.6 9.2A4.8 4.8 0 1 1 11.3 4.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M12.2 2.2v3h-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
   settle: '<circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="m5.6 8.2 1.7 1.7 3.2-3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
   cloche: '<path d="M2.8 11.6a5.2 5.2 0 0 1 10.4 0" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="4.9" r="1.2" fill="currentColor"/><path d="M1.8 12.7h12.4l-1 1H2.8z" fill="currentColor"/>',
-  you: '<circle cx="8" cy="5.5" r="2.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 13.5a5 5 0 0 1 10 0" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>',
   team: '<circle cx="6" cy="5.8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="11.2" cy="6.4" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M1.8 13.2a4.2 4.2 0 0 1 8.4 0M10.4 9.6a3.4 3.4 0 0 1 4 3.4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>',
 };
+// The app's 24-unit icons, framed to their middle 18 units so they read at the bar's 15 px as its own icons do.
+const APP_ICONS = ['person', 'toque'];
+const appSymbol = (id) => `<symbol id="cb-${id}" viewBox="3 3 18 18"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON[id]}</g></symbol>`;
 
 export const BAR_HTML = `<dialog id="bar" aria-label="Actions"><div class="cb center">
 <div class="cb-q"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#cb-search"/></svg><span class="cb-crumb" hidden></span><input id="cb-q" type="text" role="combobox" aria-expanded="false" aria-controls="cb-res" aria-autocomplete="list" aria-label="Search actions, threads and settings" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Search actions, threads and settings"><span class="cb-hint" hidden></span><kbd>esc</kbd></div>
 <div class="cb-drop"><div><div class="cb-res" id="cb-res" role="listbox" aria-label="Actions" tabindex="-1"></div><div class="cb-compose" role="group" aria-label="Send a note" hidden><div class="cb-to"></div><textarea id="cb-msg" rows="4" aria-label="Your note" placeholder="What should the agent know?"></textarea><p class="cb-say" role="status"></p><div class="cb-crow"><span class="cb-why">Goes to the agent as your message, queued like T3 Code's own queue.</span><span class="cb-sp"></span><button type="button" data-cb-back>Back</button><button type="button" class="fill" data-cb-send>Send <kbd>⌘</kbd><kbd>↵</kbd></button></div></div><div class="cb-foot"></div></div></div>
-</div><svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>${Object.entries(ICONS).map(([id, d]) => `<symbol id="cb-${id}" viewBox="0 0 16 16">${d}</symbol>`).join('')}</defs></svg></dialog>`;
+</div><svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>${Object.entries(ICONS).map(([id, d]) => `<symbol id="cb-${id}" viewBox="0 0 16 16">${d}</symbol>`).join('')}${APP_ICONS.map(appSymbol).join('')}</defs></svg></dialog>`;
 
 /** The bar's pure parts: matching, history and the view rows. Tested in client/bar.test.mjs. */
 export function barCore() {
@@ -202,7 +206,7 @@ export function barCore() {
     var next = i < 0 ? rest[0] : ids.slice(i + 1)[0] || rest[0];
     return next === undefined ? null : next;
   }
-  // View: You and View: Your team (Dan, 2026-11-10, views mock v4). Only a user with reports gets them, and only once
+  // View: You and View: Team (Dan, 2026-11-10, views mock v4; "Team" from the view menu). Only a user with reports gets them, and only once
   // the app can switch views. views: { hasReports, current: 'you' | 'team', team: { name, below } }. Nothing is guessed:
   // a missing team name or count reads "not checked".
   var VIEW_KW = 'switch team me mine solo lead reports scope';
@@ -212,8 +216,8 @@ export function barCore() {
     var name = typeof team.name === 'string' && team.name ? team.name : 'Team name not checked';
     var count = below === null ? 'people below you not checked' : below + (below === 1 ? ' person' : ' people') + ' below you';
     return [
-      { id: 'view:you', scope: 'you', g: 'View', t: 'View: You', d: 'Your own agents, and only their calls in The Pass', kw: VIEW_KW, icon: 'you', now: views.current === 'you' },
-      { id: 'view:team', scope: 'team', g: 'View', t: 'View: Your team', d: name + ', ' + count, kw: VIEW_KW, icon: 'team', now: views.current === 'team' },
+      { id: 'view:you', scope: 'you', g: 'View', t: 'View: You', d: 'Your own agents, and only their calls in The Pass', kw: VIEW_KW, icon: 'person', now: views.current === 'you' },
+      { id: 'view:team', scope: 'team', g: 'View', t: 'View: Team', d: name + ', ' + count, kw: VIEW_KW, icon: 'toque', now: views.current === 'team' },
     ];
   }
   // A step's choice joins the typed search, as "Change appearance: Dark", only when a word you type starts its name: "dark"
@@ -439,7 +443,7 @@ export function installBar(app, core) {
     if (p[0] === 'go') return ic('jump');
     if (p[0] === 'note') return ic('note');
     if (p[0] === 'theme') return ic({ light: 'sun', dark: 'moon' }[p[1]] || 'monitor');
-    return ic({ 'new': 'plus', view: p[1] === 'you' || p[1] === 'team' ? p[1] : 'expand', density: 'rows', rules: 'rules', keys: 'key', settings: 'gear' }[p[0]] || 'check');
+    return ic({ 'new': 'plus', view: { you: 'person', team: 'toque' }[p[1]] || 'expand', density: 'rows', rules: 'rules', keys: 'key', settings: 'gear' }[p[0]] || 'check');
   }
   function histRow(r, i, n) {
     return { id: r.id, g: i === 0 ? 'Last action' : 'Earlier action: ' + (i + 1) + ' of ' + n, t: r.t, hist: r.t, f: r.f, d: core.ago(r.at, Date.now()), icon: iconFor(r.id), k: ['↵'] };

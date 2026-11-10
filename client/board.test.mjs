@@ -43,7 +43,7 @@ test('Verified today counts the local calendar day', () => {
   assert.equal(b.verifiedToday, 1);
 });
 
-import { renderApp } from './board.mjs';
+import { renderApp, pickedFrom } from './board.mjs';
 const link = (t) => `https://t3.example/env/${t.threadId}`;
 
 test('an older Verified ticket leaves the board; one with work still running stays', () => {
@@ -55,35 +55,64 @@ test('an older Verified ticket leaves the board; one with work still running sta
 
 test('without a good poll the page says "not checked", never "all clear" or an older board', () => {
   const board = buildBoard({ projects: [], questions: new Map(), threads: [T('a', { status: 'running' })] });
-  const html = renderApp({ board, project: null, link, status: { ok: false, error: 'T3 down', at: 0, ms: 0 }, origin: 'https://t3.example' });
+  const html = renderApp({ board, link, status: { ok: false, error: 'T3 down', at: 0, ms: 0 }, origin: 'https://t3.example' });
   assert.match(html, /Not checked/);
   assert.doesNotMatch(html, /All clear/);
   assert.doesNotMatch(html, /data-thread="a"/);
 });
 
-test('project names are data, and counts follow the project filter', () => {
-  const board = buildBoard({ projects: [{ id: 'x', title: '__proto__' }, { id: 'y', title: 'Y' }], questions: new Map(), today: new Date(2026, 10, 6, 12),
-    threads: [T('a', { projectId: 'x' }), T('b', { projectId: 'y', settled: true, settledAt: new Date(2026, 10, 6, 9).toISOString() })] });
+test('project names are data, and counts follow the picked projects', () => {
+  const board = buildBoard({ projects: [{ id: 'x', title: '__proto__' }, { id: 'y', title: 'Y' }, { id: 'z', title: 'Z' }], questions: new Map(), today: new Date(2026, 10, 6, 12),
+    threads: [T('a', { projectId: 'x' }), T('b', { projectId: 'y', settled: true, settledAt: new Date(2026, 10, 6, 9).toISOString() }), T('c', { projectId: 'z', status: 'running' })] });
   const ok = { ok: true, at: 0, ms: 1 };
-  assert.match(renderApp({ board, project: null, link, status: ok, origin: 'https://t3.example' }), /<span>__proto__<\/span><span class="n">1<\/span>/);
-  assert.match(renderApp({ board, project: '__proto__', link, status: ok, origin: 'https://t3.example' }), /Verified today <b>0<\/b>/);
-  assert.match(renderApp({ board, project: 'Y', link, status: ok, origin: 'https://t3.example' }), /Verified today <b>1<\/b>/);
+  const page = (picked) => renderApp({ board, picked, link, status: ok, origin: 'https://t3.example' });
+  assert.match(page(null), /data-p="__proto__" aria-checked="true"><span class="cb"[\s\S]*?<span class="vn">__proto__<\/span>/);
+  assert.match(page(['__proto__']), /Verified today <b>0<\/b>/);
+  assert.match(page(['Y']), /Verified today <b>1<\/b>/);
+  // Any set: two of three projects count both, and only theirs.
+  const two = page(['Y', 'Z']);
+  assert.match(two, /Active <b>1<\/b>/);
+  assert.match(two, /Verified today <b>1<\/b>/);
+  assert.doesNotMatch(two, /data-thread="a"/);
+  assert.match(two, /data-p="__proto__" aria-checked="false"/);
+  // Every project picked is All projects.
+  assert.match(page(['__proto__', 'Y', 'Z']), /<span class="vp">All projects<\/span>/);
+  assert.match(page(['__proto__', 'Y', 'Z']), /class="pk all" role="checkbox" aria-checked="true"/);
+});
+
+test('the address picks projects: p repeats, and no p is All projects', () => {
+  const q = (s) => pickedFrom(new URLSearchParams(s));
+  assert.equal(q(''), null);
+  assert.equal(q('?p='), null);
+  assert.deepEqual(q('?p=A&p=B&p=A&p='), ['A', 'B']);
+  assert.deepEqual(q('?p=__proto__&p=a%26b'), ['__proto__', 'a&b']);
+});
+
+test('a picked project with no tickets now stays in the menu, so it can be unticked', () => {
+  const board = buildBoard({ projects: [{ id: 'y', title: 'Y' }], questions: new Map(), threads: [T('a', { projectId: 'y' })] });
+  const html = renderApp({ board, picked: ['Gone', 'Y'], link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
+  assert.deepEqual([...html.matchAll(/data-p="(\w+)" aria-checked="(\w+)"/g)].map((m) => m.slice(1)).slice(0, 2), [['Gone', 'true'], ['Y', 'true']]);
+  assert.match(html, /<span class="fan" style="--n:2" title="Gone, Y">/);
 });
 
 test('the Pass orders by the oldest waiting question, and a failed poll shows no counts', () => {
   const board = buildBoard({ projects: [], questions: new Map(), threads: [
     T('new-parent', { updatedAt: '2026-11-06T14:00:00Z' }), T('old-ask', { parentThreadId: 'new-parent', status: 'waiting', updatedAt: '2026-11-06T08:00:00Z' }),
     T('mid', { status: 'waiting', updatedAt: '2026-11-06T10:00:00Z' })] });
-  const html = renderApp({ board, project: null, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
+  const html = renderApp({ board, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
   const at = (id) => html.search(new RegExp(`call-tile mail" data-plate="[^"]+" data-thread="${id}"`));
   assert.ok(at('old-ask') >= 0 && at('old-ask') < at('mid'));
-  const down = renderApp({ board, project: null, link, status: { ok: false, error: 'x', at: 0, ms: 0 }, origin: 'https://t3.example' });
-  assert.match(down, /All projects<\/span><span class="n">not checked/);
+  const down = renderApp({ board, link, status: { ok: false, error: 'x', at: 0, ms: 0 }, origin: 'https://t3.example' });
+  assert.match(down, /<nav class="pmenu-l" aria-label="Projects" data-nc>[\s\S]*?<p class="pk-nc"><b>Projects not checked\.<\/b> T3 did not answer\.<\/p>/);
+  // A pick without a board stays a pick: the chip never says All projects for it.
+  const kept = renderApp({ board, picked: ['Y'], link, status: { ok: false, error: 'x', at: 0, ms: 0 }, origin: 'https://t3.example' });
+  assert.match(kept, /<span class="fan" style="--n:1" title="Y">/);
+  assert.match(kept, /class="pk all" role="checkbox" aria-checked="mixed"/);
 });
 
 test('without a good poll the counts read "not checked", not zero', () => {
   const board = buildBoard({ projects: [], questions: new Map(), threads: [] });
-  const html = renderApp({ board, project: null, link, status: { ok: false, error: 'x', at: 0, ms: 0 }, origin: 'https://t3.example' });
+  const html = renderApp({ board, link, status: { ok: false, error: 'x', at: 0, ms: 0 }, origin: 'https://t3.example' });
   assert.match(html, /Active <b>not checked<\/b>/);
   assert.match(html, /aria-label="In progress: not checked"/);
 });
@@ -91,7 +120,7 @@ test('without a good poll the counts read "not checked", not zero', () => {
 test('the card shows the oldest waiting question when parent and station both ask', () => {
   const board = buildBoard({ projects: [], questions: new Map(), threads: [
     T('parent', { status: 'waiting', updatedAt: '2026-11-06T14:00:00Z' }), T('station', { parentThreadId: 'parent', status: 'waiting', updatedAt: '2026-11-06T09:00:00Z' })] });
-  const html = renderApp({ board, project: null, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
+  const html = renderApp({ board, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
   assert.match(html, /call-tile mail" data-plate="[^"]+" data-thread="station"/);
 });
 
@@ -104,7 +133,7 @@ test('a finished, unsettled ticket hands the turn back: it waits at the pass wit
   assert.equal(by.done.atPass, true);
   assert.equal(by.busy.atPass, false);
   assert.equal(by.settled.yourTurn, false);
-  const html = renderApp({ board, project: null, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
+  const html = renderApp({ board, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
   assert.match(html, /chip c-blue">Your turn/);
   assert.match(html, /Four items wait on your go\./);
 });
@@ -112,7 +141,7 @@ test('a finished, unsettled ticket hands the turn back: it waits at the pass wit
 test('coordinator threads stay out of the stages, the pass and the On hold shelf (Dan, 2026-11-07: Yes Chef replaces them)', () => {
   const board = buildBoard({ projects: [], questions: new Map(), threads: [T('ATC 11-06', { pullRequests: [pr(1, 'open')] })] });
   assert.equal(board.tickets[0].place, 'Coordinators');
-  const html = renderApp({ board, project: null, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
+  const html = renderApp({ board, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
   assert.doesNotMatch(html, /Coordinators/);
   assert.match(html, /aria-label="In review: 0"/);
 });
@@ -121,7 +150,7 @@ test('a ticket opens to its pull requests and stations, each linked out', () => 
   const board = buildBoard({ projects: [{ id: 'p', title: 'P', icon: '/icon/p' }], questions: new Map(), threads: [
     T('t', { status: 'running', pullRequests: [{ repository: 'o/r', number: 7, state: 'open', url: 'https://github.com/o/r/pull/7' }] }),
     T('s1', { parentThreadId: 't', status: 'running', title: 'Build the card', model: 'claude-opus-5-5' })] });
-  const html = renderApp({ board, project: null, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
+  const html = renderApp({ board, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
   assert.match(html, /<article class="plate" id="p-[0-9a-f]{12}"/);
   assert.match(html, /href="https:\/\/github\.com\/o\/r\/pull\/7"/);
   assert.match(html, /href="https:\/\/t3\.example\/env\/s1"[^>]*>Build the card/);
@@ -131,7 +160,7 @@ test('a ticket opens to its pull requests and stations, each linked out', () => 
 test('agent messages: plain on the card, light formatting in the open ticket, T3 links named, nothing unescaped', () => {
   const words = new Map([['done', 'Merged **#2317** at `301206d` and told the [ATC](<t3-thread://v2/env/abc>).\n\n**Merge** <script>x</script>']]);
   const board = buildBoard({ projects: [], questions: new Map(), lastWords: words, threads: [T('done')] });
-  const html = renderApp({ board, project: null, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
+  const html = renderApp({ board, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
   assert.match(html, /<span class="ct-pv">Merged #2317 at 301206d and told the ATC\./);
   assert.match(html, /<b>#2317<\/b> at <code>301206d<\/code>/);
   assert.doesNotMatch(html, /t3-thread:/);
@@ -147,14 +176,14 @@ test('a finished coordinator thread never shows at the pass', () => {
 test('an agent\'s "- " lines become a list in the open ticket, joined without blank lines', () => {
   const words = new Map([['done', 'Intro line.\n- first **bold**\n- second `code`\nAfter.']]);
   const board = buildBoard({ projects: [], questions: new Map(), lastWords: words, threads: [T('done')] });
-  const html = renderApp({ board, project: null, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
+  const html = renderApp({ board, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
   assert.match(html, /Intro line\.<ul><li>first <b>bold<\/b><\/li><li>second <code>code<\/code><\/li><\/ul>After\./);
 });
 
 test('an agent\'s Markdown table becomes a table, escaped, and a lone pipe line stays text', () => {
   const words = new Map([['done', 'Queue:\n| # | PR | CI |\n|---|---|:--:|\n| 1 | #2330 <x> | **green** |\n| 2 | `#2346` | red |\nAfter.\n| not a table |']]);
   const board = buildBoard({ projects: [], questions: new Map(), lastWords: words, threads: [T('done')] });
-  const html = renderApp({ board, project: null, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
+  const html = renderApp({ board, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
   assert.match(html, /Queue:<table class="md"><thead><tr><th>#<\/th><th>PR<\/th><th>CI<\/th><\/tr><\/thead><tbody><tr><td>1<\/td><td>#2330 &lt;x&gt;<\/td><td><b>green<\/b><\/td><\/tr><tr><td>2<\/td><td><code>#2346<\/code><\/td><td>red<\/td><\/tr><\/tbody><\/table>After\./);
   assert.match(html, /After\.\n\| not a table \|/);
 });
@@ -163,7 +192,7 @@ test('a question the ticket itself asks leads its sheet; a station\'s question k
   const qa = { id: 'q', requestId: 'r', question: 'Which?', options: [{ label: 'a', description: 'first' }] };
   const board = buildBoard({ projects: [], questions: new Map([['self', [qa]], ['st', [qa]]]), threads: [
     T('self', { status: 'running' }), T('parent'), T('st', { parentThreadId: 'parent', status: 'running', title: 'Station one' })] });
-  const html = renderApp({ board, project: null, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
+  const html = renderApp({ board, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
   // The ticket's own question goes straight to the dock; a station's carries its name there and a link above.
   assert.match(html, /<p class="dock-k"><span class="chip c-blue">1 question<\/span><\/p><form class="act"[^>]*>(<input[^>]*>){3}<fieldset/);
   assert.match(html, /<b>Station one<\/b> is waiting on your answer\. <a href="https:\/\/t3\.example\/env\/st"/);
@@ -174,7 +203,7 @@ test('a question the ticket itself asks leads its sheet; a station\'s question k
 test('a card labels each pull request by its number: two shown, the rest counted (Dan, 2026-11-08)', () => {
   const many = Array.from({ length: 8 }, (_, i) => pr(i + 1, i === 7 ? 'open' : 'merged'));
   const board = buildBoard({ projects: [], questions: new Map(), threads: [T('one', { pullRequests: [pr(1, 'open')] }), T('eight', { pullRequests: many })] });
-  const html = renderApp({ board, project: null, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
+  const html = renderApp({ board, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
   assert.match(html, /class="th pr-open" title="o\/r#1 open"><i><\/i>#1</);
   // Open ones first.
   assert.match(html, /<i><\/i>#8<\/span><\/span><span class="mb"><span class="th pr-merged"[^>]*><i><\/i>#1</);
@@ -198,7 +227,7 @@ test('a PR linked under its old and new owner shows one label; the data keeps bo
   // A fork's #12 in another state, or a closed link beside a reopened PR, shows as its own label.
   assert.equal(shownPrs([{ repository: 'up/app', number: 12, state: 'open' }, { repository: 'alice/app', number: 12, state: 'merged' }]).length, 2);
   assert.equal(shownPrs([{ repository: 'o/r', number: 5, state: 'closed' }, { repository: 'a/r', number: 5, state: 'open' }]).length, 2);
-  const html = renderApp({ board, project: null, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
+  const html = renderApp({ board, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
   assert.match(html, /<i><\/i>#2371</);
   assert.doesNotMatch(html, /#2371<\/span><span[^>]*><i><\/i>#2371</);
   assert.match(html, /title="reviewwheel\/reviewwheel#2371, ddmirolli\/reviewwheel#2371 open"/);
@@ -215,7 +244,7 @@ test('a ticket at the pass reads like an email: project and model, the thread ti
   const q2 = { id: 'q2', requestId: 'r', question: 'Which day?', options: [{ label: 'Monday' }, { label: 'Friday' }] };
   const board = buildBoard({ projects: [{ id: 'p', title: 'Yes Chef' }], questions: new Map([['ask', [q, q2]]]),
     threads: [T('ask', { title: 'Homepage hero', status: 'running', model: 'claude-opus-5-5', pullRequests: [pr(12, 'open')] })] });
-  const html = renderApp({ board, project: null, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
+  const html = renderApp({ board, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
   const card = html.slice(html.indexOf('<button type="button" class="tile call-tile mail"'), html.indexOf('</button>', html.indexOf('class="tile call-tile mail"')));
   assert.match(card, /<span class="pn">Yes Chef<\/span><\/span><span class="mdl">Opus 5\.5<\/span>/);
   assert.match(card, /<span class="q">Homepage hero<\/span><span class="ct-pv">Which layout\?<\/span>/);
@@ -230,7 +259,7 @@ test('several questions show as cards, one at a time, each with its own legend (
   const q1 = { id: 'q1', requestId: 'r1', question: 'Which layout?', options: [{ label: 'Left' }, { label: 'Centered' }] };
   const q2 = { id: 'q2', requestId: 'r1', question: 'Which day should it go out?', options: [{ label: 'Monday' }, { label: 'Friday' }] };
   const board = buildBoard({ projects: [], questions: new Map([['ask', [q1, q2]]]), threads: [T('ask', { status: 'running' })] });
-  const html = renderApp({ board, project: null, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
+  const html = renderApp({ board, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
   assert.match(html, /<form class="act q-car"/);
   assert.match(html, /<span class="q-pos" aria-live="polite">1 of 2<\/span>/);
   assert.match(html, /<fieldset class="q-set q-on"><legend>Which layout\?<\/legend>/);
@@ -238,7 +267,7 @@ test('several questions show as cards, one at a time, each with its own legend (
   assert.equal((html.match(/data-qto=/g) || []).length, 2);
   // One question: no carousel.
   const one = buildBoard({ projects: [], questions: new Map([['ask', [q1]]]), threads: [T('ask', { status: 'running' })] });
-  const h1 = renderApp({ board: one, project: null, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
+  const h1 = renderApp({ board: one, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
   assert.doesNotMatch(h1, /q-car|q-nav|class="q-set q-on"/);
   assert.match(h1, /<fieldset class="q-set"><legend>Which layout\?<\/legend>/);
 });
@@ -251,7 +280,7 @@ test('kitchen rules: a visual call with no screenshots shows the flag; with one,
     const calls = parseCalls(text(img));
     const words = { latest: { itemId: 'i', text: text(img) }, call: { key: callKey('i', calls), itemId: 'i', text: text(img), calls } };
     const board = buildBoard({ projects: [{ id: 'p', title: 'P' }], threads: [T('v')], questions: new Map(), lastWords: new Map([['v', words]]) });
-    return renderApp({ board, project: null, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example', rules });
+    return renderApp({ board, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example', rules });
   };
   assert.match(html('', null), /class="kr-flag"[^]*data-ask-shots="Send this call again/);
   assert.doesNotMatch(html('\n   ![a](/tmp/a.png)', null), /class="kr-flag"/);
@@ -261,7 +290,7 @@ test('kitchen rules: a visual call with no screenshots shows the flag; with one,
   const calls = parseCalls(text(''));
   const later = { latest: { itemId: 'j', text: 'Here they are.\n\n![a](/tmp/a.png)' }, call: { key: callKey('i', calls), itemId: 'i', text: text(''), calls } };
   const b2 = buildBoard({ projects: [{ id: 'p', title: 'P' }], threads: [T('v')], questions: new Map(), lastWords: new Map([['v', later]]) });
-  assert.doesNotMatch(renderApp({ board: b2, project: null, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example', rules: null }), /class="kr-flag"/);
+  assert.doesNotMatch(renderApp({ board: b2, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example', rules: null }), /class="kr-flag"/);
 });
 
 test('kitchen rules pane: T3 Code-style rows, every project in Applies to, and the rules as safe JSON', async () => {
@@ -279,18 +308,18 @@ test('kitchen rules pane: T3 Code-style rows, every project in Applies to, and t
 test('each refresh carries the saved kitchen rules, as safe JSON, for a second window (PR-Agent r3 on #49)', async () => {
   const { renderApp } = await import('./board.mjs');
   const board = buildBoard({ projects: [], threads: [], questions: new Map() });
-  const html = renderApp({ board, project: null, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example', rules: { all: { notes: '</script>x' }, projects: {} } });
+  const html = renderApp({ board, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example', rules: { all: { notes: '</script>x' }, projects: {} } });
   const json = html.match(/id="yc-rules-now">([^]*?)<\/script>/)[1];
   assert.doesNotMatch(json, /</);
   assert.equal(JSON.parse(json).all.notes, '</script>x');
-  assert.doesNotMatch(renderApp({ board, project: null, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' }), /yc-rules-now/);
+  assert.doesNotMatch(renderApp({ board, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' }), /yc-rules-now/);
 });
 
 test('PR-Agent r6 on #50: a closed pull request has its own dot, and the count adds every waiting question', () => {
   const q = (id, r) => ({ id, requestId: r, question: id + '?', options: [{ label: 'Yes' }, { label: 'No' }] });
   const board = buildBoard({ projects: [], questions: new Map([['parent', [q('p1', 'r1')]], ['station', [q('s1', 'r2')]]]), threads: [
     T('parent', { status: 'running', pullRequests: [pr(3, 'closed')] }), T('station', { parentThreadId: 'parent', status: 'running' })] });
-  const html = renderApp({ board, project: null, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
+  const html = renderApp({ board, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
   assert.match(html, /class="lb th pr-closed"[^>]*><i><\/i>#3</);
   assert.doesNotMatch(html, /pr-merged[^>]*><i><\/i>#3</);
   assert.match(html, /<span class="chip c-blue">2 questions<\/span>/);

@@ -3,7 +3,7 @@
 // Three made-up products: Fernpay, Loopline, Quillo. Nothing here reaches T3 Code or any server.
 // Nothing leaves the pass on its own: every ticket there waits for the visitor's call. The agents answer a
 // call a few seconds later, the way a real agent would, and two tickets in progress finish while the visitor watches.
-import { buildBoard, renderApp } from './lib/board.mjs';
+import { buildBoard, renderApp, pickedFrom } from './lib/board.mjs';
 import { parseCalls, callKey, imageId } from './lib/calls.mjs';
 import { act } from './lib/actions.mjs';
 import { normalize, change } from './lib/kitchen.mjs';
@@ -236,8 +236,8 @@ export function createKitchen({ now = Date.now, where, shot, onChange = () => {}
     /** The app's /app page for a query string, as client/server.mjs route() renders it. */
     page(search = '') {
       board = snapshot();
-      const project = new URLSearchParams(search).get('p');
-      return renderApp({ board, project, link: () => 'https://t3.codes/', status: { ok: true, at: now(), ms: 4 },
+      const picked = pickedFrom(new URLSearchParams(search));
+      return renderApp({ board, picked, link: () => 'https://t3.codes/', status: { ok: true, at: now(), ms: 4 },
         origin: 'https://t3.codes', answered, projects, rules: { ...rules, rev } })
         .replace(/\/img\/([0-9a-f]{20})/g, (all, id) => (SHOTS.has(id) ? shot(SHOTS.get(id)) : all));
     },

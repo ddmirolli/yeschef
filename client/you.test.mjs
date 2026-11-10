@@ -207,7 +207,7 @@ const THREADS = [
 const RUNS = new Map([['cooking', readRuns({ thread: { runCount: 1 }, recentRuns: [run(at(14), null)] })],
   ['review', readRuns({ thread: { runCount: 1 }, recentRuns: [run(at(10), at(12))] })]]);
 const board = (runs = RUNS) => buildBoard({ projects: [{ id: 'p', title: 'Fernpay' }], threads: THREADS, questions: new Map(), runs, today: new Date(NOW) });
-const page = (o = {}) => renderApp({ board: board(o.runs), project: null, link: (t) => `https://t3.example/${t.threadId}`, status: { ok: true, at: NOW, ms: 1 }, origin: 'https://t3.example', ...o });
+const page = (o = {}) => renderApp({ board: board(o.runs), link: (t) => `https://t3.example/${t.threadId}`, status: { ok: true, at: NOW, ms: 1 }, origin: 'https://t3.example', ...o });
 
 test('stage dots are a gray ramp up to In progress, never orange', () => {
   const html = page();
@@ -274,32 +274,53 @@ test('Verified and on hold are chips that open their tickets', () => {
   assert.match(held, /data-thread="held" title="On hold: Snoozed">/);
 });
 
-test('no reports, no switch: the footer chip stays the project menu and nothing names Your team', () => {
+const menuOf = (html) => html.match(/<details class="pmenu vmenu">[\s\S]*?<\/details>/)[0];
+const summaryOf = (html) => menuOf(html).match(/<summary>[\s\S]*?<\/summary>/)[0];
+
+test('no reports: the person and You, the project check boxes, and no toggle (Dan, 2026-11-10)', () => {
   const html = page();
-  assert.doesNotMatch(html, /vmenu|data-scope|id="yc-team"|Your team/);
+  const summary = summaryOf(html);
+  assert.match(summary, /^<summary><svg class="ic who"[^>]*><circle cx="12" cy="8\.25"[\s\S]*?<span class="vl">You<\/span><span class="vdot" aria-hidden="true">·<\/span><span class="vp">All projects<\/span>/);
+  const menu = menuOf(html);
+  assert.match(menu, /<button type="button" class="pk all" role="checkbox" aria-checked="true">/);
+  assert.match(menu, /<button type="button" class="pk" role="checkbox" data-p="Fernpay" aria-checked="true">/);
+  assert.doesNotMatch(html, /data-scope|class="seg"|id="yc-team"|Your team|vi-team/);
 });
 
-test('with reports, the footer chip is the view switch: You, its projects, then Your team in full words', () => {
+test('with reports: the person and You or the toque and Team, never the team or mode name, and the toggle last', () => {
+  for (const mode of ['brigade', 'open', null]) {
+    const html = page({ team: { name: 'Platform', below: 6, mode } });
+    const summary = summaryOf(html);
+    // The toque means Team in both modes; the chip never names the team or its mode.
+    assert.match(summary, /class="ic who vi-you"[^>]*><circle cx="12" cy="8\.25"/);
+    assert.match(summary, /class="ic who vi-team"[^>]*><path d="M7\.6 16\.1/);
+    assert.match(summary, /<span class="vl"><span class="vl-you">You<\/span><span class="vl-team">Team<\/span><\/span>/);
+    assert.doesNotMatch(summary, /Platform|French Brigade|Open kitchen|Your team/);
+    // One line at the bottom of the menu: person and You, toque and Team.
+    const menu = menuOf(html);
+    assert.match(menu, /<hr><div class="seg" role="radiogroup" aria-label="View"><button type="button" role="radio" aria-checked="false" data-scope="you"><svg class="ic"[^>]*><circle cx="12" cy="8\.25"[\s\S]*?<span>You<\/span><\/button><button type="button" role="radio" aria-checked="false" data-scope="team"><svg class="ic"[^>]*><path d="M7\.6 16\.1[\s\S]*?<span>Team<\/span><\/button><\/div><\/nav><\/details>$/);
+  }
   const html = page({ team: { name: 'Platform', below: 6, mode: 'brigade' } });
-  const menu = html.match(/<details class="pmenu vmenu">[\s\S]*?<\/details>/)[0];
-  assert.match(menu, /<span class="vl-you">You · All projects<\/span>/);
-  assert.match(menu, /<p class="mh">You<\/p><a href="\/" data-scope="you" aria-current="page">/);
-  assert.match(menu, /<a class="sub" href="\/\?p=Fernpay" data-scope="you">/);
-  assert.match(menu, /<p class="mh">Your team<\/p><button type="button" data-scope="team">[\s\S]*?6 people below you\. French Brigade/);
-  assert.match(page({ team: { name: 'Platform', below: 1, mode: 'open' } }), /1 person below you\. Open kitchen/);
-  // In Your team the chip shows the mode's icon and its full name, never "Your team" (brief v0.4: it wrapped).
-  const summary = menu.match(/<summary>[\s\S]*?<\/summary>/)[0];
-  assert.match(summary, /<span class="vl-team">French Brigade<\/span>/);
-  assert.match(summary, /class="ic who vi-team"[^>]*><path d="M7\.6 16\.1/);
-  assert.match(page({ team: { name: 'Platform', below: 1, mode: 'open' } }), /<span class="vl-team">Open kitchen<\/span>/);
-  assert.match(page({ team: { name: 'Platform', below: 1, mode: null } }), /<span class="vl-team">Platform<\/span>/);
   assert.match(html, /<script type="application\/json" id="yc-team">\{"name":"Platform","below":6,"mode":"brigade"\}<\/script>/);
-  // Without a good poll the menu does not say "0 need you" (PR-Agent r2 on #74).
-  const down = page({ team: { name: 'Platform', below: 6, mode: 'brigade' }, status: { ok: false, error: 'down', at: NOW, ms: 0 } });
-  assert.match(down.match(/<details class="pmenu vmenu">[\s\S]*?<\/details>/)[0], /<b>Your threads<\/b>[\s\S]*?<span class="n">Not checked<\/span>/);
-  assert.doesNotMatch(down, /0 need you/);
-  // The top bar (phones) has the same switch; The Pass has its Your team state, shown only in that scope.
+  // The top bar (phones) has the same chip and menu; The Pass has its Your team state, shown only in that scope.
   assert.match(html, /<header class="bar">[\s\S]*?<details class="pmenu vmenu">[\s\S]*?<\/header>/);
   assert.match(html, /<div class="head-b"><div class="clear team-pass">[\s\S]*?Your team's calls need the team connection/);
   assert.doesNotMatch(page(), /team-pass/);
+});
+
+test('picked projects: the chip fans their marks, All projects shows a dash, and their names are the tooltip', () => {
+  const two = buildBoard({ projects: [{ id: 'p', title: 'Fernpay' }, { id: 'q', title: 'Loopline' }, { id: 'r', title: 'Quillo' }],
+    threads: [...THREADS, T('loop', { projectId: 'q' }), T('quill', { projectId: 'r' })], questions: new Map(), runs: RUNS, today: new Date(NOW) });
+  const html = renderApp({ board: two, picked: ['Quillo', 'Fernpay'], link: (t) => `https://t3.example/${t.threadId}`, status: { ok: true, at: NOW, ms: 1 }, origin: 'https://t3.example' });
+  const summary = summaryOf(html);
+  // In the menu's order, each a card, with no tooltip of its own: the fan's names them all.
+  assert.match(summary, /<span class="fan" style="--n:2" title="Fernpay, Quillo"><span class="card" style="--i:0"><i class="pm" style="--h:\d+" aria-hidden="true">F<\/i><\/span><span class="card" style="--i:1"><i class="pm" style="--h:\d+" aria-hidden="true">Q<\/i><\/span><span class="vh">Fernpay, Quillo<\/span><\/span>/);
+  assert.doesNotMatch(summary, /All projects/);
+  const menu = menuOf(html);
+  assert.match(menu, /class="pk all" role="checkbox" aria-checked="mixed"/);
+  assert.deepEqual([...menu.matchAll(/data-p="(\w+)" aria-checked="(\w+)"/g)].map((m) => m.slice(1)), [['Fernpay', 'true'], ['Loopline', 'false'], ['Quillo', 'true']]);
+  // You, expanded names the picked projects; the board holds only their tickets.
+  assert.match(html, /<p class="you-sub"><span>Fernpay, Quillo<\/span>/);
+  assert.match(html, /data-thread="quill"/);
+  assert.doesNotMatch(html, /data-thread="loop"/);
 });
