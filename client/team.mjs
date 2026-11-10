@@ -351,7 +351,9 @@ export class Team {
       case 'summary': return this.takeSummary(msg.m, msg.blob, msg.at);
       // Their summary still waiting for the key goes too, so the welcome does not bring back what they unshared
       // (PR-Agent r11 on public #7).
-      case 'gone': this.summaries.delete(msg.m); this.later = this.later.filter((x) => !(x.t === 'summary' && x.m === msg.m)); this.emit('team'); return;
+      // Revisions are whole milliseconds: half past the withdrawn one turns that summary away and lets a newer one in
+      // (PR-Agent r14 on public #7).
+      case 'gone': this.summaries.delete(msg.m); if (this.summaryFloor.has(msg.m)) this.summaryFloor.set(msg.m, this.summaryFloor.get(msg.m) + 0.5); this.later = this.later.filter((x) => !(x.t === 'summary' && x.m === msg.m)); this.emit('team'); return;
       case 'presence': if (msg.on) this.online.add(msg.m); else this.online.delete(msg.m); this.emit('team'); return;
       case 'inbox': return this.take(msg);
       case 'pending': return this.takePending(msg.pending);
@@ -656,12 +658,21 @@ export class Team {
     if (blob.length > this.limits.sendMax) return { status: 400, text: 'That note is too long to send.' };
     let got = null;
     const result = new Promise((resolve) => {
-      const timer = this.timers.setTimeout(() => { this.out.delete(nonce); resolve({ status: 504, text: 'Not checked: no answer from their Yes Chef yet. It runs the action when it comes online, within 15 minutes.' }); }, ASK_MS * 2);
+      const timer = this.timers.setTimeout(() => {
+        const unsure = this.out.get(nonce)?.unsure;
+        this.out.delete(nonce);
+        resolve(unsure
+          ? { status: 504, text: 'Not confirmed: the relay may have taken it. Do not send it again: if it was taken, their Yes Chef runs it when it comes online, within 15 minutes.' }
+          : { status: 504, text: 'Not checked: no answer from their Yes Chef yet. It runs the action when it comes online, within 15 minutes.' });
+      }, ASK_MS * 2);
       this.out.set(nonce, { to, resolve: (r) => { got = r; resolve(r); }, timer });
     });
     const sent = await this.say({ t: 'send', to, blob, ttl: ACT_TTL });
     // Their answer can beat the relay's own: a known result wins over a missing ack (PR-Agent r2 on public #7).
     if (sent.t !== 'ok' && got) return got;
+    // Sent, then the connection dropped or the relay's answer did not come: the relay may hold it, and it can still
+    // run. Wait for their answer as for a taken send, and never say "Not sent" (PR-Agent r14 on public #7).
+    if (sent.code === 'timeout' || sent.code === 'closed') { const o = this.out.get(nonce); if (o) o.unsure = true; return result; }
     if (sent.t !== 'ok') { const o = this.out.get(nonce); this.timers.clearTimeout(o?.timer); this.out.delete(nonce); return { status: 503, text: sent.text }; }
     return result;
   }
@@ -749,7 +760,9 @@ export class Team {
     // back the one it replaced (PR-Agent r11 and r13 on public #7).
     const rev = Math.max(now, (Number(this.state.summaryRev) || 0) + 1);
     this.state.summaryRev = rev;
-    this.save();
+    // On disk before any summary carries it: a restart never reuses a revision teammates already took. Not saved,
+    // nothing goes (PR-Agent r14 on public #7).
+    if (!(await this.saveNow())) throw new Error('This Mac could not save the summary\'s revision, so it did not send it.');
     for (let b = body; ; ) {
       const blob = await sealSigned(key, me, { ...b, at: read, rev }, aad.summary(this.state.team, me.id));
       if (blob.length <= this.limits.summaryMax || !b.tickets.length) return blob;
