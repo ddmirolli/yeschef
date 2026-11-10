@@ -804,3 +804,32 @@ test('a revoked invite leaves the other inviters\' open links', async () => {
   assert.equal((await lws.say({ t: 'revoke', id: 'r', invite: inv.record.invite })).t, 'ok');
   assert.deepEqual(dws.last('invite-gone'), { t: 'invite-gone', invite: inv.record.invite });
 });
+
+test('a delete removes only the registry row of the team it deleted', async () => {
+  // The registry as the Worker keeps it: id -> when it was made. remove() of { id, created } is conditional.
+  const rows = new Map();
+  let hold = null, waiting = false;
+  const relay = fakeRelay({
+    register: async (team, at) => { rows.set(team, at); },
+    unregister: async (team, created) => { if (hold) { waiting = true; await hold; } if (created === undefined || rows.get(team) === created) rows.delete(team); },
+  });
+  const id = newId();
+  const lead = await newMember();
+  const roster = await signRoster(lead, { team: id, ver: 1, lead: lead.id, at: relay.now(), members: [{ id: lead.id, sign: lead.signPub, dh: lead.dhPub }] });
+  const path = `/v1/teams/${id}`;
+  assert.equal((await relay.http('POST', path, { roster })).status, 201);
+  const del = async () => relay.http('DELETE', path, undefined, { authorization: `YesChef ${await authToken(lead, { team: id, method: 'DELETE', path, now: relay.now() })}` });
+  // A retry of the delete whose registry call is slow, while the team is deleted and made again.
+  let go;
+  hold = new Promise((r) => { go = r; });
+  const slow = del();
+  while (!waiting) await new Promise((r) => setImmediate(r));
+  hold = null;
+  assert.equal((await del()).status, 200);
+  relay.tick(1000);
+  const again = await signRoster(lead, { team: id, ver: 1, lead: lead.id, at: relay.now(), members: [{ id: lead.id, sign: lead.signPub, dh: lead.dhPub }] });
+  assert.equal((await relay.http('POST', path, { roster: again })).status, 201);
+  go();
+  await slow;
+  assert.equal(rows.get(id), relay.now(), 'the new team keeps its row');
+});
