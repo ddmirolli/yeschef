@@ -27,7 +27,7 @@
 // download and the restart from a card in the window or the Yes Chef menu. YESCHEF_UPDATE_FEED points the check at a
 // feed served on 127.0.0.1, to test an update without GitHub; with --capture and YESCHEF_UPDATE_DRILL=restart, quit or
 // quit-now, the hidden window clicks through the update itself (see drill below).
-import { app, BrowserWindow, Menu, autoUpdater as squirrel, dialog, ipcMain, nativeTheme, net, protocol, safeStorage, shell, utilityProcess } from 'electron';
+import { app, BrowserWindow, Menu, autoUpdater as squirrel, dialog, ipcMain, nativeTheme, net, powerMonitor, protocol, safeStorage, shell, utilityProcess } from 'electron';
 import electronUpdater from 'electron-updater';
 import { createInterface } from 'node:readline';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -381,6 +381,18 @@ function buildMenu() {
 }
 
 function stopServer() { if (serverUp) server.kill(); }
+// The board server revokes its read-only stream key before it goes (client/server.mjs, stopLive). Quit waits for that,
+// up to 3 s; a key it could not revoke is revoked at the next start.
+function stopStream() {
+  if (!serverUp) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => { clearTimeout(timer); server.off('message', hear); resolve(); };
+    const timer = setTimeout(done, 3000);
+    function hear(m) { if (m && m.type === 'stopped') done(); }
+    server.on('message', hear);
+    server.postMessage({ type: 'stop' });
+  });
+}
 
 // A send waiting out its Undo keeps its four seconds when you quit, close the window or Force Reload: the app waits
 // while the page sends it (or you undo it) and T3 answers, then goes on (hill climb 2 r1, Sol). It asks the page every
@@ -577,11 +589,15 @@ async function drill() {
 }
 
 app.on('window-all-closed', () => app.quit());
+// After sleep or a screen unlock the live stream checks its socket at once (T3 Code's probe on wake).
+app.whenReady().then(() => {
+  for (const ev of ['resume', 'unlock-screen']) powerMonitor.on(ev, () => { if (serverUp) server.postMessage({ type: 'wake' }); });
+});
 app.on('before-quit', (event) => {
   if (drained) return;
   event.preventDefault();
   // When I Quit: the quit also waits for Squirrel.Mac to finish taking the update, so it installs (PR-Agent r2 on #66).
-  Promise.all([drain(win), updates?.whenStaged()]).then(() => { drained = true; app.quit(); });
+  Promise.all([drain(win), updates?.whenStaged()]).then(() => stopStream()).then(() => { drained = true; app.quit(); });
 });
 app.on('will-quit', () => {
   stopServer();
