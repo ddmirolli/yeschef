@@ -865,7 +865,8 @@ function boardOf({ ok, now, want, name, people, plateOf }) {
   };
   // Threads whose changes were not read could share any file, so the list never reads as all clear while some are out.
   const out = [F.unread ? `${plural(F.unread, 'live thread')} not checked: ${F.unread === 1 ? 'its' : 'their'} changed files were not sent.` : '',
-    F.partial ? `${plural(F.partial, 'thread')} sent only part of ${F.partial === 1 ? 'its' : 'their'} files.` : ''].filter(Boolean).join(' ');
+    F.partial ? `${plural(F.partial, 'thread')} sent only part of ${F.partial === 1 ? 'its' : 'their'} files.` : '',
+    F.capped ? `${plural(F.capped, 'Mac')} sent only part of ${F.capped === 1 ? 'its' : 'their'} threads.` : ''].filter(Boolean).join(' ');
   const fbody = !F.compared ? `<p class="nc-l"><b>Not checked</b> No live thread has sent its changed files.</p>`
     : F.rows.length ? `<div class="sfl" role="list">${F.rows.slice(0, 8).map(frow).join('')}</div>${F.rows.length > 8 ? `<p class="tmore">And ${plural(F.rows.length - 8, 'more file')}.</p>` : ''}${out ? `<p class="tmore">${e(out)}</p>` : ''}`
     : out ? `<p class="nc-l">No file is changed by two of the ${plural(F.compared, 'thread')} read. ${e(out)}</p>` : `<p class="nc-l">No file is changed by two live threads.</p>`;

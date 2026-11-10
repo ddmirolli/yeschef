@@ -1972,7 +1972,12 @@ ${BAR_HTML}
   // A part only one side has: #yc-team and Your team's panel come and go with the team connection.
   function swapAny(sel, fresh, before, keepScroll){
     var old = $(sel, app), nu = fresh.querySelector(sel);
-    if (old && nu) { var st = keepScroll ? $$(keepScroll, old).map(function(x){ return x.scrollTop; }) : []; old.replaceWith(nu); if (keepScroll) $$(keepScroll, nu).forEach(function(x, i){ x.scrollTop = st[i] || 0; }); }
+    // keepScroll: the selectors whose scroll, down and across, survives the swap (each matched by its own order).
+    if (old && nu) {
+      var keep = keepScroll ? keepScroll.split(',').map(function(s){ s = s.trim(); return [s, $$(s, old).map(function(x){ return [x.scrollTop, x.scrollLeft]; })]; }) : [];
+      old.replaceWith(nu);
+      keep.forEach(function(k){ $$(k[0], nu).forEach(function(x, i){ var p = k[1][i] || [0, 0]; x.scrollTop = p[0]; x.scrollLeft = p[1]; }); });
+    }
     else if (old) old.remove();
     else if (nu) { var b = $(before, app); if (b) b.before(nu); }
   }
@@ -1995,7 +2000,7 @@ ${BAR_HTML}
     var t = document.createElement('template'); t.innerHTML = html; var fresh = t.content;
     swap('.stats', fresh); swap('.pmenu', fresh); swap('.bar .lamps', fresh); swap('.stagenav', fresh, '.nav-scroll');
     // You, expanded: its numbers, columns and chips all come fresh; where you scrolled stays.
-    swap('.you', fresh, '.you-b, .tray-b'); swapAny('.team-wait', fresh, '.head'); swapAny('.tboard', fresh, '.head', '.you-b'); swap('.head', fresh, '.head-b');
+    swap('.you', fresh, '.you-b, .tray-b'); swapAny('.team-wait', fresh, '.head'); swapAny('.tboard', fresh, '.head', '.you-b, .tl-s'); swap('.head', fresh, '.head-b');
     swap('#yc-projects', fresh); swapAny('#yc-team', fresh, '#plates'); swap('#yc-rules-now', fresh); if (typeof krLive === 'function') krLive();
     $$('.strip:not(.netstrip)', app).forEach(function(s){ s.remove(); });
     var strip = fresh.querySelector('.strip'); if (strip) $('.bar', app).after(strip);

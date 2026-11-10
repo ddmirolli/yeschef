@@ -496,6 +496,6 @@ export function kitchenBoard(ok, { now, want = null }) {
     people: rowsAll.length, threads: liveTickets.length,
     base, merged, review, agents,
     timeline: { from: winFrom, to: now, day: d0, rows: rowsAll, links },
-    files: { rows: files, at: filesAt, compared: reads.length, unread, partial },
+    files: { rows: files, at: filesAt, compared: reads.length, unread, partial, capped: gap.capped },
   };
 }

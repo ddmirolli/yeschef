@@ -625,3 +625,12 @@ test('r3: a PR any summary reports merged never waits for review', () => {
   who(v, 'ravi').summary.tickets[0].prs.push({ ...ticket(v, 'kai').prs[0], state: 'merged', mergedAt: new Date(agoL(5)).toISOString() });
   assert.equal(board(v).review.count, n - 1);
 });
+
+// ---- PR B, PR-Agent round 4 ----
+test('r4: a Mac whose summary left threads out qualifies the shared files list too', () => {
+  const v = viewL();
+  who(v, 'kai').summary.more = 4;
+  assert.equal(board(v).files.capped, 1);
+  assert.ok(page({ view: v, now: NOWL }).includes('1 Mac sent only part of its threads.'));
+  assert.equal(board(viewL()).files.capped, 0);
+});
