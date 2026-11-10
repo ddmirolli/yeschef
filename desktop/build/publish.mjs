@@ -52,6 +52,29 @@ export function releaseFiles(version) {
   return [`${name}.dmg`, `${name}.zip`, `${name}.zip.blockmap`, `${channelOf(version)}-mac.yml`];
 }
 
+/**
+ * The plan to publish in Actions: the Plan job's output (`planned`), plus only what the build adds, its time and its
+ * files, from the build's plan file (`built`). That file comes from the build job, which runs npm's install scripts,
+ * so it decides nothing else. Only `planned` passed the Stable gate. A changed planned field, an added field, or files
+ * that are not the version's own stop the release.
+ */
+export function trustedPlan(planned, built) {
+  const show = (v) => { const s = JSON.stringify(v) ?? 'nothing'; return s.length > 80 ? `${s.slice(0, 77)}...` : s; };
+  const problems = [];
+  if (planned?.due !== true) problems.push('the Plan job planned no release');
+  for (const key of Object.keys(planned || {})) {
+    if (JSON.stringify(built?.[key]) !== JSON.stringify(planned[key])) problems.push(`${key} is ${show(built?.[key])} in the build's plan, ${show(planned[key])} in Plan's`);
+  }
+  for (const key of Object.keys(built || {})) {
+    if (!Object.hasOwn(planned || {}, key) && key !== 'built' && key !== 'files') problems.push(`the build's plan adds ${key}`);
+  }
+  const names = (Array.isArray(built?.files) ? built.files : []).map((f) => f?.name).sort();
+  const want = planned?.version ? releaseFiles(planned.version).sort() : [];
+  if (JSON.stringify(names) !== JSON.stringify(want)) problems.push(`the built files are ${names.join(', ') || 'none'}, not ${want.join(', ')}`);
+  if (problems.length) throw new Error(`The build's plan does not match the Plan job's. Not published:\n${problems.map((p) => `  - ${p}`).join('\n')}`);
+  return { ...planned, built: built.built, files: built.files };
+}
+
 const versionOf = (tag) => String(tag).replace(/^v/, '');
 
 /** The tag of the newest published Nightly in `releases` (as for pickRelease), or null when there is none. */
@@ -295,8 +318,13 @@ function build(file) {
 
 async function publish(file) {
   needTerminal();
-  const p = readPlan(file);
+  let p = readPlan(file);
   if (p.dryRun) fail('A dry run is never published.');
+  // In Actions the plan file arrives from the build job, so the Plan job's output decides what is released.
+  if (CI) {
+    if (!process.env.RELEASE_PLAN) fail('RELEASE_PLAN is empty. In Actions, publish takes the plan from the Plan job\'s output.');
+    try { p = trustedPlan(JSON.parse(process.env.RELEASE_PLAN), p); } catch (e) { fail(e.message); }
+  }
   if (!p.files?.length) fail('The plan has no built files. Run the build first.');
   // In Actions the files arrive next to the plan file; on Dan's Mac they stay where the build left them.
   const at = (f) => (CI ? join(dirname(file), f.name) : f.path);

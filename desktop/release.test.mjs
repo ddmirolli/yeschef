@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FUSES, FUSE_WIRE, TEAM_ID, appUpdateProblems, checkApp, checkDmg, entitlementKeys, feedProblems, fuseProblems, identities, literalPattern, machOFiles, pickIdentity, resultLine, rewriteFeed, runningFrom, targetsFor, topLevel, writesAppUpdate } from './build/release.mjs';
-import { assetProblems, changelogEntry, ghArgs, newestNightly, nightlyDue, parseArgs, pickRelease, releaseFiles, releaseNotes, releaseTitle, settle } from './build/publish.mjs';
+import { assetProblems, changelogEntry, ghArgs, newestNightly, nightlyDue, parseArgs, pickRelease, releaseFiles, releaseNotes, releaseTitle, settle, trustedPlan } from './build/publish.mjs';
 
 const DEV = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const DEVID = 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
@@ -345,6 +345,47 @@ test('--ci runs only where GitHub Actions says it runs, and drops only the termi
     r = publishCli(['plan', '0.2.0', join(dir, 'p.json'), '--if-changed']);
     assert.match(r.stderr, /--if-changed is for the scheduled Nightly only/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// A Nightly as the Plan job plans it, and the build's plan file for it.
+const PLANNED = { version: '0.2.1-nightly.20261112.1', channel: 'nightly', tag: 'v0.2.1-nightly.20261112.1', from: null, due: true, commit: 'a'.repeat(40), title: 'Yes Chef (Nightly) 0.2.1-nightly.20261112.1', repo: 'ddmirolli/yeschef', plannedAt: '2026-11-12T08:23:00.000Z' };
+const builtFiles = (version) => releaseFiles(version).map((name) => ({ name, path: name, size: 1, sha512: 'x' }));
+const BUILT = { ...PLANNED, built: '2026-11-12T08:40:00.000Z', files: builtFiles(PLANNED.version) };
+
+test('publish in Actions takes the plan from the Plan job; the build adds only its time and files', () => {
+  assert.deepEqual(trustedPlan(PLANNED, BUILT), BUILT);
+  // A build that turns its Nightly into a Stable, or moves its commit, publishes nothing.
+  assert.throws(() => trustedPlan(PLANNED, { ...BUILT, channel: 'latest' }), /channel is "latest" in the build's plan, "nightly" in Plan's/);
+  assert.throws(() => trustedPlan(PLANNED, { ...BUILT, version: '0.2.1', channel: 'latest', tag: 'v0.2.1', files: builtFiles('0.2.1') }),
+    /- version is "0\.2\.1".*\n.*- channel is "latest".*\n.*- tag is "v0\.2\.1".*\n.*- the built files are /);
+  assert.throws(() => trustedPlan(PLANNED, { ...BUILT, commit: 'b'.repeat(40) }), /commit is "b{40}"/);
+  assert.throws(() => trustedPlan(PLANNED, { ...BUILT, notes: 'x' }), /the build's plan adds notes/);
+  // Only the version's own files: a Nightly carries nightly-mac.yml, never latest-mac.yml.
+  assert.throws(() => trustedPlan(PLANNED, { ...BUILT, files: [...BUILT.files.slice(0, 3), { ...BUILT.files[3], name: 'latest-mac.yml' }] }), /the built files are .*latest-mac\.yml/);
+  assert.throws(() => trustedPlan(PLANNED, { ...BUILT, files: undefined }), /the built files are none/);
+  assert.throws(() => trustedPlan({ due: false, reason: 'nothing new' }, BUILT), /the Plan job planned no release/);
+});
+
+test('publish --ci needs the Plan job\'s plan and stops on a changed one, before it calls GitHub', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'yeschef-trust-'));
+  try {
+    const file = join(dir, 'plan.json');
+    writeFileSync(file, JSON.stringify(BUILT));
+    let r = publishCli(['publish', file, '--ci'], { GITHUB_ACTIONS: 'true', RELEASE_PLAN: '' });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /RELEASE_PLAN is empty/);
+    r = publishCli(['publish', file, '--ci'], { GITHUB_ACTIONS: 'true', RELEASE_PLAN: JSON.stringify({ ...PLANNED, commit: 'c'.repeat(40) }) });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /does not match the Plan job's\. Not published:\n {2}- commit is "a{40}" in the build's plan/);
+    // A matching plan passes, and the release stops at the files, which this test does not have.
+    r = publishCli(['publish', file, '--ci'], { GITHUB_ACTIONS: 'true', RELEASE_PLAN: JSON.stringify(PLANNED) });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /changed after the build\. Not published/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+  // The workflow hands publish the Plan job's output, and the summary reads it too.
+  const { jobs } = releaseWorkflow();
+  assert.match(jobs.publish, /RELEASE_PLAN: \$\{\{ needs\.plan\.outputs\.plan \}\}/);
+  assert.doesNotMatch(jobs.publish, /jq[^\n]*"\$RUNNER_TEMP\/release\/plan\.json"/);
 });
 
 // The release workflow without its comments, and its jobs by name.

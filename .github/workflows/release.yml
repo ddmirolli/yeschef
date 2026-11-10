@@ -236,13 +236,16 @@ jobs:
           name: release-files
           path: ${{ runner.temp }}/release
 
+      # What is released comes from the Plan job, the plan the Stable gate saw. The artifact comes from the build job,
+      # which runs npm's install scripts: publish.mjs takes only its time and files, and stops on any other change.
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_PLAN: ${{ needs.plan.outputs.plan }}
         run: |
           set -euo pipefail
           node desktop/build/publish.mjs publish "$RUNNER_TEMP/release/plan.json" --ci
-          jq -r '"### Published \(.title)\n\nhttps://github.com/\(.repo)/releases/tag/\(.tag)"' "$RUNNER_TEMP/release/plan.json" >> "$GITHUB_STEP_SUMMARY"
+          jq -r '"### Published \(.title)\n\nhttps://github.com/\(.repo)/releases/tag/\(.tag)"' <<<"$RELEASE_PLAN" >> "$GITHUB_STEP_SUMMARY"
 
   # Proves the signing secrets without building: dispatch with channel signing-check, from main. It reads the vault
   # as a release does, imports the certificate, asks Apple whether it accepts the notarization key, and deletes it all.
