@@ -84,8 +84,10 @@ export function below(view) {
 /** Is the dev's Mac reporting? true, false, or null when Yes Chef cannot say (no summary yet, or this Mac is
  *  offline: then nobody reads as reporting). lastSeen: the relay's time their socket last closed (proposed), else the
  *  summary's own signed time. */
+// A summary counts as a report only when it is an object with a list of tickets; anything else is not checked.
+const okSummary = (s) => !!s && typeof s === 'object' && Array.isArray(s.tickets);
 export function reporting(p, { now, link, rules = RULES }) {
-  if (link !== 'online' || !p.summary) return null;
+  if (link !== 'online' || !okSummary(p.summary)) return null;
   if (p.online) return true;
   const last = num(p.lastSeen) ?? num(p.at);
   if (last === null) return null;
@@ -295,7 +297,7 @@ export function openKitchen(view, { now = Date.now(), rules = RULES } = {}) {
   const team = below(view);
   if (view?.link !== 'online') return { status: 'not-checked', why: 'offline', linkAt: num(view?.linkAt), people: team.map((p) => ({ ...p, state: 'unknown', reporting: null })), pass: [], held: [] };
   const people = team.filter((p) => typeof p.id === 'string').map((p) => ({ ...p, name: str(p.name), reporting: reporting(p, { now, link: view.link, rules }) }));
-  if (!people.some((p) => p.summary)) return { status: 'not-checked', why: 'no-summaries', people: people.map((p) => ({ ...p, state: 'unknown' })), pass: [], held: [] };
+  if (!people.some((p) => okSummary(p.summary))) return { status: 'not-checked', why: 'no-summaries', people: people.map((p) => ({ ...p, state: 'unknown' })), pass: [], held: [] };
   const quiet = new Set(people.filter((p) => p.reporting === false).map((p) => p.id));
   const tickets = people.flatMap((p) => arr(p.summary?.tickets).map((k) => ({ k: cleanTicket(k), p, live: p.reporting === true }))).filter(({ k }) => k.thread);
   // Only a reporting dev's data raises a call: a quiet Mac's is old. Two exceptions: a question still waits while its
@@ -313,7 +315,7 @@ export function openKitchen(view, { now = Date.now(), rules = RULES } = {}) {
   const inPass = new Set(pass.flatMap((c) => c.who)), holding = new Set(held.flatMap((c) => c.who));
   // A dev counts once: Not reporting first (their data is old), then In The Pass, Fixing an alarm, On track.
   for (const p of people) {
-    p.state = !p.summary || p.reporting === null ? 'unknown' : quiet.has(p.id) ? 'quiet' : inPass.has(p.id) ? 'pass' : holding.has(p.id) ? 'alarm' : 'track';
+    p.state = p.reporting === null ? 'unknown' : quiet.has(p.id) ? 'quiet' : inPass.has(p.id) ? 'pass' : holding.has(p.id) ? 'alarm' : 'track';
   }
   return { status: 'live', people, pass, held };
 }

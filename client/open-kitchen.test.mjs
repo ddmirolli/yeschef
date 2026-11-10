@@ -406,3 +406,12 @@ test('review r5: done work is not an Overlap; the rebase target is the PR in the
   v = view(); delete ticket(v, 'ravi').prs[0].size.added;
   assert.doesNotMatch(page({ view: v, now: NOW }), /5 files, \+0/);
 });
+
+test('review r6: a summary that is not an object with tickets is not checked, never On track', () => {
+  for (const bad of [7, 'x', { tickets: 'no' }, []]) {
+    let v = view(); who(v, 'maya').summary = bad;
+    assert.equal(read(v).people.find((p) => p.id === 'maya').state, 'unknown');
+    v = view(); for (const p of v.people) if (p.id !== 'me') p.summary = bad;
+    assert.equal(read(v).status, 'not-checked');
+  }
+});
