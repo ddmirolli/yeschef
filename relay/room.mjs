@@ -271,12 +271,13 @@ export class Room {
     }
     if (rest === '' && method === 'DELETE') {
       const auth = (request.headers.get('authorization') || '').replace(/^YesChef\s+/i, '');
-      const m = await checkAuth(auth, { team, method, path: url.pathname, now: this.now(), signPubOf: (id) => this.member(id)?.sign || null });
-      if (!m || !this.isLead(m)) return fail(403, 'Only the lead can delete the team.');
-      // The registry row goes only as this team made it: a slow retry of this delete never removes the row of a team
-      // made again under this id (PR-Agent r7 on public #6).
+      // The team as it was before the token check: a team deleted and made again under this id while it ran is a
+      // different team, and this delete never touches it (PR-Agent r10 on public #6). The registry row goes only as
+      // this team made it too (PR-Agent r7 on public #6).
       const created = this.teamRow()?.created ?? null;
-      if (created === null) return fail(404, 'Not a relay address.');
+      const m = await checkAuth(auth, { team, method, path: url.pathname, now: this.now(), signPubOf: (id) => this.member(id)?.sign || null });
+      if (created === null || (this.teamRow()?.created ?? null) !== created) return fail(404, 'Not a relay address.');
+      if (!m || !this.isLead(m)) return fail(403, 'Only the lead can delete the team.');
       for (const ws of this.sockets.list()) this.sockets.close(ws, 4004, 'The lead deleted the team.');
       // The cache is cleared only after the delete, and read again from storage if it failed: a delete that stops
       // halfway leaves a team that still answers, so the lead can retry it and /v1/usage keeps it listed (PR-Agent r1

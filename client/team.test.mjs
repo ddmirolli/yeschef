@@ -1210,3 +1210,66 @@ test('a probe that answers after a stop and start leaves the new connection alon
   assert.equal(dev.link, 'online');
   dev.stop(); lead.stop();
 });
+
+test('start() during a backoff leaves no retry to knock the new connection offline', async () => {
+  const { net, timers, lead, dev } = await crew();
+  net.drop();
+  await until(() => dev.link === 'waiting', 'a retry set');
+  const ms = dev.retryMs;
+  dev.start();
+  await until(() => dev.link === 'online', 'online again');
+  await timers.advance(ms);
+  await settle(); await settle();
+  assert.equal(dev.link, 'online');
+  lead.stop(); dev.stop();
+});
+
+test('a summary held through an outage carries the time its board was read', async () => {
+  const { relay, timers, lead, dev } = await crew();
+  const say = dev.say.bind(dev);
+  let lose = true;
+  dev.say = (msg) => (lose && msg.t === 'summary' ? Promise.resolve({ t: 'err', code: 'closed', text: 'Not sent.' }) : say(msg));
+  const read = relay.now();
+  dev.board(boardNow(read));
+  await settle(); await settle();
+  lose = false;
+  await timers.advance(60000);
+  await until(() => lead.summaries.size === 1, 'the summary at the lead');
+  assert.equal(lead.summaries.get(dev.meId).at, read);
+  lead.stop(); dev.stop();
+});
+
+test('after the clock goes back, a forget waits one limit, not the whole jump', async () => {
+  const { relay, timers, lead, dev } = await crew();
+  dev.board(boardNow(relay.now()));
+  await until(() => lead.summaries.size === 1);
+  dev.now = () => relay.now() - 3600000;
+  await dev.share([]);
+  await timers.advance(10000);
+  await until(() => lead.summaries.size === 0, 'the summary gone');
+  lead.stop(); dev.stop();
+});
+
+test('a summary dated far ahead is not taken, so right-dated ones still show', async () => {
+  const { relay, timers, lead, dev } = await crew();
+  dev.now = () => relay.now() + 86400000;
+  dev.board(boardNow(relay.now()));
+  await settle(); await settle(); await settle();
+  await timers.advance(10000);
+  dev.now = () => relay.now();
+  const b = boardNow(relay.now()); b.tickets[1].place = 'Merged';
+  dev.board(b);
+  await timers.advance(10000);
+  await until(() => lead.summaries.get(dev.meId)?.body.tickets.some((k) => k.place === 'Merged'), 'the right-dated summary');
+  lead.stop(); dev.stop();
+});
+
+test('a Mac waiting for its key keeps one summary per teammate, the latest', async () => {
+  const { lead, dev } = await crew();
+  dev.key = null; dev.state.key = null;
+  for (let i = 0; i < 5; i++) await dev.takeSummary(lead.meId, `blob-${i}`, i);
+  const held = dev.later.filter((x) => x.t === 'summary' && x.m === lead.meId);
+  assert.equal(held.length, 1);
+  assert.equal(held[0].blob, 'blob-4');
+  lead.stop(); dev.stop();
+});
