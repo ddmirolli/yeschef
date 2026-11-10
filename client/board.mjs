@@ -603,7 +603,8 @@ function viewMenu({ team, projs, picked, icons, ok }) {
     : `<span class="fan" style="--n:${on.length}" title="${names}">${on.map((nm, i) => `<span class="card" style="--i:${i}">${fanMark(nm, icons.get(nm))}</span>`).join('')}<span class="vh">${names}</span></span>`;
   const who = team ? `${svg('person', 'ic who vi-you')}${svg('toque', 'ic who vi-team')}<span class="vl"><span class="vl-you">You</span><span class="vl-team">Team</span></span>`
     : `${svg('person', 'ic who')}<span class="vl">You</span>`;
-  const box = ([nm, m]) => `<button type="button" class="pk" role="checkbox" data-p="${e(nm)}" aria-checked="${sel.has(nm)}">${CB}${m}<span class="vn">${e(nm)}</span></button>`;
+  // data-gone: a pick with no ticket now. The page script counts All projects as every box but these.
+  const box = ([nm, m, here]) => `<button type="button" class="pk" role="checkbox" data-p="${e(nm)}"${here ? '' : ' data-gone'} aria-checked="${sel.has(nm)}">${CB}${m}<span class="vn">${e(nm)}</span></button>`;
   const seg = team ? `<hr><div class="seg" role="radiogroup" aria-label="View">`
     + `<button type="button" role="radio" aria-checked="false" data-scope="you">${svg('person')}<span>You</span></button>`
     + `<button type="button" role="radio" aria-checked="false" data-scope="team">${svg('toque')}<span>Team</span></button></div>` : '';

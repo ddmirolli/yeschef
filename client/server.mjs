@@ -2521,9 +2521,12 @@ ${BAR_HTML}
         pk.addEventListener('animationend', function(){ pk.classList.remove('no'); }, { once: true });
         return;
       }
-      names = boxes.filter(function(b){ return b === pk ? !on(b) : on(b); }).map(function(b){ return b.dataset.p; });
-      // Every box is All projects, unless T3 did not answer: then the list is not the whole of it.
-      if (names.length === boxes.length && !nav.hasAttribute('data-nc')) names = null;
+      var ticked = boxes.filter(function(b){ return b === pk ? !on(b) : on(b); });
+      names = ticked.map(function(b){ return b.dataset.p; });
+      // Every project on the board, and no pick that has no ticket now (data-gone), is All projects, as the server
+      // reads it; unless T3 did not answer: then the list is not the whole of it.
+      var gone = function(b){ return b.hasAttribute('data-gone'); };
+      if (!nav.hasAttribute('data-nc') && !ticked.some(gone) && ticked.length === boxes.filter(function(b){ return !gone(b); }).length) names = null;
     }
     drawPicked(names);
     var q = names ? '?' + names.map(function(n){ return 'p=' + encodeURIComponent(n); }).join('&') : '';
@@ -2534,7 +2537,8 @@ ${BAR_HTML}
   function drawPicked(names){
     $$('details.vmenu').forEach(function(d){
       var boxes = $$('.pk[data-p]', d), all = $('.pk.all', d), sel = [];
-      boxes.forEach(function(b){ var y = !names || names.indexOf(b.dataset.p) >= 0; b.setAttribute('aria-checked', String(y)); if (y) sel.push(b); });
+      // All projects is every project on the board: a pick with no ticket now (data-gone) is not one of them.
+      boxes.forEach(function(b){ var y = names ? names.indexOf(b.dataset.p) >= 0 : !b.hasAttribute('data-gone'); b.setAttribute('aria-checked', String(y)); if (y) sel.push(b); });
       if (all) all.setAttribute('aria-checked', names ? 'mixed' : 'true');
       var cur = $('summary .vp, summary .fan', d), nw = document.createElement('span');
       if (!names) { nw.className = 'vp'; nw.textContent = 'All projects'; }

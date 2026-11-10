@@ -91,7 +91,8 @@ test('the address picks projects: p repeats, and no p is All projects', () => {
 test('a picked project with no tickets now stays in the menu, so it can be unticked', () => {
   const board = buildBoard({ projects: [{ id: 'y', title: 'Y' }], questions: new Map(), threads: [T('a', { projectId: 'y' })] });
   const html = renderApp({ board, picked: ['Gone', 'Y'], link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
-  assert.deepEqual([...html.matchAll(/data-p="(\w+)" aria-checked="(\w+)"/g)].map((m) => m.slice(1)).slice(0, 2), [['Gone', 'true'], ['Y', 'true']]);
+  // The pick with no ticket is marked, so the page script counts All projects as Y alone, as the server does.
+  assert.deepEqual([...html.matchAll(/data-p="(\w+)"( data-gone)? aria-checked="(\w+)"/g)].map((m) => m.slice(1)).slice(0, 2), [['Gone', ' data-gone', 'true'], ['Y', undefined, 'true']]);
   assert.match(html, /<span class="fan" style="--n:2" title="Gone, Y">/);
 });
 
