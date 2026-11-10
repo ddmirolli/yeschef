@@ -394,11 +394,14 @@ export function kitchenBoard(ok, { now, want = null }) {
   const rv = new Map();
   for (const { k, person, live } of all) if (live && k.place === 'In review') for (const pr of k.prs) if (pr.state === 'open' && !pr.draft && !rv.has(prKey(pr.repo, pr.n))) rv.set(prKey(pr.repo, pr.n), { n: pr.n, repo: pr.repo, person, at: pr.readyAt });
   const ready = [...rv.values()];
-  const review = { count: ready.length, ages: ready.length && ready.every((r) => r.at !== null) ? ready.map((r) => Math.max(0, now - r.at)).sort((a, z) => z - a) : null };
+  // A Mac that is not reporting may hold more: in a picked project, one whose old summary has work there or that sent
+  // none. The live counts then say how many Macs are out, never read as the whole team.
+  const away = ok.people.filter((p) => p.reporting !== true && (!want || !okSummary(p.summary) || all.some((t) => t.person === p.id))).length;
+  const review = { count: ready.length, away, ages: ready.length && ready.every((r) => r.at !== null) ? ready.map((r) => Math.max(0, now - r.at)).sort((a, z) => z - a) : null };
 
   // Agents running: from reporting Macs only, since a quiet Mac's count is old.
   const liveTickets = all.filter(({ k, live }) => live && Object.hasOwn(STAGE_RANK, k.place ?? '') && k.place !== 'Merged');
-  const agents = { count: liveTickets.reduce((n, { k }) => n + k.working, 0), threads: liveTickets.filter(({ k }) => k.working > 0).length };
+  const agents = { count: liveTickets.reduce((n, { k }) => n + k.working, 0), threads: liveTickets.filter(({ k }) => k.working > 0).length, away };
 
   // Who's on what: one row per person, In The Pass first. Each thread is a bar from its start to its merge, or to now
   // (to the last report for a dev who is not reporting). A thread with no start time is counted, not drawn.
@@ -479,12 +482,13 @@ export function kitchenBoard(ok, { now, want = null }) {
   // When the list was read: the oldest read among the threads it compares.
   const reads = all.filter(({ k, live }) => comparable(k, live)).map(({ k }) => k.changes.at);
   const unread = all.filter(({ k, live }) => live && Object.hasOwn(STAGE_RANK, k.place ?? '') && k.place !== 'Merged' && k.changes?.state !== 'checked').length;
+  const partial = all.filter(({ k, live }) => comparable(k, live) && (k.changes.more ?? 0) > 0).length;
   const filesAt = reads.length && reads.every((t) => t !== null) ? Math.min(...reads) : null;
 
   return {
     people: rowsAll.length, threads: liveTickets.length,
     base, merged, review, agents,
-    timeline: { from: winFrom, to: now, rows: rowsAll, links },
-    files: { rows: files, at: filesAt, compared: reads.length, unread },
+    timeline: { from: winFrom, to: now, day: d0, rows: rowsAll, links },
+    files: { rows: files, at: filesAt, compared: reads.length, unread, partial },
   };
 }

@@ -434,9 +434,9 @@ test('expanded: the instruments from the made-up team', () => {
   assert.equal(B.merged.count, B.base.merges.length);
   assert.equal(B.merged.byHour.reduce((a, n) => a + n, 0), 5);
   assert.equal(B.merged.usual, null, 'no merge history is sent, so usual by now is not checked');
-  assert.deepEqual(B.review, { count: 3, ages: [236, 128, 44].map((m) => m * MIN) });
+  assert.deepEqual(B.review, { count: 3, away: 1, ages: [236, 128, 44].map((m) => m * MIN) });
   // Lee is not reporting, so their thread's agent is not counted as running now; Tom's planned thread runs none.
-  assert.deepEqual(B.agents, { count: 20, threads: 12 });
+  assert.deepEqual(B.agents, { count: 20, threads: 12, away: 1 });
 });
 
 test('expanded: Who’s on what puts In The Pass first, links the Overlap, and hatches a quiet Mac', () => {
@@ -562,4 +562,42 @@ test('r1: a call’s word is inside its bar, so a click on the word opens the ca
   assert.ok(tags > 0);
   assert.equal([...html.matchAll(inBar)].length, tags, 'every tag is inside its bar');
   assert.ok(inButton > 0, 'a call in The Pass: the bar and its word are one button');
+});
+
+// ---- PR B, PR-Agent round 2 ----
+test('r2: a thread that sent only part of its files is counted, so a clear list says so', () => {
+  const v = viewL();
+  ticket(v, 'ada').changes.more = 12;
+  const F = board(v).files;
+  assert.equal(F.partial, 1);
+  assert.ok(page({ view: v, now: NOWL }).includes('1 thread sent only part of its files.'));
+  assert.equal(board(viewL()).files.partial, 0);
+});
+
+test('r2: a Mac that is not reporting makes Waiting for review and Agents running say so, never a bare 0', () => {
+  const html = page({ view: viewL(), now: NOWL });
+  assert.equal((html.match(/<span class="cap"><span>Not counted: 1 Mac not reporting<\/span><\/span>/g) || []).length, 2, 'under Waiting for review and Agents running');
+  // With no live PR in review and a Mac out, the count is not checked.
+  const v = viewL();
+  for (const id of ['kai', 'nina', 'iris']) ticket(v, id).place = 'In progress';
+  const B = board(v);
+  assert.deepEqual([B.review.count, B.review.away], [0, 1]);
+  assert.match(page({ view: v, now: NOWL }), /<b class="nc">Not checked<\/b><span>1 Mac not reporting<\/span>/);
+  // A picked project counts only the Macs out that may have work in it.
+  assert.equal(board(viewL(), new Set(['Fernpay'])).review.away, 0);
+  assert.equal(board(viewL(), new Set(['Quillo'])).review.away, 1);
+});
+
+test('r2: a Mac quiet since before the window draws from the window’s edge and keeps its real time', () => {
+  const v = viewL();
+  const lee = who(v, 'lee');
+  lee.lastSeen = NOWL - 20 * 60 * MIN;
+  lee.at = lee.lastSeen;
+  const T = board(v).timeline;
+  assert.ok(T.rows.find((r) => r.person === 'lee').quiet.since < T.from);
+  const html = page({ view: v, now: NOWL });
+  const band = html.match(/<span class="tlb off clip" style="[^"]*left:([0-9.]+)%[^"]*">Mac quiet since ([^<]+)</);
+  assert.ok(band, 'the band is clipped at the window');
+  assert.equal(Number(band[1]), 0);
+  assert.equal(band[2], new Date(NOWL - 20 * 60 * MIN).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }));
 });

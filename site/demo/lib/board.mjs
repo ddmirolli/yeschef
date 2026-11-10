@@ -790,11 +790,15 @@ function boardOf({ ok, now, want, name, people, plateOf }) {
     + `<span class="cap"><span>${hh(m.from)}</span><span>now</span></span>`;
   // 3. Waiting for review: PRs ready for review and how long each has waited, oldest first.
   const r = B.review;
-  const v3 = r.count ? `<b>${r.count}</b><span>${r.count === 1 ? 'PR' : 'PRs'}, oldest ${r.ages ? span(Math.round(r.ages[0] / 60000)) : 'not checked'}</span>` : '<b>0</b><span>no PR waits</span>';
-  const rbars = r.ages ? bars(r.ages.slice(0, 12).map((a) => Math.round(a / 60000)), `How long each waits: ${r.ages.slice(0, 12).map((a) => span(Math.round(a / 60000))).join(', ')}`) : '';
+  // A Mac that is not reporting may hold more, so a caption says so; with none counted the count is not checked, never 0.
+  const awayW = (n) => `${plural(n, 'Mac')} not reporting`;
+  const awayCap = (n) => n ? `<span class="cap"><span>Not counted: ${awayW(n)}</span></span>` : '';
+  const v3 = r.count ? `<b>${r.count}</b><span>${r.count === 1 ? 'PR' : 'PRs'}, oldest ${r.ages ? span(Math.round(r.ages[0] / 60000)) : 'not checked'}</span>`
+    : r.away ? NOT(awayW(r.away)) : '<b>0</b><span>no PR waits</span>';
+  const rbars = (r.ages ? bars(r.ages.slice(0, 12).map((a) => Math.round(a / 60000)), `How long each waits: ${r.ages.slice(0, 12).map((a) => span(Math.round(a / 60000))).join(', ')}`) : '') + (r.count ? awayCap(r.away) : '');
   // 4. Agents running now. The day's line needs readings over the day, which no summary sends.
   const v4 = `<b>${B.agents.count}</b><span>on ${plural(B.agents.threads, 'thread')}</span>`;
-  const inst = `<div class="inst" role="list">${ins(label1, v1, rib)}${ins('Merged today', v2, mbars)}${ins('Waiting for review', v3, rbars)}${ins('Agents running', v4)}</div>`;
+  const inst = `<div class="inst" role="list">${ins(label1, v1, rib)}${ins('Merged today', v2, mbars)}${ins('Waiting for review', v3, rbars)}${ins('Agents running', v4, awayCap(B.agents.away))}</div>`;
 
   // Who's on what: rows of bars along today, a blue now line, and a red link for each Overlap.
   const T = B.timeline, total = Math.max(1, (T.to - T.from) * 1.035);
@@ -824,7 +828,8 @@ function boardOf({ ok, now, want, name, people, plateOf }) {
       return bar + (x.merged !== null ? `<i class="tlm" style="top:${top + 6}px;left:${X(x.merged)}%" title="${e(`Merged ${hm(x.merged)}`)}"></i>` : '');
     }).join('');
     const top0 = row.bars.some((y) => y.lane === 1) ? LANE[0] : 9;
-    const quiet = row.quiet ? `<span class="tlb off" style="top:${top0}px;left:${X(row.quiet.since)}%;width:${W(row.quiet.since, T.to)}%">Mac quiet since ${hm(row.quiet.since)}</span>` : '';
+    const q0 = row.quiet ? Math.min(T.to, Math.max(T.from, row.quiet.since)) : 0;
+    const quiet = row.quiet ? `<span class="tlb off${row.quiet.since < T.from ? ' clip' : ''}" style="top:${top0}px;left:${X(q0)}%;width:${W(q0, T.to)}%">Mac quiet since ${row.quiet.since < T.day ? new Date(row.quiet.since).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : hm(row.quiet.since)}</span>` : '';
     const extra = [row.more ? `${row.more} more` : '', row.untimed ? `${row.untimed} with no start time` : ''].filter(Boolean).join(', ');
     return `<div class="tlr" role="listitem"><div class="who">${face(p, 'sm')}<span><b>${e(name(row.person))}</b>${word ? `<em class="${cls}">${e(word)}</em>` : ''}</span></div>`
       + `<div class="plot">${grid}${marks}${quiet}${extra ? `<span class="tlx">${e(extra)}</span>` : ''}</div></div>`;
@@ -855,7 +860,8 @@ function boardOf({ ok, now, want, name, people, plateOf }) {
     return open ? `<button type="button" class="sf" role="listitem" data-team-open="${e(open)}">${inner}</button>` : `<div class="sf" role="listitem">${inner}</div>`;
   };
   // Threads whose changes were not read could share any file, so the list never reads as all clear while some are out.
-  const out = F.unread ? `${plural(F.unread, 'live thread')} not checked: ${F.unread === 1 ? 'its' : 'their'} changed files were not sent.` : '';
+  const out = [F.unread ? `${plural(F.unread, 'live thread')} not checked: ${F.unread === 1 ? 'its' : 'their'} changed files were not sent.` : '',
+    F.partial ? `${plural(F.partial, 'thread')} sent only part of ${F.partial === 1 ? 'its' : 'their'} files.` : ''].filter(Boolean).join(' ');
   const fbody = !F.compared ? `<p class="nc-l"><b>Not checked</b> No live thread has sent its changed files.</p>`
     : F.rows.length ? `<div class="sfl" role="list">${F.rows.slice(0, 8).map(frow).join('')}</div>${F.rows.length > 8 ? `<p class="tmore">And ${plural(F.rows.length - 8, 'more file')}.</p>` : ''}${out ? `<p class="tmore">${e(out)}</p>` : ''}`
     : out ? `<p class="nc-l">No file is changed by two of the ${plural(F.compared, 'thread')} read. ${e(out)}</p>` : `<p class="nc-l">No file is changed by two live threads.</p>`;
