@@ -250,8 +250,12 @@ export function installBar(app, core) {
   var prev = null, ran = false;
   var RECENT = 'yc.bar.recent', NOTED = 'yc.bar.noted';
   var SUG = 'Suggested: from this screen, The Pass and your last note';
-  // The line under each of a ticket's actions: the words of Settings → Shortcuts.
+  // The line under each of a ticket's actions: the words of Settings → Shortcuts. ⌘↵ is the suggested action's key.
   var WHY = { refire: 'Say what to fix, then ⌘↵', reply: 'Write a note, then ⌘↵', hold: 'Until 8:00 tomorrow', note: 'Add a note to the next send' };
+  // A command's keys now, each as its keys (client/keys.mjs, Settings → Shortcuts), else the defaults given.
+  function kz(id, dflt) { return typeof app.keyGlyphs === 'function' ? app.keyGlyphs(id) : dflt; }
+  function k1(id, dflt) { return kz(id, dflt ? [dflt] : [])[0] || []; }
+  function why(kind) { return (WHY[kind] || '').replace('⌘↵', k1('ticket.suggested', ['⌘', '↵']).join('')); }
   var ICON = { refire: 'refire', reply: 'note', hold: 'hold', settle: 'settle', note: 'note', open: 'ext', primary: 'check', pick: 'check' };
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
@@ -328,7 +332,7 @@ export function installBar(app, core) {
       var pb = $('button.primary', f);
       if (pb && !pb.disabled) {
         var pr = primary(f, pb, sets);
-        out.push({ id: id('primary'), fi: fi, kind: 'primary', pid: pid, g: g, t: pr.t, hist: pr.t + on, d: pr.d, icon: ic(pb.value === 'settle' ? 'settle' : 'check', 'blue'), k: ['⌘', '↵'], tag: pr.ready ? 'Suggested' : '', ready: pr.ready, run: function () { app.send(f, pb); } });
+        out.push({ id: id('primary'), fi: fi, kind: 'primary', pid: pid, g: g, t: pr.t, hist: pr.t + on, d: pr.d, icon: ic(pb.value === 'settle' ? 'settle' : 'check', 'blue'), k: k1('ticket.suggested', ['⌘', '↵']), tag: pr.ready ? 'Suggested' : '', ready: pr.ready, run: function () { app.send(f, pb); } });
       }
       sets.forEach(function (fs, qi) {
         var q = txt($('legend', fs));
@@ -346,19 +350,19 @@ export function installBar(app, core) {
         // The name comes from the button's tooltip, up to ": ": Hold and Settle are icons with no word, and the tooltip
         // keeps "Request changes" where the button says "Changes" (Dan, 2026-11-10, call 1a). "8:00" has no space, so
         // "Hold until 8:00 tomorrow" stays whole, and a line the name already says is dropped. The first key there is the
-        // button's own; Cmd+Enter, when shown, comes second.
-        var kind = b.value, label = (txt($('.tn', b)) || txt($('.bl', b))).split(': ')[0], kb = $('kbd', b), key = kb && !kb.classList.contains('taken') ? txt(kb) : '';
-        var d = kind === 'go' ? (key === 'M' || /merge/i.test(label) ? 'The agent merges its pull request' : 'The agent goes ahead') : kind === 'settle' ? what(b) : WHY[kind] || '';
+        // button's own, as Settings → Shortcuts set it, and names its command; Cmd+Enter, when shown, comes second.
+        var kind = b.value, label = (txt($('.tn', b)) || txt($('.bl', b))).split(': ')[0], kb = $('kbd', b), key = kb && !kb.classList.contains('taken') && !kb.classList.contains('nokey') ? txt(kb) : '';
+        var d = kind === 'go' ? ((kb && kb.dataset.cmd === 'ticket.merge') || /merge/i.test(label) ? 'The agent merges its pull request' : 'The agent goes ahead') : kind === 'settle' ? what(b) : why(kind);
         if (d && label.toLowerCase().indexOf(d.toLowerCase()) >= 0) d = '';
         var arm = kind === 'reply' || kind === 'refire';
         out.push({ id: id(kind), pid: pid, g: g, t: label, hist: label + on, d: d, icon: ic(kind === 'go' ? (/merge/i.test(label) ? 'merge' : 'check') : ICON[kind] || 'check'), k: key ? [key] : [],
           run: arm ? function () { app.setIntent(f, kind); if (f.elements.note) f.elements.note.focus(); } : function () { app.send(f, b); } });
       });
       var nb = $('button[data-addnote]', f);
-      if (nb && !nb.disabled && f.elements.note) out.push({ id: id('note'), pid: pid, g: g, t: 'Note', hist: 'Note' + on, d: WHY.note, icon: ic('note'), k: ['N'], run: function () { app.noting(f, true); } });
+      if (nb && !nb.disabled && f.elements.note) out.push({ id: id('note'), pid: pid, g: g, t: 'Note', hist: 'Note' + on, d: why('note'), icon: ic('note'), k: k1('ticket.addNote', ['N']), run: function () { app.noting(f, true); } });
     });
     var link = $('.plate-bar a[href]', p);
-    if (link) out.push({ id: 'tk:' + pid + ':open', pid: pid, g: g, t: 'Open in T3 Code', hist: 'Open in T3 Code' + on, d: '', icon: ic('ext'), k: ['O'], run: function () { link.click(); } });
+    if (link) out.push({ id: 'tk:' + pid + ':open', pid: pid, g: g, t: 'Open in T3 Code', hist: 'Open in T3 Code' + on, d: '', icon: ic('ext'), k: k1('ticket.open', ['O']), run: function () { link.click(); } });
     return out;
   }
   // Send a note to any thread (PR 2). It uses the ticket's own Reply: the same form, draft, Undo and T3 send, queued
@@ -420,21 +424,22 @@ export function installBar(app, core) {
     if (m) out = out.concat(ticketActions(m));
     if (!boardOk()) out.push(Object.assign({ g: 'The Pass' }, NOT_CHECKED));
     else { var nx = nextInPass(all); if (nx) { var r = ticketRow(nx, 'The Pass', 'Next: ' + nx.t); r.d = nx.pv || r.d; out.push(r); } }
-    out.push({ id: 'new', g: 'Threads', t: 'New thread in T3 Code', d: 'Also ⌘N', kw: 'launch start create agent prompt worktree', icon: ic('plus'), k: ['⌘', 'T'], run: function () { app.openLaunch(); } });
-    out.push({ id: 'note', g: 'Threads', t: 'Send a note to a thread…', d: 'Pick any thread, write, send', kw: 'message reply tell write agent queue', icon: ic('note'), step: 'note' });
-    out.push({ id: 'goto', g: 'Threads', t: 'Go to a thread…', d: 'Any thread on the board, by name', kw: 'find open jump switch ticket search', icon: ic('jump'), step: 'goto' });
+    var nk = kz('chat.new', [['⌘', 'T'], ['⌘', 'N']]);
+    out.push({ id: 'new', g: 'Threads', t: 'New thread in T3 Code', d: nk[1] ? 'Also ' + nk[1].join('') : '', kw: 'launch start create agent prompt worktree', icon: ic('plus'), k: nk[0] || [], run: function () { app.openLaunch(); } });
+    out.push({ id: 'note', g: 'Threads', t: 'Send a note to a thread…', d: 'Pick any thread, write, send', kw: 'message reply tell write agent queue', icon: ic('note'), k: k1('thread.note'), step: 'note' });
+    out.push({ id: 'goto', g: 'Threads', t: 'Go to a thread…', d: 'Any thread on the board, by name', kw: 'find open jump switch ticket search', icon: ic('jump'), k: k1('thread.goto'), step: 'goto' });
     var kitchen = app.state.view === 'kitchen';
-    out.push({ id: 'view', g: 'View', t: kitchen ? 'Collapse the view' : 'Expand the view', d: kitchen ? 'Only The Pass and the open ticket' : 'Every stage as a column', kw: 'expand collapse board stages columns pass switch logo', icon: ic(kitchen ? 'collapse' : 'expand'), k: ['V'], run: function () { app.toggleView(); } });
+    out.push({ id: 'view', g: 'View', t: kitchen ? 'Collapse the view' : 'Expand the view', d: kitchen ? 'Only The Pass and the open ticket' : 'Every stage as a column', kw: 'expand collapse board stages columns pass switch logo', icon: ic(kitchen ? 'collapse' : 'expand'), k: k1('view.toggle', ['V']), run: function () { app.toggleView(); } });
     core.viewRows(app.views(), typeof app.setScope === 'function').forEach(function (v) {
-      out.push({ id: v.id, g: v.g, t: v.t, d: v.d, kw: v.kw, icon: ic(v.icon), now: v.now, run: function () { app.setScope(v.scope); } });
+      out.push({ id: v.id, g: v.g, t: v.t, d: v.d, kw: v.kw, icon: ic(v.icon), now: v.now, k: k1('view.' + v.scope), run: function () { app.setScope(v.scope); } });
     });
     // Appearance and Density: one row each, opening a step with the three choices and their pictures, as T3 Code's
     // "Change appearance" does (Dan, 2026-11-10). ⌥⇧⌘A steps through the appearances without opening anything.
-    if (typeof app.setTheme === 'function') out.push({ id: 'appearance', g: 'View', t: 'Change appearance', d: 'System, Light or Dark', kw: STEPS.appearance.kw, icon: ic('monitor'), k: ['⌥', '⇧', '⌘', 'A'], step: 'appearance' });
+    if (typeof app.setTheme === 'function') out.push({ id: 'appearance', g: 'View', t: 'Change appearance', d: 'System, Light or Dark', kw: STEPS.appearance.kw, icon: ic('monitor'), k: k1('appearance.cycle', ['⌥', '⇧', '⌘', 'A']), step: 'appearance' });
     out.push({ id: 'density', g: 'View', t: 'Change density', d: 'Default, Comfortable or Compact', kw: STEPS.density.kw, icon: ic('rows'), step: 'density' });
     out.push({ id: 'rules', g: 'Settings', t: 'Rules', d: 'Sent with every thread Yes Chef starts', kw: 'brief reviewer browser tracker council screenshots house notes', icon: ic('rules'), run: function () { app.openSettings('rules'); } });
-    out.push({ id: 'keys', g: 'Settings', t: 'Keyboard shortcuts', d: 'Every key in one list', kw: 'keys hotkeys keybindings', icon: ic('key'), k: ['?'], run: function () { app.openSettings('keys'); } });
-    out.push({ id: 'settings', g: 'Settings', t: 'Settings', d: 'Layout, rules and shortcuts', kw: 'preferences options layout', icon: ic('gear'), k: ['⌘', ','], run: function () { app.openSettings('layout'); } });
+    out.push({ id: 'keys', g: 'Settings', t: 'Keyboard shortcuts', d: 'See every key, and change any of them', kw: 'keys hotkeys keybindings rebind change shortcuts', icon: ic('key'), k: k1('shortcuts.open', ['?']), run: function () { app.openSettings('keys'); } });
+    out.push({ id: 'settings', g: 'Settings', t: 'Settings', d: 'Layout, rules and shortcuts', kw: 'preferences options layout', icon: ic('gear'), k: k1('settings.open', ['⌘', ',']), run: function () { app.openSettings('layout'); } });
     return out;
   }
   function iconFor(id) {
@@ -762,6 +767,8 @@ export function installBar(app, core) {
 
   return {
     open: open, close: close, toggle: function () { if (dlg.open) close(); else open(); },
+    // Open at a step ("note", "goto"): what a key from Settings → Shortcuts runs for a command with no key of its own.
+    openAt: function (step) { open(); if (dlg.open && step) { S.step = step; S.q = ''; input.value = ''; S.hist = -1; changed(); } },
     isOpen: function () { return dlg.open; },
     // A note reached a thread: it becomes the "your last note" suggestion.
     noted: function (pid) { if (pid) app.store(NOTED, JSON.stringify({ id: pid, at: Date.now() })); },

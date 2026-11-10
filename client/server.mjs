@@ -23,6 +23,7 @@ import { act } from './actions.mjs';
 import { refuse } from './guard.mjs';
 import { BAR_CSS, BAR_HTML, SPRING, barCore, installBar } from './bar.mjs';
 import { onTheme, miniCss, minis, MINI_CSS } from './theme.mjs';
+import { keysCore } from './keys.mjs';
 import { appendFileSync } from 'node:fs';
 
 // The desktop app's pipe. In the app this runs in an Electron utility process and talks over process.parentPort;
@@ -1119,6 +1120,37 @@ html .plate .plate-scroll.fade-end~.dock{box-shadow:0 -.5px 0 var(--sep)}
 #settings .kr-notes{grid-template-columns:1fr}
 #settings .kr-notes textarea{width:100%;box-sizing:border-box;min-height:72px;padding:8px 10px;border:0;border-radius:8px;background:var(--card);color:var(--label);font:13px/1.45 var(--sans);box-shadow:inset 0 0 0 .5px var(--sep);resize:vertical}
 #settings .set-done span.bad{color:var(--red)}
+/* ===== Shortcuts (⌘K bar PR 4, mock v3): Rules' rows, with the keys and Change on the right. Recording and a clash
+   show in the row itself; the keys are keycaps, never a form field. ===== */
+#settings .kx-top{margin:0 0 18px}
+#settings .kx-q{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border-radius:9px;background:var(--bg);box-shadow:inset 0 0 0 .5px var(--sep);color:var(--label2);cursor:text}
+#settings .kx-q svg{flex:none;width:14px;height:14px}
+#settings .kx-q input{flex:1;min-width:0;height:100%;padding:0;border:0;background:none;color:var(--label);font:13px/1.3 var(--sans);outline:none;-webkit-appearance:none;appearance:none}
+#settings .kx-q input::-webkit-search-cancel-button{-webkit-appearance:none}
+#settings .kx-q:focus-within{box-shadow:inset 0 0 0 .5px var(--sep),0 0 0 3px var(--focus)}
+#settings .kx-group{overflow:hidden}
+#settings .kx-row{transition:background .15s}
+#settings .kx-c{display:flex;align-items:center;justify-content:flex-end;gap:6px;min-height:28px}
+#settings .kx-k{display:inline-flex;gap:3px}
+#settings .kx-c kbd{display:inline-block;box-sizing:border-box;min-width:22px;height:22px;padding:0 6px;border-radius:6px;background:var(--fill);box-shadow:inset 0 -.5px 0 var(--sep);font:600 12px/22px var(--sans);text-align:center;color:var(--label)}
+#settings .kx-or,#settings .kx-no{font-size:12px;color:var(--label2)}
+#settings .kx-ed{margin-left:4px;padding:4px 8px;border:0;border-radius:6px;background:none;color:var(--accent);font:600 12.5px/1.2 var(--sans);cursor:pointer}
+#settings .kx-ed:hover{background:var(--fill)}
+#settings .kx-row.kx-rec{background:var(--blue-t);outline:none}
+#settings .kx-row.kx-rec .kr-l p{color:var(--accent)}
+#settings .recbox{display:inline-flex;align-items:center;height:28px;padding:0 10px;border-radius:7px;border:1.5px dashed var(--accent);color:var(--accent);font:600 12.5px/1 var(--sans);white-space:nowrap}
+#settings .kx-row.kx-clash{background:var(--orange-t)}
+#settings .kx-msg{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;font-size:13px;color:var(--label2)}
+#settings .kx-msg b{color:var(--orange);font-weight:700}
+#settings .kx-hint{grid-column:1/-1;margin:0;font-size:12px;color:var(--orange)}
+#settings .kx-b{min-height:28px;height:28px;padding:0 12px;border-radius:7px;font-size:12.5px;font-weight:600;color:var(--label)}
+#settings .kx-b:disabled{opacity:.45;cursor:default}
+#settings .kx-foot{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin:0 0 18px;font-size:12px;line-height:1.45;color:var(--label2)}
+#settings .kx-foot .kx-file{flex:1 1 260px;margin:0}
+#settings .kx-btns{display:flex;gap:8px}
+#settings .kx-note{flex-basis:100%;margin:0;color:var(--orange)}
+#settings .kx-none{margin:28px 0;text-align:center;font-size:13px;color:var(--label2)}
+#settings .kx-live{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 /* A phone: the sections sit in a row on top, and each rule's control goes under its words. */
 @media (max-width:600px){
   #settings[open]{grid-template-columns:minmax(0,1fr);margin:16px auto auto}
@@ -1208,7 +1240,9 @@ html .plate .dock-plain{overflow:visible}
 .abar>:first-child:hover .tip,.abar>:first-child:focus-visible .tip{transform:none}
 .abar .more-b.on .tip{opacity:0}
 /* A key that goes elsewhere right now is not shown: Cmd+Enter while R or F is armed, a letter an option takes. */
-.abar .tip kbd:is(.yield,.taken,[hidden]),.abar .tip kbd:is(.yield,.taken,[hidden])+.or,.abar .tip .or:has(+kbd:is(.yield,.taken,[hidden])){display:none}
+.abar .tip kbd:is(.yield,.taken,.nokey,[hidden]),.abar .tip kbd:is(.yield,.taken,.nokey,[hidden])+.or,.abar .tip .or:has(+kbd:is(.yield,.taken,.nokey,[hidden])){display:none}
+/* A command left with no key in Settings → Shortcuts shows none. */
+kbd.nokey{display:none!important}
 @media (hover:none){.abar .tip{display:none}}
 /* More: a floating card above its button, each row an icon, a word and its key. It sits in the top layer, so the
    dock's scroll never clips it; the page script places it. */
@@ -1506,31 +1540,9 @@ ${tile('density', 'default', 'Default')}${tile('density', 'comfortable', 'Comfor
 </fieldset>
 </section>
 ${kitchenPane({ rules, projects, error: rulesError })}
-<section class="set-pane" data-pane="keys" hidden><h3 class="kgroup">Move</h3><dl class="keylist">
-<dt><kbd>J</kbd> <kbd>K</kbd></dt><dd>Next and previous ticket</dd>
-<dt><kbd>Space</kbd></dt><dd>Page down the message (<kbd>⇧</kbd> <kbd>Space</kbd> pages up)</dd>
-<dt><kbd>O</kbd></dt><dd>Open in T3 Code</dd>
-<dt><kbd>V</kbd></dt><dd>The pass or the full kitchen</dd>
-<dt><kbd>Esc</kbd></dt><dd>Leave the note, close a ticket or a dialog</dd></dl>
-<h3 class="kgroup">Act</h3><dl class="keylist">
-<dt><kbd>⌘</kbd> <kbd>↵</kbd></dt><dd>The blue action: Merge, Approve, or the recommended answer in the question you are in. What R or F armed, while armed. Retry, while the ticket or a toast offers it</dd>
-<dt><kbd>A</kbd> <kbd>B</kbd> <kbd>C</kbd>…</dt><dd>Pick an option while a question waits. With several questions, the next one comes forward</dd>
-<dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Previous and next question, when there are several</dd>
-<dt><kbd>M</kbd></dt><dd>Merge: the agent merges its pull request</dd>
-<dt><kbd>A</kbd></dt><dd>Approve: on a ticket with no pull request, the agent goes ahead</dd>
-<dt><kbd>R</kbd></dt><dd>Reply: write a note, then <kbd>⌘</kbd> <kbd>↵</kbd></dd>
-<dt><kbd>F</kbd></dt><dd>Request changes: say what to fix, then <kbd>⌘</kbd> <kbd>↵</kbd></dd>
-<dt><kbd>N</kbd></dt><dd>Add a note to the next send</dd>
-<dt><kbd>.</kbd></dt><dd>More: the actions that are not in the row</dd>
-<dt><kbd>H</kbd></dt><dd>Hold until 8:00 tomorrow</dd>
-<dt><kbd>E</kbd></dt><dd>Settle: done, it leaves the pass</dd>
-<dt><kbd>Z</kbd></dt><dd>Undo the send (4 seconds)</dd></dl>
-<h3 class="kgroup">App</h3><dl class="keylist">
-<dt><kbd>⌘</kbd> <kbd>K</kbd></dt><dd>Actions: search every action, thread and setting. <kbd>↑</kbd> brings back your last action</dd>
-<dt><kbd>⌘</kbd> <kbd>T</kbd></dt><dd>New thread in T3 Code (also <kbd>⌘</kbd> <kbd>N</kbd>)</dd>
-<dt><kbd>⌘</kbd> <kbd>,</kbd></dt><dd>Settings. <kbd>?</kbd> opens Shortcuts</dd>
-<dt><kbd>⌥</kbd> <kbd>⇧</kbd> <kbd>⌘</kbd> <kbd>A</kbd></dt><dd>Appearance: System, Light and Dark in turn, as in T3 Code</dd>
-<dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Previous and next screenshot in the viewer</dd></dl></section>
+<section class="set-pane" data-pane="keys" hidden><div class="kx-top"><label class="kx-q"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><input type="search" id="kx-q" placeholder="Search shortcuts" aria-label="Search shortcuts" autocomplete="off" spellcheck="false"></label></div>
+<div id="kx-list"></div><p class="kx-live" role="status" aria-live="polite"></p>
+<div class="kx-foot"><p class="kx-file">Your changes, in the shape of T3 Code’s keybindings.json: a key, a command, and when it applies.</p><span class="kx-btns"><button type="button" class="btn kx-b" data-kx-file hidden>Open the file</button><button type="button" class="btn kx-b" data-kx-resetall>Reset all</button></span><p class="kx-note" role="status" hidden></p></div></section>
 </div></div>
 <p class="set-done"><span role="status">Saved on this Mac.</span><button type="button" class="btn fill" data-settings-done><span class="bl">Done</span><kbd>esc</kbd></button></p></dialog>
 <dialog id="launch" aria-labelledby="launch-t"><form class="act launch" method="post" action="/act">
@@ -1562,6 +1574,16 @@ ${BAR_HTML}
   var mounted = null; // the ticket element now open in the reader or the sheet
   var bar = null; // the Cmd+K action bar, once installed at the end
   var MINI = ${JSON.stringify(MINIS)}; // the Settings pictures, for the bar's Appearance and Density steps
+  // Shortcuts (client/keys.mjs, ⌘K bar PR 4): the keys in use, as Settings → Shortcuts set them. The browser keeps the
+  // list under yc.keys; the Mac app keeps it in keybindings.json in its data folder and reads it at start and on focus.
+  ${keysCore}
+  var K = keysCore(/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || ''));
+  var KFILE = window.yeschef && window.yeschef.keys && typeof window.yeschef.keys.read === 'function' ? window.yeschef.keys : null;
+  var KST = K.build(readKeys()), kxSeen = null, kxFileNote = '';
+  function readKeys(){ var t = store('yc.keys'); if (!t) return []; try { return JSON.parse(t); } catch (x) { return []; } }
+  // A command's first key as one label ("⌘↵"), or '' with none. SK is the suggested action's: the board's send key.
+  function keyLabel(id){ var k = K.keysOf(KST, id)[0]; return k ? K.label(k) : ''; }
+  function SK(){ return keyLabel('ticket.suggested'); }
   function $(sel, el){ return (el || document).querySelector(sel); }
   function $$(sel, el){ return Array.prototype.slice.call((el || document).querySelectorAll(sel)); }
   function wide(){ return wideQ.matches; }
@@ -1933,7 +1955,7 @@ ${BAR_HTML}
     $$('.plate', nuStore).forEach(function(p){ if ((!mounted || p.id !== mounted.id) && !held[p.id]) store_.appendChild(p); });
     // A ticket sent from the pass comes back as soon as the agent hands it back again, not after 90 s.
     Object.keys(acted).forEach(function(aid){ var np = nuStore.querySelector('#' + CSS.escape(aid)) || document.getElementById(aid); if (np && actedLatest[aid] !== undefined && (np.dataset.latest || '') !== actedLatest[aid]) { delete acted[aid]; delete actedLatest[aid]; } });
-    hideActed(); setFolder(state.folder); applyScope(); normalizePicked(); sizeRail(); restoreDrafts(app); restoreDrafts($('#plates'));
+    hideActed(); setFolder(state.folder); applyScope(); normalizePicked(); sizeRail(); if (KST.changed || !K.mac) relabel(document); restoreDrafts(app); restoreDrafts($('#plates'));
     if (focusSel && document.activeElement !== null && (document.activeElement === document.body || !document.activeElement.isConnected)) { var back = $(focusSel); if (back) back.focus({ preventScroll: true }); }
     // The open ticket left the board on its own: show the next one, unless you are working in it.
     if (gone && !keep) { var id = mounted.id; mounted.remove(); mounted = null; if (acted[id]) { state.sel = null; place(); } else advance(id); return; }
@@ -1975,6 +1997,7 @@ ${BAR_HTML}
   }
   function uuid(){ return window.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + String(Math.random()).slice(2); }
   var toastTimer = null;
+  // acts: [label, run, command]. A button with a command shows that command's key now (relabel follows a change).
   function toast(msg, acts, ms, bad, forId){
     clearTimeout(toastTimer); toastEl.classList.remove('counting');
     // Over an open ticket sheet the toast lives inside it, so its buttons stay clickable above the modal.
@@ -1982,7 +2005,7 @@ ${BAR_HTML}
     if (toastEl.parentNode !== host) { try { toastEl.hidePopover(); } catch (x) {} host.appendChild(toastEl); }
     $('.t-msg', toastEl).textContent = msg; toastEl.classList.toggle('bad', !!bad);
     var box = $('.t-acts', toastEl); box.textContent = ''; toastKey = null;
-    (acts || []).forEach(function(a){ var b = document.createElement('button'); b.type = 'button'; b.textContent = a[0]; if (a[2]) { var kb = document.createElement('kbd'); kb.textContent = a[2]; b.appendChild(kb); } b.onclick = function(){ hideToast(); a[1](); }; if (a[2] === '⌘↵') toastKey = b.onclick; box.appendChild(b); }); yieldKey();
+    (acts || []).forEach(function(a){ var b = document.createElement('button'); b.type = 'button'; b.textContent = a[0]; if (a[2]) { var kb = document.createElement('kbd'); kb.dataset.cmd = a[2]; kb.textContent = keyLabel(a[2]); kb.classList.toggle('nokey', !kb.textContent); b.appendChild(kb); } b.onclick = function(){ hideToast(); a[1](); }; if (a[2] === 'ticket.suggested') toastKey = b.onclick; box.appendChild(b); }); yieldKey();
     try { if (toastEl.matches(':popover-open')) toastEl.hidePopover(); toastEl.showPopover(); } catch (x) {}
     if (ms) toastTimer = setTimeout(hideToast, ms);
     toastFor = forId || null; yieldKey();
@@ -2007,6 +2030,34 @@ ${BAR_HTML}
   function ownRetry(){ return !!(mounted && unconfirmed[mounted.id] && $('.retry', mounted)); }
   // The open ticket's form the keys go to: the free form you are in, else the free form you last picked in, else the
   // first free one. A pick in question 2 makes Cmd+Enter send question 2 (r14, Sol and Astra).
+  // What an option letter does from target, as onKey does it, and as the router asks before it routes the letter:
+  // { radio }, the option it picks; { held }, a question waiting on its Retry that has that letter; or null.
+  function letterAt(target, k){
+    if (!mounted) return null;
+    var here = target && target.closest ? target.closest('form.act') : null, form = keyForm(here);
+    if (!form) return null;
+    // Letters go to the form Cmd+Enter sends (keyForm), the one that shows the keys (r15, Opus). In it: the question
+    // you are in, else the first unanswered, else the last one you picked in.
+    // Only a question whose form can send takes a letter: a form waiting on its send or Retry keeps what it sent
+    // (hill climb 2 r11, Astra).
+    var free = function(fs){ var ff = fs && fs.closest('form.act'); return !!fs && !fs.disabled && !(ff && ff.dataset.busy); };
+    var inSet = target && target.closest ? target.closest('fieldset.q-set') : null; if (!free(inSet)) inSet = null;
+    // The last question you picked in is waiting on its Retry: a letter meant for it does not spill into another
+    // question; the held form says why (hill climb 2 r12, Opus). Only the form that holds the Retry: one waiting out
+    // its Undo lets the letter go to the next free question, as before (r13, Opus).
+    // Focus anywhere in a free form (its Send button too) means the letter is for that form (r16, Astra).
+    var uc = unconfirmed[mounted.id];
+    var held = !inSet && form !== here && uc && mounted._lastSet && mounted.contains(mounted._lastSet) && !free(mounted._lastSet) && mounted._lastSet.closest('form.act') === uc.form ? mounted._lastSet : null;
+    if (held && $('input[type=radio][data-key="' + k + '"]', held)) return { held: held };
+    var lastSet = mounted._lastSet && form.contains(mounted._lastSet) && free(mounted._lastSet) ? mounted._lastSet : null;
+    if (inSet && !form.contains(inSet)) inSet = null;
+    var sets = $$('fieldset.q-set', form).filter(free);
+    // With the questions as cards, a letter answers the card in front (Dan, 2026-11-08).
+    var shown = sets.filter(function(fs){ return fs.classList.contains('q-on'); })[0];
+    var open = inSet || shown || sets.filter(function(fs){ return !$('input[type=radio]:checked', fs); })[0] || lastSet || sets[0];
+    var r = open && $('input[type=radio][data-key="' + k + '"]', open);
+    return r && !r.disabled ? { radio: r } : null;
+  }
   function keyForm(here){
     if (!mounted) return null;
     var ok = function(f){ return !!f && mounted.contains(f) && !f.dataset.busy; };
@@ -2020,7 +2071,7 @@ ${BAR_HTML}
     // the hint shows on the one the key sends, as the key handler decides (r13, Astra and Sol).
     var own = ownRetry(), af = own && a && a.closest && a.closest('form.act'), ff = af && mounted.contains(af) && !af.dataset.busy ? af : null;
     $$('.plate kbd').forEach(function(kb){
-      if (kb.textContent !== '⌘↵') return;
+      if (kb.textContent !== SK()) return;
       var rt = kb.closest('[data-retry]');
       if (own && mounted.contains(kb)) kb.classList.toggle('yield', rt ? !!ff : !(ff && kb.closest('form.act') === ff));
       else if (!rt) kb.classList.toggle('yield', !!toastKey && !(wf && kb.closest('form.act') === wf));
@@ -2170,7 +2221,9 @@ ${BAR_HTML}
     tab = tab || 'layout';
     $$('#settings .set-tab').forEach(function(b){ if (b.dataset.tab === tab) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current'); });
     $$('#settings .set-pane').forEach(function(p){ p.hidden = p.dataset.pane !== tab; });
-    if (!setDlg.open) { setDlg.showModal(); liftToast(); yieldKey(); }
+    if (tab === 'keys') kxRender();
+    // showModal focuses the first tab, Layout; the open section's tab takes focus, so ? never rings Layout.
+    if (!setDlg.open) { setDlg.showModal(); liftToast(); yieldKey(); var curTab = $('#settings .set-tab[aria-current]'); if (curTab) curTab.focus(); }
     fades();
   }
   setDlg.addEventListener('click', function(ev){ var t = ev.target.closest && ev.target.closest('.set-tab'); if (t) openSettings(t.dataset.tab); });
@@ -2339,7 +2392,7 @@ ${BAR_HTML}
       var on = !!kind && b.value === kind, lead = kind ? on : b.dataset.fill === '1';
       b.classList.toggle('armed', on);
       b.classList.toggle('fill', lead);
-      if (kb) { kb.textContent = on ? '⌘↵' : b.dataset.key; kb.hidden = !!kind && !on && b.dataset.key === '⌘↵'; }
+      if (kb) { kb.textContent = on ? SK() : b.dataset.key; kb.classList.toggle('nokey', !kb.textContent); kb.hidden = !!kind && !on && b.dataset.key === SK(); }
       // The blue action's tooltip says "M or ⌘↵": while another action is armed, Cmd+Enter is that one's.
       $$('kbd', b).slice(1).forEach(function(k2){ k2.hidden = !!kind && !on; });
     });
@@ -2361,7 +2414,7 @@ ${BAR_HTML}
     if (kb) {
       if (b.dataset.fill === undefined) { b.dataset.fill = b.classList.contains('fill') ? '1' : ''; b.dataset.key = kb.textContent; }
       var free = !f.dataset.intent && !$('button.primary', f), wrote = !!(f.elements.note && f.elements.note.value && f.elements.note.value.trim()) && !stale(f);
-      if (!f.dataset.intent) kb.textContent = free && wrote ? '⌘↵' : b.dataset.key;
+      if (!f.dataset.intent) { kb.textContent = free && wrote ? SK() : b.dataset.key; kb.classList.toggle('nokey', !kb.textContent); }
       // The button Cmd+Enter sends is the blue one, so Reply fills while it owns the key (r16, Astra).
       if (!f.dataset.intent) b.classList.toggle('fill', b.dataset.fill === '1' || (free && wrote));
     }
@@ -2373,7 +2426,7 @@ ${BAR_HTML}
     var p = pendingSends[pendingSends.length - 1]; if (!p) return false;
     var n = pendingSends.length;
     var left = Math.max(600, p.until - Date.now());
-    toast((n > 1 ? n + ' sends waiting. ' : '') + p.label, [['Undo', p.undo, 'Z']], left);
+    toast((n > 1 ? n + ' sends waiting. ' : '') + p.label, [['Undo', p.undo, 'send.undo']], left);
     toastEl.style.setProperty('--undo-ms', left + 'ms'); toastEl.classList.remove('counting'); void toastEl.offsetWidth; toastEl.classList.add('counting');
     return true;
   }
@@ -2511,7 +2564,7 @@ ${BAR_HTML}
         // The Retry box says it once for a held form; the form's own line stays empty (hill climb 2 r10, Opus).
         say(f, hold && id !== 'launch' ? '' : more, hold && id !== 'launch' ? '' : 'bad');
         if (id === 'launch') { openLaunch(); say(f, more, 'bad'); }
-        var keep = mine && unconfirmed[id]; toast(named(f, text), (keep ? [['Retry', function(){ retry(id); }, '⌘↵']] : []).concat([['Open', function(){ if (id === 'launch') openLaunch(); else select(id); }]]), keep ? 0 : 8000, true, keep ? id : null);
+        var keep = mine && unconfirmed[id]; toast(named(f, text), (keep ? [['Retry', function(){ retry(id); }, 'ticket.suggested']] : []).concat([['Open', function(){ if (id === 'launch') openLaunch(); else select(id); }]]), keep ? 0 : 8000, true, keep ? id : null);
         return;
       }
       // A refused Retry that the Pass says landed ends the not-confirmed state (a 409 "Already answered"), so its
@@ -2544,7 +2597,7 @@ ${BAR_HTML}
     unconfirmed[id] = { body: body, what: what, text: text, form: f };
     decorate(id);
     say(f, id === 'launch' ? text : '', id === 'launch' ? 'bad' : '');
-    toast(named(f, text), [['Retry', function(){ retry(id); }, '⌘↵'], ['Open', function(){ if (id === 'launch') openLaunch(); else select(id); }]], 0, true, id);
+    toast(named(f, text), [['Retry', function(){ retry(id); }, 'ticket.suggested'], ['Open', function(){ if (id === 'launch') openLaunch(); else select(id); }]], 0, true, id);
   }
   function settledUnconfirmed(id){
     if (unconfirmed[id] && unconfirmed[id].form) unconfirmed[id].form.classList.remove('held');
@@ -2573,7 +2626,7 @@ ${BAR_HTML}
     box.textContent = '';
     var msg = document.createElement('p'); msg.className = 'result bad'; msg.textContent = u.refused ? u.refused + ' The first send is still not confirmed: send the same again, or check the thread in T3.' : u.text + ' Check the thread in T3, or send the same again.';
     var b = document.createElement('button'); b.type = 'button'; b.className = 'btn fill'; b.setAttribute('data-retry', ''); b.textContent = 'Send ' + u.what + ' again';
-    var kb = document.createElement('kbd'); kb.textContent = '⌘↵'; b.appendChild(kb);
+    var kb = document.createElement('kbd'); kb.dataset.cmd = 'ticket.suggested'; kb.textContent = SK(); b.appendChild(kb);
     box.appendChild(msg); box.appendChild(b); yieldKey();
     // Its list card says so too: a red dot, words in the label colour (hill climb 2 r3, Opus).
     $$('.tile[data-plate="' + id + '"]').forEach(function(t){
@@ -2866,7 +2919,8 @@ ${BAR_HTML}
     if (t === sheet) sheet.close();
   });
   sheet.addEventListener('close', function(){ var id = state.sel; if (!(focusView() && wide())) { unmount(); state.sel = null; mark(); } var back = id && $('[data-plate="' + id + '"]:not(form)'); if (back) back.focus({ preventScroll: true }); });
-  document.addEventListener('keydown', function(ev){
+  // The page's keys, as each command's default key reads (client/keys.mjs). The router below sends every key here.
+  function onKey(ev){
     // Esc closes the menu and puts focus back on its chip, so the keys go on from there.
     var m = $('details.pmenu[open]'); if (m && ev.key === 'Escape') { var back = m.contains(document.activeElement) && $('summary', m); m.open = false; if (back) back.focus(); return; }
     // More, while open: Esc or . closes it, the arrows move between its rows, and Enter or Space presses the row in
@@ -2915,9 +2969,9 @@ ${BAR_HTML}
       if (ev.repeat) return;
       var want = form.dataset.intent, b = want ? $('button[value="' + want + '"]', form) : $('button.primary', form);
       if (!b && form.elements.note && form.elements.note.value && form.elements.note.value.trim() && !stale(form)) b = $('button[value=reply]', form);
-      if (!b && stale(form)) { say(form, 'You sent this note before the agent’s latest message, so it may have reached the agent. Send it again with Reply (R), change it, or clear it.', 'bad'); return; }
+      if (!b && stale(form)) { say(form, 'You sent this note before the agent’s latest message, so it may have reached the agent. Send it again with Reply' + (keyLabel('ticket.reply') ? ' (' + keyLabel('ticket.reply') + ')' : '') + ', change it, or clear it.', 'bad'); return; }
       var gkb = $('button[value="go"] kbd', form);
-      if (b && !b.disabled) send(form, b); else say(form, 'Nothing is recommended here. Pick an action: ' + (gkb && gkb.textContent === 'A' ? 'A Approve' : 'M Merge') + ', F Request changes, R Reply, H Hold, E Settle.', '');
+      if (b && !b.disabled) send(form, b); else say(form, 'Nothing is recommended here. Pick an action: ' + [gkb && gkb.dataset.cmd === 'ticket.approve' ? ['ticket.approve', 'Approve'] : ['ticket.merge', 'Merge'], ['ticket.requestChanges', 'Request changes'], ['ticket.reply', 'Reply'], ['ticket.hold', 'Hold'], ['ticket.settle', 'Settle']].map(function(a){ var l = keyLabel(a[0]); return l ? l + ' ' + a[1] : a[1]; }).join(', ') + '.', '');
       return;
     }
     if (typing) {
@@ -2951,42 +3005,28 @@ ${BAR_HTML}
     // Left and right move between question cards; on a focused option they stay the browser's.
     if ((k === 'ArrowLeft' || k === 'ArrowRight') && !control && qSets(form).length > 1) { ev.preventDefault(); qShow(form, qAt(form) + (k === 'ArrowRight' ? 1 : -1)); return; }
     // While a question waits, its option letters come first (an option "e" beats Settle).
-    if (/^[a-i]$/.test(k) && mounted) {
-      // Letters go to the form Cmd+Enter sends (keyForm), the one that shows the keys (r15, Opus). In it: the question
-      // you are in, else the first unanswered, else the last one you picked in.
-      // Only a question whose form can send takes a letter: a form waiting on its send or Retry keeps what it sent
-      // (hill climb 2 r11, Astra).
-      var free = function(fs){ var ff = fs && fs.closest('form.act'); return !!fs && !fs.disabled && !(ff && ff.dataset.busy); };
-      var inSet = ev.target.closest && ev.target.closest('fieldset.q-set'); if (!free(inSet)) inSet = null;
-      // The last question you picked in is waiting on its Retry: a letter meant for it does not spill into another
-      // question; the held form says why (hill climb 2 r12, Opus). Only the form that holds the Retry: one waiting out
-      // its Undo lets the letter go to the next free question, as before (r13, Opus).
-      // Focus anywhere in a free form (its Send button too) means the letter is for that form (r16, Astra).
-      var uc = unconfirmed[mounted.id];
-      var held = !inSet && form !== here && uc && mounted._lastSet && mounted.contains(mounted._lastSet) && !free(mounted._lastSet) && mounted._lastSet.closest('form.act') === uc.form ? mounted._lastSet : null;
-      if (held && $('input[type=radio][data-key="' + k + '"]', held)) { say(held.closest('form.act'), 'This answer is waiting on its Retry, so a letter does not change it.', ''); return; }
-      var lastSet = mounted._lastSet && form.contains(mounted._lastSet) && free(mounted._lastSet) ? mounted._lastSet : null;
-      if (inSet && !form.contains(inSet)) inSet = null;
-      var sets = $$('fieldset.q-set', form).filter(free);
-      // With the questions as cards, a letter answers the card in front (Dan, 2026-11-08).
-      var shown = sets.filter(function(fs){ return fs.classList.contains('q-on'); })[0];
-      var open = inSet || shown || sets.filter(function(fs){ return !$('input[type=radio]:checked', fs); })[0] || lastSet || sets[0];
-      var r = open && $('input[type=radio][data-key="' + k + '"]', open);
-      if (r && !r.disabled) { r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true })); return; }
+    // A key that stands in for a changed one (ev.synthetic) is never an option's letter.
+    if (/^[a-i]$/.test(k) && mounted && !ev.synthetic) {
+      var ls = letterAt(ev.target, k);
+      if (ls && ls.held) { say(ls.held.closest('form.act'), 'This answer is waiting on its Retry, so a letter does not change it.', ''); return; }
+      if (ls) { ls.radio.checked = true; ls.radio.dispatchEvent(new Event('change', { bubbles: true })); return; }
     }
     // A key with no button here says why instead of doing nothing (Opus).
     // A T3 question has no Reply: point to answering it, or opening it in T3 Code (Astra).
-    var orR = $('button[value=reply]', form) ? ', or R to reply.' : ', or O to open it in T3 Code.';
-    var NO = { go: 'No Merge here: answer the question' + orR, approve: 'No Approve here: answer the question' + orR, refire: 'No Request changes on a question: pick an option' + orR, reply: 'No Reply here: answer the question, or O to open it in T3 Code.', settle: 'Settle comes back once the question is answered.', hold: 'Hold comes back once the question is answered.' };
+    var kR = keyLabel('ticket.reply'), kO = keyLabel('ticket.open'), toT3 = (kO ? kO + ' to open' : 'open') + ' it in T3 Code.';
+    var orR = $('button[value=reply]', form) ? ', or ' + (kR ? kR + ' to reply.' : 'reply.') : ', or ' + toT3;
+    var NO = { go: 'No Merge here: answer the question' + orR, approve: 'No Approve here: answer the question' + orR, refire: 'No Request changes on a question: pick an option' + orR, reply: 'No Reply here: answer the question, or ' + toT3, settle: 'Settle comes back once the question is answered.', hold: 'Hold comes back once the question is answered.' };
     var press = function(kind){ var b = $('button[value="' + kind + '"]', form); if (b && !b.disabled) send(form, b); else if (NO[kind]) say(form, NO[kind], ''); };
     if (k === 'e') { press('settle'); return; }
     if (k === 'h') { press('hold'); return; }
     // M merges and A approves (Dan, 2026-11-10): one button, named by whether a pull request is open, and each key
     // presses it only under its own name. G, the old Go, still presses it, whichever it says (old habits).
     if (k === 'm' || k === 'a' || k === 'g') {
-      var gb = $('button[value="go"]', form), gk = gb && $('kbd', gb) ? $('kbd', gb).textContent : '';
+      // The button's key names its command (data-cmd), whatever key Settings → Shortcuts gave it.
+      var gb = $('button[value="go"]', form), gk = gb && $('kbd', gb) ? ({ 'ticket.merge': 'M', 'ticket.approve': 'A' })[$('kbd', gb).dataset.cmd] || '' : '';
       if (k === 'g' || !gb || gk === k.toUpperCase()) { press(gb || k !== 'a' ? 'go' : 'approve'); return; }
-      say(form, k === 'm' ? 'No Merge here: no pull request is open. A approves.' : 'No Approve here: a pull request is open. M merges it.', '');
+      var kA = keyLabel('ticket.approve'), kM = keyLabel('ticket.merge');
+      say(form, k === 'm' ? 'No Merge here: no pull request is open. ' + (kA ? kA + ' approves.' : 'Approve goes ahead.') : 'No Approve here: a pull request is open. ' + (kM ? kM + ' merges it.' : 'Merge merges it.'), '');
       return;
     }
     if (k === 'n') { if (form.elements.note) { ev.preventDefault(); noting(form, true); } return; }
@@ -2996,7 +3036,190 @@ ${BAR_HTML}
       ev.preventDefault(); setIntent(form, kind);
       if (form.elements.note) form.elements.note.focus();
     }
+  }
+  // Every key goes through the shortcuts first (client/keys.mjs). With none changed it is onKey, exactly as before.
+  // A changed key reaches onKey as the key its command had by default; a command with no default key runs here; a
+  // default key its command gave up does nothing where that command applies. A plain key keeps typing in a text field
+  // and belongs to an open dialog, as ⌘↵ does there (it sends), and an option's letter comes first while a question waits.
+  document.addEventListener('keydown', function(ev){
+    if (kxRec) return;
+    // A key an input method uses while it composes text (Japanese, Chinese) is the method's alone, as in the action bar:
+    // Esc or ⌘↵ then never leaves, or sends half a word. Safari's last key of a composition reads as keyCode 229.
+    if (ev.isComposing || ev.keyCode === 229) return;
+    if (!KST.changed) { onKey(ev); return; }
+    var c = K.comboOf(ev), t = ev.target;
+    var typing = !!(t && t.closest && t.closest('textarea, input[type=text], input[type=search], [contenteditable]'));
+    var dialog = [barDlg, setDlg, launchDlg, viewer].some(function(d){ return d && d.open; });
+    if (!c || (K.plain(c) && typing) || (dialog && K.dialogKey(c)) || (/^[a-i]$/.test(c) && letterAt(t, c))) { onKey(ev); return; }
+    var r = K.route(KST, c, { ticket: !!mounted, dialog: dialog });
+    if (!r) { onKey(ev); return; }
+    // A changed key is the shortcut's alone, so the browser never also acts on it (Hold on ⌘F opens no Find).
+    if (r.as) { ev.preventDefault(); onKey(K.synth(r.as, ev)); return; }
+    ev.preventDefault();
+    if (r.run && !ev.repeat) RUN[r.run]();
   });
+  // The commands with no default key: the router runs them, in a dialog too. The two that open the bar close the other
+  // dialogs first, as ⌘K does.
+  function barAt(step){ if (!bar) return; if (setDlg.open) setDlg.close(); if (launchDlg.open) launchDlg.close(); if (viewer.open) viewer.close(); bar.openAt(step); }
+  var RUN = {
+    'thread.note': function(){ barAt('note'); },
+    'thread.goto': function(){ barAt('goto'); },
+    'view.you': function(){ setScope('you'); },
+    'view.team': function(){ if (teamNow()) setScope('team'); else toast('View: Team needs a team first.', null, 3000); }
+  };
+  // Every key label on the board names its command (data-cmd, client/board.mjs) and shows that command's key now.
+  // A button's first key shows the send key while it is armed (setIntent, noteKey): then only its own key changes.
+  function relabel(scope){
+    $$('kbd[data-cmd]', scope || document).forEach(function(kb){
+      var g = keyLabel(kb.dataset.cmd), b = kb.closest('button');
+      if (b && b.dataset.key !== undefined && $('kbd', b) === kb) {
+        var sending = kb.textContent !== b.dataset.key;
+        b.dataset.key = g;
+        if (sending) { kb.textContent = SK(); kb.classList.remove('nokey'); return; }
+      }
+      kb.textContent = g; kb.classList.toggle('nokey', !g);
+    });
+    // A tooltip that names its key in brackets ("Settings (⌘,)") names the key now, or none.
+    $$('[data-tcmd]', scope || document).forEach(function(el){ var g = keyLabel(el.dataset.tcmd); el.title = el.title.replace(/ \\([^)]*\\)$/, '') + (g ? ' (' + g + ')' : ''); });
+  }
+
+  // ----- Settings → Shortcuts (⌘K bar PR 4, the approved mock v3) -----
+  // Each command's keys, with Change. Change records the next key pressed; Esc keeps the old one. A key another command
+  // has asks first, in the row: Swap them, or Keep. Reset gives one command its default back; Reset all, every one.
+  var kxRec = null, kxClash = null, kxHint = '', kxMods = '', kxEscAt = 0;
+  var kxList = $('#kx-list'), kxQ = $('#kx-q');
+  function escH(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function kxCaps(key){ return '<span class="kx-k">' + K.glyphs(key).map(function(g){ return '<kbd>' + escH(g) + '</kbd>'; }).join('') + '</span>'; }
+  function kxRow(c){
+    var keys = K.keysOf(KST, c.id), over = !K.isDefault(KST, c.id), rec = kxRec === c.id, cl = kxClash && kxClash.id === c.id ? kxClash : null;
+    var line = rec ? (keys.length ? 'Recording. Press the keys, or esc to keep ' + keys.map(K.label).join(' or ') : 'Recording. Press the keys, or esc to leave it without one')
+      : c.note && !over ? K.label(c.note) + ' is T3 Code’s own new-thread key' : (c.d || '');
+    var right = rec ? '<span class="recbox" aria-hidden="true">' + escH(kxMods ? kxMods + ' …' : '…') + '</span>'
+      : (cl ? kxCaps(cl.key) : keys.length ? keys.map(kxCaps).join('<span class="kx-or">or</span>') : '<span class="kx-no">No key</span>')
+        + '<button type="button" class="kx-ed" data-kx-ed="' + c.id + '" aria-label="Change the key for ' + escH(c.t) + '">Change</button>';
+    var more = '';
+    if (cl) more = '<div class="kx-msg" role="alert"><b>Taken</b><span>' + escH(cl.text) + '</span>'
+      + (cl.canTake ? '<button type="button" class="btn kx-b" data-kx-swap>' + (cl.gives && cl.gives.length ? 'Swap them' : 'Take it') + '</button>' : '')
+      + '<button type="button" class="btn kx-b" data-kx-keep>' + (keys.length ? 'Keep ' + escH(keys.map(K.label).join(' or ')) : 'Cancel') + '</button></div>';
+    else if (rec && kxHint) more = '<p class="kx-hint" role="alert">' + escH(kxHint) + '</p>';
+    return '<div class="kr-row kx-row' + (over ? ' kr-over' : '') + (rec ? ' kx-rec' : '') + (cl ? ' kx-clash' : '') + '" data-kx="' + c.id + '"' + (rec ? ' tabindex="-1"' : '') + '>'
+      + '<div class="kr-l"><div class="kr-h"><h4>' + escH(c.t) + '</h4><button type="button" class="kr-reset" data-kx-reset="' + c.id + '" title="Use the default key">Reset</button></div>'
+      + (line ? '<p>' + escH(line) + '</p>' : '') + '</div><div class="kx-c">' + right + '</div>' + more + '</div>';
+  }
+  function kxFixed(f){
+    return '<div class="kr-row kx-row kx-fix"><div class="kr-l"><div class="kr-h"><h4>' + escH(f.t) + '</h4></div>' + (f.d ? '<p>' + escH(f.d) + '</p>' : '') + '</div>'
+      + '<div class="kx-c">' + f.keys.map(kxCaps).join('') + (f.more ? '<span class="kx-or">…</span>' : '') + '</div></div>';
+  }
+  function kxRender(){
+    if (!kxList) return;
+    var raw = kxQ ? kxQ.value.trim() : '', q = raw.toLowerCase(), groups = [], rows = {};
+    var hit = function(words){ return !q || words.join(' ').toLowerCase().indexOf(q) >= 0; };
+    K.COMMANDS.forEach(function(c){
+      if (!hit([c.g, c.t, c.d || ''].concat(K.keysOf(KST, c.id).map(K.label))) && kxRec !== c.id && !(kxClash && kxClash.id === c.id)) return;
+      if (!rows[c.g]) { rows[c.g] = []; groups.push(c.g); }
+      rows[c.g].push(kxRow(c));
+    });
+    var fixed = K.FIXED.filter(function(f){ return hit(['Fixed', f.t, f.d || ''].concat(f.keys.map(K.label))); });
+    var html = groups.map(function(g){ return '<h3 class="kgroup">' + escH(g) + '</h3><div class="kr-group kx-group">' + rows[g].join('') + '</div>'; }).join('')
+      + (fixed.length ? '<h3 class="kgroup">Fixed</h3><div class="kr-group kx-group">' + fixed.map(kxFixed).join('') + '</div>' : '');
+    // A render keeps the focus where it was, on the same button in the same row: a save that ends later renders too.
+    var fa = document.activeElement, frow = fa && kxList.contains(fa) && fa.closest('[data-kx]'), fsel = null;
+    if (frow) fsel = '[data-kx="' + frow.getAttribute('data-kx') + '"]' + (['data-kx-ed', 'data-kx-reset', 'data-kx-swap', 'data-kx-keep'].filter(function(n){ return fa.hasAttribute(n); }).map(function(n){ return ' [' + n + ']'; })[0] || '');
+    kxList.innerHTML = html || '<p class="kx-none">No shortcut matches “' + escH(raw) + '”.</p>';
+    var fback = fsel && kxList.querySelector(fsel); if (fback && fback !== document.activeElement) fback.focus();
+    var ra = $('[data-kx-resetall]'); if (ra) ra.disabled = !KST.changed;
+    var fb = $('[data-kx-file]'); if (fb) fb.hidden = !KFILE;
+    var nt = $('.kx-note'), notes = (kxFileNote ? [kxFileNote] : []).concat(KST.notes || []);
+    if (nt) { nt.hidden = !notes.length; nt.textContent = notes.length ? (KFILE ? 'keybindings.json: ' : 'Saved shortcuts: ') + notes.slice(0, 3).join(' ') + (notes.length > 3 ? ' And ' + (notes.length - 3) + ' more.' : '') : ''; }
+  }
+  function kxSay(text){ var l = $('.kx-live'); if (l) l.textContent = text || ''; }
+  // What a change does to the other commands, in words, before it applies: " Hold until 8:00 tomorrow: H."
+  function kxOthers(st, id){
+    return K.COMMANDS.filter(function(c){ return c.id !== id && K.keysOf(st, c.id).join(' ') !== K.keysOf(KST, c.id).join(' '); })
+      .map(function(c){ var ks = K.keysOf(st, c.id); return ' ' + c.t + ': ' + (ks.length ? ks.map(K.label).join(' or ') : 'no key') + '.'; }).join('');
+  }
+  function kxFocus(id){ var b = $('[data-kx-ed="' + id + '"]'); if (b) b.focus(); }
+  function kxStart(id){
+    kxRec = id; kxClash = null; kxHint = ''; kxMods = ''; kxRender();
+    var r = $('.kx-row.kx-rec'); if (r) r.focus();
+    var keys = K.keysOf(KST, id);
+    kxSay('Recording a key for ' + K.CMD[id].t + '. Press the keys, or Escape to ' + (keys.length ? 'keep ' + K.label(keys[0]) : 'leave it without one') + '.');
+  }
+  function kxStop(back){ var id = kxRec; kxRec = null; kxHint = ''; kxMods = ''; kxRender(); if (back && id) kxFocus(id); }
+  // Save: the browser's copy, and on the Mac the file. Every key label on the board follows.
+  function kxApply(st, id, said){
+    KST = st; kxClash = null;
+    var list = K.toList(st), text = JSON.stringify(list);
+    if (list.length) store('yc.keys', text); else forget('yc.keys');
+    kxSeen = text;
+    if (KFILE) KFILE.write(list).then(function(r){ kxFileNote = r && r.error ? 'Could not save the file: ' + r.error : ''; kxRender(); }, function(){ kxFileNote = 'Could not save the file.'; kxRender(); });
+    relabel(document); kxRender();
+    if (id) kxFocus(id);
+    kxSay(said);
+  }
+  // Recording takes every key first, in the capture phase, so nothing else on the page acts on it. Tab still moves on.
+  window.addEventListener('keydown', function(ev){
+    if (!kxRec) return;
+    if (!setDlg.open) { kxStop(false); return; }
+    // Tab moves on from the row: its Change button has the focus first, so the browser moves on from there.
+    if (ev.key === 'Tab') { kxStop(true); return; }
+    ev.preventDefault(); ev.stopPropagation();
+    if (ev.isComposing) return;
+    if (ev.key === 'Escape') { kxEscAt = Date.now(); kxStop(true); kxSay('Kept as it was.'); return; }
+    var id = kxRec, c = K.comboOf(ev);
+    if (!c) {
+      var g = K.glyphs((ev.metaKey || ev.ctrlKey ? 'mod+' : '') + (ev.altKey ? 'alt+' : '') + (ev.shiftKey ? 'shift+' : '') + 'x'); g.pop();
+      kxMods = g.join(' '); var rb = $('.kx-row.kx-rec .recbox'); if (rb) rb.textContent = kxMods ? kxMods + ' …' : '…';
+      return;
+    }
+    var cl = K.clash(KST, id, c);
+    if (cl && (cl.reserved || cl.fixed)) { kxHint = cl.text; kxMods = ''; kxRender(); var r = $('.kx-row.kx-rec'); if (r) r.focus(); kxSay(cl.text); return; }
+    kxRec = null; kxHint = ''; kxMods = '';
+    if (cl) {
+      kxClash = { id: id, key: c, other: cl.other, text: cl.text, canTake: cl.canTake, gives: cl.gives }; kxRender();
+      var sb = $('[data-kx-swap]') || $('[data-kx-keep]'); if (sb) sb.focus();
+      return;
+    }
+    kxApply(K.set(KST, id, c), id, K.CMD[id].t + ': ' + K.label(c) + '.');
+  }, true);
+  window.addEventListener('keyup', function(ev){
+    if (!kxRec) return;
+    var g = K.glyphs((ev.metaKey || ev.ctrlKey ? 'mod+' : '') + (ev.altKey ? 'alt+' : '') + (ev.shiftKey ? 'shift+' : '') + 'x'); g.pop();
+    kxMods = g.join(' '); var rb = $('.kx-row.kx-rec .recbox'); if (rb) rb.textContent = kxMods ? kxMods + ' …' : '…';
+  }, true);
+  // Esc that stopped a recording never also closes Settings.
+  setDlg.addEventListener('cancel', function(ev){ if (kxRec || Date.now() - kxEscAt < 400) { ev.preventDefault(); if (kxRec) kxStop(true); } });
+  setDlg.addEventListener('close', function(){ kxRec = null; kxClash = null; kxHint = ''; kxMods = ''; });
+  setDlg.addEventListener('click', function(ev){
+    var t = ev.target; if (!t || !t.closest) return;
+    if (kxRec && !t.closest('.kx-row.kx-rec')) kxStop(false);
+    var ed = t.closest('[data-kx-ed]'); if (ed) { kxStart(ed.dataset.kxEd); return; }
+    var rs = t.closest('[data-kx-reset]');
+    if (rs) { var rid = rs.dataset.kxReset, dk = K.CMD[rid].keys, rst = K.reset(KST, rid); kxApply(rst, rid, K.CMD[rid].t + (dk.length ? ': ' + dk.map(K.label).join(' or ') + ' again.' : ' has no key again.') + kxOthers(rst, rid)); return; }
+    if (t.closest('[data-kx-swap]') && kxClash) { var c = kxClash, sst = K.swap(KST, c.id, c.key); if (sst) kxApply(sst, c.id, K.CMD[c.id].t + ': ' + K.label(c.key) + '.' + kxOthers(sst, c.id)); return; }
+    if (t.closest('[data-kx-keep]') && kxClash) { var kid = kxClash.id; kxClash = null; kxRender(); kxFocus(kid); kxSay('Kept as it was.'); return; }
+    if (t.closest('[data-kx-resetall]')) { kxApply(K.build([]), null, 'Every shortcut has its default key again.'); var q = $('#kx-q'); if (q) q.focus(); return; }
+    if (t.closest('[data-kx-file]') && KFILE) KFILE.open().then(function(r){ if (r && r.error) { kxFileNote = 'Could not open the file: ' + r.error; kxRender(); } }, function(){});
+  });
+  if (kxQ) kxQ.addEventListener('input', kxRender);
+  // On the Mac the file is the list: read at start and whenever the window comes back, so an edit there applies.
+  // With no file yet, the browser's list becomes it.
+  function kxLoad(){
+    if (!KFILE) return;
+    KFILE.read().then(function(r){
+      if (!r) return;
+      if (r.error) { kxFileNote = r.error; kxRender(); return; }
+      kxFileNote = '';
+      if (r.list == null) { var mine = K.toList(KST); if (mine.length) KFILE.write(mine); kxRender(); return; }
+      var text = JSON.stringify(r.list);
+      if (text === kxSeen) { kxRender(); return; }
+      kxSeen = text; KST = K.build(r.list); kxClash = null;
+      if (Array.isArray(r.list) && r.list.length) store('yc.keys', text); else forget('yc.keys');
+      relabel(document); kxRender();
+    }, function(){});
+  }
+  window.addEventListener('focus', kxLoad);
+  kxLoad();
   // A screenshot that loads changes the message's height: fades and the reader's join follow (hill climb 2 r2, Fable).
   document.addEventListener('load', function(ev){ if (ev.target && ev.target.tagName === 'IMG') fades(); }, true);
   // A screenshot that cannot load becomes a plain line saying so, never a broken box (hill climb r5, Opus).
@@ -3012,7 +3235,7 @@ ${BAR_HTML}
   // Typing your own answer picks it: a field inside a label does not check the label's radio by itself.
   document.addEventListener('focusin', function(ev){ var t = ev.target; if (t.matches && t.matches('label.opt .custom')) { var r = t.parentNode.querySelector('input[data-custom]'); if (r) r.checked = true; } });
 
-  applyPrefs(); applyScope(); normalizePicked(); sizeRail(); restoreDrafts(document);
+  applyPrefs(); applyScope(); normalizePicked(); sizeRail(); if (KST.changed || !K.mac) relabel(document); restoreDrafts(document);
   setView(state.view); setFolder('pass');
   fades();
   // The Cmd+K action bar (client/bar.mjs). View: You and View: Team read and set the same scope as the footer
@@ -3023,7 +3246,8 @@ ${BAR_HTML}
     $: $, $$: $$, store: store, forget: forget, state: state, prefs: prefs, reduce: reduce,
     mounted: function(){ return mounted; }, plateNode: plateNode, keyForm: keyForm, select: select, setFolder: setFolder, listKeyOf: listKeyOf,
     send: send, setIntent: setIntent, noting: noting, toggleView: toggleView, openLaunch: openLaunch, openSettings: openSettings, setDensity: setDensity, setTheme: setTheme, mini: function(k){ return MINI[k] || ''; },
-    liftToast: liftToast, yieldKey: yieldKey, grow: grow, views: viewsNow, setScope: setScope
+    liftToast: liftToast, yieldKey: yieldKey, grow: grow, views: viewsNow, setScope: setScope,
+    keyGlyphs: function(id){ return K.keysOf(KST, id).map(function(k){ return K.glyphs(k); }); }
   }, barCore());
 })();
 </script></body></html>`;

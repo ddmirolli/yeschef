@@ -6,6 +6,13 @@ contextBridge.exposeInMainWorld('yeschef', {
   act: (body) => ipcRenderer.invoke('yeschef:act', String(body)),
   // Appearance: 'system', 'light' or 'dark', so the window's title bar, menus and this card follow the board's choice.
   theme: (t) => ipcRenderer.invoke('yeschef:theme', String(t)),
+  // Settings → Shortcuts: keybindings.json in the app's data folder (desktop/keybindings.mjs). Read and write the list,
+  // or open the file in the Mac's editor for .json.
+  keys: {
+    read: () => ipcRenderer.invoke('yeschef:keys', { op: 'read' }),
+    write: (list) => ipcRenderer.invoke('yeschef:keys', { op: 'write', list }),
+    open: () => ipcRenderer.invoke('yeschef:keys', { op: 'open' }),
+  },
 });
 
 // The app's own card (desktop/updates.mjs): an update, or the one-time offer to move to Applications. The app sends
