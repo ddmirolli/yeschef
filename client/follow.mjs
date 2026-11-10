@@ -8,7 +8,10 @@
  *  get(id) gives that id's last read, or { state: 'not-checked', why }. subscribe(fn) calls fn({ ids }) when a read
  *  changes what those ids show. */
 export function createFollower({ read, now = Date.now, concurrency = 2, every = 60000, gap = 10000, maxAge = 3 * every, log = () => {}, name = 'read' } = {}) {
-  const sources = new Map();  // key -> { args, stamp, wantStamp, result, busy, queued }
+  // readAt is when this follower last started a read of the source. Turns are counted from it, not from the result's
+  // `at`: a reused GitHub read keeps the older time its checks were read (client/github.mjs), and counting from that
+  // would read again at every refresh until the reuse ran out.
+  const sources = new Map();  // key -> { args, stamp, wantStamp, result, readAt, busy, queued }
   const owners = new Map();   // id -> key, or { why }
   const listeners = new Set();
   const queue = [];
@@ -22,7 +25,7 @@ export function createFollower({ read, now = Date.now, concurrency = 2, every = 
       // A key queued twice (dropped and wanted again before its turn) is read once (PR-Agent r1 on #80).
       if (!s || s.busy || !s.queued) continue;
       s.queued = false; s.busy = true; running++;
-      const stamp = s.wantStamp;
+      const stamp = s.wantStamp, started = now();
       let reading;
       try { reading = Promise.resolve(read(s.args)); } catch (ex) { reading = Promise.reject(ex); }
       reading.catch((ex) => ({ state: 'not-checked', why: String(ex?.message || ex).slice(0, 200), at: now() }))
@@ -32,7 +35,7 @@ export function createFollower({ read, now = Date.now, concurrency = 2, every = 
           // A read too old to show (get() said "not checked"), read again the same, is news: it is current again
           // (PR-Agent r1 on #3).
           const before = s.result ? sig(s.result) : null, wasStale = !!s.result && now() - s.result.at > maxAge;
-          s.result = result; s.stamp = stamp;
+          s.result = result; s.stamp = stamp; s.readAt = started;
           if (sources.get(key) === s && (before !== sig(result) || wasStale)) {
             const ids = [...owners].filter(([, k]) => k === key).map(([id]) => id);
             for (const fn of [...listeners]) { try { fn({ ids }); } catch (ex) { log(`a ${name} listener failed: ${ex?.message || ex}`); } }
@@ -50,7 +53,7 @@ export function createFollower({ read, now = Date.now, concurrency = 2, every = 
       for (const x of targets) {
         if (!x.key) { owners.set(x.id, { why: x.why || 'nothing to read' }); continue; }
         owners.set(x.id, x.key);
-        if (!sources.has(x.key)) sources.set(x.key, { args: x.args, stamp: null, wantStamp: null, result: null, busy: false, queued: false });
+        if (!sources.has(x.key)) sources.set(x.key, { args: x.args, stamp: null, wantStamp: null, result: null, readAt: null, busy: false, queued: false });
         const stamp = String(x.stamp ?? '');
         if (!stamps.has(x.key) || stamp > stamps.get(x.key)) stamps.set(x.key, stamp);
       }
@@ -58,7 +61,7 @@ export function createFollower({ read, now = Date.now, concurrency = 2, every = 
         if (!stamps.has(key)) { sources.delete(key); continue; }
         s.wantStamp = stamps.get(key);
         if (s.busy || s.queued) continue;
-        const age = s.result ? t - s.result.at : Infinity;
+        const age = s.readAt === null ? Infinity : t - s.readAt;
         if (age >= every || (s.wantStamp !== s.stamp && age >= gap)) { s.queued = true; queue.push(key); }
       }
       pump();
