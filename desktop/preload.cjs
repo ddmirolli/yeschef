@@ -4,6 +4,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('yeschef', {
   act: (body) => ipcRenderer.invoke('yeschef:act', String(body)),
+  // Appearance: 'system', 'light' or 'dark', so the window's title bar, menus and this card follow the board's choice.
+  theme: (t) => ipcRenderer.invoke('yeschef:theme', String(t)),
 });
 
 // The app's own card (desktop/updates.mjs): an update, or the one-time offer to move to Applications. The app sends

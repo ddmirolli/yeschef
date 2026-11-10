@@ -108,6 +108,9 @@ const ICONS = {
   note: '<path d="M3 3.5h10v7H7l-3 2.5v-2.5H3z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>',
   jump: '<path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>',
   rows: '<path d="M3 4.5h10M3 8h10M3 11.5h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
+  sun: '<circle cx="8" cy="8" r="2.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M3.6 12.4l1.1-1.1M11.3 4.7l1.1-1.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>',
+  moon: '<path d="M12.8 9.6A5.2 5.2 0 0 1 6.4 3.2a5.2 5.2 0 1 0 6.4 6.4z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>',
+  auto: '<circle cx="8" cy="8" r="5.4" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 2.6a5.4 5.4 0 0 1 0 10.8z" fill="currentColor"/>',
   key: '<rect x="1.8" y="4" width="12.4" height="8" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M4.5 6.7h.01M7 6.7h.01M9.5 6.7h.01M12 6.7h.01M5 9.4h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>',
   gear: '<circle cx="8" cy="8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M3.6 12.4 5 11M11 5l1.4-1.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>',
   rules: '<path d="M4 2.5h8v11H4z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M6 5.5h4M6 8h4M6 10.5h2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>',
@@ -378,6 +381,10 @@ export function installBar(app, core) {
     core.viewRows(app.views(), typeof app.setScope === 'function').forEach(function (v) {
       out.push({ id: v.id, g: v.g, t: v.t, d: v.d, kw: v.kw, icon: ic(v.icon), now: v.now, run: function () { app.setScope(v.scope); } });
     });
+    // Appearance (PR 3): the three choices of Settings → Layout. ⌥⇧⌘A steps through them, as in T3 Code.
+    if (typeof app.setTheme === 'function') [['system', 'Match system', 'Light or dark, as your system is set', 'auto'], ['light', 'Light', 'Always light', 'sun'], ['dark', 'Dark', 'Always dark', 'moon']].forEach(function (a) {
+      out.push({ id: 'theme:' + a[0], g: 'View', t: 'Appearance: ' + a[1], d: a[2], kw: 'theme mode light dark system auto color night day', icon: ic(a[3]), now: app.prefs.theme === a[0], run: function () { app.setTheme(a[0]); } });
+    });
     [['default', 'Default', 'Title and the agent’s summary'], ['comfortable', 'Comfortable', 'Title and one summary line'], ['compact', 'Compact', 'Titles only, the most tickets on screen']].forEach(function (d) {
       out.push({ id: 'density:' + d[0], g: 'View', t: 'Density: ' + d[1], d: d[2], kw: 'list rows size dense spacing', icon: ic('rows'), now: app.prefs.density === d[0], run: function () { app.setDensity(d[0]); } });
     });
@@ -391,6 +398,7 @@ export function installBar(app, core) {
     if (p[0] === 'tk') return ic(p[2] === 'open' ? 'ext' : ICON[p[4]] || 'check');
     if (p[0] === 'go') return ic('jump');
     if (p[0] === 'note') return ic('note');
+    if (p[0] === 'theme') return ic({ light: 'sun', dark: 'moon' }[p[1]] || 'auto');
     return ic({ 'new': 'plus', view: p[1] === 'you' || p[1] === 'team' ? p[1] : 'expand', density: 'rows', rules: 'rules', keys: 'key', settings: 'gear' }[p[0]] || 'check');
   }
   function histRow(r, i, n) {
