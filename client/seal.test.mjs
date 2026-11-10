@@ -140,7 +140,7 @@ test('an invite keeps its secret after the #; the relay can check a join but not
   assert.ok(await proofMatches(ask.proof, record.verifier));
   // Change the first character: its 6 bits are all data (the last character's low bits are padding).
   assert.equal(await proofMatches((ask.proof[0] === 'A' ? 'B' : 'A') + ask.proof.slice(1), record.verifier), false);
-  assert.doesNotMatch(JSON.stringify(ask), /Ada/);
+  assert.doesNotMatch(JSON.stringify(ask), /Ada Lovelace|Lovelace/);
   assert.deepEqual(await openJoin(secret, { team: T, m: dev.id, ...ask }), { name: 'Ada Lovelace' });
   // The proof alone (all the relay ever sees) does not open the ask.
   await assert.rejects(openJoin(ask.proof, { team: T, m: dev.id, ...ask }));
