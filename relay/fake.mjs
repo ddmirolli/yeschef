@@ -51,7 +51,10 @@ export function fakeRelay({ env = {}, start = Date.UTC(2026, 10, 10, 12), regist
     async connect(path, hooks = {}) {
       const out = await room.fetch(new Request(base + path, { headers: { upgrade: 'websocket' } }));
       if (out instanceof Response) return { status: out.status, body: await out.json() };
-      const ws = { info: out.upgrade, heard: [], closed: null, onheard: hooks.heard, onclosed: hooks.closed,
+      // As the Worker does: the role read again, with no wait before the socket opens.
+      const up = room.admit(out.upgrade);
+      if (!up) return { status: 401, body: { error: 'The relay does not know this member, or the sign-in token is old.' } };
+      const ws = { info: up, heard: [], closed: null, onheard: hooks.heard, onclosed: hooks.closed,
         say: async (value) => { await room.message(ws, JSON.stringify(value)); return ws.heard[ws.heard.length - 1]; },
         last: (t) => [...ws.heard].reverse().find((x) => x.t === t) || null,
         drain: () => ws.heard.splice(0) };
