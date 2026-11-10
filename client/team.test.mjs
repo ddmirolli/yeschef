@@ -1378,3 +1378,34 @@ test('a key ask saved in the future does not hold the next one for days', async 
   assert.ok(dev.state.keyAskAt <= relay.now());
   lead.stop(); dev.stop();
 });
+
+test('a pending hello to a saved member is refused, and no summary goes without its own signed role', async () => {
+  const { relay, lead, dev } = await crew();
+  dev.people = new Map();
+  await dev.handle({ t: 'hello', role: 'pending' });
+  dev.board(boardNow(relay.now()));
+  await settle(); await settle(); await settle();
+  assert.equal(relay.sql.exec('SELECT COUNT(*) AS n FROM summary WHERE m = ? AND blob IS NOT NULL', dev.meId).one().n, 0);
+  assert.equal(dev.stopped, true);
+  lead.stop(); dev.stop();
+});
+
+test('an identical board read while a summary seals does not throw the sealed one away', async () => {
+  const { relay, lead, dev } = await crew();
+  const b = boardNow(relay.now());
+  const seal = dev.sealSummary.bind(dev);
+  let n = 0;
+  dev.sealSummary = async (...a) => { n++; if (n < 6) dev.board(b); return seal(...a); };
+  dev.board(b);
+  await until(() => lead.summaries.size === 1, 'the summary in');
+  assert.equal(n, 1);
+  lead.stop(); dev.stop();
+});
+
+test('a repeated withdrawal does not raise the summary floor again', async () => {
+  const { lead, dev } = await crew();
+  lead.summaryFloor.set(dev.meId, 1000);
+  for (let i = 0; i < 3; i++) await lead.handle({ t: 'gone', m: dev.meId });
+  assert.equal(lead.summaryFloor.get(dev.meId), 1000.5);
+  lead.stop(); dev.stop();
+});
