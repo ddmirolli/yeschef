@@ -260,7 +260,8 @@ own Send stay ⌘↵: the suggested action's `!dialog` keeps them apart.
 - **Edits by hand.** The app reads the file at start and each time the window comes back, so an edit applies when
   you return. An entry Yes Chef cannot use is named under the buttons and skipped: a key it cannot read or that is
   not text, a when it
-  cannot read or that can never hold (`ticket && !ticket`), or a key Settings would refuse (macOS's, a fixed key, a suggested-action key with no ⌘ or ⌥). Where
+  cannot read or that can never hold (`ticket && !ticket`), a plain key or ⌘↵ whose when needs `dialog` (a dialog
+  keeps those), or a key Settings would refuse (macOS's, a fixed key, a suggested-action key with no ⌘ or ⌥). Where
   two commands get one key and both can apply, the later entry has it, and an entry beats a default, as in VS Code.
   An entry for a command Yes Chef does not have is kept as written, with every field (an `args` too). A file that is not valid JSON is named and not
   read. The next change in Settings writes it again.

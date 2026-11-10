@@ -197,6 +197,8 @@ export function keysCore(mac) {
       if (off) { by[id] = by[id].filter(function (b) { return b.key !== k; }); return; }
       var no = refuse(id, k);
       if (no) { notes.push(at + ' is not used: ' + no.why); return; }
+      // An open dialog keeps its plain keys and ⌘↵ (route), so such a key that applies only in a dialog would never run.
+      if (dialogKey(k) && lits(w).indexOf('dialog') >= 0) { notes.push(at + ' is not used: its when needs a dialog, and a dialog keeps ' + label(k) + ' for itself.'); return; }
       var dup = by[id].filter(function (b) { return b.key === k && b.when === w; })[0];
       if (dup) dup.at = i; else by[id].push({ key: k, when: w, at: i });
     });

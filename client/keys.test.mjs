@@ -305,6 +305,18 @@ test('a US sign written with Shift is the sign Shift types, in the file and from
   assert.equal(K.comboOf(ev('?', { code: 'Slash', shiftKey: true, metaKey: true })), 'mod+?');
 });
 
+test('the file: a key a dialog keeps, with a when that needs a dialog, is skipped', () => {
+  const st = K.build([{ command: '-commandPalette.toggle' }, { key: 'y', command: 'commandPalette.toggle', when: 'dialog' }]);
+  assert.deepEqual(st.notes, ['Entry 2 is not used: its when needs a dialog, and a dialog keeps Y for itself.', 'Action bar always has a key, so it keeps ⌘K.']);
+  assert.deepEqual(K.keysOf(st, 'commandPalette.toggle'), ['mod+k']);
+  assert.deepEqual(K.build([{ key: 'mod+enter', command: 'view.you', when: 'dialog' }]).notes, ['Entry 1 is not used: its when needs a dialog, and a dialog keeps ⌘↵ for itself.']);
+  // A key a dialog leaves alone works there, and a plain key may still say it is not for a dialog.
+  const ok = K.build([{ key: 'mod+y', command: 'view.you', when: 'dialog' }, { key: 'y', command: 'view.team', when: '!dialog' }]);
+  assert.deepEqual(ok.notes, []);
+  assert.deepEqual([K.keysOf(ok, 'view.you'), K.keysOf(ok, 'view.team')], [['mod+y'], ['y']]);
+  assert.deepEqual(K.route(ok, 'mod+y', { dialog: true }), { run: 'view.you' });
+});
+
 test('the file: a key that is not text is named and skipped, and never throws', () => {
   const odd = JSON.parse('[{"command":"ticket.hold","key":{"toString":null}},{"command":"ticket.hold","key":5},{"command":"ticket.hold"},{"command":"ticket.hold","key":"kk"}]');
   const st = K.build(odd);
