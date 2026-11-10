@@ -113,12 +113,12 @@ export class Room {
     if (refused) return;
     if (this.today?.day === day) this.today.n += requests + messages;
     else this.today = null;
-    // Days past the keep window go, once per wake and day.
-    if (this.prunedDay !== day) {
-      this.prunedDay = day;
-      this.sql.exec('DELETE FROM usage WHERE day < ?', new Date(this.now() - this.cfg.keepDays * DAY).toISOString().slice(0, 10));
-    }
+    // Days past the keep window go, once per wake and day. The alarm prunes them too, for a team that went quiet.
+    if (this.prunedDay !== day) { this.prunedDay = day; this.pruneUsage(); }
   }
+  /** The first day still kept. */
+  keepFrom() { return new Date(this.now() - this.cfg.keepDays * DAY).toISOString().slice(0, 10); }
+  pruneUsage() { this.sql.exec('DELETE FROM usage WHERE day < ?', this.keepFrom()); }
   /** True when today's requests and messages taken reached the daily cap. Refused ones do not count. */
   overCap() {
     if (!this.cfg.maxDaily || !this.team) return false;
@@ -139,11 +139,17 @@ export class Room {
     this.rows('DELETE FROM invite WHERE until < ?', now);
     this.drop(ended, 'The invite has ended. Ask the lead for a new link.');
     this.rows('DELETE FROM inbox WHERE until < ?', now);
+    this.pruneUsage();
   }
   /** The next time something here expires, for the alarm. */
   nextExpiry() {
     const r = this.sql.exec('SELECT MIN(u) AS u FROM (SELECT MIN(until) AS u FROM invite UNION ALL SELECT MIN(until) AS u FROM inbox)').toArray()[0];
-    return r?.u ?? null;
+    // The oldest usage day leaves keepDays after it, so an idle team's counts end on time too (PR-Agent r1 on
+    // public #6).
+    const oldest = this.sql.exec('SELECT MIN(day) AS d FROM usage').toArray()[0]?.d;
+    const usageEnds = oldest ? Date.parse(oldest + 'T00:00:00Z') + (this.cfg.keepDays + 1) * DAY : null;
+    const all = [r?.u ?? null, usageEnds].filter((x) => x !== null);
+    return all.length ? Math.min(...all) : null;
   }
   /** Ask the Durable Object to wake when this row expires, so an idle team keeps nothing past its time. */
   expireAt(until) { if (this.wakeAt) this.wakeAt(until + 1000); }
@@ -243,8 +249,11 @@ export class Room {
       const m = await checkAuth(auth, { team, method, path: url.pathname, now: this.now(), signPubOf: (id) => this.member(id)?.sign || null });
       if (!m || !this.isLead(m)) return fail(403, 'Only the lead can delete the team.');
       for (const ws of this.sockets.list()) this.sockets.close(ws, 4004, 'The lead deleted the team.');
-      this.team = null; this.members = null;
-      await this.onDelete?.(team);
+      // The cache is cleared only after the delete, and read again from storage if it failed: a delete that stops
+      // halfway leaves a team that still answers, so the lead can retry it and /v1/usage keeps it listed (PR-Agent r1
+      // on public #6).
+      try { await this.onDelete?.(team); }
+      finally { this.team = undefined; this.members = null; this.today = null; }
       return json(200, { deleted: team });
     }
     return fail(404, 'Not a relay address.');
@@ -398,7 +407,14 @@ export class Room {
         if (!(until > now && until <= now + this.cfg.inviteMaxMs)) return no('bad', 'An invite lasts at most 7 days.');
         this.prune();
         if (this.one('SELECT COUNT(*) AS n FROM invite').n >= this.cfg.maxInvites) return no('full', 'Too many open invites. Revoke one first.');
-        this.rows('INSERT INTO invite (id, verifier, box, until, by) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING', msg.invite, msg.verifier, msg.box, until, me);
+        // The same invite sent again (a retry after a lost answer) is taken once. Another invite under a used id is
+        // refused, so nobody hears a box that does not match the verifier the relay checks (PR-Agent r1 on public #6).
+        const had = this.one('SELECT verifier, box, until, by FROM invite WHERE id = ?', msg.invite);
+        if (had) {
+          if (had.verifier === msg.verifier && had.box === msg.box && had.until === until && had.by === me) return ok({ until });
+          return no('bad', 'That invite id is taken. Make a new link.');
+        }
+        this.rows('INSERT INTO invite (id, verifier, box, until, by) VALUES (?, ?, ?, ?, ?)', msg.invite, msg.verifier, msg.box, until, me);
         this.broadcast({ t: 'invite', invite: { id: msg.invite, box: msg.box, until, by: me } }, { except: me, to: (id) => this.canInvite(id) });
         this.expireAt(until);
         return ok({ until });
@@ -440,7 +456,11 @@ export class Room {
     const r = await readRoster(roster, { team: this.team.id, leadSignPub: this.team.lead_sign });
     if (!r || r.lead !== this.team.lead) return { t: 'err', code: 'bad', text: 'That roster is not signed by this team\'s lead.' };
     if (r.ver !== this.team.ver + 1) return { t: 'err', code: 'stale', text: `The team changed. Roster ${this.team.ver} is current.`, ver: this.team.ver };
-    if (this.cfg.maxDevs && r.members.length > this.cfg.maxDevs) return { t: 'err', code: 'cap', text: `A team on this relay holds up to ${this.cfg.maxDevs} people.` };
+    // Asks still waiting hold their places, as join() counts them: a roster cannot take a place an ask was given
+    // (PR-Agent r1 on public #6).
+    const listed = new Set(r.members.map((m) => m.id));
+    const waiting = this.rows('SELECT m FROM pending').filter((p) => !listed.has(p.m)).length;
+    if (this.cfg.maxDevs && r.members.length + waiting > this.cfg.maxDevs) return { t: 'err', code: 'cap', text: `A team on this relay holds up to ${this.cfg.maxDevs} people, counting the asks still waiting. Decline one first.` };
     const before = new Set(this.roster().keys());
     const after = new Set(r.members.map((m) => m.id));
     this.rows('UPDATE team SET roster = ?, ver = ? WHERE k = 1', JSON.stringify(roster), r.ver);

@@ -459,8 +459,21 @@ test('expired messages free their place, and the alarm drops what expired while 
   assert.equal(next, soonest);
   assert.equal(t.relay.alarms.at(-1), next + 1000);
   t.relay.tick(8 * DAY);
-  assert.equal(await t.relay.room.alarm(), null);
+  // Invites and messages are gone. The usage counts are what is left (this alarm's own deletes are counted today),
+  // and the alarm is set for when the oldest day of them ends.
+  const oldest = t.relay.sql.exec('SELECT MIN(day) AS d FROM usage').one().d;
+  assert.equal(oldest, '2026-11-10');
+  const usageEnds = Date.parse(oldest) + 91 * DAY;
+  assert.equal(await t.relay.room.alarm(), usageEnds);
   assert.equal(t.relay.sql.exec('SELECT (SELECT COUNT(*) FROM inbox) + (SELECT COUNT(*) FROM invite) AS n').one().n, 0);
+  // Nobody comes back. At that alarm the counts go too, past the 90 days kept, and nothing is left to wake for
+  // (PR-Agent r1 on public #6).
+  t.relay.tick(usageEnds - t.relay.now() + 1000);
+  const last = Date.parse(t.relay.sql.exec('SELECT MAX(day) AS d FROM usage').one().d) + 91 * DAY;
+  await t.relay.room.alarm();
+  t.relay.tick(last - t.relay.now() + 1000);
+  assert.equal(await t.relay.room.alarm(), null);
+  assert.equal(t.relay.sql.exec('SELECT COUNT(*) AS n FROM usage').one().n, 0);
 });
 
 test('an ask that ends with its invite tells the waiting dev and the inviters', async () => {
@@ -573,4 +586,48 @@ test('a message the relay cannot read gets an error, not a crash', async () => {
   assert.equal(lws.last('err').code, 'bad');
   assert.equal((await lws.say({ t: 'whatever', id: 1 })).code, 'bad');
   assert.equal((await lws.say({ t: 'send', id: 2 })).code, 'bad');
+});
+
+test('a delete that fails halfway leaves the team answering, so the lead can try again', async () => {
+  let fail = true;
+  const relay = fakeRelay({ unregister: async () => { if (fail) throw new Error('storage busy'); } });
+  const id = newId();
+  const lead = await newMember();
+  const roster = await signRoster(lead, { team: id, ver: 1, lead: lead.id, at: relay.now(), members: [{ id: lead.id, sign: lead.signPub, dh: lead.dhPub }] });
+  assert.equal((await relay.http('POST', `/v1/teams/${id}`, { roster })).status, 201);
+  const path = `/v1/teams/${id}`;
+  const del = async () => relay.http('DELETE', path, undefined, { authorization: `YesChef ${await authToken(lead, { team: id, method: 'DELETE', path, now: relay.now() })}` });
+  assert.equal((await del()).status, 500);
+  // Still there: usage reads it, so /v1/usage keeps it in the registry, and the lead's retry is not a 404.
+  assert.ok(relay.room.usage(7));
+  fail = false;
+  assert.equal((await del()).status, 200);
+  assert.equal(relay.room.usage(7), null);
+});
+
+test('MAX_DEVS counts the asks still waiting when the lead adds someone else', async () => {
+  const t = await team({ MAX_DEVS: '2' });
+  const lws = await t.ws(t.lead);
+  const inv = await t.invite(lws);
+  assert.equal((await t.join(inv)).res.status, 202);
+  // Two places: the lead and the waiting ask. A roster that adds someone who never asked would make three.
+  const other = await newMember();
+  t.people.set(other.id, { m: other, name: 'Bo', role: 'engineer' });
+  const r = await t.push(lws);
+  assert.equal(r.code, 'cap');
+  assert.match(r.text, /asks still waiting/);
+});
+
+test('an invite id is taken once: the same invite again is fine, a different one under that id is refused', async () => {
+  const t = await team();
+  const lws = await t.ws(t.lead);
+  const inv = await t.invite(lws);
+  assert.equal(inv.reply.t, 'ok');
+  const again = { t: 'invite', invite: inv.record.invite, verifier: inv.record.verifier, until: inv.record.until };
+  const box = t.relay.sql.exec('SELECT box FROM invite').one().box;
+  assert.equal((await lws.say({ ...again, id: 'a', box })).t, 'ok', 'a retry after a lost answer');
+  const other = await newInvite({ relay: 'https://relay.test', team: t.id, lead: t.lead, now: t.relay.now() });
+  const r = await lws.say({ ...again, id: 'b', verifier: other.record.verifier, box });
+  assert.equal(r.code, 'bad');
+  assert.equal(t.relay.sql.exec('SELECT verifier FROM invite').one().verifier, inv.record.verifier);
 });
