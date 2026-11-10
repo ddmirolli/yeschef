@@ -355,8 +355,8 @@ export class Team {
       // Their summary still waiting for the key goes too, so the welcome does not bring back what they unshared
       // (PR-Agent r11 on public #7).
       // Revisions are whole milliseconds: half past the withdrawn one turns that summary away and lets a newer one in
-      // (PR-Agent r14 on public #7).
-      case 'gone': this.summaries.delete(msg.m); if (this.summaryFloor.has(msg.m)) this.summaryFloor.set(msg.m, this.summaryFloor.get(msg.m) + 0.5); this.later = this.later.filter((x) => !(x.t === 'summary' && x.m === msg.m)); this.emit('team'); return;
+      // (PR-Agent r14 on public #7). Added once, so repeated withdrawals do not shut out the next revision (PR-Agent r18).
+      case 'gone': this.summaries.delete(msg.m); if (Number.isInteger(this.summaryFloor.get(msg.m))) this.summaryFloor.set(msg.m, this.summaryFloor.get(msg.m) + 0.5); this.later = this.later.filter((x) => !(x.t === 'summary' && x.m === msg.m)); this.emit('team'); return;
       case 'presence': if (msg.on) this.online.add(msg.m); else this.online.delete(msg.m); this.emit('team'); return;
       case 'inbox': return this.take(msg);
       case 'pending': return this.takePending(msg.pending);
@@ -378,6 +378,13 @@ export class Team {
     const me = await this.member();
     if (gone()) return;
     this.meId = me.id;
+    // Pending is taken only by a Mac that is still pending. To a member, it is a relay skipping the signed roster
+    // (PR-Agent r18 on public #7).
+    if (msg.role === 'pending' && this.state.status !== 'pending') {
+      this.emit('error', { text: 'The relay called this Mac a pending member without a team list. Yes Chef stopped talking to it.' });
+      this.stop();
+      return;
+    }
     if (msg.role === 'pending') { this.attempts = 0; this.setLink('online'); this.emit('team'); return; }
     const took = await this.takeRoster(msg.roster);
     if (took === 'removed' || gone()) return;
@@ -409,7 +416,7 @@ export class Team {
     // The relay kept our last summary; send only what changed while this Mac was away. A Viewer, or a dev who shares
     // nothing now, has it dropped.
     const held = (msg.summaries || []).some((s) => s.m === this.meId);
-    if (held && (!shares(this.me?.role) || !this.state.shared?.length)) this.unshare();
+    if (held && (!(this.me && shares(this.me.role)) || !this.state.shared?.length)) this.unshare();
     // A project dropped before a restart, its replacement never taken: the relay's copy still carries it. Rebuild it
     // from the board, or drop it until the board is read (PR-Agent r9 on public #7).
     else if (held && this.state.dropped && !this.next) this.shareNow(new Set([null]));
@@ -463,7 +470,7 @@ export class Team {
     for (const id of [...this.summaries.keys()]) if (!this.people.has(id)) this.summaries.delete(id);
     for (const id of [...this.summaryFloor.keys()]) if (!this.people.has(id)) this.summaryFloor.delete(id);
     // Made a Viewer: nothing more goes out, and the relay's copy goes (PR-Agent r1 on #79).
-    if (sharedBefore === true && !shares(this.me?.role)) this.unshare();
+    if (sharedBefore === true && !(this.me && shares(this.me.role))) this.unshare();
     this.emit('team');
     return true;
   }
@@ -696,10 +703,13 @@ export class Team {
     // The board was read just now: the summary carries this time, not the time it is sealed, so a summary held through
     // an outage never shows as live (PR-Agent r10 on public #7).
     this.lastBoardAt = this.now();
-    if (this.state.status !== 'member' || !shares(this.me?.role) || !this.state.shared?.length) return;
+    if (this.state.status !== 'member' || !(this.me && shares(this.me.role)) || !this.state.shared?.length) return;
     const body = summarize(board, this.state.shared, this.limits.summaryMax);
     const json = JSON.stringify(body);
     if (!this.flushing && json === this.sentJson && !this.state.dropped) { this.next = null; return; }
+    // The same summary already waits: it stays, so a sealed blob is not thrown away by each poll (PR-Agent r18 on
+    // public #7).
+    if (this.next && !this.next.forget && this.next.json === json && this.next.drop === this.state.dropped) return;
     this.next = { json, body, at: this.lastBoardAt, drop: this.state.dropped };
     this.flush();
   }
@@ -708,7 +718,7 @@ export class Team {
     if (!this.next || this.link !== 'online' || this.summaryTimer || this.flushing || !this.state.key) return;
     // Checked again at send time: a dev made a Viewer, or sharing nothing, sends no summary, whatever was queued
     // before (PR-Agent r1 on #79).
-    if (!this.next.forget && (!shares(this.me?.role) || !this.state.shared?.length)) { this.next = null; return; }
+    if (!this.next.forget && (!(this.me && shares(this.me.role)) || !this.state.shared?.length)) { this.next = null; return; }
     // A summary and a forget share the relay's one limit per member. The clock went back since the send time was set:
     // the wait moves back by the jump, so it keeps its length and never waits the whole jump (PR-Agent r10 on
     // public #7).
@@ -732,7 +742,7 @@ export class Team {
         }
         // Sealing waits on WebCrypto. A project dropped, or a Viewer made, while it ran replaced this summary or ended
         // sharing: it goes nowhere, and the newer one or the check above decides what does (PR-Agent r2 on #79).
-        if (this.next !== next || !shares(this.me?.role) || !this.state.shared?.length) return;
+        if (this.next !== next || !(this.me && shares(this.me.role)) || !this.state.shared?.length) return;
       }
       const r = next.forget ? await this.say({ t: 'forget' }) : await this.say({ t: 'summary', blob });
       if (r.t === 'ok') {
@@ -803,7 +813,7 @@ export class Team {
   shareNow(before) {
     if (!this.state.shared.length) { this.unshare(); return; }
     if (![...before].some((id) => !this.state.shared.includes(id))) return; // only added: the next board sends them
-    if (this.lastBoard && shares(this.me?.role)) {
+    if (this.lastBoard && this.me && shares(this.me.role)) {
       const body = summarize(this.lastBoard, this.state.shared, this.limits.summaryMax);
       this.next = { json: JSON.stringify(body), body, at: this.lastBoardAt, drop: this.state.dropped };
       this.flush();
