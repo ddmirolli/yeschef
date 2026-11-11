@@ -182,7 +182,7 @@ Dan's rule (2026-11-09), now for the local fallback only (the vault's service ac
 | A | Versions, T3 Code discovery, free callback port, server in `utilityProcess`, no personal defaults, tests left out of the build | Nothing |
 | B | electron-builder, fuses, hardened runtime, Developer ID signing, notarization, DMG and ZIP | Merged (#64, 2026-11-10) |
 | C | electron-updater on T3 Code's schedule, Stable and Nightly, `npm run release` against `ddmirolli/yeschef` | Merged (#66 and #68, 2026-11-10) |
-| Open source | LICENSE, CONTRIBUTING, no personal defaults, `tools/public_tree.py` | Nothing |
+| Open source | LICENSE, CONTRIBUTING, no personal defaults, `tools/public-tree.ts` | Nothing |
 | Public day | Section 8: the public repo, then the first Stable release | C, Dan's go |
 | D | Download buttons, the `/download` page, version line on the site, all read from GitHub's API | C. Safe before public day: until a release exists, `/download` says "No release yet." |
 | E | Releases in GitHub Actions: Nightly on a schedule, Nightly and Stable by hand, Stable after Dan's approval, an unsigned dry run on pull requests (section 7) | Public day. Signed releases wait on Dan's actions 9 and 10 |
@@ -191,7 +191,7 @@ Dan's rule (2026-11-09), now for the local fallback only (the vault's service ac
 
 The public repo starts from one clean commit. Its history and PRs start that day, as T3 Code's public life did. This repo, with every commit and PR before that day, stays private.
 
-1. From a clean main: `python3 tools/public_tree.py build /tmp/yeschef-public`. It leaves out the files in `PRIVATE` and refuses when any file holds a tailnet address, a home path, a key, a 1Password reference or pitch material. `test_public.py` runs the same scan on every change, so main stays clean until that day.
+1. From a clean main: `node tools/public-tree.ts build /tmp/yeschef-public`. It leaves out the files in `PRIVATE` and refuses when any file holds a tailnet address, a home path, a key, a 1Password reference or pitch material. Its test (`tools/public-tree.test.ts`) runs the same scan on every change, so main stays clean until that day.
 2. Rename this repo to `ddmirolli/yeschef-archive`. It stays private.
 3. Create the public `ddmirolli/yeschef`. Push the copy as one commit, authored with the GitHub noreply address. Turn on Discussions with an Ideas category, as T3 Code has.
 4. GitHub stops redirecting a renamed repo once its old name is reused (GitHub docs, "Renaming a repository"). Every local clone whose `origin` is `ddmirolli/yeschef` then reaches the public repo, whose history is new. T3 or Dan clones the public repo into the canonical checkout and the T3 project. Agents never clone. Open branches move over as patches.

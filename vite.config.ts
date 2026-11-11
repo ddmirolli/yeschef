@@ -1,7 +1,7 @@
 import "vite-plus/test/config";
 import { defineConfig } from "vite-plus";
 
-// Vitest runs the workspace's tests (client/, relay/). desktop/ and site/ run their own, as their READMEs say.
+// Vitest runs the workspace's tests (client/, relay/, tools/). desktop/ and site/ run their own, as their READMEs say.
 export default defineConfig({
   test: {
     environment: "node",
