@@ -3,7 +3,19 @@
   // Node scripts. shoot.ts drives a browser, so the DOM types are here for the code it runs in the page.
   "compilerOptions": {
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
-    "types": ["node"]
+    "types": ["node"],
+    // Not on Effect: Node scripts keep Date, timers, console, fetch and Node's modules, as T3 Code's apps/web does.
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        "overrides": [
+          {
+            "include": ["**/*.ts", "../client/**/*.ts"],
+            "options": { "diagnosticSeverity": { "globalDate": "off", "globalConsole": "off", "globalTimers": "off", "globalFetch": "off", "globalRandom": "off", "nodeBuiltinImport": "off", "cryptoRandomUUID": "off" } }
+          }
+        ]
+      }
+    ]
   },
   "include": ["*.ts", "hero-art/*.ts"]
 }

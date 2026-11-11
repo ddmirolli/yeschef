@@ -30,8 +30,9 @@
 //
 // The app is one asar: desktop/ (main.ts, t3.ts, updates.ts, channels.ts, keybindings.ts, preload.cjs built from
 // preload.cts by build/preload.ts, the Dock icon), client/ without its tests (its .ts files, and pass.css, the
-// board's base stylesheet) and electron-updater with its dependencies, in the repo's own layout, so main.ts finds the
-// board server at ../client as in the repo. Electron's Node runs every .ts file with its types stripped. The asar integrity and "only load the app
+// board's base stylesheet) and the runtime packages: electron-updater for desktop/, effect for client/, with their
+// dependencies and without their TypeScript or source maps, in the repo's own layout, so main.ts finds the board server
+// at ../client as in the repo. Electron's Node runs every .ts file with its types stripped. The asar integrity and "only load the app
 // from asar" fuses then cover the board server and the updater too. Last, a hidden --capture start of the built app
 // on an empty temporary data folder proves it starts and loads all its code (release plan, section 7, step 4).
 import builder from 'electron-builder';
@@ -42,12 +43,13 @@ import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CHANNELS, FEED, channelOf, isReleaseVersion } from '../channels.ts';
 import { buildPreload } from './preload.ts';
-import { ARCH, FUSES, MIN_MACOS, TEAM_ID, checkApp, checkBuild, checkDmg, checkFeed, pickIdentity, report, rewriteFeed, runningFrom, runtimePackages, sha512, targetsFor, teamOf } from './release.ts';
+import { ARCH, FUSES, MIN_MACOS, TEAM_ID, checkApp, checkBuild, checkDmg, checkFeed, pickIdentity, report, rewriteFeed, runningFrom, runtimeFile, runtimePackages, sha512, stageDependencies, targetsFor, teamOf } from './release.ts';
 import type { Expected, Result } from './release.ts';
 
 const { build, Platform, Arch } = builder;
 const DESKTOP = join(dirname(fileURLToPath(import.meta.url)), '..');
 const REPO = join(DESKTOP, '..');
+const CLIENT = join(REPO, 'client');
 const STAGE = join(DESKTOP, 'out', 'stage');
 const OUT = join(DESKTOP, 'out', 'builder');
 const DIST = process.argv.includes('--dist');
@@ -59,7 +61,7 @@ const run = (cmd: string, args: string[]) => execFileSync(cmd, args, { stdio: ['
 const fail: (text: string) => never = (text) => { console.error(text); process.exit(1); };
 
 if (process.platform !== 'darwin' || process.arch !== ARCH) fail('Yes Chef builds on an Apple silicon Mac only.');
-const pkg: { version: string; description: string; dependencies: Record<string, string> } = JSON.parse(readFileSync(join(DESKTOP, 'package.json'), 'utf8'));
+const pkg: { version: string; description: string } = JSON.parse(readFileSync(join(DESKTOP, 'package.json'), 'utf8'));
 const at = process.argv.indexOf('--version');
 const VERSION = at < 0 ? pkg.version : String(process.argv[at + 1] || '');
 if (!isReleaseVersion(VERSION)) fail(`Not a version Yes Chef builds: "${VERSION}". Use 1.2.3, or 1.2.4-nightly.20261110.1 for Nightly.`);
@@ -97,28 +99,33 @@ rmSync(STAGE, { recursive: true, force: true });
 for (const f of ['main.ts', 't3.ts', 'updates.ts', 'channels.ts', 'keybindings.ts']) cpSync(join(DESKTOP, f), join(STAGE, 'desktop', f));
 buildPreload(join(STAGE, 'desktop', 'preload.cjs'));
 cpSync(join(DESKTOP, 'build', C.icon), join(STAGE, 'desktop', 'build', C.icon));
-for (const f of readdirSync(join(REPO, 'client'))) {
+for (const f of readdirSync(CLIENT)) {
   const code = f.endsWith('.ts') && !f.endsWith('.test.ts');
-  if (code || f === 'pass.css') cpSync(join(REPO, 'client', f), join(STAGE, 'client', f));
+  if (code || f === 'pass.css') cpSync(join(CLIENT, f), join(STAGE, 'client', f));
 }
-// The one runtime library, electron-updater, and what it needs, as the workspace's `vp install` installed them from
-// pnpm-lock.yaml, so the app ships the files the tests ran against. pnpm links each package to its real folder in
-// node_modules/.pnpm; runtimePackages follows the links and lays the packages out flat, as npm did (build/release.ts),
-// in the stage's own node_modules. electron-builder leaves every node_modules out of the app's files and copies the
-// modules its collector lists, searching the stage first: with a full tree there, it ships exactly this one. In the
-// app, desktop/main.ts finds them one folder up, as Node does.
+// The runtime libraries, electron-updater (desktop/) and effect (client/), and what they need, as the workspace's
+// `vp install` installed them from pnpm-lock.yaml, so the app ships the files the tests ran against. pnpm links each
+// package to its real folder in node_modules/.pnpm; runtimePackages follows the links and lays the packages out flat,
+// as npm did (build/release.ts), in the stage's own node_modules. electron-builder leaves every node_modules out of the
+// app's files and copies the modules its collector lists, searching the stage first: with a full tree there, it ships
+// exactly these. In the app, desktop/ and client/ find them one folder up, as Node does.
 let runtime: ReturnType<typeof runtimePackages> = [];
-try { runtime = runtimePackages(DESKTOP); } catch (e) { fail((e as Error).message); }
-if (!runtime.some((p) => p.to === 'node_modules/electron-updater')) fail('electron-updater is not installed. Run vp install at the repo root first.');
+let dependencies: Record<string, string> = {};
+try { runtime = runtimePackages(DESKTOP, CLIENT); dependencies = stageDependencies([DESKTOP, CLIENT], runtime); } catch (e) { fail((e as Error).message); }
+for (const want of ['electron-updater', 'effect']) {
+  if (!runtime.some((p) => p.to === `node_modules/${want}`)) fail(`${want} is not installed. Run vp install at the repo root first.`);
+}
 for (const p of runtime) {
-  cpSync(p.from, join(STAGE, p.to), { recursive: true, filter: (src) => src !== join(p.from, 'node_modules') && !src.startsWith(`${join(p.from, 'node_modules')}/`) });
+  const nested = join(p.from, 'node_modules');
+  cpSync(p.from, join(STAGE, p.to), { recursive: true,
+    filter: (src) => src !== nested && !src.startsWith(`${nested}/`) && (src === p.from || statSync(src).isDirectory() || runtimeFile(src)) });
 }
 console.log(`Runtime packages: ${runtime.map((p) => `${p.name}@${p.version}`).join(', ')}.`);
 // The bundle's name, version and feed come from here: electron-builder names the updater's cache after `name`.
 writeFileSync(join(STAGE, 'package.json'), JSON.stringify({
   name: C.pkg, productName: C.name, version: VERSION, description: pkg.description,
   author: 'Daniel Mirolli', license: 'MIT', type: 'module', main: 'desktop/main.ts',
-  dependencies: pkg.dependencies,
+  dependencies,
 }, null, 2) + '\n');
 
 rmSync(OUT, { recursive: true, force: true });

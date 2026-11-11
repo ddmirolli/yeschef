@@ -1,123 +1,266 @@
+// @effect-diagnostics nodeBuiltinImport:off - The loopback OAuth callback is a Node HTTP boundary, as in T3 Code's CliTokenManager.ts.
 // The Pass's only link to T3: an outside MCP client that signs in with OAuth (docs/pass-product-brief-v1_0.md).
-// Node 18+ standard library. The token lives in this process only.
-import { createServer } from 'node:http';
-import { createHash, randomBytes } from 'node:crypto';
+// Effect at the edge, the way T3 Code's own MCP client (apps/server/src/peer/PeerMcpClient.ts) and its loopback OAuth
+// sign-in (apps/server/src/cloud/CliTokenManager.ts) do it: HttpClient for every request, a Schema for every reply, a
+// tagged error for every failure. The board server keeps its Promises: signIn() and connect() run the programs here.
+// The token lives in this process only.
+import * as NodeHttp from 'node:http';
 import type { AddressInfo } from 'node:net';
+import * as Deferred from 'effect/Deferred';
+import * as Duration from 'effect/Duration';
+import * as Effect from 'effect/Effect';
+import * as Option from 'effect/Option';
+import * as Schema from 'effect/Schema';
+import * as Semaphore from 'effect/Semaphore';
+import * as Stream from 'effect/Stream';
+import * as Digest from 'effect/crypto/Digest';
+import * as SecureRandom from 'effect/crypto/SecureRandom';
+import * as Base64Url from 'effect/encoding/Base64Url';
+import * as Sse from 'effect/encoding/Sse';
+import * as FetchHttpClient from 'effect/http/FetchHttpClient';
+import * as HttpClient from 'effect/http/HttpClient';
+import * as HttpClientRequest from 'effect/http/HttpClientRequest';
+import * as HttpClientResponse from 'effect/http/HttpClientResponse';
 import type { T3Caller } from './contracts.ts';
 
+/** The MCP protocol version T3 Code's /mcp speaks (PeerMcpClient.ts uses the same). */
+const PROTOCOL_VERSION = '2025-06-18';
+
 // What T3's OAuth endpoints send, as far as the sign-in reads it.
-interface AuthServer { registration_endpoint: string; authorization_endpoint: string; token_endpoint: string; scopes_supported: string[] }
-interface TokenReply { access_token?: string; scope?: string; expires_in?: number }
+const AuthServer = Schema.Struct({
+  registration_endpoint: Schema.String,
+  authorization_endpoint: Schema.String,
+  token_endpoint: Schema.String,
+  scopes_supported: Schema.Array(Schema.String),
+});
+const ProtectedResource = Schema.Struct({ resource: Schema.String });
+const Registration = Schema.Struct({ client_id: Schema.String });
+const TokenReply = Schema.Struct({
+  access_token: Schema.String,
+  scope: Schema.optional(Schema.String),
+  expires_in: Schema.optional(Schema.Number),
+});
+
+// A JSON-RPC message on the wire. Any message may arrive on a stream; only the reply with our id is read in full.
+const RpcEnvelope = Schema.fromJsonString(Schema.Struct({ id: Schema.optional(Schema.Unknown) }));
+const RpcReply = Schema.fromJsonString(Schema.Struct({
+  id: Schema.Number,
+  result: Schema.optional(Schema.Unknown),
+  error: Schema.optional(Schema.Struct({ message: Schema.String })),
+}));
+// The result of an MCP tools/call, as PeerMcpClient.ts reads it.
+const ToolResult = Schema.Struct({
+  content: Schema.optional(Schema.Array(Schema.Struct({ text: Schema.optional(Schema.String) }))),
+  structuredContent: Schema.optional(Schema.Unknown),
+  isError: Schema.optional(Schema.Boolean),
+});
+const Json = Schema.fromJsonString(Schema.Unknown);
+
 /** A finished sign-in: the MCP resource and its bearer token. */
 export interface SignedIn { resource: string; token: string; scope: string | undefined; expiresIn: number | undefined }
-// A JSON-RPC reply, and the result of an MCP tools/call.
-interface RpcMessage { id?: number | null; result?: unknown; error?: { message?: string } }
-interface ToolResult { structuredContent?: unknown; content?: { text?: string }[]; isError?: boolean }
 
-const b64u = (buf: Buffer): string => buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+/** The sign-in could not finish. The message says which step failed. */
+export class T3SignInError extends Schema.TaggedError<T3SignInError>()('T3SignInError', {
+  reason: Schema.String,
+  cause: Schema.optional(Schema.Defect()),
+}) {
+  override get message(): string { return this.reason; }
+}
+
+/** T3 Code refused the token (401): the sign-in expired or was revoked. The board server checks `auth`. */
+export class T3AuthError extends Schema.TaggedError<T3AuthError>()('T3AuthError', {}) {
+  get auth(): true { return true; }
+  override get message(): string { return 'T3 sign-in expired or revoked'; }
+}
+
+/** T3 dropped our MCP session (404 on an established one). The call starts a new session once. */
+export class T3SessionEndedError extends Schema.TaggedError<T3SessionEndedError>()('T3SessionEndedError', {}) {
+  override get message(): string { return 'T3 ended the session; reconnecting'; }
+}
+
+/** An MCP request or tool failed. The message names the method or tool. */
+export class T3CallError extends Schema.TaggedError<T3CallError>()('T3CallError', {
+  reason: Schema.String,
+  cause: Schema.optional(Schema.Defect()),
+}) {
+  override get message(): string { return this.reason; }
+}
+
+const isOk = (status: number): boolean => status >= 200 && status < 300;
+
+/** Runs a program at the Promise boundary. Fetch is read at each run, so a test's stand-in for it is the one used. */
+const run = <A, E>(program: Effect.Effect<A, E, HttpClient.HttpClient>): Promise<A> =>
+  Effect.runPromise(program.pipe(
+    Effect.provide(FetchHttpClient.layer),
+    Effect.provideService(FetchHttpClient.Fetch, globalThis.fetch),
+  ));
+
+/** GET a JSON document and decode it, or fail naming the document. */
+const getJson = Effect.fn('t3mcp.get_json')(function* <S extends Schema.Decoder<unknown>>(url: string, schema: S, what: string) {
+  const http = (yield* HttpClient.HttpClient).pipe(HttpClient.filterStatusOk);
+  return yield* http.get(url).pipe(
+    Effect.flatMap(HttpClientResponse.schemaBodyJson(schema)),
+    Effect.mapError((cause) => new T3SignInError({ reason: `${what} could not be read: ${cause.message}`, cause })),
+  );
+});
+
+// PKCE as CliTokenManager.ts makes it: a verifier, its SHA-256 challenge and a state, from WebCrypto.
+const makePkceRequest = Effect.gen(function* () {
+  const random = yield* SecureRandom.SecureRandom;
+  const digest = yield* Digest.Digest;
+  const verifier = Base64Url.encode(yield* random.randomBytes(32));
+  const challenge = Base64Url.encode(yield* digest.digest(Digest.sha256, new TextEncoder().encode(verifier)));
+  const state = Base64Url.encode(yield* random.randomBytes(16));
+  return { verifier, challenge, state };
+}).pipe(
+  Effect.provide([SecureRandom.layerWebCrypto, Digest.layerWebCrypto]),
+  Effect.mapError((cause) => new T3SignInError({ reason: 'could not make the sign-in secret', cause })),
+);
+
+/** The loopback callback. Until `arm` is called, every request to it is a 404. Closed when the scope ends. */
+const listen = Effect.fn('t3mcp.listen')(function* (port: number) {
+  const callback = yield* Deferred.make<URL>();
+  let armed = false;
+  // Every answer closes its connection, so no kept-alive socket outlives the sign-in, however the close is timed.
+  const server = NodeHttp.createServer((req, res) => {
+    const u = new URL(req.url ?? '/', 'http://127.0.0.1');
+    if (u.pathname !== '/callback' || !armed) { res.writeHead(404, { connection: 'close' }).end(); return; }
+    res.writeHead(200, { 'content-type': 'text/plain', connection: 'close' }).end('The Pass is signed in to T3. You can close this tab.');
+    armed = false;
+    Deferred.doneUnsafe(callback, Effect.succeed(u));
+  });
+  yield* Effect.acquireRelease(
+    Effect.callback<void, T3SignInError>((resume) => {
+      server.once('error', (cause) => resume(Effect.fail(new T3SignInError({ reason: `could not listen for the sign-in: ${cause.message}`, cause }))));
+      server.listen(port, '127.0.0.1', () => resume(Effect.void));
+    }),
+    () => Effect.sync(() => { server.close(); server.closeIdleConnections(); }),
+  );
+  return {
+    redirect: `http://127.0.0.1:${(server.address() as AddressInfo).port}/callback`,
+    arm: () => { armed = true; },
+    approval: Deferred.await(callback),
+  };
+});
+
+const signInProgram = Effect.fn('t3mcp.sign_in')(function* (origin: string, port: number, name: string, onLink: (link: string) => void, timeoutMs: number) {
+  const http = yield* HttpClient.HttpClient;
+  // The callback listens before T3 hears of it.
+  const loopback = yield* listen(port);
+  const meta = yield* getJson(`${origin}/.well-known/oauth-authorization-server`, AuthServer, "T3's OAuth metadata");
+  const { resource } = yield* getJson(`${origin}/.well-known/oauth-protected-resource`, ProtectedResource, "T3's MCP resource metadata");
+  const registered = yield* HttpClientRequest.post(meta.registration_endpoint).pipe(
+    HttpClientRequest.bodyJsonUnsafe({ client_name: name, redirect_uris: [loopback.redirect], grant_types: ['authorization_code'], response_types: ['code'], token_endpoint_auth_method: 'none' }),
+    http.execute,
+    Effect.mapError((cause) => new T3SignInError({ reason: `could not reach T3 to register: ${cause.message}`, cause })),
+  );
+  if (!isOk(registered.status)) return yield* new T3SignInError({ reason: `T3 refused the client registration (${registered.status})` });
+  const { client_id } = yield* HttpClientResponse.schemaBodyJson(Registration)(registered).pipe(
+    Effect.mapError((cause) => new T3SignInError({ reason: `T3's client registration could not be read: ${cause.message}`, cause })),
+  );
+  const { verifier, challenge, state } = yield* makePkceRequest;
+  const link = new URL(meta.authorization_endpoint);
+  for (const [k, v] of Object.entries({ response_type: 'code', client_id, redirect_uri: loopback.redirect, code_challenge: challenge,
+    code_challenge_method: 'S256', state, resource, scope: meta.scopes_supported.join(' ') })) link.searchParams.set(k, v);
+  loopback.arm();
+  onLink(link.toString());
+  const answer = yield* loopback.approval.pipe(
+    Effect.timeoutOrElse({ duration: Duration.millis(timeoutMs), orElse: () => Effect.fail(new T3SignInError({ reason: 'no approval in time' })) }),
+  );
+  if (answer.searchParams.get('state') !== state) return yield* new T3SignInError({ reason: 'state mismatch' });
+  const denied = answer.searchParams.get('error');
+  if (denied) return yield* new T3SignInError({ reason: 'sign-in denied: ' + denied });
+  const tokenResponse = yield* HttpClientRequest.post(meta.token_endpoint).pipe(
+    HttpClientRequest.bodyUrlParams({ grant_type: 'authorization_code', code: String(answer.searchParams.get('code')), redirect_uri: loopback.redirect,
+      client_id, code_verifier: verifier, resource }),
+    http.execute,
+    Effect.mapError((cause) => new T3SignInError({ reason: `could not reach T3 for the token: ${cause.message}`, cause })),
+  );
+  const token = yield* HttpClientResponse.schemaBodyJson(TokenReply)(tokenResponse).pipe(
+    Effect.mapError((cause) => new T3SignInError({ reason: `no token (${tokenResponse.status})`, cause })),
+  );
+  return { resource, token: token.access_token, scope: token.scope, expiresIn: token.expires_in } satisfies SignedIn;
+}, Effect.scoped);
 
 /** Register with the T3 environment at `origin`, show the sign-in link, and wait for the approval on a local callback.
  *  Port 0 (the default) takes any free port on 127.0.0.1. Each sign-in registers a new client, so the client is
  *  registered with the port this sign-in holds, and nothing clashes with whatever else uses a fixed one. */
-export async function signIn(origin: string, { port = 0, name = 'The Pass', onLink = console.log, timeoutMs = 30 * 60 * 1000 }: { port?: number; name?: string; onLink?: (link: string) => void; timeoutMs?: number } = {}): Promise<SignedIn> {
-  // The callback listens before T3 hears of it. Until the link is out, any request to it is a 404.
-  let answer: ((u: URL) => void) | null = null;
-  const srv = createServer((req, res) => {
-    const u = new URL(req.url ?? '/', 'http://127.0.0.1');
-    if (u.pathname !== '/callback' || !answer) { res.writeHead(404).end(); return; }
-    res.writeHead(200, { 'content-type': 'text/plain' }).end('The Pass is signed in to T3. You can close this tab.');
-    const done = answer; answer = null; done(u);
-  });
-  await new Promise<void>((resolve, reject) => { srv.once('error', reject); srv.listen(port, '127.0.0.1', () => resolve()); });
-  try {
-    const redirect = `http://127.0.0.1:${(srv.address() as AddressInfo).port}/callback`;
-    const meta = (await (await fetch(`${origin}/.well-known/oauth-authorization-server`)).json()) as AuthServer;
-    const resource = ((await (await fetch(`${origin}/.well-known/oauth-protected-resource`)).json()) as { resource: string }).resource;
-    const reg = await fetch(meta.registration_endpoint, { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ client_name: name, redirect_uris: [redirect], grant_types: ['authorization_code'], response_types: ['code'], token_endpoint_auth_method: 'none' }) });
-    if (!reg.ok) throw new Error(`T3 refused the client registration (${reg.status})`);
-    const client = (await reg.json()) as { client_id: string };
-    const verifier = b64u(randomBytes(32)), state = b64u(randomBytes(16));
-    const link = new URL(meta.authorization_endpoint);
-    for (const [k, v] of Object.entries({ response_type: 'code', client_id: client.client_id, redirect_uri: redirect,
-      code_challenge: b64u(createHash('sha256').update(verifier).digest()), code_challenge_method: 'S256', state, resource,
-      scope: meta.scopes_supported.join(' ') })) link.searchParams.set(k, v);
-    const code = await new Promise<string>((resolve, reject) => {
-      const timer = setTimeout(() => { answer = null; reject(new Error('no approval in time')); }, timeoutMs);
-      answer = (u) => {
-        clearTimeout(timer);
-        if (u.searchParams.get('state') !== state) reject(new Error('state mismatch'));
-        else if (u.searchParams.get('error')) reject(new Error('sign-in denied: ' + u.searchParams.get('error')));
-        else resolve(String(u.searchParams.get('code')));
-      };
-      onLink(link.toString());
-    });
-    const tok = await fetch(meta.token_endpoint, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: redirect, client_id: client.client_id, code_verifier: verifier, resource }) });
-    const token = (await tok.json()) as TokenReply;
-    if (!token.access_token) throw new Error(`no token (${tok.status})`);
-    return { resource, token: token.access_token, scope: token.scope, expiresIn: token.expires_in };
-  } finally { srv.close(); srv.closeIdleConnections(); }
+export function signIn(origin: string, { port = 0, name = 'The Pass', onLink, timeoutMs = 30 * 60 * 1000 }: { port?: number; name?: string; onLink: (link: string) => void; timeoutMs?: number }): Promise<SignedIn> {
+  return run(signInProgram(origin, port, name, onLink, timeoutMs));
 }
 
 /** A small MCP client over streamable HTTP. call() returns the tool's structured result, or throws. */
 export function connect({ resource, token }: { resource: string; token: string }, { timeoutMs = 20000 }: { timeoutMs?: number } = {}): T3Caller {
-  let session: string | null = null, id = 0, ready: Promise<unknown> | null = null;
-  async function rpc(method: string, params: unknown, notify = false): Promise<unknown> {
-    const headers: Record<string, string> = { 'content-type': 'application/json', accept: 'application/json, text/event-stream',
-      authorization: `Bearer ${token}`, 'mcp-protocol-version': '2025-06-18' };
-    if (session) headers['mcp-session-id'] = session;
+  let session: string | null = null, id = 0, ready = false;
+  const initLock = Semaphore.makeUnsafe(1);
+
+  const rpc = Effect.fn('t3mcp.rpc')(function* (method: string, params: unknown, notify: boolean) {
+    const http = yield* HttpClient.HttpClient;
+    const sent = session;
     const myId = notify ? null : ++id;
-    // A deadline on every request: a reply that never ends must not stall the poll loop.
-    const signal = AbortSignal.timeout(timeoutMs);
-    const r = await fetch(resource, { method: 'POST', headers, signal, body: JSON.stringify(notify ? { jsonrpc: '2.0', method, params } : { jsonrpc: '2.0', id: myId, method, params }) });
-    session = r.headers.get('mcp-session-id') || session;
-    if (notify) { await r.body?.cancel(); if (!r.ok) throw new Error(`${method}: HTTP ${r.status}`); return null; }
-    if (r.status === 401) throw Object.assign(new Error('T3 sign-in expired or revoked'), { auth: true });
+    const response = yield* HttpClientRequest.post(resource).pipe(
+      HttpClientRequest.setHeaders({ accept: 'application/json, text/event-stream', authorization: `Bearer ${token}`,
+        'mcp-protocol-version': PROTOCOL_VERSION, ...(sent ? { 'mcp-session-id': sent } : {}) }),
+      HttpClientRequest.bodyJsonUnsafe(myId === null ? { jsonrpc: '2.0', method, params } : { jsonrpc: '2.0', id: myId, method, params }),
+      http.execute,
+      Effect.mapError((cause) => new T3CallError({ reason: `${method}: could not reach T3 (${cause.message})`, cause })),
+    );
+    session = response.headers['mcp-session-id'] || session;
+    if (myId === null) {
+      yield* Effect.ignore(response.text);
+      if (!isOk(response.status)) return yield* new T3CallError({ reason: `${method}: HTTP ${response.status}` });
+      return undefined;
+    }
+    if (response.status === 401) return yield* new T3AuthError();
     // A 404 on an established session means T3 dropped it: start a new session on the next call.
-    if (r.status === 404 && headers['mcp-session-id']) { session = null; ready = null; throw new Error('T3 ended the session; reconnecting'); }
-    let msg: RpcMessage | undefined;
-    if ((r.headers.get('content-type') || '').includes('event-stream')) {
-      // Read the stream only until our reply arrives; the server may keep it open.
-      if (!r.body) throw new Error(`${method}: T3 sent an empty stream`);
-      const reader = r.body.getReader(), dec = new TextDecoder();
-      // An event may split its data over several lines; parse it at the blank line that ends it.
-      let buf = '', data: string[] = [];
-      while (!msg) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        let nl: number;
-        while (!msg && (nl = buf.indexOf('\n')) >= 0) {
-          const line = buf.slice(0, nl).replace(/\r$/, ''); buf = buf.slice(nl + 1);
-          if (line.startsWith('data:')) data.push(line.slice(line.startsWith('data: ') ? 6 : 5));
-          else if (line === '' && data.length) { const m = JSON.parse(data.join('\n')) as RpcMessage; data = []; if (m.id === myId) msg = m; }
-        }
-      }
-      reader.cancel().catch(() => {});
-    } else msg = JSON.parse(await r.text()) as RpcMessage;
-    if (!msg) throw new Error(`${method}: T3 closed the reply without an answer`);
-    if (msg.error) throw new Error(`${method}: ${msg.error.message}`);
-    return msg.result;
-  }
-  // A failed initialize is not kept: the next call starts over on a clean session.
-  const init = () => (ready ??= rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'the-pass', version: '0.1.0' } })
-    .then(() => rpc('notifications/initialized', {}, true))
-    .catch((ex) => { ready = null; session = null; throw ex; }));
-  return {
-    async call(name: string, args: Record<string, unknown> = {}) {
-      await init();
-      let res: ToolResult | null | undefined;
-      try { res = (await rpc('tools/call', { name, arguments: args })) as ToolResult | null; }
-      catch (ex) {
-        if (session !== null || !/reconnecting/.test((ex as Error | null)?.message ?? '')) throw ex;
-        await init();  // one retry on a fresh session
-        res = (await rpc('tools/call', { name, arguments: args })) as ToolResult | null;
-      }
-      const text = res?.content?.[0]?.text;
-      const data: unknown = res?.structuredContent ?? (() => { try { return JSON.parse(text ?? '') as unknown; } catch { return text; } })();
-      if (res?.isError) throw new Error(`${name}: ${typeof data === 'string' ? data : JSON.stringify(data)}`.slice(0, 300));
-      return data;
-    },
-  };
+    if (response.status === 404 && sent) { session = null; ready = false; return yield* new T3SessionEndedError(); }
+    if (!isOk(response.status)) return yield* new T3CallError({ reason: `${method}: HTTP ${response.status}` });
+    const unreadable = (cause: unknown) => new T3CallError({ reason: `${method}: T3 sent a reply the Pass cannot read`, cause });
+    // On a stream, read only until our reply arrives; the server may keep the stream open.
+    const raw = (response.headers['content-type'] ?? '').includes('event-stream')
+      ? yield* response.stream.pipe(
+        Stream.decodeText,
+        Stream.pipeThroughChannel(Sse.decode()),
+        Stream.filterEffect((event) => Schema.decodeEffect(RpcEnvelope)(event.data).pipe(Effect.map((m) => m.id === myId))),
+        Stream.map((event) => event.data),
+        Stream.runHead,
+        Effect.mapError(unreadable),
+      )
+      : Option.some(yield* response.text.pipe(Effect.mapError(unreadable)));
+    if (Option.isNone(raw)) return yield* new T3CallError({ reason: `${method}: T3 closed the reply without an answer` });
+    const reply = yield* Schema.decodeEffect(RpcReply)(raw.value).pipe(Effect.mapError(unreadable));
+    if (reply.error) return yield* new T3CallError({ reason: `${method}: ${reply.error.message}` });
+    return reply.result;
+  }, (effect, method) => effect.pipe(
+    // A deadline on every request: a reply that never ends must not stall the poll loop.
+    Effect.timeoutOrElse({ duration: Duration.millis(timeoutMs), orElse: () => Effect.fail(new T3CallError({ reason: `${method}: T3 did not answer in ${timeoutMs} ms` })) }),
+  ));
+
+  // One initialize at a time. A failed one is not kept: the next call starts over on a clean session.
+  const init = initLock.withPermits(1)(Effect.suspend(() => ready ? Effect.void : rpc('initialize', { protocolVersion: PROTOCOL_VERSION, capabilities: {},
+    clientInfo: { name: 'the-pass', version: '0.1.0' } }, false).pipe(
+    Effect.andThen(rpc('notifications/initialized', {}, true)),
+    Effect.tap(() => Effect.sync(() => { ready = true; })),
+    Effect.tapError(() => Effect.sync(() => { session = null; })),
+  )));
+
+  const call = Effect.fn('t3mcp.call')(function* (name: string, args: Record<string, unknown>) {
+    yield* init;
+    const callOnce = rpc('tools/call', { name, arguments: args }, false);
+    // One retry on a fresh session.
+    const raw = yield* callOnce.pipe(Effect.catchTag('T3SessionEndedError', () => init.pipe(Effect.andThen(callOnce))));
+    const result = yield* Schema.decodeUnknownEffect(ToolResult)(raw).pipe(
+      Effect.mapError((cause) => new T3CallError({ reason: `${name}: T3 sent a result the Pass cannot read`, cause })),
+    );
+    const text = result.content?.[0]?.text;
+    const data: unknown = result.structuredContent
+      ?? Option.getOrElse(Schema.decodeOption(Json)(text ?? ''), () => text);
+    if (result.isError) {
+      const said = typeof data === 'string' ? data : yield* Schema.encodeEffect(Json)(data).pipe(Effect.orElseSucceed(() => String(data)));
+      return yield* new T3CallError({ reason: `${name}: ${said}`.slice(0, 300) });
+    }
+    return data;
+  });
+
+  return { call: (name, args = {}) => run(call(name, args)) };
 }

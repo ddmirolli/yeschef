@@ -133,16 +133,16 @@ type Manifest = { name?: string; version?: string; dependencies?: Record<string,
 const manifest = (dir: string): Manifest => JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
 
 /**
- * The runtime packages of the package in `root` (desktop/): its `dependencies`, then theirs, as `npm ls --omit=dev`
- * listed them before desktop/ joined the pnpm workspace. Each is found from its dependent's real folder (findPackage),
- * so the app ships the files the tests ran against. Optional dependencies count when installed; optional peers do not
- * (npm never installs them). Each package lands at node_modules/<name>, or, when another version already holds that
- * name where Node would look first, in its dependent's own node_modules. Packages are placed breadth first, so a
- * package's own node_modules is filled before anything beneath it is placed, and no later package can shadow an
- * earlier one's dependency.
+ * The runtime packages of the packages in `roots` (desktop/ and client/, which the app ships side by side, so both load
+ * from the one node_modules beside them): their `dependencies`, then theirs, as `npm ls --omit=dev` listed them before
+ * desktop/ joined the pnpm workspace. Each is found from its dependent's real folder (findPackage), so the app ships the
+ * files the tests ran against. Optional dependencies count when installed; optional peers do not (npm never installs
+ * them). Each package lands at node_modules/<name>, or, when another version already holds that name where Node would
+ * look first, in its dependent's own node_modules. Packages are placed breadth first, so a package's own node_modules is
+ * filled before anything beneath it is placed, and no later package can shadow an earlier one's dependency. Two roots
+ * that need different versions of one package stop the build: they share one node_modules.
  */
-export function runtimePackages(root: string): Shipped[] {
-  const top = manifest(root);
+export function runtimePackages(...roots: string[]): Shipped[] {
   const shipped = new Map<string, Shipped>(); // by `to`
   const needs = (m: Manifest) => [
     ...Object.keys(m.dependencies || {}).map((n) => ({ n, optional: false })),
@@ -157,7 +157,7 @@ export function runtimePackages(root: string): Shipped[] {
       if (!d) return null;
     }
   };
-  const queue: { from: string; to: string; m: Manifest }[] = [{ from: realpathSync(root), to: '', m: { ...top, peerDependencies: {} } }];
+  const queue: { from: string; to: string; m: Manifest }[] = roots.map((root) => ({ from: realpathSync(root), to: '', m: { ...manifest(root), peerDependencies: {} } }));
   while (queue.length) {
     const p = queue.shift()!;
     for (const { n, optional } of needs(p.m)) {
@@ -170,6 +170,7 @@ export function runtimePackages(root: string): Shipped[] {
       const version = String(m.version);
       const seen = lookup(p.to, n);
       if (seen && seen.version === version) continue;
+      if (seen && !p.to) throw new Error(`${p.m.name} needs ${n} ${version}, and another package in the app needs ${n} ${seen.version}. They share one node_modules: use one version.`);
       const to = seen ? `${p.to ? `${p.to}/` : ''}node_modules/${n}` : `node_modules/${n}`;
       const s = { name: n, version, from, to };
       shipped.set(to, s);
@@ -177,6 +178,33 @@ export function runtimePackages(root: string): Shipped[] {
     }
   }
   return [...shipped.values()];
+}
+
+/**
+ * The stage package.json's `dependencies`: each root's own dependencies at the version that ships. electron-builder's
+ * collector runs npm in the stage and ships what this lists. client/ names its versions through the workspace catalog
+ * ("catalog:"), which npm cannot read, so the versions come from the packages themselves.
+ */
+export function stageDependencies(roots: string[], shipped: Shipped[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const root of roots) {
+    for (const n of Object.keys(manifest(root).dependencies || {})) {
+      const s = shipped.find((p) => p.to === `node_modules/${n}`);
+      if (!s) throw new Error(`${n} is not among the packages the app ships.`);
+      out[n] = s.version;
+    }
+  }
+  return out;
+}
+
+/**
+ * Whether a file of a runtime package ships. TypeScript (sources and declarations) and source maps do not: Node never
+ * loads TypeScript from node_modules (it refuses to strip types there), and reads source maps only with
+ * --enable-source-maps, which the app does not set. effect 4.1.2 holds 15 MB of JavaScript beside 22 MB of src/*.ts,
+ * 12 MB of .d.ts and 11 MB of maps.
+ */
+export function runtimeFile(path: string): boolean {
+  return !/\.(?:[cm]?ts|map)$/.test(path);
 }
 
 /** sha512 as base64, the form electron-builder writes in latest-mac.yml. */

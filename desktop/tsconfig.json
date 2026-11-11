@@ -2,7 +2,19 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
-    "types": ["node"]
+    "types": ["node"],
+    // Not on Effect yet: Date, timers, console, fetch and Node's modules stay, as T3 Code's apps/web does.
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        "overrides": [
+          {
+            "include": ["**/*.ts", "**/*.cts", "../client/*.ts"],
+            "options": { "diagnosticSeverity": { "globalDate": "off", "globalConsole": "off", "globalTimers": "off", "globalFetch": "off", "globalRandom": "off", "nodeBuiltinImport": "off", "cryptoRandomUUID": "off" } }
+          }
+        ]
+      }
+    ]
   },
   // The desktop app, its build scripts and their tests. Electron's types come from desktop/node_modules (vp install at the root).
   "include": ["*.ts", "*.cts", "build/*.ts"],

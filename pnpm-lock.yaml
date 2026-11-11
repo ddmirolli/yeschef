@@ -170,6 +170,9 @@ catalogs:
     '@types/node':
       specifier: 24.12.4
       version: 24.12.4
+    effect:
+      specifier: 4.1.2
+      version: 4.1.2
 
 overrides:
   vite: npm:@voidzero-dev/vite-plus-core@1.4.0
@@ -190,6 +193,10 @@ importers:
         version: 1.4.0(@astrojs/compiler-rs@0.5.3)(@types/node@24.12.4)(@vitest/ui@5.0.5)(@volar/typescript@2.4.31(typescript@6.0.3))(esbuild@0.28.2)(jiti@2.7.0)(typescript@6.0.3)(yaml@2.9.1)
 
   client:
+    dependencies:
+      effect:
+        specifier: 'catalog:'
+        version: 4.1.2
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -2383,6 +2390,9 @@ packages:
 
   duplexer2@0.1.4:
     resolution: {integrity: sha512-asLFVfWWtJ90ZyOUHMqk7/S2w2guQKxUI2itj3d92ADHhxUSbCMGi1f1cBcJ7xM1To+pE/Khbwo1yuNbMEPKeA==}
+
+  effect@4.1.2:
+    resolution: {integrity: sha512-d3Oah1WyKxFLFh19yWheS5IXIVaITzxZ71JkE1rkUozq/6EcJSU5nPk5bF2QrSygZ3SQoiNQB8TsxFriyMeMaQ==}
 
   ejs@3.1.10:
     resolution: {integrity: sha512-UeJmFfOrAQS8OJWPZ4qtgHyWExa088/MtK5UEyoJGFH67cDEXkZSviOiKRCZ4Xij0zxI3JECgYs3oKx+AizQBA==}
@@ -5898,6 +5908,8 @@ snapshots:
   duplexer2@0.1.4:
     dependencies:
       readable-stream: 2.3.8
+
+  effect@4.1.2: {}
 
   ejs@3.1.10:
     dependencies:

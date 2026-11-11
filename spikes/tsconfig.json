@@ -2,7 +2,19 @@
   "extends": "../tsconfig.base.json",
   // One-off Node scripts that tried T3 Code's interfaces before the app used them (docs/pass-product-brief-v1_0.md).
   "compilerOptions": {
-    "types": ["node"]
+    "types": ["node"],
+    // Not on Effect: one-off scripts keep Date, timers, console, fetch and Node's modules, as T3 Code's apps/web does.
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        "overrides": [
+          {
+            "include": ["**/*.ts"],
+            "options": { "diagnosticSeverity": { "globalDate": "off", "globalConsole": "off", "globalTimers": "off", "globalFetch": "off", "globalRandom": "off", "nodeBuiltinImport": "off", "cryptoRandomUUID": "off" } }
+          }
+        ]
+      }
+    ]
   },
   "include": ["*.ts"]
 }

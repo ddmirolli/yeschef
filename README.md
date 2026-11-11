@@ -25,7 +25,7 @@ The first pass was a Python login service on port 8494 with a board writer for t
 
 Strict TypeScript on T3 Code's toolchain. Dan's rulings, 2026-11-10:
 
-- **1 = C.** T3's TypeScript and tools now: its strict `tsconfig.base.json`, pnpm, Vite+, vitest, and `@effect/tsgo` for the typecheck. No Effect yet. Later pull requests move the I/O edges (the T3 and GitHub clients, the relay, the updater) to Effect with Schema. The renderers stay plain TypeScript.
+- **1 = C.** T3's TypeScript and tools now: its strict `tsconfig.base.json`, pnpm, Vite+, vitest, and `@effect/tsgo` for the typecheck, with T3's Effect rules (`tsconfig.effect.json`). The I/O edges move to Effect with Schema one pull request at a time: the T3 sign-in and MCP client (`client/t3mcp.ts`) first, then the live feed, the GitHub clients, the relay and the updater. Code not yet on Effect keeps its globals, as T3's `apps/web` does. The renderers stay plain TypeScript.
 - **2 = B.** The port does not wait for open pull requests. What is merged gets ported.
 - **3 = B.** The Python pass is retired, not ported (#22).
 
