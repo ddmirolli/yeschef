@@ -4,7 +4,19 @@
   "compilerOptions": {
     "target": "ES2023",
     "lib": ["ES2023", "WebWorker"],
-    "types": ["@cloudflare/workers-types", "node"]
+    "types": ["@cloudflare/workers-types", "node"],
+    // Not on Effect yet: Date, timers, console, fetch and crypto stay, as T3 Code's apps/web does.
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        "overrides": [
+          {
+            "include": ["**/*.ts", "../client/*.ts"],
+            "options": { "diagnosticSeverity": { "globalDate": "off", "globalConsole": "off", "globalTimers": "off", "globalFetch": "off", "globalRandom": "off", "nodeBuiltinImport": "off", "cryptoRandomUUID": "off" } }
+          }
+        ]
+      }
+    ]
   },
   "include": ["*.ts", "../client/seal.ts"]
 }

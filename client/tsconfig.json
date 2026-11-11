@@ -2,7 +2,20 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
-    "types": ["node"]
+    "types": ["node"],
+    // Code not on Effect yet keeps Date, timers, console, fetch and Node's modules, as T3 Code's apps/web does.
+    // A file on Effect (t3mcp.ts) is left out here, so every rule in tsconfig.effect.json holds there.
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        "overrides": [
+          {
+            "include": ["**/*.ts", "../relay/*.ts"], "exclude": ["t3mcp.ts"],
+            "options": { "diagnosticSeverity": { "globalDate": "off", "globalConsole": "off", "globalTimers": "off", "globalFetch": "off", "globalRandom": "off", "nodeBuiltinImport": "off", "cryptoRandomUUID": "off" } }
+          }
+        ]
+      }
+    ]
   },
   // Every .ts here and its tests.
   "include": ["*.ts", "test/*.ts"]

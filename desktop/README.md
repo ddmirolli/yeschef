@@ -24,7 +24,7 @@ This builds `Yes Chef.app` with electron-builder and puts it in `/Applications`.
 
 Every build is built the way a release is (`docs/desktop-release-plan-v0_1.md`, sections 2 and 3):
 
-- The app is one `app.asar`: `desktop/` without its tests and build scripts, and `client/` without its tests (its `pass.css` is the board's base stylesheet), and electron-updater with its dependencies. pnpm links each package to its folder in `node_modules/.pnpm`; the build follows the links and stages the same files, laid out flat as npm would (`runtimePackages` in `build/release.ts`), where electron-builder's module collector finds them.
+- The app is one `app.asar`: `desktop/` without its tests and build scripts, and `client/` without its tests (its `pass.css` is the board's base stylesheet), and the runtime packages of both: electron-updater for `desktop/` and effect for `client/`, with their dependencies, without their TypeScript or source maps. pnpm links each package to its folder in `node_modules/.pnpm`; the build follows the links and stages the same files, laid out flat as npm would (`runtimePackages` in `build/release.ts`), where electron-builder's module collector finds them. `desktop/` and `client/` share that one `node_modules`, so two versions of one of their own dependencies stop the build.
 - The fuses are flipped before signing: no `ELECTRON_RUN_AS_NODE`, no `NODE_OPTIONS`, no `--inspect`, cookies encrypted, and the app loads only from its asar, which is checked against the hash in `Info.plist`.
 - Every helper, framework and the app are signed inside out with the hardened runtime. The only entitlement is `allow-jit`, for V8 (`build/entitlements.mac.plist`).
 - The build then runs the checks in `build/release.ts` and stops if one fails.

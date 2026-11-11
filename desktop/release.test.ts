@@ -7,7 +7,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { FUSES, FUSE_WIRE, TEAM_ID, appUpdateProblems, checkApp, checkDmg, entitlementKeys, feedProblems, findPackage, fuseProblems, identities, literalPattern, machOFiles, pickIdentity, resultLine, rewriteFeed, runningFrom, runtimePackages, targetsFor, topLevel, writesAppUpdate } from './build/release.ts';
+import { FUSES, FUSE_WIRE, TEAM_ID, appUpdateProblems, checkApp, checkDmg, entitlementKeys, feedProblems, findPackage, fuseProblems, identities, literalPattern, machOFiles, pickIdentity, resultLine, rewriteFeed, runningFrom, runtimeFile, runtimePackages, stageDependencies, targetsFor, topLevel, writesAppUpdate } from './build/release.ts';
 import { assetProblems, changelogEntry, distArgs, ghArgs, installStep, newestNightly, nightlyDue, parseArgs, pickRelease, releaseFiles, releaseNotes, releaseTitle, settle, trustedPlan } from './build/publish.ts';
 import { nth } from '../client/test/expect.ts';
 
@@ -173,6 +173,50 @@ test('runtimePackages nests a second version under its dependent, so each packag
     assert.deepEqual(runtimePackages(dir).map((p) => `${p.to}@${p.version}`).sort(),
       ['node_modules/a@1.0.0', 'node_modules/b/node_modules/c/node_modules/d@2.0.0', 'node_modules/b/node_modules/c@2.0.0', 'node_modules/b@1.0.0', 'node_modules/c@1.0.0', 'node_modules/d@1.0.0']);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('runtimePackages ships the runtime packages of desktop/ and client/ in their one shared node_modules', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'yeschef-runtime-'));
+  try {
+    // The workspace: desktop/ needs updater, client/ needs effect (through the catalog) and the same util as updater.
+    const store = (id: string, name: string) => join(dir, 'node_modules', '.pnpm', id, 'node_modules', name);
+    const desktop = join(dir, 'desktop');
+    const client = join(dir, 'client');
+    pkgAt(desktop, { name: 'yeschef-desktop', dependencies: { updater: '1.0.0' } });
+    pkgAt(client, { name: 'yeschef-client', dependencies: { effect: 'catalog:', util: '3' }, devDependencies: { types: '1' } });
+    pkgAt(store('updater@1.0.0', 'updater'), { name: 'updater', version: '1.0.0', dependencies: { util: '^3' } });
+    pkgAt(store('util@3.1.0', 'util'), { name: 'util', version: '3.1.0' });
+    pkgAt(store('effect@4.1.2', 'effect'), { name: 'effect', version: '4.1.2' });
+    pkgAt(store('types@1.0.0', 'types'), { name: 'types', version: '1.0.0' });
+    const link = (from: string, to: string) => { mkdirSync(join(from, '..'), { recursive: true }); symlinkSync(to, from); };
+    link(join(desktop, 'node_modules', 'updater'), store('updater@1.0.0', 'updater'));
+    link(store('updater@1.0.0', 'util'), store('util@3.1.0', 'util'));
+    link(join(client, 'node_modules', 'effect'), store('effect@4.1.2', 'effect'));
+    link(join(client, 'node_modules', 'util'), store('util@3.1.0', 'util'));
+    link(join(client, 'node_modules', 'types'), store('types@1.0.0', 'types'));
+    // Before, only desktop/ was walked, and the app shipped without client/'s effect.
+    assert.deepEqual(runtimePackages(desktop).map((p) => `${p.to}@${p.version}`), ['node_modules/updater@1.0.0', 'node_modules/util@3.1.0']);
+    const shipped = runtimePackages(desktop, client);
+    assert.deepEqual(shipped.map((p) => `${p.to}@${p.version}`), ['node_modules/updater@1.0.0', 'node_modules/effect@4.1.2', 'node_modules/util@3.1.0']);
+    // The stage package.json names exact versions, never "catalog:", which npm in the stage cannot read.
+    assert.deepEqual(stageDependencies([desktop, client], shipped), { updater: '1.0.0', effect: '4.1.2', util: '3.1.0' });
+    assert.throws(() => stageDependencies([desktop, client], shipped.filter((p) => p.name !== 'effect')), /effect is not among the packages the app ships/);
+    // client/ moves to util 4: updater's util 3 nests under updater, so each loads its own.
+    pkgAt(store('util@4.0.0', 'util'), { name: 'util', version: '4.0.0' });
+    rmSync(join(client, 'node_modules', 'util'));
+    link(join(client, 'node_modules', 'util'), store('util@4.0.0', 'util'));
+    assert.deepEqual(runtimePackages(desktop, client).map((p) => `${p.to}@${p.version}`),
+      ['node_modules/updater@1.0.0', 'node_modules/effect@4.1.2', 'node_modules/util@4.0.0', 'node_modules/updater/node_modules/util@3.1.0']);
+    // But desktop/ and client/ themselves both load from the one node_modules: two versions there stop the build.
+    pkgAt(desktop, { name: 'yeschef-desktop', dependencies: { updater: '1.0.0', util: '3' } });
+    link(join(desktop, 'node_modules', 'util'), store('util@3.1.0', 'util'));
+    assert.throws(() => runtimePackages(desktop, client), /yeschef-client needs util 4\.0\.0, and another package in the app needs util 3\.1\.0/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('runtimeFile leaves out the TypeScript and source maps of runtime packages', () => {
+  for (const f of ['dist/index.js', 'dist/index.mjs', 'dist/index.cjs', 'package.json', 'LICENSE', 'README.md']) assert.equal(runtimeFile(f), true, f);
+  for (const f of ['src/Effect.ts', 'dist/Effect.d.ts', 'dist/Effect.d.mts', 'dist/index.d.cts', 'dist/Effect.js.map', 'dist/Effect.d.ts.map']) assert.equal(runtimeFile(f), false, f);
 });
 
 test('entitlementKeys reads every key in codesign\'s XML', () => {
