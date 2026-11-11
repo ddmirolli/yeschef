@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   b64u, unb64u, newId, isId, memberId, newMember, saveMember, loadMember, sign, verify, authToken, checkAuth, AUTH_SKEW_MS,
   signRoster, readRoster, newTeamKey, teamKey, seal, open, aad, sealSigned, openSigned, sealTo, openFrom,
-  newInvite, readInvite, joinRequest, openJoin, proofMatches,
+  newInvite, readInvite, joinRequest, openJoin, proofMatches, matchCode,
 } from './seal.mjs';
 
 const T = 'AAAAAAAAAAAAAAAAAAAAAA';
@@ -158,4 +158,22 @@ test('readInvite refuses junk and a relay that is not https', () => {
   assert.equal(readInvite(p('javascript:alert(1)')), null);
   assert.equal(readInvite(p('http://127.0.0.1:8790')).relay, 'http://127.0.0.1:8790');
   assert.equal(readInvite(p('https://relay.example.com/some/path')).relay, 'https://relay.example.com');
+});
+
+test('the match code: six digits, the same on both Macs, other digits for a swapped key or another invite', async () => {
+  const lead = await newMember(), dev = await newMember(), other = await newMember();
+  const { link, secret } = await newInvite({ relay: 'https://relay.test', team: T, lead });
+  const inv = readInvite(link);
+  const req = await joinRequest(inv, dev, { name: 'Ada' });
+  const at = { team: T, invite: inv.invite };
+  // The dev's Mac reads its own keys; the lead's reads the ask the relay passed on.
+  const devSide = await matchCode({ ...at, secret: inv.secret, sign: dev.signPub, dh: dev.dhPub });
+  const leadSide = await matchCode({ ...at, secret, sign: req.sign, dh: req.dh });
+  assert.match(devSide, /^\d{3} \d{3}$/);
+  assert.equal(leadSide, devSide);
+  // A key swapped on the way, either one: other digits.
+  assert.notEqual(await matchCode({ ...at, secret, sign: other.signPub, dh: req.dh }), devSide);
+  assert.notEqual(await matchCode({ ...at, secret, sign: req.sign, dh: other.dhPub }), devSide);
+  // The relay does not hold the secret, so it cannot work the digits out from the keys alone.
+  assert.notEqual(await matchCode({ ...at, secret: newId(), sign: req.sign, dh: req.dh }), devSide);
 });

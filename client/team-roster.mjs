@@ -1,6 +1,6 @@
 // The team client's roster: the signed versions and their floor, invites and asks to join, the lead's edits, and the
 // welcomes that carry the team key.
-import { open, seal, aad, readRoster, signRoster, newInvite, openJoin, sealTo, openFrom, isId } from './seal.mjs';
+import { open, seal, aad, readRoster, signRoster, newInvite, openJoin, sealTo, openFrom, isId, newId, matchCode, inviteLink } from './seal.mjs';
 import { grant, shares } from './roles.mjs';
 import { clean, WELCOME_TTL } from './team-common.mjs';
 
@@ -52,11 +52,15 @@ export const roster = {
     this.rosterSigned = signed;
     // A roster this lead signed and kept for its answer leaves once one at or past its version is in place.
     if (this.state.unsent) { let u = null; try { u = JSON.parse(this.state.unsent.body).ver; } catch { u = null; } if (!(u > body.ver)) { delete this.state.unsent; this.save(); } }
+    // The areas and each member's area travel sealed in the roster the lead signs, as roles do: the relay never sees them.
+    this.areas = readAreas(detail?.areas);
+    const people = detail?.people && typeof detail.people === 'object' ? detail.people : {};
     this.people = new Map(body.members.map((m) => {
-      const d = detail[m.id] || {};
+      const d = people[m.id] || {};
       const g = m.id === body.lead ? grant('lead') : grant(d.role, d.perms);
-      return [m.id, { id: m.id, sign: m.sign, dh: m.dh, invite: !!m.invite || m.id === body.lead, name: clean(d.name, 60) || 'Not checked', ...g }];
+      return [m.id, { id: m.id, sign: m.sign, dh: m.dh, invite: !!m.invite || m.id === body.lead, name: clean(d.name, 60) || 'Not checked', ...g, area: areaFor(g.role, d.area, this.areas), under: d.under }];
     }));
+    readUnder(this.people, body.lead);
     for (const id of [...this.summaries.keys()]) if (!this.people.has(id)) this.summaries.delete(id);
     for (const id of [...this.summaryFloor.keys()]) if (!this.people.has(id)) this.summaryFloor.delete(id);
     // Made a Viewer: nothing more goes out, and the relay's copy goes.
@@ -81,7 +85,9 @@ export const roster = {
     if (!inv) { if (!this.state.key) this.later.push({ t: 'pending', pending: p }); return; }
     try {
       const ask = await openJoin(inv.secret, { team: this.state.team, ...p });
-      this.pending.set(p.m, { m: p.m, invite: p.invite, at: p.at, sign: p.sign, dh: p.dh, name: clean(ask.name, 60) || 'No name', projects: (ask.projects || []).map((x) => clean(x, 80)).slice(0, 50) });
+      // The same six digits as on the dev's waiting screen, from the keys this ask came with (Dan's 2a).
+      const code = await matchCode({ team: this.state.team, invite: p.invite, secret: inv.secret, sign: p.sign, dh: p.dh });
+      this.pending.set(p.m, { m: p.m, invite: p.invite, at: p.at, sign: p.sign, dh: p.dh, code, name: clean(ask.name, 60) || 'No name', projects: (ask.projects || []).map((x) => clean(x, 80)).slice(0, 50) });
     } catch { /* an ask that does not open or is not signed by its key: not shown */ }
     this.emit('team');
   },
@@ -113,14 +119,15 @@ export const roster = {
   async revoke(id) { const r = await this.say({ t: 'revoke', invite: id }); if (r.t === 'ok') { this.invites.delete(id); this.emit('team'); } return r; },
   async decline(m) { const r = await this.say({ t: 'decline', m }); if (r.t === 'ok') { this.pending.delete(m); this.emit('team'); } return r; },
 
-  /** A new roster from the lead: people is the full list as Map id -> { sign, dh, name, role, perms }. */
-  async pushRoster(people) {
+  /** A new roster from the lead: people is the full list as Map id -> { sign, dh, name, role, perms, area }; areas is
+   *  the team's list of { id, name }. */
+  async pushRoster(people, areas = this.areas) {
     // One edit at a time, so two edits never sign two rosters with one version.
-    const next = this.rosterLock.then(() => this.pushRosterNow(people));
+    const next = this.rosterLock.then(() => this.pushRosterNow(people, areas));
     this.rosterLock = next.catch(() => {});
     return next;
   },
-  async pushRosterNow(people) {
+  async pushRosterNow(people, areas) {
     if (!this.isLead) return { t: 'err', code: 'role', text: 'Only the lead can change the team.' };
     const stale = { t: 'err', code: 'stale', text: 'The team changed while you edited it. Look again and try once more.' };
     // A roster this Mac signed and the relay never confirmed goes again first: the lead never signs a second, different
@@ -141,11 +148,17 @@ export const roster = {
     }
     const me = await this.member();
     const ver = this.roster.ver + 1;
-    const detail = {};
+    const list = readAreas(areas);
+    const detail = { people: {}, areas: list };
     const members = [];
-    for (const [id, p] of people) {
+    const placed = new Map([...people].map(([id, p]) => {
       const g = id === me.id ? grant('lead') : grant(p.role, p.perms);
-      detail[id] = { name: clean(p.name, 60), ...g };
+      return [id, { ...g, area: areaFor(g.role, p.area, list) }];
+    }));
+    const under = chartUnder(placed, me.id, list);
+    for (const [id, p] of people) {
+      const g = placed.get(id);
+      detail.people[id] = { name: clean(p.name, 60), role: g.role, perms: g.perms, area: g.area, ...(under.has(id) ? { under: under.get(id) } : {}) };
       members.push({ id, sign: p.sign, dh: p.dh, ...(g.perms.includes('invite') ? { invite: true } : {}) });
     }
     if ((people.ver !== undefined && people.ver !== this.roster.ver) || ver !== this.roster.ver + 1) return stale;
@@ -163,14 +176,14 @@ export const roster = {
   /** The people as this Mac has them now, marked with the roster version they came from: pushRoster refuses a list read
    *  from an older version, so two edits that cross never undo each other. */
   current() { const out = this._current(); out.ver = this.roster?.ver; return out; },
-  _current() { return new Map([...this.people].map(([id, p]) => [id, { sign: p.sign, dh: p.dh, name: p.name, role: p.role, perms: p.perms }])); },
+  _current() { return new Map([...this.people].map(([id, p]) => [id, { sign: p.sign, dh: p.dh, name: p.name, role: p.role, perms: p.perms, area: p.area }])); },
 
   /** Approve an ask: the dev joins the roster with a role, then gets the team key sealed to their own key. */
-  async approve(m, role = 'engineer', perms) {
+  async approve(m, role = 'engineer', perms, area = null) {
     const ask = this.pending.get(m);
     if (!ask) return { t: 'err', code: 'gone', text: 'That ask is no longer waiting.' };
     const people = this.current();
-    people.set(m, { sign: ask.sign, dh: ask.dh, name: ask.name, ...grant(role, perms) });
+    people.set(m, { sign: ask.sign, dh: ask.dh, name: ask.name, ...grant(role, perms), area });
     // The welcome is owed from before the roster goes: if the relay takes the roster but its answer is lost, the next
     // connect finds the dev on the roster and sends it then. sendWelcomes() drops one whose dev never made the roster,
     // so a refused roster owes nothing.
@@ -229,11 +242,38 @@ export const roster = {
     return true;
   },
 
-  async setRole(m, role, perms) {
+  async setRole(m, role, perms, area = null) {
     const people = this.current();
     if (!people.has(m) || m === this.meId) return { t: 'err', code: 'bad', text: 'That person is not on the team.' };
-    people.set(m, { ...people.get(m), ...grant(role, perms) });
+    people.set(m, { ...people.get(m), ...grant(role, perms), area });
     return this.pushRoster(people);
+  },
+
+  /** The lead adds an area by name. It holds a name only until Rules gives it projects and a mode. */
+  async addArea(name) {
+    const n = clean(name, AREA_NAME);
+    if (!n) return { t: 'err', code: 'bad', text: 'Type a name for the area.' };
+    if (this.areas.length >= AREA_MAX) return { t: 'err', code: 'full', text: `A team holds up to ${AREA_MAX} areas.` };
+    if (this.areas.some((a) => a.name.toLowerCase() === n.toLowerCase())) return { t: 'err', code: 'bad', text: 'There is an area with that name.' };
+    return this.pushRoster(this.current(), [...this.areas, { id: newId(), name: n }]);
+  },
+
+  /** The lead renames an area or takes it away. Its people stay on the team, with no area. */
+  async renameArea(id, name) {
+    const n = clean(name, AREA_NAME);
+    if (!n || !this.areas.some((a) => a.id === id)) return { t: 'err', code: 'bad', text: 'That area is not on the team.' };
+    return this.pushRoster(this.current(), this.areas.map((a) => (a.id === id ? { ...a, name: n } : a)));
+  },
+  async removeArea(id) {
+    if (!this.areas.some((a) => a.id === id)) return { t: 'err', code: 'bad', text: 'That area is not on the team.' };
+    return this.pushRoster(this.current(), this.areas.filter((a) => a.id !== id));
+  },
+
+  /** The links of the open invites this Mac can read, to show and copy again. */
+  links({ site } = {}) {
+    const leadName = this.people.get(this.roster?.lead)?.name || '';
+    return [...this.invites.values()].filter((i) => i.secret && i.until > this.now()).sort((a, b) => b.until - a.until)
+      .map((i) => ({ id: i.id, until: i.until, by: i.by, link: inviteLink({ site, relay: this.state.relay, team: this.state.team, invite: i.id, secret: i.secret, leadSignPub: this.state.leadSign, until: i.until, leadName, teamName: this.state.teamName }) }));
   },
 
   async remove(m) {
@@ -243,3 +283,47 @@ export const roster = {
     return this.pushRoster(people);
   },
 };
+
+const AREA_MAX = 20, AREA_NAME = 40;
+/** The areas from a roster, cleaned: ids, names, no repeats, at most AREA_MAX. */
+function readAreas(list) {
+  const out = [], ids = new Set();
+  for (const a of Array.isArray(list) ? list : []) {
+    const name = clean(a?.name, AREA_NAME);
+    if (!isId(a?.id) || !name || ids.has(a.id)) continue;
+    ids.add(a.id); out.push({ id: a.id, name });
+    if (out.length >= AREA_MAX) break;
+  }
+  return out;
+}
+/** Who each member reports to, from where the lead put them on the chart (Dan's 1b): an Engineer in an area reports to
+ *  that area's first Area owner; everyone else, and an Engineer in an area with no owner, to the lead. The lead reports
+ *  to nobody. people: Map id -> { role, area }. Returns Map id -> the id they report to. */
+export function chartUnder(people, lead, areas) {
+  const owner = new Map();
+  for (const [id, p] of people) if (p.role === 'owner' && p.area && !owner.has(p.area)) owner.set(p.area, id);
+  const out = new Map();
+  for (const [id, p] of people) {
+    if (id === lead) continue;
+    out.set(id, p.role === 'engineer' && p.area && areas.some((a) => a.id === p.area) && owner.has(p.area) ? owner.get(p.area) : lead);
+  }
+  return out;
+}
+/** The `under` the lead signed, checked in place: a member on this roster, never the lead or a loop. Anything else is
+ *  null, which the screens read as "not checked". The lead's is always null. */
+export function readUnderForTest(people, lead) { readUnder(people, lead); }
+function readUnder(people, lead) {
+  for (const p of people.values()) {
+    if (p.id === lead || typeof p.under !== 'string' || p.under === p.id || !people.has(p.under)) { p.under = null; continue; }
+  }
+  for (const p of people.values()) {
+    // Follow the chain up: it must reach the lead within the team's size, or it is a loop.
+    let at = p, steps = 0;
+    while (at && at.id !== lead && at.under && steps <= people.size) { at = people.get(at.under); steps++; }
+    if (p.under && (!at || at.id !== lead)) p.under = null;
+  }
+}
+/** A member's area: only an Area owner or an Engineer sits in one, and only one that is on the list. */
+function areaFor(role, area, areas) {
+  return (role === 'owner' || role === 'engineer') && areas.some((a) => a.id === area) ? area : null;
+}

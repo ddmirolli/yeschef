@@ -59,7 +59,17 @@ The relay checks only who may change the team. What a role may do to a dev's thr
 
 ## The app
 
-`client/team.mjs` is one dev's Yes Chef on the relay; `client/roles.mjs` holds the roles. One `Team` has four parts behind it: the connection (`team-connection.mjs`), the roster (`team-roster.mjs`), the inbox (`team-inbox.mjs`) and the summaries (`team-summaries.mjs`). Not wired into the app yet: the screens and the Keychain come next.
+`client/team.mjs` is one dev's Yes Chef on the relay; `client/roles.mjs` holds the roles. One `Team` has four parts behind it: the connection (`team-connection.mjs`), the roster (`team-roster.mjs`), the inbox (`team-inbox.mjs`) and the summaries (`team-summaries.mjs`). `client/teamhost.mjs` keeps the team alive in the board server and answers `/team` and the `kind=team` actions; `client/teamui.mjs` draws the screens.
+
+**The screens** (mock v1, Dan's picks of 2026-11-10). ⌘K, Invite your team, opens `/team`. With no team: Make a team (team name, your name, the relay, `https://relay.yeschef.codes` by default) or open a link. The lead's page: the asks drawer at the top left, the link with Copy link and New link, and the chart: the lead, the Deputies, the areas with their Area owners and Engineers, Add area, and the Viewers aside. Dragging an ask (or a member) onto a slot opens the role dialog with that role and area; clicking one opens it too, for the keyboard. The dialog shows the dev's code, the role, the boxes (See is locked on) and the area, then Add to team or Decline. The dev's side: Join (name, T3 Code, the projects to share, what the team sees), the waiting screen with the code in large type, and the joined screen with the role, who can act on their threads, and the sharing switches. Declined, removed and deleted each have their own screen.
+
+**The match code** (Dan's 2a). Six digits, the same on the dev's waiting screen and beside the ask at the lead: SHA-256 over the team, the invite, the invite's secret and the dev's two public keys. A key swapped on the way gives other digits. The relay knows the keys but not the secret, so it cannot try keys until one gives the dev's digits.
+
+**Areas** travel inside the roster the lead signs, sealed with the team key: the list of names and each member's area. Only an Area owner or an Engineer sits in one. Until Rules gives an area its projects and mode, it is a name only. Each member's `under` (who they report to) goes there too, from the chart: an Engineer in an area reports to its first Area owner; everyone else reports to the lead. Each Mac checks it: an `under` that names nobody on the roster, or loops, reads as not checked.
+
+**The link.** `https://yeschef.codes/join#<invite>` is a static page (`site/join.html`). It hands the fragment to the app as `yeschef://join#<invite>` and sends it nowhere else: no referrer, no request. The app opens Join with it.
+
+**Where the state lives.** The desktop app seals the team state with the Keychain-held key, as it does the sign-in (`team.bin` next to it), and writes a new file before it replaces the old. A saved team that does not open is left untouched, and the page says not checked; a new team or a join cannot write over it. The web prototype keeps the team in memory only.
 
 **What it keeps.** This Mac's two key pairs, the team key, the lead's signing key from the invite, the highest roster version it took, the projects this dev shares, the welcomes the lead still owes, when it last asked the lead for the key, and the ids of recent teammate actions. The app seals all of it before it touches a disk.
 

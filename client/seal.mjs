@@ -209,8 +209,12 @@ export async function newInvite({ site = 'https://yeschef.codes', relay, team, l
   const secret = b64u(globalThis.crypto.getRandomValues(new Uint8Array(32)));
   const until = now + days * 86400000;
   const { verifier } = await inviteParts(secret);
-  const payload = { v: VERSION, r: relay, t: team, i: invite, k: secret, l: lead.signPub, u: until, n: leadName, tn: teamName };
-  return { link: `${site.replace(/\/$/, '')}/join#${b64u(utf8.encode(JSON.stringify(payload)))}`, record: { invite, verifier, until }, secret };
+  return { link: inviteLink({ site, relay, team, invite, secret, leadSignPub: lead.signPub, until, leadName, teamName }), record: { invite, verifier, until }, secret };
+}
+/** An invite's link, from its parts: the lead's Yes Chef shows it again for any open invite it holds the secret of. */
+export function inviteLink({ site = 'https://yeschef.codes', relay, team, invite, secret, leadSignPub, until, leadName = '', teamName = '' }) {
+  const payload = { v: VERSION, r: relay, t: team, i: invite, k: secret, l: leadSignPub, u: until, n: leadName, tn: teamName };
+  return `${site.replace(/\/$/, '')}/join#${b64u(utf8.encode(JSON.stringify(payload)))}`;
 }
 /** The parts of an invite link (or of its fragment alone), or null. */
 export function readInvite(link) {
@@ -233,6 +237,18 @@ export async function joinRequest(inv, member, ask) {
   const blob = await seal(key, ask, aad.join(inv.team, inv.invite, member.id));
   return { invite: inv.invite, proof, sign: member.signPub, dh: member.dhPub, blob, sig: await sign(member, joinText(inv.team, inv.invite, member.dhPub, blob)) };
 }
+/** The six digits both Macs show for an ask to join (Dan's 2a, 2026-11-10): on the dev's waiting screen and beside the
+ *  ask at the lead. Made from the dev's two keys, so a key swapped on the way gives other digits. The invite's secret
+ *  goes in too: the relay sees the keys but not the secret, so it cannot try keys until one gives the dev's digits.
+ *  "427 190" style: two groups of three. */
+export async function matchCode({ team, invite, secret, sign: signPub, dh }) {
+  const h = await sha256(`yc${VERSION} match|${team}|${invite}|${secret}|${signPub}|${dh}`);
+  // 48 bits mod 10^6: the skew is under one part in 10^8.
+  const n = h.slice(0, 6).reduce((a, b) => a * 256 + b, 0) % 1000000;
+  const s = String(n).padStart(6, '0');
+  return `${s.slice(0, 3)} ${s.slice(3)}`;
+}
+
 /** The team's read of an ask, with the invite's secret. It checks the dev's signature too: the lead's Yes Chef does not
  *  take the relay's word for it. */
 export async function openJoin(secret, { team, invite, m, sign: signPub, dh, blob, sig }) {

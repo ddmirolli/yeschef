@@ -6,14 +6,15 @@
 // One Team, four parts behind it: the connection (team-connection.mjs), the roster (team-roster.mjs), the inbox
 // (team-inbox.mjs) and the summaries (team-summaries.mjs). This file holds the state they share, the store, and what
 // the screens read.
-import { newId, isId, newMember, saveMember, loadMember, signRoster, newTeamKey, teamKey, seal, aad, readInvite, joinRequest } from './seal.mjs';
+import { newId, isId, newMember, saveMember, loadMember, signRoster, newTeamKey, teamKey, seal, aad, readInvite, joinRequest, matchCode } from './seal.mjs';
 import { grant } from './roles.mjs';
 import { clean, ASK_MS, ACT_TTL } from './team-common.mjs';
 import { connection, RETRY, PING_MS, PONG_MS } from './team-connection.mjs';
-import { roster, KEY_ASK_MS } from './team-roster.mjs';
+import { roster, KEY_ASK_MS, chartUnder, readUnderForTest } from './team-roster.mjs';
 import { inbox, BOARD_FRESH_MS } from './team-inbox.mjs';
 import { summaries, summarize, identity, notCheckedSince } from './team-summaries.mjs';
 
+export { chartUnder, readUnderForTest };
 export { RETRY, PING_MS, PONG_MS, ASK_MS, ACT_TTL, BOARD_FRESH_MS, KEY_ASK_MS, summarize, identity, notCheckedSince };
 const STATE_V = 1;
 
@@ -38,7 +39,7 @@ export async function createTeam({ relay, teamName, name, net = webNet, now = Da
   const raw = newTeamKey();
   const key = await teamKey(raw);
   const people = { [me.id]: { name: clean(name, 60), ...grant('lead') } };
-  const detail = await seal(key, people, aad.detail(team, 1));
+  const detail = await seal(key, { people, areas: [] }, aad.detail(team, 1));
   const signed = await signRoster(me, { team, ver: 1, lead: me.id, at: now(), members: [{ id: me.id, sign: me.signPub, dh: me.dhPub, invite: true }], detail });
   const res = await net.http('POST', `${relay}/v1/teams/${team}`, { roster: signed });
   if (res.status !== 201) throw new Error(failText(res));
@@ -56,8 +57,11 @@ export async function joinTeam({ link, name, projects = [], shared = [], net = w
   if (!ask.name) throw new Error('Type your name first.');
   const res = await net.http('POST', `${inv.relay}/v1/teams/${inv.team}/join`, await joinRequest(inv, me, ask));
   if (res.status !== 202) throw new Error(failText(res));
+  // The six digits the lead sees beside this ask (Dan's 2a). Worked out once here: the invite's secret is not kept.
+  const code = await matchCode({ team: inv.team, invite: inv.invite, secret: inv.secret, sign: me.signPub, dh: me.dhPub });
   return { v: STATE_V, relay: inv.relay, team: inv.team, teamName: inv.teamName, leadName: inv.leadName, leadSign: inv.leadSignPub,
-    me: await saveMember(me), name: ask.name, key: null, status: 'pending', shared: [...shared], seen: [], rosterVer: 0 };
+    me: await saveMember(me), name: ask.name, key: null, status: 'pending', shared: [...shared], seen: [], rosterVer: 0, code,
+    projects: ask.projects };
 }
 
 /** The live team. state: from createTeam or joinTeam. save(state): called whenever it changes.
@@ -83,7 +87,8 @@ export class Team {
     // The roster
     this.rosterLock = Promise.resolve(); // the lead's roster edits, one at a time
     this.roster = null;          // the verified roster body
-    this.people = new Map();     // id -> { id, sign, dh, invite, name, role, perms }
+    this.people = new Map();     // id -> { id, sign, dh, invite, name, role, perms, area, under }
+    this.areas = [];             // [{ id, name }] from the roster the lead signed: names only until Rules gives them projects
     this.pending = new Map();    // asks to join, for inviters: m -> { m, invite, at, name, projects }
     this.invites = new Map();    // id -> { id, until, by, secret }
     this.key = null;
@@ -142,10 +147,12 @@ export class Team {
   view() {
     return {
       status: this.state.status, link: this.link, linkAt: this.linkAt, team: this.state.team, teamName: this.state.teamName, unsaved: this.unsaved,
-      me: this.me ? { id: this.meId, name: this.me.name, role: this.me.role, perms: this.me.perms } : { id: this.meId, name: this.state.name, role: null, perms: [] },
-      lead: this.isLead,
-      people: [...this.people.values()].map((p) => ({ id: p.id, name: p.name, role: p.role, perms: p.perms, ...this.personView(p) })),
-      pending: [...this.pending.values()],
+      me: this.me ? { id: this.meId, name: this.me.name, role: this.me.role, perms: this.me.perms, area: this.me.area, under: this.me.under } : { id: this.meId, name: this.state.name, role: null, perms: [], area: null, under: null },
+      lead: this.isLead, leadName: this.people.get(this.roster?.lead)?.name || this.state.leadName || '',
+      code: this.state.status === 'pending' ? this.state.code || null : null, asked: this.state.projects || [],
+      areas: this.areas.map((a) => ({ ...a })),
+      people: [...this.people.values()].map((p) => ({ id: p.id, name: p.name, role: p.role, perms: p.perms, area: p.area, under: p.under, ...this.personView(p) })),
+      pending: [...this.pending.values()].map(({ m, at, code, name, projects }) => ({ m, at, code, name, projects })),
       invites: [...this.invites.values()].map(({ id, until, by }) => ({ id, until, by })),
     };
   }

@@ -130,6 +130,8 @@ await build({
     directories: { app: STAGE, output: OUT, buildResources: join(DESKTOP, 'build') },
     files: ['**/*'],
     asar: true,
+    // Invite links open Join in the app: yeschef://join#<invite>, from the site's /join page (step 3b).
+    protocols: [{ name: C.name, schemes: ['yeschef'] }],
     npmRebuild: false,
     electronFuses: FUSES,
     mac: {

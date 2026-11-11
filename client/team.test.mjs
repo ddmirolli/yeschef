@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fakeRelay, fakeNet } from '../relay/fake.mjs';
-import { Team, createTeam, joinTeam, summarize, identity, notCheckedSince, RETRY, ACT_TTL, BOARD_FRESH_MS } from './team.mjs';
+import { Team, createTeam, joinTeam, summarize, identity, notCheckedSince, chartUnder, RETRY, ACT_TTL, BOARD_FRESH_MS } from './team.mjs';
 import { grant, allows, refusal, signature, DEFAULTS, PERMS, shares } from './roles.mjs';
 import { buildBoard } from './board.mjs';
 import { act } from './actions.mjs';
@@ -1026,6 +1026,89 @@ test('an invite another inviter revoked leaves this Mac\'s open links', async ()
   await lead.handle({ t: 'invite-gone', invite: id });
   assert.equal(lead.invites.has(id), false);
   lead.stop(); dev.stop();
+});
+
+// PR 3: the match code and the areas (Dan's 1b and 2a, 2026-11-10).
+
+test('the match code: the dev\'s waiting screen and the lead\'s ask show the same six digits', async () => {
+  const relay = fakeRelay();
+  const net = fakeNet(relay);
+  const timers = clock(relay);
+  const now = () => relay.now();
+  const lead = new Team({ state: await createTeam({ relay: 'https://relay.test', teamName: 'Northwind', name: 'Sam Lead', net, now }), net, now, timers, random: () => 1 });
+  lead.start();
+  await until(() => lead.link === 'online');
+  const { link } = await lead.invite();
+  const state = await joinTeam({ link, name: 'Maya Rios', projects: ['Fernpay', 'Loopline'], net, now });
+  assert.match(state.code, /^\d{3} \d{3}$/);
+  await until(() => lead.pending.size === 1, 'the ask');
+  const ask = lead.view().pending[0];
+  assert.equal(ask.code, state.code);
+  assert.deepEqual(ask.projects, ['Fernpay', 'Loopline']);
+  const dev = new Team({ state, net, now, timers, random: () => 1 });
+  assert.equal(dev.view().code, state.code, 'the waiting screen shows it');
+  lead.stop();
+});
+
+test('areas travel sealed in the roster: names and each member\'s area reach the dev, never the relay', async () => {
+  const { relay, lead, dev } = await crew();
+  assert.equal((await lead.addArea('Desktop')).t, 'ok');
+  assert.equal((await lead.addArea('Mobile')).t, 'ok');
+  assert.equal((await lead.addArea('desktop')).code, 'bad', 'one name once');
+  const desktop = lead.areas.find((a) => a.name === 'Desktop').id;
+  assert.equal((await lead.setRole(dev.meId, 'owner', undefined, desktop)).t, 'ok');
+  await until(() => dev.me?.area === desktop && dev.me?.role === 'owner', 'the dev\'s new place');
+  assert.deepEqual(dev.view().areas.map((a) => a.name), ['Desktop', 'Mobile']);
+  // The relay keeps the signed roster as it came. No area name is in it.
+  assert.doesNotMatch(relay.sql.exec('SELECT roster FROM team').one().roster, /Desktop|Mobile/);
+  // A Viewer or a Deputy sits in no area.
+  assert.equal((await lead.setRole(dev.meId, 'viewer', undefined, desktop)).t, 'ok');
+  await until(() => dev.me?.role === 'viewer', 'made a Viewer');
+  assert.equal(dev.me.area, null);
+  // Taking an area away keeps its people on the team, with no area.
+  assert.equal((await lead.setRole(dev.meId, 'engineer', undefined, desktop)).t, 'ok');
+  await until(() => dev.me?.area === desktop, 'back in Desktop');
+  assert.equal((await lead.removeArea(desktop)).t, 'ok');
+  await until(() => dev.areas.length === 1, 'the area gone');
+  assert.equal(dev.me.area, null);
+  assert.equal(dev.me.role, 'engineer');
+  lead.stop(); dev.stop();
+});
+
+test('the lead\'s Yes Chef shows an open invite\'s link again, and it still lets a dev ask', async () => {
+  const { relay, net, lead } = await crew();
+  const made = await lead.invite({ site: 'https://yeschef.codes' });
+  const shown = lead.links({ site: 'https://yeschef.codes' }).find((l) => l.id === made.id);
+  assert.equal(shown.link, made.link);
+  const state = await joinTeam({ link: shown.link, name: 'Jon Park', net, now: () => relay.now() });
+  assert.equal(state.status, 'pending');
+  lead.stop();
+});
+
+test('under: each member reports to whom the chart says, sealed in the roster, and a bad one reads as not checked', async () => {
+  const { relay, lead, dev } = await crew();
+  assert.equal(dev.me.under, lead.meId, 'an Engineer in no area reports to the lead');
+  assert.equal((await lead.addArea('Site')).t, 'ok');
+  const site = lead.areas[0].id;
+  assert.equal((await lead.setRole(dev.meId, 'engineer', undefined, site)).t, 'ok');
+  await until(() => dev.me?.area === site, 'the dev in Site');
+  assert.equal(dev.me.under, lead.meId, 'no Area owner yet: still the lead');
+  assert.equal(dev.view().people.find((p) => p.id === lead.meId).under, null, 'the lead reports to nobody');
+  assert.doesNotMatch(relay.sql.exec('SELECT roster FROM team').one().roster, /under/);
+  // The chart rule alone: an Engineer in an area with an owner reports to that owner.
+  const people = new Map([['L', { role: 'lead' }], ['O', { role: 'owner', area: 'a' }], ['E', { role: 'engineer', area: 'a' }],
+    ['F', { role: 'engineer', area: 'b' }], ['D', { role: 'deputy' }], ['V', { role: 'viewer' }]]);
+  assert.deepEqual(Object.fromEntries(chartUnder(people, 'L', [{ id: 'a' }, { id: 'b' }])), { O: 'L', E: 'O', F: 'L', D: 'L', V: 'L' });
+  lead.stop(); dev.stop();
+});
+
+test('under from a roster that loops or names a stranger reads as not checked', async () => {
+  const p = (id, under) => [id, { id, under }];
+  const people = new Map([p('L', 'X'), p('A', 'B'), p('B', 'A'), p('C', 'nobody'), p('D', 'D'), p('E', 'L'), p('F', 'E')]);
+  // The check takeRoster runs on every roster it reads.
+  const { readUnderForTest } = await import('./team.mjs');
+  readUnderForTest(people, 'L');
+  assert.deepEqual(Object.fromEntries([...people].map(([id, x]) => [id, x.under])), { L: null, A: null, B: null, C: null, D: null, E: 'L', F: 'E' });
 });
 
 test('a socket that never opens is left and retried, not kept connecting', async () => {

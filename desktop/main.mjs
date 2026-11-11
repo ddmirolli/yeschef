@@ -30,7 +30,7 @@
 import { app, BrowserWindow, Menu, autoUpdater as squirrel, dialog, ipcMain, nativeTheme, net, powerMonitor, protocol, safeStorage, shell, utilityProcess } from 'electron';
 import electronUpdater from 'electron-updater';
 import { createInterface } from 'node:readline';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CHANNELS, channelOf } from './channels.mjs';
@@ -114,6 +114,52 @@ function forgetSignIn() {
   catch (e) { console.error('Could not delete the saved sign-in:', e.message); return e; }
 }
 
+// The team (step 3b): its state holds this Mac's team keys, so it is sealed with the same Keychain-held key as the
+// sign-in, written to a new file and renamed, never left half written. A capture without its own data folder keeps none.
+const teamFile = () => join(app.getPath('userData'), 'team.bin');
+async function loadTeam() {
+  if (!KEEP || !existsSync(teamFile())) return { state: null };
+  try {
+    const { result } = await keychain(async () => {
+      if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error('no Keychain');
+      return safeStorage.decryptStringAsync(readFileSync(teamFile()));
+    });
+    return { state: JSON.parse(result) };
+  } catch (e) { return { state: null, error: String(e.message || e).slice(0, 120) }; }
+}
+let teamWrites = Promise.resolve();
+/** Seal and write the team state, one write at a time. Resolves to null when it is on disk, or the reason it is not:
+ *  the team client runs a teammate's action only once its id is saved (PR-Agent r3 on public #7). */
+function saveTeam(state) {
+  if (!KEEP) return Promise.resolve(null);
+  const done = teamWrites.then(async () => {
+    if (!state) { rmSync(teamFile(), { force: true }); return; }
+    mkdirSync(app.getPath('userData'), { recursive: true });
+    const tmp = teamFile() + '.saving';
+    writeFileSync(tmp, await keychain(() => safeStorage.encryptStringAsync(JSON.stringify(state))), { mode: 0o600 });
+    renameSync(tmp, teamFile());
+    return null;
+  }).catch((e) => { console.error('Could not save the team:', e.message); return String(e.message || e).slice(0, 120); });
+  teamWrites = done;
+  return done;
+}
+
+// Invite links: the site's /join page hands the invite to the app as yeschef://join#<invite>. The invite stays in the
+// fragment and goes only to the board server's Join page. Before the board shows, it waits.
+let joinLink = null;
+const joinPath = (frag) => `${BOARD}/team?join=${encodeURIComponent(frag)}`;
+function openJoin(url) {
+  let frag = '';
+  try { const u = new URL(url); if (u.protocol === 'yeschef:' && u.host === 'join') frag = u.hash.slice(1); } catch { frag = ''; }
+  if (!frag || frag.length > 4096) return;
+  if (win && !win.isDestroyed() && boardShown) { win.loadURL(joinPath(frag)).catch(() => {}); win.show(); win.focus(); }
+  else joinLink = frag;
+}
+if (!CAPTURE) {
+  app.on('open-url', (event, url) => { event.preventDefault(); openJoin(url); });
+  app.setAsDefaultProtocolClient('yeschef');
+}
+
 function startServer() {
   // An Electron utility process runs the board server with the app's own Node: no separate Node install, and no
   // ELECTRON_RUN_AS_NODE, which the release build turns off (release plan, section 3). Messages go over its port.
@@ -139,6 +185,8 @@ function startServer() {
       });
       return;
     }
+    if (m.type === 'team-please') { loadTeam().then((t) => { if (serverUp) server.postMessage({ type: 'team', ...t }); }); return; }
+    if (m.type === 'team-save') { saveTeam(m.state || null).then((error) => { if (serverUp) server.postMessage({ type: 'team-saved', id: m.id, error }); }); return; }
     if (m.type === 'auth-new') { saveSignIn(m.auth); return; }
     if (m.type === 'auth-lost') { forgetSignIn(); return; }
     if (m.type === 'tick') { tick(m.data); return; }
@@ -553,7 +601,8 @@ async function main() {
   }
   boardShown = true;
   await moveOldSettings(old);
-  await win.loadURL(`${BOARD}/`);
+  await win.loadURL(joinLink ? joinPath(joinLink) : `${BOARD}/`);
+  joinLink = null;
   if (DRILL) { await new Promise((r) => setTimeout(r, 3500)); await drill(); return; }
   if (CAPTURE) {
     await new Promise((r) => setTimeout(r, 3500));

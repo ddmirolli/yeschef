@@ -437,6 +437,7 @@ export function installBar(app, core) {
     // "Change appearance" does (Dan, 2026-11-10). ⌥⇧⌘A steps through the appearances without opening anything.
     if (typeof app.setTheme === 'function') out.push({ id: 'appearance', g: 'View', t: 'Change appearance', d: 'System, Light or Dark', kw: STEPS.appearance.kw, icon: ic('monitor'), k: k1('appearance.cycle', ['⌥', '⇧', '⌘', 'A']), step: 'appearance' });
     out.push({ id: 'density', g: 'View', t: 'Change density', d: 'Default, Comfortable or Compact', kw: STEPS.density.kw, icon: ic('rows'), step: 'density' });
+    out.push({ id: 'team', g: 'Settings', t: 'Invite your team', d: 'Make a team, send the link, add each dev to the chart', kw: 'team invite join link relay roles chart members deputy engineer area', icon: ic('team'), run: function () { location.href = '/team'; } });
     out.push({ id: 'rules', g: 'Settings', t: 'Rules', d: 'Sent with every thread Yes Chef starts', kw: 'brief reviewer browser tracker council screenshots house notes', icon: ic('rules'), run: function () { app.openSettings('rules'); } });
     out.push({ id: 'keys', g: 'Settings', t: 'Keyboard shortcuts', d: 'See every key, and change any of them', kw: 'keys hotkeys keybindings rebind change shortcuts', icon: ic('key'), k: k1('shortcuts.open', ['?']), run: function () { app.openSettings('keys'); } });
     out.push({ id: 'settings', g: 'Settings', t: 'Settings', d: 'Layout, rules and shortcuts', kw: 'preferences options layout', icon: ic('gear'), k: k1('settings.open', ['⌘', ',']), run: function () { app.openSettings('layout'); } });
@@ -448,7 +449,7 @@ export function installBar(app, core) {
     if (p[0] === 'go') return ic('jump');
     if (p[0] === 'note') return ic('note');
     if (p[0] === 'theme') return ic({ light: 'sun', dark: 'moon' }[p[1]] || 'monitor');
-    return ic({ 'new': 'plus', view: { you: 'person', team: 'toque' }[p[1]] || 'expand', density: 'rows', rules: 'rules', keys: 'key', settings: 'gear' }[p[0]] || 'check');
+    return ic({ 'new': 'plus', view: { you: 'person', team: 'toque' }[p[1]] || 'expand', density: 'rows', rules: 'rules', keys: 'key', settings: 'gear', team: 'team' }[p[0]] || 'check');
   }
   function histRow(r, i, n) {
     return { id: r.id, g: i === 0 ? 'Last action' : 'Earlier action: ' + (i + 1) + ' of ' + n, t: r.t, hist: r.t, f: r.f, d: core.ago(r.at, Date.now()), icon: iconFor(r.id), k: ['↵'] };
