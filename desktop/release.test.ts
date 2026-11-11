@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FUSES, FUSE_WIRE, TEAM_ID, appUpdateProblems, checkApp, checkDmg, entitlementKeys, feedProblems, fuseProblems, identities, literalPattern, machOFiles, pickIdentity, resultLine, rewriteFeed, runningFrom, targetsFor, topLevel, writesAppUpdate } from './build/release.ts';
-import { assetProblems, changelogEntry, ghArgs, newestNightly, nightlyDue, parseArgs, pickRelease, releaseFiles, releaseNotes, releaseTitle, settle, trustedPlan } from './build/publish.ts';
+import { assetProblems, changelogEntry, distArgs, ghArgs, newestNightly, nightlyDue, parseArgs, pickRelease, releaseFiles, releaseNotes, releaseTitle, settle, trustedPlan } from './build/publish.ts';
 import { nth } from '../client/test/expect.ts';
 
 /** x, or the test fails. */
@@ -292,6 +292,17 @@ test('the command line takes its flags anywhere and refuses unknown ones', () =>
     { cmd: 'plan', args: ['dry-run', 'p.json'], ci: true, ifChanged: false, version: '0.2.0' });
   assert.deepEqual(parseArgs(['build', 'p.json']), { cmd: 'build', args: ['p.json'], ci: false, ifChanged: false, version: '' });
   assert.throws(() => parseArgs(['build', 'p.json', '--no-check']), /Unknown option --no-check/);
+});
+
+test("the build step builds the archived commit with that commit's own npm run dist, whatever its build script is named", () => {
+  // A Stable promotes the newest Nightly's commit. A Nightly from before the TypeScript port has build/package.mjs only.
+  assert.deepEqual(distArgs({ version: '0.2.1' }), ['run', 'dist', '--', '--version', '0.2.1']);
+  assert.deepEqual(distArgs({ dryRun: true, version: '0.2.1-nightly.20261111.1' }), ['run', 'dist', '--', '--dry-run', '--version', '0.2.1-nightly.20261111.1']);
+  const pkg = JSON.parse(readFileSync(join(HERE, 'package.json'), 'utf8'));
+  assert.equal(pkg.scripts.dist, 'node build/package.ts --dist');
+  const source = readFileSync(join(HERE, 'build', 'publish.ts'), 'utf8');
+  assert.match(source, /run\('npm', distArgs\(p\)\);/);
+  assert.doesNotMatch(source, /run\('node', \['build\//, 'the build step names no build file from main');
 });
 
 test('settle asks again until a check passes, then gives the last problems', async () => {

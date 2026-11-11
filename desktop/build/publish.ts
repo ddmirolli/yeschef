@@ -62,6 +62,13 @@ const STABLE_FORM = /^\d+\.\d+\.\d+$/;
 export const releaseTitle = (version: string): string => `${CHANNELS[channelOf(version)].name} ${version}`;
 
 /** The files a release carries: the DMG (for people), the ZIP and its blockmap (for the updater) and the feed. */
+/**
+ * How the build step builds the commit it archived: with that commit's own `npm run dist`, never a file name from
+ * main. A Stable promotes the newest Nightly's commit, which may predate a renamed build script (build/package.mjs
+ * became build/package.ts in the TypeScript port).
+ */
+export const distArgs = (p: Pick<Plan, 'dryRun' | 'version'>): string[] => ['run', 'dist', '--', ...(p.dryRun ? ['--dry-run'] : []), '--version', p.version];
+
 export function releaseFiles(version: string): string[] {
   const name = `Yes-Chef-${version}-${ARCH}`;
   return [`${name}.dmg`, `${name}.zip`, `${name}.zip.blockmap`, `${channelOf(version)}-mac.yml`];
@@ -322,9 +329,9 @@ function build(file: string | undefined) {
   const run = (cmd: string, args: string[]) => { const r = spawnSync(cmd, args, { cwd: desktop, stdio: 'inherit' }); if (r.status !== 0) fail(`${cmd} ${args.join(' ')} failed.`); };
   run('npm', ['ci']);
   // Steps 2 to 4: build, fuses, Developer ID, notarize and staple the app and the DMG, the feed rewrite, the checks
-  // and a hidden --capture start on a temporary data folder (build/package.ts). A dry run skips Apple and is
-  // signed with whatever this machine has, or ad hoc.
-  run('node', ['build/package.ts', '--dist', ...(p.dryRun ? ['--dry-run'] : []), '--version', p.version]);
+  // and a hidden --capture start on a temporary data folder (the commit's `npm run dist`: build/package.ts, or
+  // build/package.mjs before the port). A dry run skips Apple and is signed with whatever this machine has, or ad hoc.
+  run('npm', distArgs(p));
   const out = join(desktop, 'out', 'builder');
   const files = releaseFiles(p.version).map((name): BuiltFile => {
     let path = join(out, name);
