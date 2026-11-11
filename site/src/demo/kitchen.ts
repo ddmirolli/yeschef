@@ -47,7 +47,7 @@ export function createKitchen({ now = Date.now, where, shot, onChange = () => {}
   const runLog = new Map<string, DemoRun[]>();
   const ran = (t: DemoThread, ...spans: [number, number | null][]) => runLog.set(t.threadId, spans.map(([from, to], i) => ({ runId: `${t.threadId}-r${spans.length - i}`,
     status: to == null ? 'running' : 'completed', startedAt: ago(from), completedAt: to == null ? null : ago(to) })));
-  // The waits on questions the board has seen, as client/server.mjs keeps them (client/you.ts trackWaits).
+  // The waits on questions the board has seen, as client/server.ts keeps them (client/you.ts trackWaits).
   const waitLog = new Map<string, WaitEntry>();
 
   // Backlog: nothing started.
@@ -158,7 +158,7 @@ export function createKitchen({ now = Date.now, where, shot, onChange = () => {}
       [pr(PAY, nextPr++, 'open')]));
   }
 
-  // T3 Code's tools, as the app calls them (client/server.mjs and client/actions.ts).
+  // T3 Code's tools, as the app calls them (client/server.ts and client/actions.ts).
   async function call(name: string, args: DemoToolArgs = {}): Promise<unknown> {
     const thread = () => byId(args.threadId ?? '');
     switch (name) {
@@ -201,7 +201,7 @@ export function createKitchen({ now = Date.now, where, shot, onChange = () => {}
     throw new Error(`demo: ${name} is not in the demo kitchen`);
   }
 
-  // What client/server.mjs poll() builds from those reads: the pending questions and each hand-back.
+  // What client/server.ts poll() builds from those reads: the pending questions and each hand-back.
   function snapshot() {
     const words = new Map();
     for (const t of threads.filter((x) => !x.parentThreadId && !x.settled && !x.snoozed && x.latestRunId
@@ -215,10 +215,10 @@ export function createKitchen({ now = Date.now, where, shot, onChange = () => {}
         call: latest && calls.length ? { key: callKey(latest.itemId, calls), itemId: latest.itemId, text: latest.text, calls } : null, cut: false });
     }
     const qs = new Map([...questions].map(([id, list]) => [id, list.map((q) => ({ ...q }))]));
-    // Newest move first: the order client/server.mjs reads them in from the live stream (client/shells.ts boardThreads).
+    // Newest move first: the order client/server.ts reads them in from the live stream (client/shells.ts boardThreads).
     const moved = (x: DemoThread) => Date.parse(x.updatedAt) || 0;
     const ordered = [...threads].sort((a, b) => moved(b) - moved(a) || String(b.threadId).localeCompare(String(a.threadId)));
-    // Run times for the threads that ran today, as client/server.mjs runTimes() reads them.
+    // Run times for the threads that ran today, as client/server.ts runTimes() reads them.
     const t0 = dayStart(now()), runs = new Map<string, RunsEntry>();
     for (const t of threads.filter((x) => mayRunToday(x, t0))) {
       const list = runLog.get(t.threadId) || [];
@@ -230,7 +230,7 @@ export function createKitchen({ now = Date.now, where, shot, onChange = () => {}
 
   // The app shows a screenshot an agent names through its /img route; the demo has its own files for each theme.
   const SHOTS = new Map(['payouts-before', 'payouts-after'].map((name) => [imageId(`/demo/${name}.png`), name]));
-  // The rules' revision only goes up, from the clock, as in client/server.mjs: the page keeps the newest copy it saw.
+  // The rules' revision only goes up, from the clock, as in client/server.ts: the page keeps the newest copy it saw.
   let rules = normalize(DEMO_RULES), rev = now();
   const answered = new Map(), holds = new Map();
   let board = snapshot();
@@ -238,7 +238,7 @@ export function createKitchen({ now = Date.now, where, shot, onChange = () => {}
     t3: { call },
     /** The board as the app sees it now (for the generator's checks). */
     board: () => snapshot(),
-    /** The app's /app page for a query string, as client/server.mjs route() renders it. */
+    /** The app's /app page for a query string, as client/server.ts route() renders it. */
     page(search = '') {
       board = snapshot();
       const picked = pickedFrom(new URLSearchParams(search));
@@ -246,7 +246,7 @@ export function createKitchen({ now = Date.now, where, shot, onChange = () => {}
         origin: 'https://t3.codes', answered, projects, rules: { ...rules, rev } })
         .replace(/\/img\/([0-9a-f]{20})/g, (all, id) => (SHOTS.has(id) ? shot(SHOTS.get(id) ?? id) : all));
     },
-    /** The app's /act, as client/server.mjs runAct() handles it, for the desktop hook window.yeschef.act. */
+    /** The app's /act, as client/server.ts runAct() handles it, for the desktop hook window.yeschef.act. */
     async act(body: string): Promise<[number, string]> {
       const input = Object.fromEntries(new URLSearchParams(body));
       if (input.kind === 'rules') {

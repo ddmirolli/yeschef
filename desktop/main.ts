@@ -1,5 +1,5 @@
 // Yes Chef desktop: The Pass in a window, signed in to the T3 Code that runs on this machine.
-// It finds T3 Code (desktop/t3.ts), starts the same board server as the web prototype (client/server.mjs) in an
+// It finds T3 Code (desktop/t3.ts), starts the same board server as the web prototype (client/server.ts) in an
 // Electron utility process, opens T3 Code's own sign-in page in the browser for approval, and shows the board.
 // Dan's 1a (2026-11-07): the sign-in stays across restarts. Main keeps it in userData, encrypted with
 // safeStorage (its key lives in the macOS Keychain), and hands it to the board server over the IPC pipe.
@@ -44,7 +44,7 @@ import type { SignedIn } from '../client/t3mcp.ts';
 
 /** The sign-in main keeps: T3 Code's address, the sign-in the board server got, and when it lapses (ms). */
 interface SavedSignIn { origin: string | null; auth: SignedIn; expiresAt: number }
-/** What the board server sends main over its IPC pipe (client/server.mjs). */
+/** What the board server sends main over its IPC pipe (client/server.ts). */
 type ServerMessage =
   | { type: 'auth-please' } | { type: 'team-please' } | { type: 'team-save'; id: unknown; state?: unknown }
   | { type: 'auth-new'; auth: SignedIn | null } | { type: 'auth-lost' } | { type: 'tick'; data: string }
@@ -180,7 +180,7 @@ if (!CAPTURE) {
 function startServer(): Promise<'signed-in' | 'no-sign-in'> {
   // An Electron utility process runs the board server with the app's own Node: no separate Node install, and no
   // ELECTRON_RUN_AS_NODE, which the release build turns off (release plan, section 3). Messages go over its port.
-  server = utilityProcess.fork(join(HERE, '..', 'client', 'server.mjs'), [T3!], {
+  server = utilityProcess.fork(join(HERE, '..', 'client', 'server.ts'), [T3!], {
     serviceName: 'Yes Chef board',
     stdio: 'pipe',
     env: { ...process.env, YESCHEF_CLIENT_NAME: CLIENT_NAME, YESCHEF_DESKTOP: '1',
@@ -473,7 +473,7 @@ function buildMenu() {
 }
 
 function stopServer() { if (serverUp) server!.kill(); }
-// The board server revokes its read-only stream key before it goes (client/server.mjs, stopLive). Quit waits for that,
+// The board server revokes its read-only stream key before it goes (client/server.ts, stopLive). Quit waits for that,
 // up to 3 s; a key it could not revoke is revoked at the next start.
 function stopStream() {
   if (!serverUp) return Promise.resolve();

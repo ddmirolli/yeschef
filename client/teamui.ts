@@ -1,3 +1,4 @@
+/// <reference path="./bridge.ts" />
 // The team screens (step 3b, PR 3): the lead's invite page with the asks drawer and the chart, the role dialog, and the
 // dev's Join, waiting and joined screens. Built from mock v1 (Dan's picks 2026-11-10: 1b the chart, 2a the match
 // code, 3a the Engineer sees only). Rendered here from the team client's view (client/team.ts); the page posts each
@@ -28,10 +29,6 @@ type Fields = Record<string, unknown> & { op?: string | undefined };
 /** Someone with a face: a member, an ask, or the lead of an invite. */
 type Face = { id?: string | undefined; m?: string; name?: string | undefined };
 
-declare global {
-  // The desktop app's bridge (desktop/preload.cts): an action goes to the board server without a network hop.
-  interface Window { yeschef?: { act?: (body: string) => Promise<[number, string]> } }
-}
 
 export const DEFAULT_RELAY = 'https://relay.yeschef.codes';
 export const SITE = 'https://yeschef.codes';
@@ -430,7 +427,7 @@ export function teamBody({ lost = '', view = null, join = null, links = [], proj
 }
 
 // The page script. It runs in the page, so it is written here as a function and sent as its source: no template-literal
-// escapes to get wrong (server.mjs's page script has that trap).
+// escapes to get wrong. The board's page script (client/page.ts) is sent the same way.
 function pageScript(): void {
   var data: PageData = JSON.parse(document.getElementById('yc-team-data')!.textContent!);
   // The page has each element it asks for: the screens above draw them.

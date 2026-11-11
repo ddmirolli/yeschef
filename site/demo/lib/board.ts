@@ -16,7 +16,7 @@ export type Place = 'Backlog' | 'Planned' | 'In progress' | 'In review' | 'Ready
   | 'Snoozed' | 'Coordinators';
 /** A decision the agent asked in its own message (client/calls.ts): the message, its item and the decisions in it. */
 export interface CallMessage { key: string; itemId: string; text: string; calls: Call[] }
-/** What the server read of a thread's last messages (server.mjs handback). */
+/** What the server read of a thread's last messages (server.ts handback). */
 export interface Handback { latest: { itemId?: string | undefined; text: string } | null; call: CallMessage | null; cut?: boolean | undefined }
 /** A T3 question the ticket or one of its stations waits on. */
 export interface Ask { thread: ThreadRow; items: QuestionItem[] }

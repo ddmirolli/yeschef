@@ -13,7 +13,7 @@ test('radii and text sizes land on the scale; hairlines, pills and icon letters 
 
 test('the whole sheet uses at most five text sizes and four radii', () => {
   const pass = readFileSync(new URL('./pass.css', import.meta.url), 'utf8');
-  const src = readFileSync(new URL('./server.mjs', import.meta.url), 'utf8');
+  const src = readFileSync(new URL('./server.ts', import.meta.url), 'utf8');
   const app = src.slice(src.indexOf('const APP_CSS = `') + 17, src.indexOf('`;', src.indexOf('const APP_CSS = `')));
   const css = onScale(pass + app);
   const sizes = new Set([...css.matchAll(/(?:font-size:|font:(?:[0-9]{3} |italic )*)([0-9.]+)px/g)].map((m) => Number(m[1])).filter((n) => n >= 10));

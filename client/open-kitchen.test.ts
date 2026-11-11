@@ -721,7 +721,7 @@ test('r8: one repo with two base branches reads as one repo and two branches, ne
 
 test('r8: a call’s word may shorten, and never leaves its bar', async () => {
   const { readFileSync } = await import('node:fs');
-  const css = readFileSync(new URL('./server.mjs', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('./server.ts', import.meta.url), 'utf8');
   assert.ok(css.includes('.tlb:has(.tltag){display:flex;padding-right:0;overflow:hidden}'));
   assert.ok(css.includes('.tlb .tltag{position:static;flex:0 1 auto;min-width:0;'));
 });

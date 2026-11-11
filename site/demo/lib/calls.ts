@@ -118,7 +118,7 @@ export const imageId = (src: string): string => createHash('sha1').update(src).d
 /** The text with its Markdown images taken out (the page shows them as a set of screenshots). */
 export const withoutImages = (text: unknown): string => String(text || '').replace(MD_IMAGE, '').replace(/\n{3,}/g, '\n\n');
 
-// Serving a screenshot from this Mac (client/server.mjs, /img). The server serves only paths that an agent's
+// Serving a screenshot from this Mac (client/server.ts, /img). The server serves only paths that an agent's
 // message on the current board names; these checks then confine them further.
 export const SHOT_TYPES: Readonly<Record<string, string>> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif' };
 const realOr = (p: string): string | null => { try { return realpathSync(p); } catch { return null; } };

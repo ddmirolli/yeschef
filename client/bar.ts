@@ -4,8 +4,8 @@
 // back to the centre, and after 5 s empty rises with your last action and three suggestions. ↓ shows them at once
 // (Dan, 1A). ↑ in the empty field brings back earlier actions, like a terminal. Esc clears first, then closes.
 //
-// Four parts. BAR_CSS and BAR_HTML go into the page (client/server.mjs). barCore() is pure and tested
-// (client/bar.test.ts). installBar() runs in the page. server.mjs inlines barCore and installBar by their source
+// Four parts. BAR_CSS and BAR_HTML go into the page (client/server.ts). barCore() is pure and tested
+// (client/bar.test.ts). installBar() runs in the page. server.ts inlines barCore and installBar by their source
 // text, so neither may use anything outside itself: no imports, no names from this module. Both are ES5 once Node
 // strips their types, like the page script, and hold only types Node can strip. Their types live out here.
 import { ICON } from './board.ts';
@@ -21,7 +21,7 @@ export interface BarRow {
 }
 /** A past action, as saved on this Mac. f: the whole label's fingerprint. */
 export interface Recent { id: string; t: string; at: number; f?: string }
-/** The views the page offers (viewsNow in client/server.mjs). */
+/** The views the page offers (viewsNow in client/page.ts). */
 export interface BarViews { hasReports?: boolean; current?: string; team?: { name?: unknown; below?: unknown } | null }
 /** View: You or View: Team, as a row. */
 export interface ViewRow { id: string; scope: 'you' | 'team'; g: string; t: string; d: string; kw: string; icon: string; now: boolean }
@@ -33,7 +33,7 @@ type ActForm = HTMLFormElement & { elements: HTMLFormControlsCollection & { note
 interface BarTicket { id: string; t: string; project: string; mark: string; pass: boolean; stage: string; pv: string }
 type BarStep = { crumb: string; ask: string; kw?: string };
 type Timer = ReturnType<typeof setTimeout> | number;
-/** The page script's own functions and state that the bar uses (client/server.mjs). */
+/** The page script's own functions and state that the bar uses (client/page.ts). */
 export interface BarApp {
   $<E extends Element = HTMLElement>(sel: string, el?: ParentNode | null): E | null;
   $$<E extends Element = HTMLElement>(sel: string, el?: ParentNode | null): E[];
@@ -286,7 +286,7 @@ export function barCore() {
   return { MAX: MAX, SINK_MS: 250, COUNT_MS: 5000, match: match, score: score, filter: filter, fp: fp, readRecent: readRecent, pushRecent: pushRecent, readNoted: readNoted, ago: ago, after: after, viewRows: viewRows, nestedHit: nestedHit, tkId: tkId, popEnd: popEnd, notePick: notePick };
 }
 
-/** The bar in the page. app: the page script's own functions and state (client/server.mjs); core: barCore(). */
+/** The bar in the page. app: the page script's own functions and state (client/page.ts); core: barCore(). */
 export function installBar(app: BarApp, core: BarCore): BarApi | null {
   var $ = app.$, $$ = app.$$;
   var found = document.getElementById('bar'); if (!found) return null;

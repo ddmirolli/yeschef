@@ -11,7 +11,7 @@ Yes Chef is a Mac app. It finds T3 Code on the same Mac, signs in to it, and rea
 | Folder | Use |
 |---|---|
 | `desktop/` | The Mac app, `Yes Chef.app` (Electron). Build, install, releases and the capture check: `desktop/README.md`. |
-| `client/` | The board server and the Pass page. The app runs it in a utility process; `node client/server.mjs` runs it alone as the web prototype. |
+| `client/` | The board server and the Pass page. The app runs it in a utility process; `node client/server.ts` runs it alone as the web prototype. |
 | `relay/` | The team relay, a Cloudflare Worker: `relay/README.md`. |
 | `site/` | yeschef.codes and its live demo: `site/README.md`. |
 | `tools/` | Screenshots through Browserbase (`shoot.sh`), the site demo build, the public-tree check, the PR-Agent review. |
@@ -28,7 +28,7 @@ Strict TypeScript on T3 Code's toolchain. Dan's rulings, 2026-11-10:
 - **2 = B.** The port does not wait for open pull requests. What is merged gets ported.
 - **3 = B.** The Python pass is retired, not ported (#22).
 
-Node 24 runs `.ts` files with the types stripped, and so does the Node inside Electron, so the app and the relay need no build step for their own code. Ported so far: `relay/`, `client/seal.ts`, `site/` (#24, Astro), the client's core (the board, calls, actions, the action bar and keys, the T3 and GitHub clients, the followers, the theme, You and Open kitchen), `desktop/` (the app, its updater and its release scripts), and the client's team modules (the team client, its roster, inbox and summaries, the `/team` page and its host, the roles and the stream shells), with their tests. The window's preload is the one file built at all: Electron needs it as one CommonJS file, so `desktop/build/preload.ts` strips its types. Still JavaScript, in the order they move: `client/server.mjs`, then `tools/` and `spikes/`.
+Node 24 runs `.ts` files with the types stripped, and so does the Node inside Electron, so the app and the relay need no build step for their own code. Ported so far: `relay/`, `client/seal.ts`, `site/` (#24, Astro), the client's core (the board, calls, actions, the action bar and keys, the T3 and GitHub clients, the followers, the theme, You and Open kitchen), `desktop/` (the app, its updater and its release scripts), and the client's team modules (the team client, its roster, inbox and summaries, the `/team` page and its host, the roles and the stream shells), and the board server with its page script (`client/server.ts`, `client/page.ts`), with their tests. The window's preload is the one file built at all: Electron needs it as one CommonJS file, so `desktop/build/preload.ts` strips its types. Still JavaScript: `tools/` and `spikes/`.
 
 ## Tests
 
