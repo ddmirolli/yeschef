@@ -1608,3 +1608,39 @@ test('a summary dated ahead of this Mac\'s clock after it went back is not live'
   assert.equal(person().live, false);
   lead.stop(); dev.stop();
 });
+
+test('a welcome pass while an approval waits on its roster keeps that welcome', async () => {
+  const { relay, net, timers, lead } = await crew();
+  const now = () => relay.now();
+  const { link } = await lead.invite();
+  const d2 = new Team({ state: await joinTeam({ link, name: 'Bo', shared: [P], net, now }), net, now, timers, random: () => 1 });
+  d2.start();
+  await until(() => lead.pending.size === 1 && d2.meId, 'the second ask at the lead');
+  const id = d2.meId;
+  d2.stop();
+  let release = null;
+  const say = lead.say.bind(lead);
+  lead.say = async (msg) => { if (msg.t === 'roster') await new Promise((r) => { release = r; }); return say(msg); };
+  const ap = lead.approve(id, 'engineer');
+  await until(() => release, 'the roster waiting');
+  await lead.sendWelcomes();
+  release();
+  assert.equal((await ap).t, 'ok');
+  assert.equal(relay.sql.exec('SELECT COUNT(*) AS n FROM inbox WHERE to_m = ?', id).one().n, 1, 'the welcome went');
+  lead.stop();
+});
+
+test('a summary read while the clock was ahead does not go with a made-up time', async () => {
+  const { relay, timers, lead, dev } = await crew();
+  dev.link = 'connecting';
+  dev.now = () => relay.now() + 30 * MIN;
+  dev.board(boardNow(relay.now()));
+  dev.now = () => relay.now();
+  dev.link = 'online';
+  dev.flush();
+  await settle(); await settle(); await settle();
+  await timers.advance(10000);
+  await settle();
+  assert.equal(lead.summaries.size, 0);
+  lead.stop(); dev.stop();
+});
