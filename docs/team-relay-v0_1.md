@@ -1,6 +1,6 @@
 # The team relay
 
-**Status:** v0.1, 2026-11-10. Built in `relay/` and `client/seal.mjs`. The app side (the team client, roles, the screens) comes in later PRs. **Ruling:** Dan, 2026-11-10, "A": one Yes Chef relay on Cloudflare, free with a cap, and teams can host their own past it. Dan pays the bill. The cap's number waits for usage numbers.
+**Status:** v0.1, 2026-11-10. Built in `relay/`, `client/seal.mjs`, `client/team.mjs` and `client/roles.mjs`. The screens and the Keychain come in a later PR. **Ruling:** Dan, 2026-11-10, "A": one Yes Chef relay on Cloudflare, free with a cap, and teams can host their own past it. Dan pays the bill. The cap's number waits for usage numbers.
 
 ## What it is
 
@@ -20,7 +20,7 @@ The relay is the only server Yes Chef runs. It passes sealed team data between e
 | The latest summary per member | Sealed and signed | Replaced on each update: no history |
 | Open invites: a hash of each invite's proof, its end, its secret | The secret sealed with the team key | 7 days at most |
 | Asks to join | Sealed with the invite's key; the public keys plain | Until the lead answers or the invite ends |
-| Messages between members: actions, results, the welcome | Sealed and signed | Until the receiver takes them, 15 minutes by default, 7 days at most |
+| Messages between members: actions, results, the welcome, a member's ask for the key | Sealed and signed | Until the receiver takes them, 15 minutes by default, 7 days at most |
 | When each member's last socket closed | Plain time, on the relay's clock | Replaced at each close; goes when the member is removed |
 | Usage per UTC day: requests, messages, rows written, bytes in | Plain counts | 90 days |
 
@@ -56,6 +56,42 @@ A leaked link lets someone ask to join, never read anything. Each ask waits for 
 - **Delete the team:** the lead. The relay deletes everything it keeps for that team.
 
 The relay checks only who may change the team. What a role may do to a dev's threads is checked on the dev's own Mac, against the roster the lead signed.
+
+## The app
+
+`client/team.mjs` is one dev's Yes Chef on the relay; `client/roles.mjs` holds the roles. One `Team` has four parts behind it: the connection (`team-connection.mjs`), the roster (`team-roster.mjs`), the inbox (`team-inbox.mjs`) and the summaries (`team-summaries.mjs`). Not wired into the app yet: the screens and the Keychain come next.
+
+**What it keeps.** This Mac's two key pairs, the team key, the lead's signing key from the invite, the highest roster version it took, the projects this dev shares, the welcomes the lead still owes, when it last asked the lead for the key, and the ids of recent teammate actions. The app seals all of it before it touches a disk.
+
+**The summary.** Only from the projects the dev shares, and nothing from coordinator threads. Per ticket: the thread id and title, the project, the stage, whether it waits on a person, agents working, open questions, whether the agent asked a decision, up to five PRs (repository, number, state, link), and the last update. No messages, no code. At most 100 tickets, waiting ones first, cut to fit 64 KiB. It carries the time the board was read (`at`) and the board's health: `{ ok, since }`, where `since` is when the last read started to work or to fail. Summaries are events, as T3 Code's `AgentAwarenessRelay` publishes: one goes only when its content changed, never on a timer. Read times (any key named `at`) are not a change, so they ride along with a real one. A health flip is a change. After a restart, before this Mac's first board read, its health is unknown (`ok: null`): the summary the relay kept goes again with that health, so a teammate keeps the tickets but does not read them as live. It goes at most once per the relay's limit, always the newest, and is cut again if its sealed size is over the limit. A Viewer sends none, and a dev made a Viewer sends a forget. Sharing nothing sends a forget. Dropping a project rebuilds the waiting summary at once, so the dropped project's tickets never go out, even when a summary was being sealed at that moment. A summary the relay refuses is dropped; a relay that does not answer is tried again after 20 seconds, then 40, up to 5 minutes. An older summary never replaces a newer one: each carries a revision that only goes up, saved before it is sent.
+
+**Live.** A teammate reads as live while this Mac and the teammate are online (the relay's presence) and their summary's health is ok. Nothing compares two Macs' clocks. Otherwise the screen says "Not checked since" the earlier of the times that apply: the health's `since` when their board fails, and when the relay last saw them when they are offline. With no time known it says "Not checked". While this Mac is offline, a teammate it last saw online counts from when this Mac lost the relay.
+
+**Roles.** The words Dan approved on 2026-11-10. The Deputy's boxes are the ones Dan approved. Engineer = See only is Dan's ruling of 2026-11-10. The Area owner and Viewer defaults are proposed.
+
+| Role | Boxes by default |
+|---|---|
+| Lead | All, always |
+| Deputy | See, Reply, Edit the projects and the shared code list, Invite people |
+| Area owner | See, Reply, Merge, Request changes or Hold |
+| Engineer | See |
+| Viewer | See. Sends no summary |
+
+"See every ticket in the projects the team shares" is every role's. The lead can tick or clear any other box per person; the roster carries the result.
+
+**A teammate's action.** Reply needs Reply. Merge, Request changes, Hold, and answering an agent's question or decision need Merge, Request changes or Hold. Settle and New thread never come from a teammate. The dev's own Yes Chef checks, in order, before anything reaches T3:
+
+1. The seal opens with the team key and names this dev as the receiver, and the sender's signature holds against the key in the roster the lead signed.
+2. An action seen before gets its first answer again and does not run twice. The seen ids survive a restart.
+3. It is at most 15 minutes old, and at most 5 minutes ahead.
+4. The sender's role allows it, as the lead's roster says. What the sender's own Mac claims does not count.
+5. This dev shares tickets, the board is fresh (read without error in the last 60 seconds), and the thread is in a project this dev shares.
+
+**One path for the inbox.** Every message from a member goes the same way: judge it, commit what it changed to disk, send its answer, then let the relay's copy go. A failed commit sends no answer and lets nothing go, so the relay keeps the message and it is judged again. An action's signed id is its delivery id: a copy that comes again gets the first answer and never runs twice.
+
+A teammate's action that arrives before the lead's welcome stays on the relay, not taken, and runs once the welcome brings the team key. Then it runs through the dev's own capped T3 sign-in, as the dev's own actions do (`client/actions.mjs`), with the message signed "Sam Ortiz (Lead), from Yes Chef: ". The answer goes back sealed and signed. An answer that comes after the sender stopped waiting still reaches the sender's screen.
+
+**Reconnects** follow T3 Code's rules. One timer owns retries. The wait doubles from 1 second with full jitter, capped at 5 minutes. A wake probes at once. A ping every 30 seconds, and no pong in 10 closes the socket. The relay's close codes end the team on this Mac (declined, removed, deleted) or reconnect at once (approved). A socket that never opens asks `/me`: a 401 ends it as declined or removed, unless the relay's clock says this Mac's clock is off. The socket's health is its own field: nobody reads as online, and no summary as live, while this Mac's socket is not. A roster older than the highest version this Mac took ends the connection, even after a restart. A roster the lead signed without this Mac ends it as removed, even when the relay never closes the socket. The lead owes an approved dev the welcome from before the roster goes, so an answer the relay lost cannot leave the dev without the key. A dev on the roster whose welcome expired unread (7 days on the relay) asks the lead for another, at most once a day, sealed to the lead's key; the new welcome is sealed to the dev's own key, so a forged ask gains nothing.
 
 ## Limits and the cap
 
@@ -131,5 +167,6 @@ Close codes: 4001 approved (connect again as a member), 4002 declined, 4003 remo
 ## Open
 
 - **The cap's number:** Dan sets it from `/v1/usage`.
+- **The Merge box has no area scope yet.** The rule: a Merge box covers every ticket in a French Brigade area, and only shared code changes in an Open kitchen area. Until areas exist, the box covers every project the dev shares.
 - **A member who leaves still holds the team key.** The relay stops serving them the moment the roster drops them. Rotating the team key on removal is not built.
 - **Pairing tokens last 30 days**: renewal and revoke on leaving.

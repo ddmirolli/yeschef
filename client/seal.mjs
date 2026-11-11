@@ -156,6 +156,8 @@ export const aad = {
   // that come in on an invite a deputy made.
   invite: (team, invite) => `yc${VERSION} invite|${team}|${invite}`,
   welcome: (team, from, to) => `yc${VERSION} welcome|${team}|${from}|${to}`,
+  // A member on the roster without the team key asks the lead for another welcome (its first expired unread).
+  rekey: (team, from, to) => `yc${VERSION} rekey|${team}|${from}|${to}`,
 };
 
 /** Seal a body the sender also signs, so a member who holds the team key still cannot speak as another member. */
