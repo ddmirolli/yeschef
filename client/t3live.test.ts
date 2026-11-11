@@ -39,7 +39,7 @@ interface Msg { _tag?: string; id?: string; tag?: string; requestId?: string; pa
 interface Conn { url: URL; got: Msg[]; requests: Msg[]; open: boolean; send(m: Record<string, unknown>): void; kill(): void }
 /** The fake T3 Code: what it saw, how it answers, and what it holds back. */
 interface FakeT3 {
-  tickets: (string | undefined)[]; conns: Conn[]; refuse: Set<string | undefined>; pong: boolean; subscribe: 'serve' | 'fail' | 'silent';
+  tickets: (string | undefined)[]; conns: Conn[]; refuse: Set<string | undefined>; pong: boolean; subscribe: 'serve' | 'fail' | 'silent'; ticketBody: string | null;
   acks: number; pings: number; hold: 'key' | 'ticket' | 'open' | null; held: { destroy(): void }[]; origin: string;
   reply(conn: Conn, m: Msg): void; close(): void; last(): Conn;
 }
@@ -47,7 +47,7 @@ interface FakeT3 {
 /** A fake T3 Code. `reply(conn, msg)` answers each client message; the default serves a snapshot and pongs. */
 async function fakeT3({ snapshot = [shell('a'), shell('b')], sequence = 10 }: { snapshot?: ThreadShell[]; sequence?: number } = {}): Promise<FakeT3> {
   const t3: FakeT3 = {
-    tickets: [], conns: [], refuse: new Set(), pong: true, subscribe: 'serve', acks: 0, pings: 0, hold: null, held: [], origin: '',
+    tickets: [], conns: [], refuse: new Set(), pong: true, subscribe: 'serve', ticketBody: null, acks: 0, pings: 0, hold: null, held: [], origin: '',
     reply(conn, m) {
       if (m._tag === 'Ping') { t3.pings++; if (t3.pong) conn.send({ _tag: 'Pong' }); return; }
       if (m._tag === 'Ack') { t3.acks++; return; }
@@ -68,7 +68,7 @@ async function fakeT3({ snapshot = [shell('a'), shell('b')], sequence = 10 }: { 
       t3.tickets.push(auth);
       if (t3.refuse.has(auth)) return res.writeHead(401, { 'content-type': 'application/json' }).end('{"code":"auth_invalid"}');
       if (t3.hold === 'ticket') { t3.held.push(req.socket); return; }
-      return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ ticket: `ticket-${t3.tickets.length}` }));
+      return res.writeHead(200, { 'content-type': 'application/json' }).end(t3.ticketBody ?? JSON.stringify({ ticket: `ticket-${t3.tickets.length}` }));
     }
     res.writeHead(404).end();
   });
@@ -272,19 +272,19 @@ test('stop: interrupts the subscription, closes the socket, and the data is no l
 interface Session { sessionId: string; client: { label: string } }
 /** A stand-in t3 CLI and token endpoint: what it was asked, what it revoked, and the last token exchange's form. */
 interface FakeCli { calls: string[][]; revoked: string[]; sessions: Session[]; exchange: Record<string, string>; run(bin: string, args: string[]): Promise<string>; fetch: FetchLike }
-function fakeCli({ scope = 'orchestration:read', sessions = [] }: { scope?: string; sessions?: Session[] } = {}): FakeCli {
+function fakeCli({ scope = 'orchestration:read', sessions = [], token = 'secret', pairing = JSON.stringify({ id: 'x', credential: 'code' }) }: { scope?: string; sessions?: Session[]; token?: string; pairing?: string } = {}): FakeCli {
   const cli: FakeCli = {
     calls: [], revoked: [], sessions, exchange: {},
     run: async (_bin, args) => {
       cli.calls.push(args);
-      if (args[1] === 'pairing') return JSON.stringify({ id: 'x', credential: 'code' });
+      if (args[1] === 'pairing') return pairing;
       if (args[1] === 'session' && args[2] === 'list') return JSON.stringify(cli.sessions);
       if (args[1] === 'session' && args[2] === 'revoke') { cli.revoked.push(String(args[3])); return 'Revoked'; }
       throw new Error('unexpected ' + args.join(' '));
     },
     fetch: async (_url, init) => {
-      cli.exchange = Object.fromEntries(new URLSearchParams(String(init.body)));
-      return { ok: true, status: 200, json: async () => ({ access_token: 'secret', token_type: 'Bearer', scope }) };
+      cli.exchange = Object.fromEntries(new URLSearchParams(await new Response(init?.body).text()));
+      return new Response(JSON.stringify({ access_token: token, token_type: 'Bearer', scope }), { status: 200, headers: { 'content-type': 'application/json' } });
     },
   };
   return cli;
@@ -322,7 +322,7 @@ test('revoke at stop cuts a key still being minted short, then revokes what T3 m
   let signal = null as AbortSignal | null;
   // T3 has made the session, but its answer never comes back.
   cli.fetch = (_url, init) => {
-    const s = init.signal;
+    const s = init?.signal;
     assert.ok(s, 'the exchange can be cut short');
     signal = s;
     return new Promise((_, reject) => s.addEventListener('abort', () => reject(s.reason)));
@@ -409,4 +409,48 @@ test('the clocks: a Mac clock that runs back, or one that stands still, never ke
   t3b.pong = false;
   await until(() => !still.live(), 3000, 'not live on the monotonic clock');
   await until(() => t3b.conns.length === 2, 3000, 'a second socket');
+});
+
+// ----- Every reply is read through a Schema (Effect PR, step 4): what T3 Code would never send is refused, not used -----
+test('a shell item T3 Code would never send fails the subscription, not the store, and the stream subscribes again', async () => {
+  for (const bad of [
+    { kind: 'thread.updated', sequence: 15, location: 'active' },
+    { kind: 'snapshot', snapshot: { snapshotSequence: 16, threads: [{ title: 'no id' }], archivedThreads: [], projects: [] } },
+  ]) {
+    const t3 = await fakeT3();
+    const live = createLive({ origin: t3.origin, keys: fakeKeys(), timing: { ...FAST, base: 200, max: 400 }, random: () => 0 });
+    onTestFinished(async () => { await live.stop(); t3.close(); });
+    live.start();
+    await until(() => live.live(), 3000, 'live');
+    // A kind this Pass does not know, and a frame tag it does not read, are passed over, as before.
+    t3.last().send({ _tag: 'Chunk', requestId: '1', values: [{ kind: 'snapshot-required' }] });
+    t3.last().send({ _tag: 'Hello' });
+    t3.last().send({ _tag: 'Chunk', requestId: '1', values: [bad] });
+    await until(() => live.health().data.state === 'failed', 2000, `data failed on ${bad.kind}`);
+    assert.match(live.why() || '', new RegExp(`connected, but the shell subscription failed \\(T3 Code sent a ${bad.kind} item the Pass cannot read\\)`));
+    assert.equal(live.health().transport.state, 'open', 'the socket is fine');
+    assert.deepEqual(live.threads().map((t) => t.id).sort(), ['a', 'b'], 'the store kept no half item');
+    await until(() => live.live(), 3000, 'live after resubscribe');
+    assert.equal(t3.last().requests.length, 2);
+  }
+});
+
+test('an empty socket ticket is refused, not used to open a socket', async () => {
+  const t3 = await fakeT3();
+  t3.ticketBody = '{"ticket":""}';
+  const live = createLive({ origin: t3.origin, keys: fakeKeys(), timing: { ...FAST, base: 5000, max: 5000 }, random: () => 0 });
+  onTestFinished(async () => { await live.stop(); t3.close(); });
+  live.start();
+  await until(() => live.health().transport.state === 'retrying', 2000, 'retrying');
+  assert.equal(live.health().transport.error, 'no socket ticket (200)');
+  assert.equal(t3.conns.length, 0);
+});
+
+test('the key: an empty key, or a pairing reply that is not T3 Code\'s, is refused, not used', async () => {
+  const empty = fakeCli({ token: '' });
+  await assert.rejects(createKeys({ origin: 'http://127.0.0.1:3773', run: empty.run, fetchImpl: empty.fetch, pid: 4242 }).get(),
+    { message: 'T3 Code did not give a read-only key (200)' });
+  const noisy = fakeCli({ pairing: 'Error: the server is not running' });
+  await assert.rejects(createKeys({ origin: 'http://127.0.0.1:3773', run: noisy.run, fetchImpl: noisy.fetch, pid: 4242 }).get(),
+    { message: 'T3 Code gave no pairing code' });
 });

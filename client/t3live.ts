@@ -16,26 +16,121 @@
 //     that socket and is never called a reconnect.
 //   - A cache is never shown as live: live() is true only while the socket is healthy and the shell is synchronized.
 // Socket messages are Effect RPC JSON: Request, Chunk (each needs an Ack), Exit, Ping, Pong, Interrupt.
+//
+// Effect at the edges (phase C, step 4), as T3 Code's client-runtime reads the same stream: every reply crosses a
+// Schema (the CLI's JSON, the key and the socket ticket, each socket frame and each shell item), and the two HTTP
+// requests go through Effect's HttpClient. A shell item T3 Code would never send fails the subscription, so the board
+// stops calling the data live, instead of leaving half an item in the store. Kinds and frame tags this Pass does not
+// know are passed over, so a newer T3 Code still streams. The supervisor below keeps its own timers and clocks.
 import { execFile } from 'node:child_process';
 import { networkInterfaces } from 'node:os';
+import * as Effect from 'effect/Effect';
+import * as Option from 'effect/Option';
+import * as Schema from 'effect/Schema';
+import * as FetchHttpClient from 'effect/http/FetchHttpClient';
+import * as HttpClient from 'effect/http/HttpClient';
+import * as HttpClientRequest from 'effect/http/HttpClientRequest';
+import * as HttpClientResponse from 'effect/http/HttpClientResponse';
 
+// The shell stream's items, as T3 Code's packages/contracts/src/orchestrationV2.ts (OrchestrationV2ShellStreamItem)
+// sends them, as far as the Pass reads them. A shell keeps every field T3 sent: client/shells.ts reads the rest.
+const ThreadShellSchema = Schema.StructWithRest(Schema.Struct({ id: Schema.String }), [Schema.Record(Schema.String, Schema.Unknown)]);
+const ProjectShellSchema = Schema.StructWithRest(
+  Schema.Struct({ id: Schema.String, title: Schema.optional(Schema.String), workspaceRoot: Schema.optional(Schema.String) }),
+  [Schema.Record(Schema.String, Schema.Unknown)],
+);
 /** A thread's shell from T3 Code's live stream (orchestrationV2 shell, read as client/shells.ts threadRow does). */
-export interface ThreadShell { id: string; [field: string]: unknown }
+export type ThreadShell = typeof ThreadShellSchema.Type;
 /** A project's shell from the live stream: its id, title and workspaceRoot among the rest. */
-export interface ProjectShell { id: string; title?: string; workspaceRoot?: string; [field: string]: unknown }
-// The shell stream's items (packages/contracts orchestrationV2, subscribeShell).
-type ShellEvent =
-  | { kind: 'snapshot'; snapshot?: { threads?: ThreadShell[]; projects?: ProjectShell[]; snapshotSequence?: unknown }; resolvedRepositoryIdentityRoots?: unknown }
-  | { kind: 'synchronized' }
-  | { kind: 'thread.updated'; sequence?: unknown; thread: ThreadShell; location?: string }
-  | { kind: 'thread.removed'; sequence?: unknown; threadId: string; location?: string }
-  | { kind: 'project.updated'; sequence?: unknown; project: ProjectShell }
-  | { kind: 'project.removed'; sequence?: unknown; projectId: string };
-// One Effect RPC frame on the socket, as far as the stream reads it.
-interface Frame { _tag?: unknown; requestId?: unknown; values?: unknown[]; exit?: { _tag?: unknown; cause?: unknown }; defect?: unknown }
+export type ProjectShell = typeof ProjectShellSchema.Type;
+const Location = Schema.Literals(['active', 'archive']);
+const ShellItems = {
+  snapshot: Schema.Struct({
+    kind: Schema.Literal('snapshot'),
+    snapshot: Schema.Struct({ snapshotSequence: Schema.Number, threads: Schema.Array(ThreadShellSchema), projects: Schema.Array(ProjectShellSchema) }),
+    resolvedRepositoryIdentityRoots: Schema.optional(Schema.Array(Schema.String)),
+  }),
+  synchronized: Schema.Struct({ kind: Schema.Literal('synchronized') }),
+  'thread.updated': Schema.Struct({ kind: Schema.Literal('thread.updated'), sequence: Schema.Number, location: Location, thread: ThreadShellSchema }),
+  'thread.removed': Schema.Struct({ kind: Schema.Literal('thread.removed'), sequence: Schema.Number, location: Location, threadId: Schema.String }),
+  'project.updated': Schema.Struct({ kind: Schema.Literal('project.updated'), sequence: Schema.Number, project: ProjectShellSchema }),
+  'project.removed': Schema.Struct({ kind: Schema.Literal('project.removed'), sequence: Schema.Number, projectId: Schema.String }),
+};
+const ShellItem = Schema.Union(Object.values(ShellItems));
+const Kind = Schema.Struct({ kind: Schema.String });
+const isKnownKind = (kind: string): kind is keyof typeof ShellItems => Object.hasOwn(ShellItems, kind);
 
-/** A fetch, or a stand-in in tests: the stream reads only ok, status and the JSON body. */
-export type FetchLike = (url: string, init: RequestInit) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
+// One Effect RPC frame from the server, as far as the stream reads it.
+const RequestId = Schema.Union([Schema.String, Schema.Number]);
+const Frames = {
+  Ping: Schema.TaggedStruct('Ping', {}),
+  Chunk: Schema.TaggedStruct('Chunk', { requestId: RequestId, values: Schema.Array(Schema.Unknown) }),
+  Exit: Schema.TaggedStruct('Exit', { requestId: RequestId, exit: Schema.Struct({ _tag: Schema.String, cause: Schema.optional(Schema.Unknown) }) }),
+  Defect: Schema.TaggedStruct('Defect', { defect: Schema.optional(Schema.Unknown) }),
+};
+const Frame = Schema.Union(Object.values(Frames));
+const Tag = Schema.Struct({ _tag: Schema.String });
+const isKnownTag = (tag: string): tag is keyof typeof Frames => Object.hasOwn(Frames, tag);
+const Json = Schema.fromJsonString(Schema.Unknown);
+
+// What T3 Code's CLI and HTTP routes answer, as far as the stream reads them (packages/contracts/src/auth.ts).
+const Pairing = Schema.fromJsonString(Schema.Struct({ credential: Schema.NonEmptyString }));
+const Sessions = Schema.fromJsonString(Schema.Array(Schema.Struct({
+  sessionId: Schema.String,
+  client: Schema.optional(Schema.Struct({ label: Schema.optional(Schema.String) })),
+})));
+const KeyReply = Schema.Struct({ access_token: Schema.NonEmptyString, scope: Schema.optional(Schema.String) });
+const TicketReply = Schema.Struct({ ticket: Schema.NonEmptyString });
+
+/** The stream could not get its key or its socket ticket. `auth` marks a key T3 Code refused. */
+export class T3LiveError extends Schema.TaggedError<T3LiveError>()('T3LiveError', {
+  reason: Schema.String,
+  auth: Schema.optional(Schema.Boolean),
+  cause: Schema.optional(Schema.Defect()),
+}) {
+  override get message(): string { return this.reason; }
+}
+
+/** The fetch the stream's HTTP requests go through: fetch, or a stand-in in tests. */
+export type FetchLike = typeof globalThis.fetch;
+const isOk = (status: number): boolean => status >= 200 && status < 300;
+/** Runs an HTTP program with this fetch. The signal interrupts it, and with it the request. */
+const runHttp = <A, E>(program: Effect.Effect<A, E, HttpClient.HttpClient>, fetchImpl: FetchLike, signal: AbortSignal): Promise<A> =>
+  Effect.runPromise(program.pipe(Effect.provide(FetchHttpClient.layer), Effect.provideService(FetchHttpClient.Fetch, fetchImpl)), { signal });
+
+/** Swap a pairing code for a key limited to orchestration:read (T3 Code's token exchange). */
+const exchangeKey = Effect.fn('t3live.exchange_key')(function* (origin: string, credential: string, label: string) {
+  const http = yield* HttpClient.HttpClient;
+  const response = yield* HttpClientRequest.post(`${origin}/oauth/token`).pipe(
+    HttpClientRequest.bodyUrlParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+      subject_token: credential,
+      subject_token_type: 'urn:t3:params:oauth:token-type:environment-bootstrap',
+      requested_token_type: 'urn:ietf:params:oauth:token-type:access_token',
+      scope: 'orchestration:read',
+      client_label: label,
+    }),
+    http.execute,
+    Effect.mapError((cause) => new T3LiveError({ reason: `could not reach T3 Code for a read-only key: ${cause.message}`, cause })),
+  );
+  const reply = yield* HttpClientResponse.schemaBodyJson(KeyReply)(response).pipe(Effect.option);
+  if (!isOk(response.status) || Option.isNone(reply)) return yield* new T3LiveError({ reason: `T3 Code did not give a read-only key (${response.status})` });
+  return reply.value;
+});
+
+/** A one-use socket ticket for the key. A key T3 Code refuses (401, 403) is an auth fault. */
+const socketTicket = Effect.fn('t3live.socket_ticket')(function* (origin: string, token: string) {
+  const http = yield* HttpClient.HttpClient;
+  const response = yield* HttpClientRequest.post(`${origin}/api/auth/websocket-ticket/rpc`).pipe(
+    HttpClientRequest.bearerToken(token),
+    http.execute,
+    Effect.mapError((cause) => new T3LiveError({ reason: `could not reach T3 Code for a socket ticket: ${cause.message}`, cause })),
+  );
+  if (response.status === 401 || response.status === 403) return yield* new T3LiveError({ reason: `T3 Code refused the read-only key (${response.status})`, auth: true });
+  const reply = yield* HttpClientResponse.schemaBodyJson(TicketReply)(response).pipe(Effect.option);
+  if (!isOk(response.status) || Option.isNone(reply)) return yield* new T3LiveError({ reason: `no socket ticket (${response.status})` });
+  return reply.value.ticket;
+});
 /** The socket the stream opens: WebSocket, as Node 22 and later have it. */
 export interface SocketLike {
   binaryType: BinaryType;
@@ -86,46 +181,29 @@ export interface KeysOptions {
   origin: string; bin?: string; run?: (bin: string, args: string[]) => Promise<string>; fetchImpl?: FetchLike; pid?: number;
   isAlive?: (pid: number) => boolean;
 }
-// A row of `t3 auth session list --json`, as far as the sweep reads it.
-interface SessionRow { sessionId?: unknown; client?: { label?: unknown } }
-
 export function createKeys({ origin, bin = `${process.env.HOME}/.t3/bin/t3`, run = runCli, fetchImpl = fetch, pid = process.pid, isAlive = alive }: KeysOptions): Keys {
   const label = labelFor(pid);
   let token: string | null = null, minting: Promise<string> | null = null, mintCtl: AbortController | null = null;
-  const sessions = async (): Promise<(SessionRow | null)[]> => { const rows: unknown = JSON.parse(await run(bin, ['auth', 'session', 'list', '--json'])); return Array.isArray(rows) ? rows : []; };
+  const sessions = async () => Option.getOrThrowWith(Schema.decodeOption(Sessions)(await run(bin, ['auth', 'session', 'list', '--json'])),
+    () => new T3LiveError({ reason: 'T3 Code listed its sessions in a form the Pass cannot read' }));
   const revoke = async (keep: (label: unknown) => boolean) => {
     let n = 0;
     for (const s of await sessions()) {
-      if (s?.sessionId && keep(s.client?.label)) { await run(bin, ['auth', 'session', 'revoke', String(s.sessionId)]); n++; }
+      if (keep(s.client?.label)) { await run(bin, ['auth', 'session', 'revoke', s.sessionId]); n++; }
     }
     return n;
   };
   async function mint(signal: AbortSignal): Promise<string> {
     if (!isLoopback(origin)) throw new Error('the live stream needs T3 Code on this Mac');
-    const issued = JSON.parse(await run(bin, ['auth', 'pairing', 'create', '--json', '--ttl', '5m', '--label', label, '--scope', 'orchestration:read'])) as { credential?: unknown } | null;
-    const credential = issued?.credential;
-    if (typeof credential !== 'string') throw new Error('T3 Code gave no pairing code');
-    const r = await fetchImpl(`${origin}/oauth/token`, {
-      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
-        subject_token: credential,
-        subject_token_type: 'urn:t3:params:oauth:token-type:environment-bootstrap',
-        requested_token_type: 'urn:ietf:params:oauth:token-type:access_token',
-        scope: 'orchestration:read',
-        client_label: label,
-      }),
-      signal,
-    });
-    const tok = (await r.json().catch(() => ({}))) as { access_token?: unknown; scope?: unknown } | null;
-    const key = tok?.access_token;
-    if (!r.ok || typeof key !== 'string') throw new Error(`T3 Code did not give a read-only key (${r.status})`);
+    const issued = Schema.decodeOption(Pairing)(await run(bin, ['auth', 'pairing', 'create', '--json', '--ttl', '5m', '--label', label, '--scope', 'orchestration:read']));
+    if (Option.isNone(issued)) throw new T3LiveError({ reason: 'T3 Code gave no pairing code' });
+    const tok = await runHttp(exchangeKey(origin, issued.value.credential, label), fetchImpl, signal);
     // Read only, or nothing: a key with any other scope is revoked at once and never used.
-    if (String(tok?.scope || '').split(' ').filter(Boolean).join(' ') !== 'orchestration:read') {
+    if ((tok.scope ?? '').split(' ').filter(Boolean).join(' ') !== 'orchestration:read') {
       await revoke((l) => l === label).catch(() => {});
-      throw new Error('T3 Code offered a key that is not read only, so Yes Chef revoked it');
+      throw new T3LiveError({ reason: 'T3 Code offered a key that is not read only, so Yes Chef revoked it' });
     }
-    return key;
+    return tok.access_token;
   }
   return {
     label,
@@ -260,15 +338,10 @@ export function createLive({
     const ctl = new AbortController();
     const late = setTimeout(() => ctl.abort(new Error('T3 Code gave no socket ticket in time')), T.establish);
     cancelOpen = () => ctl.abort(cancelled);
-    let kr: Awaited<ReturnType<FetchLike>>, kt: { ticket?: unknown } | null;
-    try {
-      kr = await fetchImpl(`${origin}/api/auth/websocket-ticket/rpc`, { method: 'POST', headers: { authorization: `Bearer ${token}` }, signal: ctl.signal });
-      kt = (await kr.json().catch(() => ({}))) as { ticket?: unknown } | null;
-    } catch (ex) { throw ctl.signal.aborted ? ctl.signal.reason : ex; }
+    let ticket: string;
+    try { ticket = await runHttp(socketTicket(origin, token), fetchImpl, ctl.signal); }
+    catch (ex) { throw ctl.signal.aborted ? ctl.signal.reason : ex; }
     finally { clearTimeout(late); cancelOpen = null; }
-    if (kr.status === 401 || kr.status === 403) throw Object.assign(new Error(`T3 Code refused the read-only key (${kr.status})`), { auth: true });
-    const ticket = kt?.ticket;
-    if (!kr.ok || typeof ticket !== 'string') throw new Error(`no socket ticket (${kr.status})`);
     if (stopped) return;
     const url = new URL('/ws', origin.replace(/^http/, 'ws'));
     url.searchParams.set('wsTicket', ticket);
@@ -325,21 +398,31 @@ export function createLive({
   function hear(raw: unknown) {
     heardFrame();
     if (probeTimer) { clearTimeout(probeTimer); probeTimer = undefined; }
-    let parsed: unknown;
-    try { parsed = JSON.parse(typeof raw === 'string' ? raw : Buffer.from(raw as ArrayBuffer).toString('utf8')); } catch { return; }
+    const parsed = Schema.decodeOption(Json)(typeof raw === 'string' ? raw : Buffer.from(raw as ArrayBuffer).toString('utf8'));
+    if (Option.isNone(parsed)) return;
     let touched = false;
-    for (const x of (Array.isArray(parsed) ? parsed : [parsed]) as unknown[]) {
-      if (!x || typeof x !== 'object') continue;
-      const m = x as Frame;
+    for (const x of Array.isArray(parsed.value) ? parsed.value : [parsed.value]) {
+      const tag = Schema.decodeUnknownOption(Tag)(x);
+      if (Option.isNone(tag) || !isKnownTag(tag.value._tag)) continue;
+      const frame = Schema.decodeUnknownOption(Frame)(x);
+      if (Option.isNone(frame)) { dataFailed(`T3 Code sent a ${tag.value._tag} frame the Pass cannot read`); continue; }
+      const m = frame.value;
       if (m._tag === 'Ping') { send({ _tag: 'Pong' }); continue; }
       if (m._tag === 'Chunk') {
         send({ _tag: 'Ack', requestId: m.requestId });
         if (String(m.requestId) !== String(subId)) continue;
-        for (const v of m.values || []) touched = apply(v) || touched;
+        for (const v of m.values) {
+          const kind = Schema.decodeUnknownOption(Kind)(v);
+          if (Option.isSome(kind) && !isKnownKind(kind.value.kind)) continue;
+          const item = Schema.decodeUnknownOption(ShellItem)(v);
+          // A known kind T3 Code would never send this way: the store keeps nothing of it, and the subscription starts over.
+          if (Option.isNone(item)) { dataFailed(`T3 Code sent a ${Option.isSome(kind) ? kind.value.kind : 'shell'} item the Pass cannot read`); break; }
+          touched = apply(item.value) || touched;
+        }
         continue;
       }
       if (m._tag === 'Exit' && String(m.requestId) === String(subId)) {
-        const why = m.exit?._tag === 'Failure' ? JSON.stringify(m.exit.cause ?? '').slice(0, 160) : 'the server ended it';
+        const why = m.exit._tag === 'Failure' ? Option.getOrElse(Schema.encodeOption(Json)(m.exit.cause ?? ''), () => '').slice(0, 160) : 'the server ended it';
         dataFailed(`the shell subscription ended: ${why}`);
         continue;
       }
@@ -348,22 +431,20 @@ export function createLive({
     if (touched) changed();
   }
 
-  function apply(raw: unknown): boolean {
-    const v = raw as ShellEvent | null;
-    if (!v || typeof v.kind !== 'string') return false;
+  function apply(v: typeof ShellItem.Type): boolean {
     if (v.kind === 'snapshot') {
-      const s = v.snapshot || {};
+      const s = v.snapshot;
       // A snapshot that names resolvedRepositoryIdentityRoots refreshes those projects only; its empty thread list
       // is not a list of threads (ShellStream.ts, shellStreamItemFromEnrichmentRefresh).
       if (v.resolvedRepositoryIdentityRoots !== undefined) {
-        for (const p of s.projects || []) projects.set(p.id, p);
+        for (const p of s.projects) projects.set(p.id, p);
         data.projectsRev++;
         return true;
       }
       threads.clear(); projects.clear(); dirtyAll = true;
-      for (const t of s.threads || []) threads.set(t.id, t);
-      for (const p of s.projects || []) projects.set(p.id, p);
-      data.sequence = Number(s.snapshotSequence ?? -1);
+      for (const t of s.threads) threads.set(t.id, t);
+      for (const p of s.projects) projects.set(p.id, p);
+      data.sequence = s.snapshotSequence;
       data.generation++; data.projectsRev++;
       return true;
     }
@@ -373,15 +454,15 @@ export function createLive({
       set(data, { state: 'live', syncedAt: now(), error: null });
       return true;
     }
-    const seq = Number(v.sequence);
-    if (Number.isFinite(seq)) { if (seq < data.sequence) return false; data.sequence = seq; }
+    if (v.sequence < data.sequence) return false;
+    data.sequence = v.sequence;
     if (v.kind === 'thread.updated') { dirty.add(v.thread.id); if (v.location === 'active') threads.set(v.thread.id, v.thread); else threads.delete(v.thread.id); return true; }
     // An archived thread is not in this store, but a reader may hold it (the server's parent cache): name it either way
     // (PR-Agent r3 on #76).
     if (v.kind === 'thread.removed') { dirty.add(v.threadId); if (v.location !== 'archive') threads.delete(v.threadId); return true; }
     if (v.kind === 'project.updated') { projects.set(v.project.id, v.project); data.projectsRev++; return true; }
-    if (v.kind === 'project.removed') { projects.delete(v.projectId); data.projectsRev++; return true; }
-    return false;
+    projects.delete(v.projectId); data.projectsRev++;
+    return true;
   }
 
   /** Wake, network change or an explicit retry: probe a live socket, or try at once when waiting to retry. */
