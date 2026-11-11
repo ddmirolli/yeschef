@@ -21,6 +21,7 @@ The relay is the only server Yes Chef runs. It passes sealed team data between e
 | Open invites: a hash of each invite's proof, its end, its secret | The secret sealed with the team key | 7 days at most |
 | Asks to join | Sealed with the invite's key; the public keys plain | Until the lead answers or the invite ends |
 | Messages between members: actions, results, the welcome | Sealed and signed | Until the receiver takes them, 15 minutes by default, 7 days at most |
+| When each member's last socket closed | Plain time, on the relay's clock | Replaced at each close; goes when the member is removed |
 | Usage per UTC day: requests, messages, rows written, bytes in | Plain counts | 90 days |
 
 It keeps no code, no diffs, no T3 Code tokens and no history. A team id that nobody made gets no tables: a stray request writes nothing.
@@ -102,10 +103,10 @@ JSON text frames. A message from the app carries an `id`; the reply carries the 
 
 | From the relay | Means |
 |---|---|
-| `hello` | On connect. A member gets the roster, every summary, its waiting messages, who is online, and (for inviters) the open invites and asks. A dev who waits gets `role: "pending"` only. |
+| `hello` | On connect. A member gets the roster, every summary, its waiting messages, who is online, when the relay last saw each member who is not (`seen`: id to time), and (for inviters) the open invites and asks. A dev who waits gets `role: "pending"` only. |
 | `summary`, `gone` | A member's new summary; a summary dropped. |
 | `inbox` | A sealed message for this member. |
-| `roster`, `presence` | The team changed; a member came online or went offline. |
+| `roster`, `presence` | The team changed; a member came online or went offline. Going offline carries the relay's time (`at`). |
 | `pending`, `pending-gone`, `invite` | Asks and invites, for inviters. |
 | `declined` | To a waiting dev: the ask was refused or its invite revoked. |
 
