@@ -1,0 +1,25 @@
+# The workspace, as T3 Code sets it up (Dan, 2026-11-10, "1. C": T3's TypeScript and tools).
+# desktop/ joins in the desktop port; until then it keeps its own npm install for the release workflow.
+packages:
+  - client
+  - relay
+
+catalog:
+  "@cloudflare/workers-types": 4.20260702.1
+  "@types/node": 24.12.4
+  vite: npm:@voidzero-dev/vite-plus-core@1.4.0
+  vite-plus: 1.4.0
+
+overrides:
+  vite: "catalog:"
+  vite-plus: "catalog:"
+
+# Unmet peers fail resolution, as in T3 Code.
+strictPeerDependencies: true
+
+peerDependencyRules:
+  allowAny:
+    - typescript
+    - vite
+  allowedVersions:
+    vite: "*"

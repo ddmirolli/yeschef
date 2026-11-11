@@ -4,7 +4,7 @@
 // Every inbox item takes one path: judge it, commit what it changed, send what it owes, then ack. The answer and the
 // ack go only after the commit. A failed commit sends neither, so the relay keeps the item and it is judged again. An
 // action's signed nonce is its delivery id: a redelivery gets its first answer again and never runs twice.
-import { isId, newId, sealSigned, openSigned, openFrom, aad, AUTH_SKEW_MS } from './seal.mjs';
+import { isId, newId, sealSigned, openSigned, openFrom, aad, AUTH_SKEW_MS } from './seal.ts';
 import { allows, refusal, signature, shares } from './roles.mjs';
 import { clean, ASK_MS, ACT_TTL, SEEN_KEEP_MS } from './team-common.mjs';
 

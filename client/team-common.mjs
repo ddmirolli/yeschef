@@ -1,5 +1,5 @@
 // What the team client's modules share: the times they agree on and one text cleaner.
-import { AUTH_SKEW_MS } from './seal.mjs';
+import { AUTH_SKEW_MS } from './seal.ts';
 
 /** How long a request over the socket waits for the relay's answer. */
 export const ASK_MS = 15000;

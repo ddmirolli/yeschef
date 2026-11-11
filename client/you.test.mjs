@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { readRuns, timeToday, agentTime, runningSeries, duration, trackWaits, withoutWaits, mayRunToday } from './you.mjs';
 import { buildBoard, renderApp } from './board.mjs';
-import { createKitchen } from '../site/demo/kitchen.mjs';
+import { createKitchen } from '../site/src/demo/kitchen.ts';
 
 // Local times, so "today" holds in any time zone.
 const NOW = new Date(2026, 10, 10, 15, 0).getTime();

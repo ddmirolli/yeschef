@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import { fakeRelay, fakeNet } from '../relay/fake.mjs';
+import { fakeRelay, fakeNet } from '../relay/fake.ts';
 import { teamHost, relayUrl } from './teamhost.mjs';
 import { teamPage, DEFAULT_RELAY } from './teamui.mjs';
 

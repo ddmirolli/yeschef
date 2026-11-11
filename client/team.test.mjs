@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fakeRelay, fakeNet } from '../relay/fake.mjs';
+import { fakeRelay, fakeNet } from '../relay/fake.ts';
 import { Team, createTeam, joinTeam, summarize, identity, notCheckedSince, chartUnder, RETRY, ACT_TTL, BOARD_FRESH_MS } from './team.mjs';
 import { grant, allows, refusal, signature, DEFAULTS, PERMS, shares } from './roles.mjs';
 import { buildBoard } from './board.mjs';
 import { act } from './actions.mjs';
-import { sealSigned, sealTo, aad, teamKey, newMember, signRoster } from './seal.mjs';
+import { sealSigned, sealTo, aad, teamKey, newMember, signRoster } from './seal.ts';
 
 const MIN = 60000;
 const P = 'proj-app', Q = 'proj-private';

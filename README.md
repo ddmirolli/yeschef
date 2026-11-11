@@ -20,6 +20,16 @@ Yes Chef is a Mac app. It finds T3 Code on the same Mac, signs in to it, and rea
 
 The first pass was a Python login service on port 8494 with a board writer for the expo. Dan retired both on 2026-11-10; the Mac app replaced them.
 
+## Language
+
+Strict TypeScript on T3 Code's toolchain. Dan's rulings, 2026-11-10:
+
+- **1 = C.** T3's TypeScript and tools now: its strict `tsconfig.base.json`, pnpm, Vite+, vitest, and `@effect/tsgo` for the typecheck. No Effect yet. Later pull requests move the I/O edges (the T3 and GitHub clients, the relay, the updater) to Effect with Schema. The renderers stay plain TypeScript.
+- **2 = B.** The port does not wait for open pull requests. What is merged gets ported.
+- **3 = B.** The Python pass is retired, not ported (#22).
+
+Node 24 runs `.ts` files with the types stripped, and so does the Node inside Electron, so the app and the relay need no build step for their own code. Ported so far: `relay/`, `client/seal.ts`, and `site/` (#24, Astro).
+
 ## Tests
 
 See `AGENTS.md`, "Verify".

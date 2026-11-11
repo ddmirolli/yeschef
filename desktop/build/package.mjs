@@ -29,7 +29,8 @@
 // bytes), and runs the section 2 checks on the app inside the ZIP and on the DMG.
 //
 // The app is one asar: desktop/ (main.mjs, t3.mjs, preload.cjs, updates.mjs, channels.mjs, keybindings.mjs, the Dock icon), client/
-// without its tests (with pass.css, the board's base stylesheet) and electron-updater with its dependencies, in the repo's own
+// without its tests (its .mjs and .ts files, which Electron's Node runs with the types stripped, and pass.css, the board's
+// base stylesheet) and electron-updater with its dependencies, in the repo's own
 // layout, so main.mjs finds the board server at ../client as in the repo. The asar integrity and "only load the app
 // from asar" fuses then cover the board server and the updater too. Last, a hidden --capture start of the built app
 // on an empty temporary data folder proves it starts and loads all its code (release plan, section 7, step 4).
@@ -94,7 +95,8 @@ rmSync(STAGE, { recursive: true, force: true });
 for (const f of ['main.mjs', 't3.mjs', 'preload.cjs', 'updates.mjs', 'channels.mjs', 'keybindings.mjs']) cpSync(join(DESKTOP, f), join(STAGE, 'desktop', f));
 cpSync(join(DESKTOP, 'build', C.icon), join(STAGE, 'desktop', 'build', C.icon));
 for (const f of readdirSync(join(REPO, 'client'))) {
-  if ((f.endsWith('.mjs') && !f.endsWith('.test.mjs')) || f === 'pass.css') cpSync(join(REPO, 'client', f), join(STAGE, 'client', f));
+  const code = (f.endsWith('.mjs') && !f.endsWith('.test.mjs')) || (f.endsWith('.ts') && !f.endsWith('.test.ts'));
+  if (code || f === 'pass.css') cpSync(join(REPO, 'client', f), join(STAGE, 'client', f));
 }
 // The one runtime library, electron-updater, and what it needs: copied from desktop/node_modules as `npm ci` installed
 // them from package-lock.json, so the app ships the files the tests ran against. Each package is copied without its

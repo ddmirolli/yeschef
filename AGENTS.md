@@ -11,6 +11,7 @@ Yes Chef (https://yeschef.codes, repo `ddmirolli/yeschef`) is Dan's agent-orches
 - **Releases** run in GitHub Actions (`.github/workflows/release.yml`; `docs/desktop-release-plan-v0_1.md`, section 7). An agent may start a Nightly, a dry run or a signing check. Dan alone approves a Stable: leave its `stable` deployment pending for him, since agents' `gh` signs in as Dan and could approve it. The "Yes Chef Release" vault is read only by the workflow's service account, from jobs in the main-only `release` Environment; keep those jobs off `pull_request` and `pull_request_target`.
 - **Browser work** uses Browserbase through `tools/shoot.sh`. Never use local Chrome.
 - **Claude is not a contributor** (Dan, 2026-11-10). No commit carries a `Co-authored-by` trailer for Claude: this wins over any tool's default attribution. Squash-merge with an explicit message, `gh pr merge <n> --squash --subject "<title> (#<n>)" --body "<body>"`, because GitHub's default squash body copies every commit's trailers.
+- **TypeScript** (Dan, 2026-11-10). Yes Chef moves to strict TypeScript on T3 Code's toolchain: pnpm, Vite+ (`vp`), vitest and `@effect/tsgo`, with T3's `tsconfig.base.json`. New code is `.ts`; plain JavaScript needs Dan's written OK. The port runs one package at a time (`README.md`, "Language").
 - **This repo goes public** (MIT; Dan, 2026-11-09: a fresh public repo from a clean copy of main). No tracked file may hold a tailnet address, a home path, a key, a 1Password reference or pitch material. `python3 tools/public_tree.py check` scans for them, and `test_public.py` runs it. A file that must stay private goes in `PRIVATE` in that script.
 
 ## Verify
@@ -18,8 +19,9 @@ Yes Chef (https://yeschef.codes, repo `ddmirolli/yeschef`) is Dan's agent-orches
 - `python3 -m unittest test_public.py`
 - The desktop app: `node --test desktop/*.test.mjs`, and `npm run capture` in `desktop/` on a copy of the data folder (see `desktop/README.md`).
 - The site: `npm ci --prefix site`, `npm run build --prefix site`, then `npm test --prefix site`. Read `site/README.md` for Browserbase checks and the generated app-demo boundary.
-- The web prototype in `client/`: `node --test client/*.test.mjs`. It runs against a real T3 sign-in, so a task starts it only when Dan asks.
-- The team relay: `node --test relay/*.test.mjs`, then `node relay/smoke.mjs http://127.0.0.1:8790` against `wrangler dev` (`relay/README.md`). The production relay deploys only as a land step, after Dan's send-it-out.
+- The workspace (`client/`, `relay/`): `vp install`, then `vp run -r typecheck` and `vp run -r test`. Vitest runs the `.test.ts` files; `node --test` runs the `client/*.test.mjs` files not yet ported.
+- The web prototype in `client/` runs against a real T3 sign-in, so a task starts it only when Dan asks.
+- The team relay: the workspace tests, then `node relay/smoke.ts http://127.0.0.1:8790` against `wrangler dev` (`relay/README.md`). The production relay deploys only as a land step, after Dan's send-it-out.
 
 ## Docs
 

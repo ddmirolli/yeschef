@@ -2,7 +2,7 @@
 //
 // Reconnects follow T3 Code's rules: one owner for retries, jittered backoff capped at five minutes, a probe on wake,
 // and the socket's health kept apart from how fresh the data is.
-import { newId, authToken, AUTH_SKEW_MS } from './seal.mjs';
+import { newId, authToken, AUTH_SKEW_MS } from './seal.ts';
 import { shares } from './roles.mjs';
 import { ASK_MS } from './team-common.mjs';
 

@@ -6,7 +6,7 @@ The relay cannot read what it passes. Your team's names, roles, summaries and ac
 
 ## Deploy
 
-You need a Cloudflare account (the free plan works) and Node 22.13 or later (the smoke test uses Node's own WebSocket, and the tests use `node:sqlite`). From the repo root:
+You need a Cloudflare account (the free plan works) and Node 24 or later (the relay is TypeScript, which Node 24 runs with the types stripped; the smoke test uses Node's own WebSocket, and the tests use `node:sqlite`). From the repo root:
 
 ```sh
 npx wrangler@4 login
@@ -17,7 +17,7 @@ Wrangler prints the address, like `https://yeschef-relay.<your-subdomain>.worker
 
 ```sh
 curl https://yeschef-relay.<your-subdomain>.workers.dev/healthz
-node relay/smoke.mjs https://yeschef-relay.<your-subdomain>.workers.dev
+node relay/smoke.ts https://yeschef-relay.<your-subdomain>.workers.dev
 ```
 
 The smoke test makes a team with throwaway keys, runs an invite, a join, a summary and an action, then deletes the team.
@@ -47,11 +47,15 @@ curl -H "Authorization: Bearer <the token>" "https://yeschef-relay.<your-subdoma
 
 ```sh
 npx wrangler@4 dev --config relay/wrangler.jsonc --ip 127.0.0.1 --port 8790
-node relay/smoke.mjs http://127.0.0.1:8790
+node relay/smoke.ts http://127.0.0.1:8790
 ```
 
 ## Tests
 
+The repo builds with T3 Code's tools: pnpm and [Vite+](https://viteplus.dev) (`vp`). From the repo root:
+
 ```sh
-node --test client/seal.test.mjs relay/*.test.mjs
+vp install
+vp run -r typecheck
+vp run -r test
 ```
