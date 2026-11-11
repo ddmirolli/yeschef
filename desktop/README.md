@@ -77,7 +77,7 @@ The two install side by side and share nothing. T3 Code keeps one bundle ID for 
 
 Releases build in GitHub Actions (`.github/workflows/release.yml`), as T3 Code's do. The release plan, section 7, has the details.
 
-- **Nightly** builds by itself every day at 08:23 UTC when main has changed since the newest Nightly. To ship one sooner: github.com/ddmirolli/yeschef, Actions, Release, Run workflow, branch `main`, channel `nightly`.
+- **Nightly** builds by itself as T3 Code's does (Dan, 2026-11-11): the workflow checks every 30 minutes and builds when main has app changes since the newest Nightly and that Nightly is six hours old or more. So a merge reaches Nightly within about six and a half hours. To ship one sooner: github.com/ddmirolli/yeschef, Actions, Release, Run workflow, branch `main`, channel `nightly`.
 - **Stable**: Run workflow, channel `stable`, a version such as `0.2.0`. It builds the commit of the newest Nightly (the build Nightly users ran) and needs that version's section in `CHANGELOG.md`, which becomes the release notes. It waits for Dan's approval in the `stable` Environment before it builds.
 - **Dry run**: every pull request that touches the app, or channel `dry-run`. Unsigned, never published.
 - **Signing check**: channel `signing-check`. Reads the signing secrets, asks Apple whether it accepts the notarization key, builds nothing.

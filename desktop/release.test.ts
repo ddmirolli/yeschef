@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FUSES, FUSE_WIRE, TEAM_ID, appUpdateProblems, checkApp, checkDmg, entitlementKeys, feedProblems, findPackage, fuseProblems, identities, literalPattern, machOFiles, pickIdentity, resultLine, rewriteFeed, runningFrom, runtimeFile, runtimePackages, stageDependencies, targetsFor, topLevel, writesAppUpdate } from './build/release.ts';
-import { assetProblems, changelogEntry, distArgs, ghArgs, installStep, newestNightly, nightlyDue, parseArgs, pickRelease, releaseFiles, releaseNotes, releaseTitle, settle, trustedPlan } from './build/publish.ts';
+import { APP_PATHS, NIGHTLY_GAP_MS, assetProblems, changelogEntry, distArgs, ghArgs, installStep, newestNightly, nightlyDue, parseArgs, pickRelease, releaseFiles, releaseNotes, releaseTitle, settle, trustedPlan } from './build/publish.ts';
 import { nth } from '../client/test/expect.ts';
 
 /** x, or the test fails. */
@@ -373,14 +373,39 @@ test('the newest published Nightly is the highest Nightly version, never a draft
   assert.equal(newestNightly(releases), 'v0.2.1-nightly.20261112.1');
 });
 
+// The scheduled Nightly's gate, with a last Nightly published a day before NOW and every commit an app change.
+const gate = (over: Partial<Parameters<typeof nightlyDue>[0]>) => nightlyDue({
+  head: 'e'.repeat(40), last: 'f'.repeat(40), lastTag: 'v1', lastPublished: '2026-11-11T10:00:00Z', now: NOW.getTime(),
+  isAncestor: () => false, changed: () => true, ...over,
+});
+
 test('the scheduled Nightly runs only when main has commits since the newest Nightly', () => {
-  const never = () => false;
-  assert.equal(nightlyDue({ head: 'a'.repeat(40), last: null, lastTag: null, isAncestor: never }).due, true);
-  const same = nightlyDue({ head: 'b'.repeat(40), last: 'b'.repeat(40), lastTag: 'v0.2.1-nightly.20261112.1', isAncestor: never });
+  assert.equal(gate({ last: null, lastTag: null, lastPublished: null }).due, true);
+  const same = gate({ head: 'b'.repeat(40), last: 'b'.repeat(40), lastTag: 'v0.2.1-nightly.20261112.1' });
   assert.deepEqual(same, { due: false, reason: 'main (bbbbbbbbbbbb) has nothing new since v0.2.1-nightly.20261112.1.' });
   // main behind the Nightly's commit (it never should be) is nothing new either.
-  assert.equal(nightlyDue({ head: 'c'.repeat(40), last: 'd'.repeat(40), lastTag: 'v1', isAncestor: (a, b) => a === 'c'.repeat(40) && b === 'd'.repeat(40) }).due, false);
-  assert.equal(nightlyDue({ head: 'e'.repeat(40), last: 'f'.repeat(40), lastTag: 'v1', isAncestor: never }).due, true);
+  assert.equal(gate({ head: 'c'.repeat(40), last: 'd'.repeat(40), isAncestor: (a, b) => a === 'c'.repeat(40) && b === 'd'.repeat(40) }).due, false);
+  assert.equal(gate({}).due, true);
+});
+
+// Dan, 2026-11-11 ("A"): T3 Code's rule (.github/scripts/check-nightly-release.cjs, shouldReleaseNightly): a check
+// every 30 minutes, and a Nightly when main has new commits and the newest Nightly is six hours old or more.
+test('the scheduled Nightly waits six hours after the newest one, as T3 Code\'s does', () => {
+  const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3600000).toISOString();
+  assert.deepEqual(gate({ lastTag: 'v0.2.2-nightly.20261112.1', lastPublished: hoursAgo(5.99) }),
+    { due: false, reason: 'v0.2.2-nightly.20261112.1 was published less than six hours ago.' });
+  assert.equal(gate({ lastPublished: hoursAgo(6) }).due, true);
+  assert.equal(NIGHTLY_GAP_MS, 6 * 3600000);
+  // A publish time GitHub does not give is no gap, as in T3 Code: the commits decide.
+  assert.equal(gate({ lastPublished: null }).due, true);
+});
+
+test('the scheduled Nightly skips commits that change nothing the app ships', () => {
+  const seen: string[][] = [];
+  const docs = gate({ head: 'a'.repeat(40), last: 'b'.repeat(40), lastTag: 'v1', changed: (from, to) => { seen.push([from, to]); return false; } });
+  assert.deepEqual(docs, { due: false, reason: 'main (aaaaaaaaaaaa) has commits since v1, none in what the app ships.' });
+  assert.deepEqual(seen, [['b'.repeat(40), 'a'.repeat(40)]]);
+  assert.deepEqual(gate({ head: 'a'.repeat(40) }), { due: true, reason: 'main (aaaaaaaaaaaa) has app changes since v1, which is six hours old or more.' });
 });
 
 test('a dry run plans the next Nightly or the version given, and a draft does not stop it', () => {
@@ -535,6 +560,17 @@ function releaseWorkflow() {
 }
 
 // The release workflow's safety rules, read from the file: a later edit that loosens one fails here.
+test('release.yml: the schedule checks every 30 minutes at T3 Code\'s minutes, and the gate reads the paths the dry run watches', () => {
+  const { code } = releaseWorkflow();
+  assert.deepEqual(code.match(/- cron: "[^"]*"/g), ['- cron: "8,38 * * * *"']);
+  // What counts as an app change for the scheduled Nightly is what starts the dry run on a pull request.
+  const [paths, ...list] = code.split('\n  pull_request:\n')[1]!.split('\n');
+  assert.equal(paths, '    paths:');
+  const watched: string[] = [];
+  for (const line of list) { const m = line.match(/^ {6}- "([^"]+)"$/); if (!m) break; watched.push(m[1]!); }
+  assert.deepEqual(watched, [...APP_PATHS]);
+});
+
 test('release.yml: one secret, read only in the release Environment', () => {
   const { code, jobs } = releaseWorkflow();
   assert.deepEqual(Object.keys(jobs), ['plan', 'approve', 'build', 'publish', 'signing-check']);

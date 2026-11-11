@@ -16,8 +16,8 @@
 //   - `build` copies the release files next to the plan file, and `publish` reads them there, because the workflow
 //     moves them from the macOS runner to the publishing job as an artifact. `publish` still checks every file's size
 //     and sha512 against the build's.
-// `plan nightly <file> --if-changed` is the scheduled Nightly: it writes `"due": false` and stops when main has nothing
-// new since the newest published Nightly. `plan dry-run <file> [--version <version>]` plans an unsigned build of HEAD
+// `plan nightly <file> --if-changed` is the scheduled Nightly: it writes `"due": false` and stops when the newest
+// published Nightly is under six hours old, or main has no app change since it (nightlyDue). `plan dry-run <file> [--version <version>]` plans an unsigned build of HEAD
 // that is never published: any branch, no clean or main checks, and the next Nightly version unless one is given.
 //
 // The versions and the commits, as T3 Code's (section 5; its scripts/build-desktop-artifact.ts and release.yml):
@@ -40,8 +40,20 @@ import { CHANNELS, FEED, channelOf, compareVersions, isReleaseVersion, nextNight
 import type { ChannelName } from '../channels.ts';
 import { ARCH, pickIdentity, sha512, teamOf } from './release.ts';
 
-/** A release on GitHub, as `gh release list --json tagName,isDraft,isPrerelease` gives it. */
-export type Release = { tagName: string; isDraft: boolean; isPrerelease: boolean };
+/** A release on GitHub, as `gh release list --json tagName,isDraft,isPrerelease,publishedAt` gives it. */
+export type Release = { tagName: string; isDraft: boolean; isPrerelease: boolean; publishedAt?: string | null };
+
+/**
+ * The scheduled Nightly, as T3 Code's (Dan, 2026-11-11, "A"; T3's .github/scripts/check-nightly-release.cjs): the
+ * workflow checks every 30 minutes, and a Nightly is due when main has app changes since the newest Nightly and that
+ * Nightly is at least this old.
+ */
+export const NIGHTLY_GAP_MS = 6 * 60 * 60 * 1000;
+/**
+ * What the app is built from: a change here is an app change for the scheduled Nightly. The same list starts the dry
+ * run on a pull request (release.yml, `pull_request.paths`); release.test.ts checks that the two match.
+ */
+export const APP_PATHS = ['desktop/**', 'client/**', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', '.github/workflows/release.yml'] as const;
 /** What pickRelease picks: the version, its channel and tag, and for Stable the Nightly tag it ships. */
 export type Picked = { version: string; channel: ChannelName; tag: string; from: string | null; dryRun?: true; notes?: string | null };
 /** A built release file: where it is, and its size and sha512 as the build made it. */
@@ -151,15 +163,19 @@ export function pickRelease({ arg, pkgVersion, releases, date = new Date(), dryR
 
 /**
  * Whether the scheduled Nightly has anything to build: `head` is main now, `last` the commit of the newest published
- * Nightly (null when there is none), and `isAncestor(a, b)` is git's answer to "is a an ancestor of b?". Returns
- * { due, reason }.
+ * Nightly (null when there is none) and `lastPublished` its publish time, `isAncestor(a, b)` is git's answer to "is a
+ * an ancestor of b?", and `changed(from, to)` whether a file in APP_PATHS differs between the two. Returns
+ * { due, reason }. A publish time GitHub does not give is no gap, as in T3 Code: the commits decide.
  */
-export function nightlyDue({ head, last, lastTag, isAncestor }: {
-  head: string; last: string | null; lastTag: string | null; isAncestor: (a: string, b: string) => boolean;
+export function nightlyDue({ head, last, lastTag, lastPublished, now, isAncestor, changed }: {
+  head: string; last: string | null; lastTag: string | null; lastPublished: string | null | undefined; now: number;
+  isAncestor: (a: string, b: string) => boolean; changed: (from: string, to: string) => boolean;
 }): { due: boolean; reason: string } {
   if (!last) return { due: true, reason: 'No Nightly is published yet.' };
+  if (now - Date.parse(String(lastPublished)) < NIGHTLY_GAP_MS) return { due: false, reason: `${lastTag} was published less than six hours ago.` };
   if (head === last || isAncestor(head, last)) return { due: false, reason: `main (${head.slice(0, 12)}) has nothing new since ${lastTag}.` };
-  return { due: true, reason: `main (${head.slice(0, 12)}) has commits since ${lastTag}.` };
+  if (!changed(last, head)) return { due: false, reason: `main (${head.slice(0, 12)}) has commits since ${lastTag}, none in what the app ships.` };
+  return { due: true, reason: `main (${head.slice(0, 12)}) has app changes since ${lastTag}, which is six hours old or more.` };
 }
 
 /** The section `## <version>` of desktop/CHANGELOG.md, without its heading, or null when it is missing or empty. */
@@ -277,21 +293,23 @@ function plan(arg: string | undefined, file: string | undefined, { ifChanged = f
   }
   let releases: Release[] | null = null;
   if (ghOk) {
-    try { releases = JSON.parse(gh(['release', 'list', '--repo', REPO, '--limit', '1000', '--json', 'tagName,isDraft,isPrerelease'])); }
+    try { releases = JSON.parse(gh(['release', 'list', '--repo', REPO, '--limit', '1000', '--json', 'tagName,isDraft,isPrerelease,publishedAt'])); }
     catch (e) { problems.push(`gh release list failed: ${(e as Error).message.split('\n')[0]}`); }
   }
-  // The scheduled Nightly: when main has nothing new since the newest Nightly, there is nothing to build, and the
-  // workflow never reaches the signing step.
+  // The scheduled Nightly: when the newest Nightly is under six hours old, or main has no app change since it, there
+  // is nothing to build, and the workflow never reaches the signing step.
   if (ifChanged && releases && !problems.length) {
     const lastTag = newestNightly(releases);
     let last: string | null = null;
     try { last = lastTag ? git(['rev-parse', `refs/tags/${lastTag}^{commit}`]) : null; } catch (e) { problems.push(`No commit for ${lastTag}: ${(e as Error).message.split('\n')[0]}`); }
     if (!problems.length) {
-      const gate = nightlyDue({ head: git(['rev-parse', 'HEAD']), last, lastTag, isAncestor });
+      const lastPublished = releases.find((r) => r.tagName === lastTag)?.publishedAt;
+      const changed = (from: string, to: string) => git(['diff', '--name-only', from, to, '--', ...APP_PATHS.map((p) => p.replace(/\/\*\*$/, ''))]) !== '';
+      const gate = nightlyDue({ head: git(['rev-parse', 'HEAD']), last, lastTag, lastPublished, now: Date.now(), isAncestor, changed });
       console.log(gate.reason);
       if (!gate.due) {
         writeFileSync(file, JSON.stringify({ due: false, reason: gate.reason }, null, 2) + '\n', { mode: 0o600 });
-        console.log('No Nightly today.');
+        console.log('No Nightly this time.');
         return;
       }
     }
