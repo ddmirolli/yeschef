@@ -215,7 +215,9 @@ test('every build, npm run app too, gets app-update.yml: electron-builder writes
   assert.ok(writesAppUpdate(targetsFor({ dist: false })), 'npm run app must build a target that writes the updater settings');
   assert.ok(!writesAppUpdate(['dir']), 'a dir build has no app-update.yml, so its updates are off');
   // The rule, as the pinned electron-builder has it. If an upgrade changes it, check writesAppUpdate again.
-  const source = readFileSync(createRequire(import.meta.url).resolve('app-builder-lib/out/publish/PublishManager.js'), 'utf8');
+  // app-builder-lib is electron-builder's dependency, not ours: pnpm links it beside electron-builder's real folder.
+  const builder = createRequire(createRequire(import.meta.url).resolve('electron-builder'));
+  const source = readFileSync(builder.resolve('app-builder-lib/out/publish/PublishManager.js'), 'utf8');
   assert.match(source, /if \(!event\.targets\.some\(it => it\.name === "dmg" \|\| it\.name === "zip"\)\) \{\s*return;/);
 });
 
