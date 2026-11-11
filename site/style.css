@@ -594,12 +594,12 @@ kbd { display: inline-grid; place-items: center; min-width: 24px; height: 24px; 
 .dl-page { padding: 96px 0 112px; text-align: center; }
 .dl-inner { display: flex; flex-direction: column; align-items: center; }
 .dl-mark { width: 96px; height: 96px; border-radius: 24px; box-shadow: 0 24px 60px -20px rgba(0, 102, 214, 0.85); margin-bottom: 32px; }
-.dl-title { font-size: clamp(40px, 5vw, 64px); margin-bottom: 18px; }
-.dl-page .lede { margin: 0 auto 36px; text-wrap: balance; }
-.dl-seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--bg-well); border: 1px solid var(--border); margin-bottom: 18px; }
+.dl-title { font-size: clamp(40px, 5vw, 64px); margin-bottom: 32px; }
+.dl-seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--bg-well); border: 1px solid var(--border); margin-bottom: 28px; }
 .dl-seg button { padding: 7px 16px; border-radius: 7px; font-size: 14px; font-weight: 500; color: var(--fg-muted); transition: color .18s, background .18s; }
 .dl-seg button[aria-pressed="true"] { background: var(--bg-elev); color: var(--fg); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25), inset 0 0 0 1px var(--border); }
-.dl-version { color: var(--fg-muted); font-size: 14px; min-height: 21px; margin-bottom: 18px; }
+/* Only says something when there is no link to give: no version, size or requirements on the site (Dan, 2026-11-10). */
+.dl-version { color: var(--fg-muted); font-size: 14px; margin: -8px 0 20px; }
 .dl-card { display: flex; align-items: center; gap: 16px; width: min(100%, 420px); padding: 18px 20px; border-radius: var(--radius-lg); background: var(--bg-card); border: 1px solid var(--border-strong); text-align: left; transition: border-color .18s, transform .18s; }
 .dl-card[href]:hover { border-color: var(--pass); transform: translateY(-1px); }
 .dl-card[aria-disabled="true"] { opacity: .5; cursor: default; }
@@ -609,7 +609,5 @@ kbd { display: inline-grid; place-items: center; min-width: 24px; height: 24px; 
 .dl-card-format { color: var(--fg-dim); font-size: 13px; }
 .dl-notes { max-width: 520px; margin-top: 28px; color: var(--fg-muted); font-size: 14px; line-height: 1.55; display: grid; gap: 10px; }
 .dl-notes a { color: var(--fg); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
-.dl-page [data-channel-note] { display: none; }
-.dl-page[data-channel="stable"] [data-channel-note="stable"], .dl-page[data-channel="nightly"] [data-channel-note="nightly"] { display: block; }
 @media (max-width: 820px) { .dl-page { padding: 64px 0 80px; } .dl-mark { width: 80px; height: 80px; border-radius: 20px; } }
 @media (prefers-reduced-motion: reduce) { .dl-card, .dl-seg button { transition: none; } .dl-card[href]:hover { transform: none; } }

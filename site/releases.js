@@ -40,19 +40,6 @@
     return null;
   }
 
-  function version(tag) { return String(tag || "").replace(/^v/, ""); }
-  function mb(bytes) { return Math.round(bytes / 1e6) + " MB"; }
-
-  // "2 hours ago", in the visitor's language, for a Nightly's build time.
-  function ago(iso, now) {
-    var minutes = Math.max(1, Math.round(((now || Date.now()) - Date.parse(iso)) / 60000));
-    var say = typeof Intl !== "undefined" && Intl.RelativeTimeFormat ? new Intl.RelativeTimeFormat("en", { numeric: "auto" }) : null;
-    function fmt(n, unit) { return say ? say.format(-n, unit) : n + " " + unit + (n === 1 ? "" : "s") + " ago"; }
-    if (minutes < 60) return fmt(minutes, "minute");
-    var hours = Math.round(minutes / 60);
-    return hours < 48 ? fmt(hours, "hour") : fmt(Math.round(hours / 24), "day");
-  }
-
   // { state: "ok", release, dmg } | { state: "none" } (no such release yet) | { state: "error" } (GitHub didn't answer)
   // | { state: "older" } (a full page of releases and no Nightly in it: one may be older, so never say "none").
   function lookup(channel, fetchImpl, store) {
@@ -79,7 +66,7 @@
     }).catch(function () { return { state: "error" }; }); // a failed request or a body that fails to read
   }
 
-  var api = { REPO: REPO, PAGE: PAGE, NIGHTLIES: NIGHTLIES, PER_PAGE: PER_PAGE, dmgOf: dmgOf, isNightly: isNightly, pickNightly: pickNightly, version: version, mb: mb, ago: ago, lookup: lookup };
+  var api = { REPO: REPO, PAGE: PAGE, NIGHTLIES: NIGHTLIES, PER_PAGE: PER_PAGE, dmgOf: dmgOf, isNightly: isNightly, pickNightly: pickNightly, lookup: lookup };
   root.YCReleases = api;
 
   var doc = root.document;
@@ -97,29 +84,28 @@
     });
   }
 
-  // The /download page: Stable or Nightly (?channel=nightly), like t3.codes/download.
+  // The /download page: Stable or Nightly (?channel=nightly), like t3.codes/download. Like the home page, it
+  // shows no version, size or requirements (Dan, 2026-11-10): the line under the toggle speaks only when there
+  // is no DMG to link.
   var page = doc.getElementById("download-page");
   if (!page) return;
   var label = doc.querySelector("[data-dl-version]");
   var card = doc.querySelector("[data-dl-card]");
-  var size = doc.querySelector("[data-dl-size]");
   var notes = { stable: "No release yet.", nightly: "No Nightly yet." };
 
   function channelOf(search) { return new URLSearchParams(search).get("channel") === "nightly" ? "nightly" : "stable"; }
   function show(channel) {
     page.setAttribute("data-channel", channel);
     each("[data-channel-pick]", function (b) { b.setAttribute("aria-pressed", String(b.getAttribute("data-channel-pick") === channel)); });
-    label.textContent = " ";
-    size.textContent = "";
+    label.hidden = true;
+    label.textContent = "";
     card.href = PAGE;
     card.removeAttribute("aria-disabled");
     ask(channel).then(function (r) {
       if (page.getAttribute("data-channel") !== channel) return;
-      if (r.state === "ok") {
-        label.textContent = channel === "nightly" ? "Built " + ago(r.release.published_at) : "Version " + version(r.release.tag_name);
-        size.textContent = mb(r.dmg.size);
-        card.href = r.dmg.url;
-      } else if (r.state === "none") {
+      if (r.state === "ok") { card.href = r.dmg.url; return; }
+      label.hidden = false;
+      if (r.state === "none") {
         label.textContent = notes[channel];
         card.removeAttribute("href");
         card.setAttribute("aria-disabled", "true");

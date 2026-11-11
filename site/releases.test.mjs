@@ -97,12 +97,3 @@ test('a kept answer that lost its DMG is asked again', async () => {
   const r = await R.lookup('stable', fakeFetch({ [`${API}/latest`]: { body: stable } }), store);
   assert.equal(r.release.tag_name, 'v0.2.0');
 });
-
-test('words: version, size and age', () => {
-  assert.equal(R.version('v0.2.0'), '0.2.0');
-  assert.equal(R.mb(120342209), '120 MB');
-  const now = Date.parse('2026-11-11T12:00:00Z');
-  assert.equal(R.ago('2026-11-11T11:30:00Z', now), '30 minutes ago');
-  assert.equal(R.ago('2026-11-11T09:00:00Z', now), '3 hours ago');
-  assert.equal(R.ago('2026-11-08T12:00:00Z', now), '3 days ago');
-});
