@@ -10,7 +10,10 @@
 //   - sealed messages between members (actions, their results, the lead's welcome) until the receiver takes them;
 //   - its own usage per UTC day: requests and messages it took, rows written, bytes in, and requests it refused.
 // It never holds a key that opens a blob, so it cannot read a summary, an action, a name or a role.
-import { checkAuth, isId, joinText, memberId, proofMatches, readRoster, verify, type RosterBody, type RosterMember, type SignedRoster } from '../client/seal.ts';
+import { checkAuth, isId, joinText, memberId, proofMatches, readRoster, verify, type SignedRoster } from '../client/seal.ts';
+import * as Option from 'effect/Option';
+import { askedId, fromJson, keptMembers, keptRoster, kindOf, knows, readCreate, readJoin, readMessage, type KeptMember, type SocketInfo } from './messages.ts';
+export type { SocketInfo } from './messages.ts';
 
 /** The Worker's vars that set the room's limits (relay/wrangler.jsonc). Empty means the default. */
 export interface RelayVars { SUMMARY_MIN_MS?: string; SUMMARY_MAX_BYTES?: string; SEND_MAX_BYTES?: string; MAX_DEVS?: string; MAX_DAILY_REQUESTS?: string }
@@ -19,8 +22,6 @@ export type Settings = ReturnType<typeof settings>;
 type Row = Record<string, unknown>;
 /** Cloudflare's ctx.storage.sql, as far as the room uses it. */
 export interface Sql { exec(query: string, ...bindings: unknown[]): { toArray(): Row[]; rowsWritten: number } }
-/** What the Worker keeps on each socket: the member or waiting dev it signed in, and which of the two. */
-export interface SocketInfo { m: string; role: 'member' | 'pending' }
 /** The hibernating WebSockets, as far as the room uses them. */
 export interface Sockets<WS> {
   list(member?: string | null): WS[];
@@ -73,8 +74,6 @@ export interface RelayMessages {
   err: Answer;
 }
 export type RelayMessage = RelayMessages[keyof RelayMessages];
-/** A message from a member's socket. Every field but `t` is checked where it is used. */
-type Incoming = Record<string, unknown> & { t: string };
 /** An HTTP error with the status the relay answers. */
 type HttpError = Error & { status?: number };
 
@@ -111,8 +110,7 @@ const SCHEMA = [
 
 const json = (status: number, value: unknown): Response => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 const fail = (status: number, text: string): Response => json(status, { error: text });
-const isKey = (s: unknown): s is string => typeof s === 'string' && /^[A-Za-z0-9_-]{87}$/.test(s); // a raw P-256 point (65 bytes)
-const isBlob = (s: unknown, max: number): s is string => typeof s === 'string' && s.length > 0 && s.length <= max && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(s);
+const isBlob = (s: string, max: number): boolean => s.length > 0 && s.length <= max && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(s);
 const MAX_BODY = 65536;
 const TABLES = ['team', 'summary', 'invite', 'pending', 'inbox', 'seen', 'usage'];
 
@@ -129,7 +127,7 @@ export class Room<WS> {
   held: number;
   holding: WeakSet<Request>;
   team: TeamRow | null | undefined;
-  members: Map<string, RosterMember> | null;
+  members: Map<string, KeptMember> | null;
   today: { day: string; n: number } | null;
   refused: { n: number; bytes: number };
   bodySize: WeakMap<Request, number>;
@@ -174,14 +172,14 @@ export class Room<WS> {
     this.members = null;
     return this.team;
   }
-  roster(): Map<string, RosterMember> {
+  roster(): Map<string, KeptMember> {
     if (!this.members) {
       const t = this.teamRow();
-      this.members = new Map(t ? (JSON.parse((JSON.parse(t.roster) as SignedRoster).body) as RosterBody).members.map((m): [string, RosterMember] => [m.id, m]) : []);
+      this.members = new Map(t ? keptMembers(keptRoster(t.roster)).map((m): [string, KeptMember] => [m.id, m]) : []);
     }
     return this.members;
   }
-  member(id: string): RosterMember | null { return this.roster().get(id) || null; }
+  member(id: string): KeptMember | null { return this.roster().get(id) || null; }
   isLead(id: string): boolean { return !!this.team && this.team.lead === id; }
   canInvite(id: string): boolean { return this.isLead(id) || !!this.member(id)?.invite; }
 
@@ -331,7 +329,9 @@ export class Room<WS> {
     const all = new Uint8Array(size);
     let at = 0;
     for (const p of parts) { all.set(p, at); at += p.byteLength; }
-    try { return JSON.parse(new TextDecoder().decode(all)); } catch { throw Object.assign(new Error('not JSON'), { status: 400 }); }
+    const read = fromJson(new TextDecoder().decode(all));
+    if (Option.isNone(read)) throw Object.assign(new Error('not JSON'), { status: 400 });
+    return read.value;
   }
 
   async route(request: Request, url: URL, team: string, rest: string): Promise<Response | { upgrade: SocketInfo }> {
@@ -391,14 +391,16 @@ export class Room<WS> {
 
   async create(team: string, body: unknown): Promise<Response> {
     if (this.teamRow()) return fail(409, 'That team already exists.');
-    const r = await readRoster((body as { roster?: unknown } | null | undefined)?.roster, { team });
-    if (!r || r.ver !== 1) return fail(400, 'A new team needs its first roster, signed by its lead.');
+    // The roster as read: a field the relay does not check is never stored or sent on.
+    const roster = readCreate(body)?.roster;
+    const r = roster ? await readRoster(roster, { team }) : null;
+    if (!roster || !r || r.ver !== 1) return fail(400, 'A new team needs its first roster, signed by its lead.');
     if (this.cfg.maxDevs && r.members.length > this.cfg.maxDevs) return fail(403, `A team on this relay holds up to ${this.cfg.maxDevs} people.`);
     for (const q of SCHEMA) this.sql.exec(q);
     const lead = r.members.find((m) => m.id === r.lead);
     const now = this.now();
     // readRoster() checked that the lead is on the roster, so `lead` is there.
-    this.rows('INSERT INTO team (k, id, lead, lead_sign, roster, ver, created) VALUES (1, ?, ?, ?, ?, ?, ?)', team, r.lead, lead!.sign, JSON.stringify((body as { roster: unknown }).roster), 1, now);
+    this.rows('INSERT INTO team (k, id, lead, lead_sign, roster, ver, created) VALUES (1, ?, ?, ?, ?, ?, ?)', team, r.lead, lead!.sign, JSON.stringify(roster), 1, now);
     this.team = undefined;
     this.teamRow();
     this.creating = true;
@@ -418,8 +420,9 @@ export class Room<WS> {
 
   async join(team: string, body: unknown, request: Request): Promise<Response> {
     this.prune();
-    const { invite, proof, sign, dh, blob, sig } = (body || {}) as Record<string, unknown>;
-    if (!isId(invite) || typeof proof !== 'string' || !isKey(sign) || !isKey(dh) || !isBlob(blob, 4096) || typeof sig !== 'string') return fail(400, 'That ask to join is not complete.');
+    const ask = readJoin(body);
+    if (!ask) return fail(400, 'That ask to join is not complete.');
+    const { invite, proof, sign, dh, blob, sig } = ask;
     const inv = this.one<{ verifier: string; until: number }>('SELECT verifier, until FROM invite WHERE id = ?', invite);
     if (!inv) return fail(410, 'This invite has ended. Ask the lead for a new link.');
     if (!(await proofMatches(proof, inv.verifier))) return fail(403, 'This invite link is not valid.');
@@ -457,7 +460,7 @@ export class Room<WS> {
     const here = new Set(online);
     const seen = Object.fromEntries(this.rows<{ m: string; at: number }>('SELECT m, at FROM seen').filter((r) => !here.has(r.m) && this.member(r.m)).map((r) => [r.m, r.at]));
     this.send(ws, {
-      t: 'hello', me: a.m, role: 'member', ver: this.team!.ver, roster: JSON.parse(this.team!.roster), online, seen,
+      t: 'hello', me: a.m, role: 'member', ver: this.team!.ver, roster: keptRoster(this.team!.roster), online, seen,
       summaries: this.rows<SummaryRow>('SELECT m, blob, at FROM summary WHERE blob IS NOT NULL'),
       inbox: this.rows<InboxRow>('SELECT item, from_m AS "from", blob, at FROM inbox WHERE to_m = ? AND until >= ?', a.m, this.now()),
       invites: inviter ? this.rows<InviteRow>('SELECT id, box, until, by FROM invite') : [],
@@ -487,30 +490,36 @@ export class Room<WS> {
     // object's memory and drop every socket on the team. The socket closes (1009, too big) and the frame counts as
     // refused (PR-Agent r2 on #78).
     if (bytes > this.cfg.frameMax) { this.sockets.close(ws, 1009, 'That message is too large.'); this.tally(0, 1, bytes, { refused: true }); return; }
-    let msg: Incoming | null = null, refused = true, held = false;
+    let id: unknown, refused = true, held = false;
     try {
-      // Parsed before the cap check, so a capped reply carries the request's id and the app stops waiting on it
+      // Read before the cap check, so a capped reply carries the request's id and the app stops waiting on it
       // (PR-Agent r3 on #78). The frame is already within the limit above.
-      try { msg = JSON.parse(typeof data === 'string' ? data : new TextDecoder().decode(data)); } catch { msg = null; }
-      if (!(held = this.reserve())) { this.send(ws, { t: 'err', id: msg?.id, code: 'cap', text: 'This team reached its daily cap on the relay. It resets at 00:00 UTC.' }); return; }
-      if (!msg || typeof msg.t !== 'string') { this.send(ws, { t: 'err', id: msg?.id, code: 'bad', text: 'The relay could not read that message.' }); return; }
+      const value = Option.getOrUndefined(fromJson(typeof data === 'string' ? data : new TextDecoder().decode(data)));
+      id = askedId(value);
+      if (!(held = this.reserve())) { this.send(ws, { t: 'err', id, code: 'cap', text: 'This team reached its daily cap on the relay. It resets at 00:00 UTC.' }); return; }
+      const kind = kindOf(value);
+      if (kind === null) { this.send(ws, { t: 'err', id, code: 'bad', text: 'The relay could not read that message.' }); return; }
       const a = this.sockets.info(ws)!;
-      if (a.role !== 'member' || !this.member(a.m)) { this.send(ws, { t: 'err', id: msg.id, code: 'wait', text: 'The lead has not let you in yet.' }); return; }
+      if (a.role !== 'member' || !this.member(a.m)) { this.send(ws, { t: 'err', id, code: 'wait', text: 'The lead has not let you in yet.' }); return; }
       refused = false;
-      const reply = await this.handle(a.m, msg);
-      this.send(ws, { id: msg.id, ...reply });
+      const reply = await this.handle(a.m, kind, value);
+      this.send(ws, { id, ...reply });
     } catch {
-      this.send(ws, { t: 'err', id: msg?.id, code: 'fail', text: 'The relay failed on that message.' });
+      this.send(ws, { t: 'err', id, code: 'fail', text: 'The relay failed on that message.' });
     } finally {
       if (held) this.release();
       this.tally(0, 1, bytes, { refused });
     }
   }
 
-  async handle(me: string, msg: Incoming): Promise<Answer> {
+  /** A member's message of a kind it named. A field missing or of the wrong kind refuses it: nothing is read as a guess. */
+  async handle(me: string, kind: string, value: unknown): Promise<Answer> {
     const now = this.now();
     const ok = (more: Omit<Answer, 't'> = {}): Answer => ({ t: 'ok', ...more });
     const no = (code: string, text: string, more: Omit<Answer, 't'> = {}): Answer => ({ t: 'err', code, text, ...more });
+    if (!knows(kind)) return no('bad', 'The relay does not know that message.');
+    const msg = readMessage(value);
+    if (!msg) return no('bad', 'The relay could not read that message.');
     switch (msg.t) {
       case 'summary': {
         if (!isBlob(msg.blob, this.cfg.summaryMax)) return no('bad', 'That summary is empty or too large.');
@@ -533,7 +542,7 @@ export class Room<WS> {
       case 'send': {
         if (!isId(msg.to) || !this.member(msg.to) || msg.to === me) return no('bad', 'That member is not on the team.');
         if (!isBlob(msg.blob, this.cfg.sendMax)) return no('bad', 'That message is empty or too large.');
-        const ttl = Math.min(Math.max(Number(msg.ttl) || 15 * 60000, 60000), this.cfg.inboxMaxMs);
+        const ttl = Math.min(Math.max(msg.ttl || 15 * 60000, 60000), this.cfg.inboxMaxMs);
         // Expired messages leave first, so they never hold a place (PR-Agent r1 on #78).
         this.rows('DELETE FROM inbox WHERE to_m = ? AND until < ?', msg.to, now);
         if (this.one<{ n: number }>('SELECT COUNT(*) AS n FROM inbox WHERE to_m = ?', msg.to)!.n >= this.cfg.maxInbox) return no('full', 'Their inbox on the relay is full. They have not been online to take it.');
@@ -544,13 +553,13 @@ export class Room<WS> {
         return ok({ item });
       }
       case 'done': {
-        this.rows('DELETE FROM inbox WHERE to_m = ? AND item = ?', me, String(msg.item || ''));
+        this.rows('DELETE FROM inbox WHERE to_m = ? AND item = ?', me, msg.item);
         return ok();
       }
       case 'invite': {
         if (!this.canInvite(me)) return no('role', 'Your role cannot invite people.');
-        const until = Number(msg.until);
-        if (!isId(msg.invite) || !/^[A-Za-z0-9_-]{43}$/.test((msg.verifier || '') as string) || !isBlob(msg.box, 1024)) return no('bad', 'That invite is not complete.');
+        const until = msg.until;
+        if (!isId(msg.invite) || !/^[A-Za-z0-9_-]{43}$/.test(msg.verifier) || !isBlob(msg.box, 1024)) return no('bad', 'That invite is not complete.');
         if (!(until > now && until <= now + this.cfg.inviteMaxMs)) return no('bad', 'An invite lasts at most 7 days.');
         this.prune();
         // The same invite sent again (a retry after a lost answer) is taken once, even with the invites full (r2).
@@ -568,23 +577,21 @@ export class Room<WS> {
         return ok({ until });
       }
       case 'revoke': {
-        const inv = this.one<{ by: string }>('SELECT by FROM invite WHERE id = ?', String(msg.invite || ''));
+        const inv = this.one<{ by: string }>('SELECT by FROM invite WHERE id = ?', msg.invite);
         if (!inv) return ok();
         if (!this.isLead(me) && inv.by !== me) return no('role', 'Only the lead or the person who made it can revoke an invite.');
         this.rows('DELETE FROM invite WHERE id = ?', msg.invite);
         this.drop(this.rows<{ m: string }>('SELECT m FROM pending WHERE invite = ?', msg.invite).map((p) => p.m), 'The invite was revoked.');
         // The other inviters drop it from their open links too (PR-Agent r6 on public #6).
-        // A row was found under String(msg.invite). The relay's Effect PR checks the message itself with a Schema.
-        this.broadcast({ t: 'invite-gone', invite: msg.invite as string }, { except: me, to: (id) => this.canInvite(id) });
+        this.broadcast({ t: 'invite-gone', invite: msg.invite }, { except: me, to: (id) => this.canInvite(id) });
         return ok();
       }
       case 'decline': {
         if (!this.isLead(me)) return no('role', 'Only the lead can answer an ask to join.');
-        this.drop([String(msg.m || '')], 'The lead declined.');
+        this.drop([msg.m], 'The lead declined.');
         return ok();
       }
       case 'roster': return this.newRoster(me, msg.roster);
-      default: return no('bad', 'The relay does not know that message.');
     }
   }
 
@@ -602,7 +609,7 @@ export class Room<WS> {
   }
 
   /** The lead's new roster: approve asks, change roles, remove people. */
-  async newRoster(me: string, roster: unknown): Promise<Answer> {
+  async newRoster(me: string, roster: SignedRoster): Promise<Answer> {
     if (!this.isLead(me)) return { t: 'err', code: 'role', text: 'Only the lead can change the team.' };
     // isLead() is true only with a team row, so this.team is set here and after the teamRow() check below.
     // The team as it was before the signature check: a team deleted and made again under this id while it ran is a
@@ -634,8 +641,7 @@ export class Room<WS> {
       // An approved dev reconnects as a member and gets the whole team in its hello.
       for (const ws of this.sockets.list(id)) this.sockets.close(ws, 4001, 'Approved. Connect again.');
     }
-    // readRoster() checked its shape and signature above.
-    this.broadcast({ t: 'roster', roster: roster as SignedRoster }, { except: me, to: (id) => after.has(id) });
+    this.broadcast({ t: 'roster', roster }, { except: me, to: (id) => after.has(id) });
     for (const id of removed) this.broadcast({ t: 'gone', m: id }, { to: (x) => after.has(x) });
     for (const id of added) this.broadcast({ t: 'pending-gone', m: id }, { to: (x) => this.canInvite(x) });
     return { t: 'ok', ver: r.ver };

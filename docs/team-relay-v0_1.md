@@ -6,7 +6,7 @@
 
 The relay is the only server Yes Chef runs. It passes sealed team data between each member's Yes Chef and cannot read it.
 
-- **One Worker, one Durable Object per team.** The Worker routes `/v1/teams/<team>` to that team's object (`relay/worker.ts`). The team's logic is plain TypeScript with no Cloudflare imports (`relay/room.ts`), so the tests run it in Node.
+- **One Worker, one Durable Object per team.** The Worker routes `/v1/teams/<team>` to that team's object (`relay/worker.ts`). The team's logic is plain TypeScript with no Cloudflare imports (`relay/room.ts`), so the tests run it in Node. What it receives (request bodies, socket messages, the roster it keeps, each socket's saved info) crosses Effect Schemas first (`relay/messages.ts`): a field missing or of the wrong kind is refused, never read as a guess.
 - **SQLite storage.** Cloudflare's free plan runs only SQLite-backed objects.
 - **WebSocket hibernation.** A team's object sleeps between messages while its sockets stay open, so a quiet team costs no duration. A `ping` gets its `pong` without waking the object.
 - **The same pattern as T3 Code's relay, not its code or service.** T3 runs one relay on Cloudflare, free for now with a cap of 3 machines per account, and says "you can always fork it, self host, or use Tailscale" (`docs/user/faq.md` in T3 Code, read 2026-11-10).

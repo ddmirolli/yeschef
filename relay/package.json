@@ -6,6 +6,9 @@
     "test": "vp test run --config ../vite.config.ts --dir .",
     "typecheck": "effect-tsgo tsrs --noEmit"
   },
+  "dependencies": {
+    "effect": "catalog:"
+  },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
     "@types/node": "catalog:"

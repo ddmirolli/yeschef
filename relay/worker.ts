@@ -10,7 +10,8 @@
 //   DELETE /v1/teams/:team        the lead deletes the team and everything the relay keeps for it
 //   GET    /v1/usage              each team's usage, for the relay's owner (needs USAGE_TOKEN)
 import { DurableObject } from 'cloudflare:workers';
-import { Room, usagePage, type RegistryRow, type RelayVars, type SocketInfo } from './room.ts';
+import { Room, usagePage, type RegistryRow, type RelayVars } from './room.ts';
+import { readSocketInfo } from './messages.ts';
 import { isId } from '../client/seal.ts';
 
 /** The Worker's bindings and vars (wrangler.jsonc). USAGE_TOKEN is a secret, set with `wrangler secret put`. */
@@ -33,7 +34,8 @@ export class Team extends DurableObject<Env> {
       sql: ctx.storage.sql, env,
       sockets: {
         list: (m) => ctx.getWebSockets(m ? `m:${m}` : undefined),
-        info: (ws) => ws.deserializeAttachment() as SocketInfo | null,
+        // Kept across hibernation and deploys: read, not trusted. One the relay cannot read is a socket it does not know.
+        info: (ws) => readSocketInfo(ws.deserializeAttachment()),
         send: (ws, value) => ws.send(JSON.stringify(value)),
         close: (ws, code, reason) => { try { ws.close(code, reason); } catch { /* already closed */ } },
       },
