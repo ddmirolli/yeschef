@@ -1587,3 +1587,24 @@ test('an id dated ahead by a clock set right again does not keep expired ids fro
   assert.equal(ran.length, 1, (await out).text);
   lead.stop(); dev.stop();
 });
+
+test('a welcome owed by an approval while welcomes were sending stays owed', async () => {
+  const { lead, dev } = await crew();
+  lead.state.welcomes = [dev.meId];
+  lead.say = async (msg) => { if (msg.t === 'send') lead.state.welcomes = [...lead.state.welcomes, 'BBBBBBBBBBBBBBBBBBBBBB']; return { t: 'ok' }; };
+  const left = await lead.sendWelcomes();
+  assert.deepEqual(lead.state.welcomes, ['BBBBBBBBBBBBBBBBBBBBBB']);
+  assert.deepEqual(left, ['BBBBBBBBBBBBBBBBBBBBBB']);
+  lead.stop(); dev.stop();
+});
+
+test('a summary dated ahead of this Mac\'s clock after it went back is not live', async () => {
+  const { relay, lead, dev } = await crew();
+  dev.board(boardNow(relay.now()));
+  await until(() => lead.summaries.size === 1);
+  const person = () => lead.view().people.find((p) => p.id === dev.meId);
+  assert.equal(person().live, true);
+  lead.now = () => relay.now() - 20 * MIN;
+  assert.equal(person().live, false);
+  lead.stop(); dev.stop();
+});
