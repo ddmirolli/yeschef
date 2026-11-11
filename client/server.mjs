@@ -14,7 +14,7 @@ import { signIn, connect } from './t3mcp.ts';
 import { createKeys, createLive } from './t3live.ts';
 import { boardThreads, changeTargets, githubTargets } from './shells.mjs';
 import { createChanges } from './changes.ts';
-import { createBaseChecks, createPrSizes, prKey } from './github.ts';
+import { createBaseChecks, createPrSizes, prKey, readBaseFacts, readPrFacts } from './github.ts';
 import { buildBoard, renderApp, kitchenPane, pickedFrom } from './board.ts';
 import { readRuns, dayStart, trackWaits, mayRunToday } from './you.ts';
 import { normalize as normalRules, change as changeRule } from './kitchen.ts';
@@ -185,8 +185,8 @@ const changes = createChanges({ log: (m) => console.log(m) });
 // The checks on each followed thread's base branch, and the size of each open PR, from GitHub through the gh CLI
 // this Mac is signed in to, read only (client/github.ts). No gh, no answer: "not checked". Nothing shows them yet;
 // readers use baseChecks.get(threadId) and prSizes.get(prKey({ host, repo, number })), and subscribe(fn) on each.
-const baseChecks = createBaseChecks({ log: (m) => console.log(m) });
-const prSizes = createPrSizes({ log: (m) => console.log(m) });
+const baseChecks = createBaseChecks({ log: (m) => console.log(m), read: (a) => readBaseFacts(a) });
+const prSizes = createPrSizes({ log: (m) => console.log(m), read: (a) => readPrFacts(a) });
 
 // Run times for the You view (Dan, 2026-11-10): each thread that ran today, read once per run state. t3_thread_read
 // lists a thread's recent runs with their start and end times (runLimit, read on 2026-11-10). A read that fails, or

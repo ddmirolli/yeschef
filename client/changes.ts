@@ -222,7 +222,7 @@ const driversOff = (drivers: string[]) => drivers.flatMap((d) => ['-c', `filter.
  *  Returns { state: 'checked', … } or { state: 'not-checked', why }. */
 /** One folder's changes, as readChanges gives them. */
 export type ChangesRead = { state: 'not-checked'; why: string; at: number; folder: string } | {
-  state: 'checked'; at: number; folder: string; head: string;
+  state: 'checked'; at: number; folder: string; head: string; headAt: number | null;
   base: { ref: string; branch: string; from: Base['from']; commit: string }; remote: { host: string; repo: string } | null;
   files: ChangedFile[]; added: number | null; removed: number | null;
   size: { files: number; added: number | null; removed: number | null }; truncated: boolean;
@@ -242,6 +242,9 @@ export async function readChanges(folder: string, { branch = null, run = execGit
     if (!noLazyFetch(version) && await isPartial(run, top)) {
       return no(`a partial clone, and ${version ? `git ${version.major}.${version.minor}` : 'this git'} may fetch from its remote to read it; Git 2.44 or later does not`);
     }
+    // When the head commit was made: step 4's Stuck counts a commit as the thread moving (3b PR 4b).
+    let headAt: number | null = null;
+    try { const t = String(await run(top, ['log', '-1', '--format=%ct', 'HEAD'])).trim(); if (/^\d+$/.test(t)) headAt = Number(t) * 1000; } catch { /* not checked */ }
     const drivers = await filterDrivers(run, top);
     if (drivers === null) return no('a filter driver git cannot be told to skip');
     const off = driversOff(drivers);
@@ -295,7 +298,7 @@ export async function readChanges(folder: string, { branch = null, run = execGit
     const sum = (list: ChangedFile[], k: 'added' | 'removed') => list.reduce<number | null>((n, f) => { const v = f[k]; return n === null || v === null ? null : n + v; }, 0);
     const counted = files.filter((f) => !f.lock && !f.generated);
     return {
-      state: 'checked', at, folder: top, head, base: { ref: base.ref, branch: base.branch, from: base.from, commit }, remote,
+      state: 'checked', at, folder: top, head, headAt, base: { ref: base.ref, branch: base.branch, from: base.from, commit }, remote,
       files, added: sum(files, 'added'), removed: sum(files, 'removed'),
       size: { files: counted.length, added: sum(counted, 'added'), removed: sum(counted, 'removed') },
       truncated,

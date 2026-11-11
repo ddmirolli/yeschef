@@ -130,5 +130,7 @@ test('what GitHub is asked: the PR\'s repo and base, else the folder\'s; each op
     { id: 'no-remote', why: 'the folder has no remote named origin' },
     { id: 'unread', why: 'its folder is not checked: the folder is gone' },
   ]);
-  assert.deepEqual(got.prs, [{ host: 'github.com', repo: 'o/r', number: 7, stamp: iso(-1) }], 'merged and dismissed links are left out; a shared PR takes the latest move');
+  // Merged links are followed for their merge commit (3b PR 4b); dismissed links are left out; a shared PR takes the latest move.
+  assert.deepEqual(got.prs, [{ host: 'github.com', repo: 'o/r', number: 7, stamp: iso(-1), merged: false }, { host: 'github.com', repo: 'o/r', number: 6, stamp: iso(-3), merged: true }]);
+  assert.ok(!got.prs.some((p) => p.number === 5), 'dismissed');
 });

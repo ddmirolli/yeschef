@@ -118,6 +118,7 @@ function fakeGit(dir: string, { origins = ['main'], head = 'refs/remotes/origin/
     if (cmd in fail) throw Object.assign(new Error('git failed'), { stderr: fail[cmd] });
     if (cmd in warn) opts.onStderr?.(String(warn[cmd]));
     if (cmd === 'rev-parse' && args[1] === '--show-toplevel') return `${dir}\nabc123\n`;
+    if (cmd === 'log' && args.join(' ') === 'log -1 --format=%ct HEAD') return '1794384000\n';
     if (cmd === 'rev-parse' && args[1] === '--verify') {
       const b = /^refs\/remotes\/origin\/(.*)\^\{commit\}$/.exec(args[3] ?? '')?.[1];
       if (b !== undefined && origins.includes(b)) return 'sha\n';
@@ -151,12 +152,12 @@ function fakeGit(dir: string, { origins = ['main'], head = 'refs/remotes/origin/
   };
   return { run, calls };
 }
-const READ_ONLY = new Set(['rev-parse', 'symbolic-ref', 'merge-base', 'diff-index', 'ls-files', 'check-attr', 'config', 'version']);
+const READ_ONLY = new Set(['rev-parse', 'symbolic-ref', 'merge-base', 'diff-index', 'ls-files', 'check-attr', 'config', 'version', 'log']);
 /** The first command the fake git was asked with this name, or the test fails. */
 const callOf = (git: { calls: GitCall[] }, cmd: string): GitCall => { const c = git.calls.find((x) => x.args[0] === cmd); assert.ok(c, `no git ${cmd}`); return c; };
 /** A checked read with nothing changed, for stand-in readers. */
 const CLEAN: Extract<ChangesRead, { state: 'checked' }> = {
-  state: 'checked', at: 0, folder: '', head: 'h', base: { ref: 'origin/main', branch: 'main', from: 'origin/HEAD', commit: 'mb1' }, remote: null,
+  state: 'checked', at: 0, folder: '', head: 'h', headAt: null, base: { ref: 'origin/main', branch: 'main', from: 'origin/HEAD', commit: 'mb1' }, remote: null,
   files: [], added: 0, removed: 0, size: { files: 0, added: 0, removed: 0 }, truncated: false,
 };
 
@@ -182,6 +183,8 @@ test('one folder: committed, staged, unstaged and untracked changes against the 
   assert.equal(by['new.txt']?.generated, true);
   // The size leaves out the lockfile and the generated file.
   assert.equal(r.files.length, 10);
+  // When the head commit was made, from git's own clock for it (3b PR 4b).
+  assert.equal(r.headAt, 1794384000 * 1000);
   assert.deepEqual(r.size, { files: 8, added: 4 + 2 + 1 + 3 + 2, removed: 3 + 3 + 1 });
   assert.equal(r.added, r.size.added + 2 + 2);
   // Only reads, at the merge base, with no external diff, text conversion or rename guessing.
