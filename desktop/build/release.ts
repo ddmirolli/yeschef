@@ -3,8 +3,8 @@
 // The pure parts (identity choice, fuse states, the feed rewrite) are tested in desktop/release.test.ts.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { closeSync, lstatSync, openSync, readFileSync, readSync, readdirSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { closeSync, existsSync, lstatSync, openSync, readFileSync, readSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { basename, dirname, join, relative } from 'node:path';
 
 /** One check's result, as report prints it. `skipped` marks a check an unsigned dry run cannot run. */
 export interface Result { name: string; ok: boolean; detail: string; skipped?: boolean }
@@ -108,6 +108,75 @@ export function literalPattern(text: string): string {
  */
 export function runningFrom(bundle: string): boolean {
   return spawnSync('/usr/bin/pgrep', ['-f', literalPattern(`${bundle}/Contents/MacOS/`)], { stdio: 'ignore' }).status !== 1;
+}
+
+/** A runtime package the app ships: its name, version, real folder on disk, and its place in the stage (node_modules/...). */
+export interface Shipped { name: string; version: string; from: string; to: string }
+
+/**
+ * The folder Node would load `name` from when a file in `dir` imports it: `<ancestor>/node_modules/<name>` for each
+ * ancestor of `dir` that is not itself a node_modules folder, nearest first. Real path, or null when none has it.
+ * From a package's real folder this finds what the installer linked for it, in pnpm's layout and in npm's.
+ */
+export function findPackage(dir: string, name: string): string | null {
+  for (let d = dir; ; d = dirname(d)) {
+    if (basename(d) !== 'node_modules') {
+      const at = join(d, 'node_modules', name);
+      if (existsSync(join(at, 'package.json'))) return realpathSync(at);
+    }
+    if (dirname(d) === d) return null;
+  }
+}
+
+type Manifest = { name?: string; version?: string; dependencies?: Record<string, string>; optionalDependencies?: Record<string, string>;
+  peerDependencies?: Record<string, string>; peerDependenciesMeta?: Record<string, { optional?: boolean }> };
+const manifest = (dir: string): Manifest => JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+
+/**
+ * The runtime packages of the package in `root` (desktop/): its `dependencies`, then theirs, as `npm ls --omit=dev`
+ * listed them before desktop/ joined the pnpm workspace. Each is found from its dependent's real folder (findPackage),
+ * so the app ships the files the tests ran against. Optional dependencies count when installed; optional peers do not
+ * (npm never installs them). Each package lands at node_modules/<name>, or, when another version already holds that
+ * name where Node would look first, in its dependent's own node_modules. Packages are placed breadth first, so a
+ * package's own node_modules is filled before anything beneath it is placed, and no later package can shadow an
+ * earlier one's dependency.
+ */
+export function runtimePackages(root: string): Shipped[] {
+  const top = manifest(root);
+  const shipped = new Map<string, Shipped>(); // by `to`
+  const needs = (m: Manifest) => [
+    ...Object.keys(m.dependencies || {}).map((n) => ({ n, optional: false })),
+    ...Object.keys(m.optionalDependencies || {}).map((n) => ({ n, optional: true })),
+    ...Object.keys(m.peerDependencies || {}).filter((n) => !m.peerDependenciesMeta?.[n]?.optional).map((n) => ({ n, optional: false })),
+  ];
+  // Where Node, in the app, finds `name` from the package at `at` ('' is desktop/ itself): the nearest node_modules.
+  const lookup = (at: string, name: string): Shipped | null => {
+    for (let d = at; ; d = d.includes('/node_modules/') ? d.slice(0, d.lastIndexOf('/node_modules/')) : '') {
+      const hit = shipped.get(d ? `${d}/node_modules/${name}` : `node_modules/${name}`);
+      if (hit) return hit;
+      if (!d) return null;
+    }
+  };
+  const queue: { from: string; to: string; m: Manifest }[] = [{ from: realpathSync(root), to: '', m: { ...top, peerDependencies: {} } }];
+  while (queue.length) {
+    const p = queue.shift()!;
+    for (const { n, optional } of needs(p.m)) {
+      const from = findPackage(p.from, n);
+      if (!from) {
+        if (optional) continue;
+        throw new Error(`${n}, which ${p.m.name || 'desktop/'} needs, is not installed. Run vp install at the repo root first.`);
+      }
+      const m = manifest(from);
+      const version = String(m.version);
+      const seen = lookup(p.to, n);
+      if (seen && seen.version === version) continue;
+      const to = seen ? `${p.to ? `${p.to}/` : ''}node_modules/${n}` : `node_modules/${n}`;
+      const s = { name: n, version, from, to };
+      shipped.set(to, s);
+      queue.push({ from, to, m });
+    }
+  }
+  return [...shipped.values()];
 }
 
 /** sha512 as base64, the form electron-builder writes in latest-mac.yml. */

@@ -3,7 +3,7 @@
 // through build/release.zsh, around his Touch ID approval:
 //
 //   node build/publish.ts plan <version|nightly|dry-run> <plan file>    check everything, pick the version and the commit
-//   node build/publish.ts build <plan file>                             export that commit, npm ci, build, notarize, check
+//   node build/publish.ts build <plan file>                             export that commit, install it, build, notarize, check
 //   node build/publish.ts publish <plan file>                           draft release, attach the files, check them, publish
 //
 // Only `build` needs the signing certificate and the notarization key. `plan` only reads (and fetches main and the
@@ -68,6 +68,14 @@ export const releaseTitle = (version: string): string => `${CHANNELS[channelOf(v
  * became build/package.ts in the TypeScript port).
  */
 export const distArgs = (p: Pick<Plan, 'dryRun' | 'version'>): string[] => ['run', 'dist', '--', ...(p.dryRun ? ['--dry-run'] : []), '--version', p.version];
+
+/**
+ * How the build step installs the commit it archived, from that commit's own lockfile. Since desktop/ joined the pnpm
+ * workspace: `vp install --frozen-lockfile` at the root, as T3 Code installs. A Stable promotes the newest Nightly's
+ * commit, which may predate that and hold desktop/package-lock.json: then `npm ci` in desktop/, as it was built.
+ */
+export const installStep = (hasDesktopLock: boolean): { cmd: string; args: string[]; in: 'root' | 'desktop' } =>
+  (hasDesktopLock ? { cmd: 'npm', args: ['ci'], in: 'desktop' } : { cmd: 'vp', args: ['install', '--frozen-lockfile'], in: 'root' });
 
 export function releaseFiles(version: string): string[] {
   const name = `Yes-Chef-${version}-${ARCH}`;
@@ -326,8 +334,9 @@ function build(file: string | undefined) {
   execFileSync('tar', ['-x', '-C', work], { input: tree });
   const desktop = join(work, 'desktop');
   console.log(`Building ${p.title}${p.dryRun ? ' (dry run)' : ''} from ${p.commit.slice(0, 12)} in ${work}.`);
-  const run = (cmd: string, args: string[]) => { const r = spawnSync(cmd, args, { cwd: desktop, stdio: 'inherit' }); if (r.status !== 0) fail(`${cmd} ${args.join(' ')} failed.`); };
-  run('npm', ['ci']);
+  const run = (cmd: string, args: string[], cwd = desktop) => { const r = spawnSync(cmd, args, { cwd, stdio: 'inherit' }); if (r.status !== 0) fail(`${cmd} ${args.join(' ')} failed.`); };
+  const install = installStep(existsSync(join(desktop, 'package-lock.json')));
+  run(install.cmd, install.args, install.in === 'root' ? work : desktop);
   // Steps 2 to 4: build, fuses, Developer ID, notarize and staple the app and the DMG, the feed rewrite, the checks
   // and a hidden --capture start on a temporary data folder (the commit's `npm run dist`: build/package.ts, or
   // build/package.mjs before the port). A dry run skips Apple and is signed with whatever this machine has, or ad hoc.

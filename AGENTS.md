@@ -17,7 +17,7 @@ Yes Chef (https://yeschef.codes, repo `ddmirolli/yeschef`) is Dan's agent-orches
 ## Verify
 
 - `node tools/public-tree.ts check`
-- The desktop app: after `vp install` at the root and `npm ci` in `desktop/`, `npm run typecheck --prefix desktop` and `npm test --prefix desktop`, and `npm run capture` in `desktop/` on a copy of the data folder (see `desktop/README.md`).
+- The desktop app: after `vp install` at the root, `npm run typecheck --prefix desktop` and `npm test --prefix desktop`, and `npm run capture` in `desktop/` on a copy of the data folder (see `desktop/README.md`).
 - The site: `npm ci --prefix site`, `npm run build --prefix site`, then `npm test --prefix site`. Read `site/README.md` for Browserbase checks and the generated app-demo boundary.
 - The workspace (`client/`, `relay/`, `tools/`, `spikes/`): `vp install`, then `vp run -r typecheck` and `vp run -r test`. Vitest runs the `.test.ts` files.
 - The web prototype in `client/` runs against a real T3 sign-in, so a task starts it only when Dan asks.
