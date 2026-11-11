@@ -3,7 +3,7 @@
 Status: PR 1 built (the bar, its motion, search, history and suggestions). PR 2 built (Send a note to any thread).
 PR 3 built (Appearance), its choices redrawn as pictures after Dan's look. PR 4 built (editable shortcuts).
 Approved look and motion: [mocks/command-bar-v3.html](mocks/command-bar-v3.html) (mock v3, Dan, 2026-11-10: "Then yes, build").
-Code: `client/bar.ts`, tested in `client/bar.test.ts`, wired into the page in `client/server.mjs`.
+Code: `client/bar.ts`, tested in `client/bar.test.ts`, wired into the page in `client/page.ts` (served by `client/server.ts`).
 Words: the developer words of `pass-definitions-v1_0.md`. Where the mock uses an older word, the definitions win.
 
 ## Keys

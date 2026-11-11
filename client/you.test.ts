@@ -2,7 +2,6 @@
 // are tested with the site, in site/tests/demo.test.ts).
 import { test } from 'vite-plus/test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { readRuns, timeToday, agentTime, runningSeries, duration, trackWaits, withoutWaits, mayRunToday } from './you.ts';
 import type { RunsEntry, WaitEntry } from './you.ts';
@@ -10,6 +9,7 @@ import { buildBoard, renderApp } from './board.ts';
 import type { RenderInput } from './board.ts';
 import type { PullRequestLink, QuestionItem, ThreadRow } from './contracts.ts';
 import { grab, nth } from './test/expect.ts';
+import { pageScript, servedSource } from './test/served.ts';
 
 // Local times, so "today" holds in any time zone.
 const NOW = new Date(2026, 10, 10, 15, 0).getTime();
@@ -228,7 +228,7 @@ test('without a good poll the columns say "–" and hold no threads', () => {
 });
 
 test('the columns run the window\'s full height and each scrolls inside; all six stay in the window (Dan, 2026-11-10)', () => {
-  const src = readFileSync(new URL('./server.mjs', import.meta.url), 'utf8');
+  const src = servedSource();
   const wide = grab(src, /@media \(min-width:761px\)\{\n {2}\.v-kitchen \.you,\.v-kitchen \.you-b,\.v-kitchen \.you \.rail-wrap\{[^\n]*\n[\s\S]*?\n\}/);
   assert.match(wide, /\.v-kitchen \.you-b,\.v-kitchen \.you \.rail-wrap\{flex:1;height:auto\}/);
   assert.match(wide, /\.v-kitchen \.you \.tray\{max-height:none\}/);
@@ -262,15 +262,15 @@ test('the columns run the window\'s full height and each scrolls inside; all six
 });
 
 test('a stale page hides the rail bar with the counts (PR-Agent on #74)', () => {
-  const css = grab(readFileSync(new URL('./server.mjs', import.meta.url), 'utf8'), /^\.is-stale \.head-b>\.folder,[^\n]*\{visibility:hidden\}/m);
+  const css = grab(servedSource(), /^\.is-stale \.head-b>\.folder,[^\n]*\{visibility:hidden\}/m);
   assert.match(css, /\.is-stale \.segbar[,{]/);
   // The view menu's "N need you" and the project menu's counts hide too (PR-Agent r6 on #74).
-  const counts = grab(readFileSync(new URL('./server.mjs', import.meta.url), 'utf8'), /^\.is-stale \.stats b,[^\n]*\{visibility:hidden\}/m);
+  const counts = grab(servedSource(), /^\.is-stale \.stats b,[^\n]*\{visibility:hidden\}/m);
   assert.match(counts, /\.is-stale \.pmenu-l \.n[,{]/);
 });
 
 test('a page read for the old projects is not replayed when the menu closes after a pick (PR-Agent r1 on the view menu)', () => {
-  const src = readFileSync(new URL('./server.mjs', import.meta.url), 'utf8');
+  const src = pageScript();
   // The page a refresh keeps while a menu is open carries the address it was read for.
   assert.match(src, /if \(\$\('details\.pmenu\[open\]'\)\) \{ pendingHtml = html; pendingFor = location\.search; return; \}/);
   const fn = grab(src, /function replayPending\(\)\{[\s\S]*?\n {2}\}/);
@@ -292,8 +292,9 @@ test('a page read for the old projects is not replayed when the menu closes afte
 });
 
 test('picks that cover the whole board drop out of the address, and Back redraws the boxes at once (PR-Agent r2 on #10)', () => {
-  const src = readFileSync(new URL('./server.mjs', import.meta.url), 'utf8');
-  const fn = (name: string) => grab(src, new RegExp(`function ${name}\\(\\)\\{[\\s\\S]*?\\n {2}\\}`));
+  const src = pageScript();
+  // A typed signature keeps spaces where its types were (test/served.ts).
+  const fn = (name: string) => grab(src, new RegExp(`function ${name}\\(\\)\\s*\\{[\\s\\S]*?\\n {2}\\}`));
   const calls: string[] = [];
   const ctx = vm.createContext({ URLSearchParams, location: { pathname: '/', search: '' }, all: 'true',
     $: () => ({ getAttribute: () => ctx.all }), history: { state: null, replaceState: (_s: unknown, _t: unknown, u: string) => calls.push(u) } });
@@ -332,7 +333,7 @@ test('picks that cover the whole board drop out of the address, and Back redraws
 });
 
 test('switching to Your team forgets the ticket the Pass kept, even with none open (PR-Agent r6 on #74)', () => {
-  const src = grab(readFileSync(new URL('./server.mjs', import.meta.url), 'utf8'), /function setScope\(next\)\{[\s\S]*?\n {2}\}/);
+  const src = grab(pageScript(), /function setScope\(next\s*\)\s*\{[\s\S]*?\n {2}\}/);
   const ctx = vm.createContext({ scope: 'you', state: { sel: null, passSel: 'k1' }, placed: 0 });
   vm.runInContext(`function teamNow(){ return { name: 'Platform' }; } function store(){} function applyScope(){} function place(){ placed++; } ${src}`, ctx);
   // The reader redraws even with nothing selected: a project pick in the same open menu drops the selection before

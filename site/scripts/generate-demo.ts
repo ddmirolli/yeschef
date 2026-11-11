@@ -3,7 +3,7 @@
 //
 // It copies the app's board, calls, kitchen, actions, you and open-kitchen modules, and the client modules they import,
 // to site/demo/lib/ unchanged, and the made-up projects' icons and screenshots from tools/hero-art/. Then it starts
-// client/server.mjs in a temp folder with a stand-in for client/t3mcp.ts that answers from the typed demo kitchen. It never signs in
+// client/server.ts in a temp folder with a stand-in for client/t3mcp.ts that answers from the typed demo kitchen. It never signs in
 // to T3 Code. It saves site/demo/app.html as an input to Astro; src/pages/demo/app.astro supplies the
 // typed bootstrap. The generated snapshot is not a standalone page.
 import { spawn } from 'node:child_process';
@@ -92,7 +92,7 @@ export function createLive({ onChange }) {
 }
 `);
   // The server needs a page address and an allow list to start (#62). Nothing here sends, so both are placeholders.
-  server = spawn(process.execPath, [join(tmp, 'client', 'server.mjs'), 'https://t3.codes', String(PORT)], { cwd: tmp, stdio: ['ignore', 'pipe', 'pipe'],
+  server = spawn(process.execPath, [join(tmp, 'client', 'server.ts'), 'https://t3.codes', String(PORT)], { cwd: tmp, stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, YESCHEF_RULES_FILE: join(tmp, 'kitchen-rules.json'), BRIGADE_PASS_ORIGIN: `http://127.0.0.1:${PORT}`, BRIGADE_ALLOW: '/dev/null' } });
   let log = '';
   server.stdout?.on('data', (d) => { log += d; });

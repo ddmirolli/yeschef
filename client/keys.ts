@@ -8,7 +8,7 @@
 // runs. A key Settings records goes at the end. The Mac app writes every default into a new file and adds those of a
 // new command at start, as T3 Code does (desktop/keybindings.ts). An entry Yes Chef cannot use, or for a command it
 // does not have, stays where it is and does nothing.
-// keysCore is inlined into the page script by its source text (client/server.mjs), so it is ES5 once Node strips its
+// keysCore is inlined into the page script by its source text (client/server.ts), so it is ES5 once Node strips its
 // types, holds only types Node can strip, and holds no closing script tag. Its types live out here.
 
 /** A command a key can run. g: its group; t: its title; d: what it does; keys: its default keys. need: it always
@@ -37,9 +37,9 @@ type Refusal = { reserved?: boolean; fixed?: boolean; why: string };
 type Compiled = { note: string; rule?: undefined } | { rule: KeyRule; note?: undefined };
 type Trade = { blocked: string; st?: undefined; other?: undefined; gives?: undefined } | { st: KeyState; other: string | undefined; gives: string[]; blocked?: undefined };
 /** Why a key cannot simply go to a command (clash). */
-export type Clash = { reserved: boolean; fixed: boolean; text: string; other?: undefined } | { other: string; text: string; canTake: boolean; gives: string[] };
+export type Clash = { reserved: boolean; fixed: boolean; text: string; other?: undefined; canTake?: undefined; gives?: undefined } | { other: string; text: string; canTake: boolean; gives: string[]; reserved?: undefined; fixed?: undefined };
 /** What the page does with a key (route). */
-export type KeyRoute = { as: string; id: string } | { run: string } | { off: string } | null;
+export type KeyRoute = { as: string; id: string; run?: undefined; off?: undefined } | { run: string; as?: undefined; off?: undefined } | { off: string; as?: undefined; run?: undefined } | null;
 type Place = { ticket: boolean; dialog: boolean };
 type Mods = 'mod' | 'alt' | 'shift';
 export type Keys = ReturnType<typeof keysCore>;

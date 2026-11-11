@@ -11,6 +11,10 @@ export interface PullRequestLink {
   url?: string | undefined;
   source?: string | undefined;
   state?: string | null | undefined;
+  /** From T3's snapshot, in a row made from a live-stream shell: the target branch, draft, and when it merged. */
+  base?: string | null | undefined;
+  draft?: boolean | null | undefined;
+  mergedAt?: string | null | undefined;
 }
 
 /** One thread as the board reads it: a row of t3_thread_list, or the same row made from a live-stream shell
