@@ -1,0 +1,14 @@
+{
+  "name": "yeschef-tools",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "effect-tsgo tsrs --noEmit"
+  },
+  "dependencies": {
+    "playwright-core": "1.65.0"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:"
+  }
+}

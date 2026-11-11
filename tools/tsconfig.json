@@ -1,0 +1,9 @@
+{
+  "extends": "../tsconfig.base.json",
+  // Node scripts. shoot.ts drives a browser, so the DOM types are here for the code it runs in the page.
+  "compilerOptions": {
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": ["node"]
+  },
+  "include": ["*.ts", "hero-art/*.ts"]
+}

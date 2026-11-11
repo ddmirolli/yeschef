@@ -1,5 +1,5 @@
 // Screenshots of a local pass through Browserbase (cloud Chrome). Run it through shoot.sh.
-// Usage: node shoot.mjs <port> <out-dir> <label> [actions-json]
+// Usage: node shoot.ts <port> <out-dir> <label> [actions-json]
 // Browserbase cannot reach 127.0.0.1, so the page loads http://pass.local and Node fetches each request locally.
 // actions-json: optional list of steps run before the "open" shot, for example
 //   '[{"click":"[data-dish=REV-905]"},{"press":"Enter"},{"wait":400}]'
@@ -9,13 +9,19 @@
 // types into a field. {"hover":"<selector>"} rests the pointer on an element (a tooltip).
 // SHOOT_VIEWS picks other views than the four defaults, as scheme:width:height pairs, for example
 // SHOOT_VIEWS=light:2560:1440,dark:2560:1440 for a large display.
-import { chromium } from '/tmp/bb/node_modules/playwright-core/index.mjs';
+import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
-const [port, out, label, actionsJson] = process.argv.slice(2);
-const actions = actionsJson ? JSON.parse(actionsJson) : [];
+
+/** One step of actions-json (see above). */
+interface Step { click?: string; scroll?: string; shotOf?: string; as?: string; hover?: string; press?: string; fill?: string; text?: string; wait?: number }
+/** A view: colour scheme, width and height. */
+type View = [scheme: string, width: number, height: number];
+
+const [port, out, label, actionsJson] = process.argv.slice(2) as [string, string, string, string | undefined];
+const actions: Step[] = actionsJson ? JSON.parse(actionsJson) : [];
 mkdirSync(out, { recursive: true });
-const H = { 'X-BB-API-Key': process.env.BROWSERBASE_API_KEY, 'Content-Type': 'application/json' };
-const views = process.env.SHOOT_VIEWS ? process.env.SHOOT_VIEWS.split(',').map((v) => { const [sc, w, h] = v.split(':'); return [sc, Number(w), Number(h)]; })
+const H = { 'X-BB-API-Key': process.env.BROWSERBASE_API_KEY as string, 'Content-Type': 'application/json' };
+const views: View[] = process.env.SHOOT_VIEWS ? process.env.SHOOT_VIEWS.split(',').map((v): View => { const [sc, w, h] = v.split(':'); return [sc!, Number(w), Number(h)]; })
   : [['light', 1440, 900], ['dark', 1440, 900], ['light', 390, 844], ['dark', 390, 844]];
 // Each view saves as <label>-<scheme>-<width>, so two views with the same scheme and width would overwrite each other.
 // A bad or repeated view stops the run before any session starts (PR-Agent r3 on #72).
@@ -24,13 +30,13 @@ if (views.some(([sc, w, h]) => !['light', 'dark'].includes(sc) || !(w > 0) || !(
   console.error(`SHOOT_VIEWS needs scheme:width:height views, light or dark, each scheme and width once. Got: ${process.env.SHOOT_VIEWS}`);
   process.exit(2);
 }
-const proj = (await (await fetch('https://api.browserbase.com/v1/projects', { headers: H })).json())[0].id;
-const report = {};
+const proj = (await (await fetch('https://api.browserbase.com/v1/projects', { headers: H })).json() as { id: string }[])[0]!.id;
+const report: Record<string, { errors: string[] }> = {};
 for (const [scheme, w, h] of views) {
-  const s = await (await fetch('https://api.browserbase.com/v1/sessions', { method: 'POST', headers: H, body: JSON.stringify({ projectId: proj }) })).json();
+  const s = await (await fetch('https://api.browserbase.com/v1/sessions', { method: 'POST', headers: H, body: JSON.stringify({ projectId: proj }) })).json() as { connectUrl: string };
   const browser = await chromium.connectOverCDP(s.connectUrl);
-  const ctx = browser.contexts()[0], page = ctx.pages()[0] ?? await ctx.newPage();
-  const errors = [];
+  const ctx = browser.contexts()[0]!, page = ctx.pages()[0] ?? await ctx.newPage();
+  const errors: string[] = [];
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text().slice(0, 200)); });
   page.on('pageerror', e => errors.push('pageerror ' + String(e).slice(0, 200)));
   await page.route('http://pass.local/**', async route => {
@@ -38,8 +44,8 @@ for (const [scheme, w, h] of views) {
     const url = req.url().replace('http://pass.local', `http://127.0.0.1:${port}`);
     const headers = { ...req.headers() };
     if (headers.origin) headers.origin = `http://127.0.0.1:${port}`;
-    const r = await fetch(url, { method: req.method(), headers, body: req.postData() ?? undefined, redirect: 'manual' });
-    const out = Object.fromEntries(r.headers);
+    const r = await fetch(url, { method: req.method(), headers, body: req.postData() ?? undefined, redirect: 'manual' } as RequestInit);
+    const out: Record<string, string> = Object.fromEntries(r.headers);
     if (out.location) out.location = out.location.replace(`http://127.0.0.1:${port}`, 'http://pass.local');
     await route.fulfill({ status: r.status, headers: out, body: Buffer.from(await r.arrayBuffer()) });
   });
@@ -51,7 +57,7 @@ for (const [scheme, w, h] of views) {
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 3, mobile: true });
     await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
   }
-  await page.emulateMedia({ colorScheme: scheme });
+  await page.emulateMedia({ colorScheme: scheme as 'light' | 'dark' });
   await page.goto('http://pass.local/', { waitUntil: 'load', timeout: 60000 });
   await page.waitForTimeout(600);
   const key = `${label}-${scheme}-${w}`;

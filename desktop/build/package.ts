@@ -29,7 +29,7 @@
 // bytes), and runs the section 2 checks on the app inside the ZIP and on the DMG.
 //
 // The app is one asar: desktop/ (main.ts, t3.ts, updates.ts, channels.ts, keybindings.ts, preload.cjs built from
-// preload.cts by build/preload.ts, the Dock icon), client/ without its tests (its .mjs and .ts files, and pass.css, the
+// preload.cts by build/preload.ts, the Dock icon), client/ without its tests (its .ts files, and pass.css, the
 // board's base stylesheet) and electron-updater with its dependencies, in the repo's own layout, so main.ts finds the
 // board server at ../client as in the repo. Electron's Node runs every .ts file with its types stripped. The asar integrity and "only load the app
 // from asar" fuses then cover the board server and the updater too. Last, a hidden --capture start of the built app
@@ -98,7 +98,7 @@ for (const f of ['main.ts', 't3.ts', 'updates.ts', 'channels.ts', 'keybindings.t
 buildPreload(join(STAGE, 'desktop', 'preload.cjs'));
 cpSync(join(DESKTOP, 'build', C.icon), join(STAGE, 'desktop', 'build', C.icon));
 for (const f of readdirSync(join(REPO, 'client'))) {
-  const code = (f.endsWith('.mjs') && !f.endsWith('.test.mjs')) || (f.endsWith('.ts') && !f.endsWith('.test.ts'));
+  const code = f.endsWith('.ts') && !f.endsWith('.test.ts');
   if (code || f === 'pass.css') cpSync(join(REPO, 'client', f), join(STAGE, 'client', f));
 }
 // The one runtime library, electron-updater, and what it needs: copied from desktop/node_modules as `npm ci` installed
