@@ -5,6 +5,7 @@
     "types": ["node"],
     // Code not on Effect yet keeps Date, timers, console, fetch and Node's modules, as T3 Code's apps/web does.
     // A file on Effect (t3mcp.ts) is left out here, so every rule in tsconfig.effect.json holds there.
+    // t3live.ts stays: its edges are on Effect, but its reconnect supervisor keeps its own timers and clocks.
     "plugins": [
       {
         "name": "@effect/language-service",
