@@ -31,7 +31,7 @@ export interface Ticket {
 export interface Board { tickets: Ticket[]; verifiedToday?: number; runsChecked: boolean }
 /** The poll's result: good with its time, or not and why. */
 export type Status = { ok: true; at: number; ms: number; error?: undefined } | { ok: false; at: number; ms: number; error: string };
-/** The user's team, for the view switch (client/team.mjs). view: Team.view(), when the team connection gives one. */
+/** The user's team, for the view switch (client/team.ts). view: Team.view(), when the team connection gives one. */
 export interface TeamInput { view?: TeamView | null | undefined; now?: number | undefined; name?: string | null | undefined; below?: unknown; mode?: unknown }
 /** A pull request as a card shows it: one label for the same number in repositories of the same name. */
 export type ShownPr = PullRequestLink & { repositories: string[] };
@@ -995,7 +995,7 @@ function viewMenu({ team, projs, picked, icons, ok }: { team: TeamInput | null; 
  *  Two views (Dan, 2026-11-07), switched by the logo: the pass, focused (stages as a list on the left, the tickets
  *  that wait on you, the open ticket beside them, like a mail client) and You, expanded (instruments over every
  *  stage as a column, 2026-11-10). The page script picks the view; the markup carries both.
- *  team: the user's team when they have reports (see viewMenu), else null. With team.view (client/team.mjs Team.view())
+ *  team: the user's team when they have reports (see viewMenu), else null. With team.view (client/team.ts Team.view())
  *  and team.now, Your team draws its calls (Open kitchen); without a view it says "Not checked". */
 export interface RenderInput {
   board: Board; picked?: readonly string[] | null; link: (t: ThreadRow) => string; status: Status; origin: string;
@@ -1023,7 +1023,7 @@ export function renderApp({ board, picked = null, link, status, origin, answered
   const projs = [...icons.keys()].sort((a, b) => a.localeCompare(b)).map((nm): MenuProject => [nm, mark(nm, icons.get(nm)), here.has(nm)]);
   // The rail's footer chip and its menu, and its stand-in in the top bar (phones). The toggle needs reports.
   const footMenu = viewMenu({ team, projs, picked: want ? [...want] : null, icons, ok: status.ok });
-  // Your team, from a team reading (team.view, client/team.mjs's shape). Without one it says "Not checked".
+  // Your team, from a team reading (team.view, client/team.ts's shape). Without one it says "Not checked".
   const T = team?.view ? teamParts(team, team.view, icons, want) : null;
   const active = STAGES.reduce((x, s) => x + (spots[s] || []).length, 0), held = HELD.reduce((x, s) => x + (spots[s] || []).length, 0);
   // Unknown is not zero: without a good poll the counts read "not checked".

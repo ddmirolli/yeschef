@@ -1,18 +1,37 @@
 // The team inside the board server (step 3b, PR 3): the /team page and the kind=team actions. It keeps one Team
-// (client/team.mjs) alive, hands it each board the Pass reads, and saves its state through `store`. The desktop app's
+// (client/team.ts) alive, hands it each board the Pass reads, and saves its state through `store`. The desktop app's
 // store seals the state with the Keychain-held key before it touches a disk (desktop/main.ts); the web prototype keeps
 // it in memory only, so a prototype run never writes a private key to a file.
-import { createTeam, joinTeam, Team, webNet } from './team.mjs';
+import { createTeam, joinTeam, Team, webNet } from './team.ts';
+import type { OwnBoard, TeamNet, TeamRun, TeamState, TeamTimers, View } from './team.ts';
+import type { Readers } from './team-summaries.ts';
+import type { Board } from './board.ts';
 import { readInvite } from './seal.ts';
-import { teamPage, teamBody, DEFAULT_RELAY, SITE } from './teamui.mjs';
+import { teamPage, teamBody, DEFAULT_RELAY, SITE } from './teamui.ts';
+import type { PageOptions } from './teamui.ts';
 
-const ok = (text = 'Done.') => ({ status: 200, text });
-const no = (text, status = 400) => ({ status, text: String(text || 'Not done.').slice(0, 300) });
-const list = (v) => String(v || '').split(',').map((s) => s.trim()).filter(Boolean);
-const said = (r, done = 'Done.') => (r && (r.t === 'ok' || r.link) ? ok(done) : no(r?.text || r?.error));
+/** Where the team's state is kept: the desktop app seals it with the Keychain-held key; the prototype keeps it in memory. */
+export interface TeamStore { load(): TeamState | null | Promise<TeamState | null>; save(state: TeamState | null): unknown }
+/** A project as T3 Code names it. */
+export interface HostProject { id: string; title: string }
+export interface HostOptions {
+  store: TeamStore; run: TeamRun | null; boardOf: () => OwnBoard | null | undefined; projectsOf?: () => readonly HostProject[] | null | undefined;
+  t3Ok?: () => boolean; net?: TeamNet; now?: () => number; timers?: TeamTimers; site?: string;
+}
+/** A kind=team action's fields, as the page posts them. */
+export type TeamInput = Readonly<Record<string, string | undefined>>;
+/** What an action answers: an HTTP status and the words the page shows. */
+export interface Said { status: number; text: string }
+/** A page answer: status, headers and the HTML. */
+export interface Routed { status: number; headers: Record<string, string>; body: string }
+
+const ok = (text = 'Done.'): Said => ({ status: 200, text });
+const no = (text: unknown, status = 400): Said => ({ status, text: String(text || 'Not done.').slice(0, 300) });
+const list = (v: unknown): string[] => String(v || '').split(',').map((s) => s.trim()).filter(Boolean);
+const said = (r: { t?: unknown; link?: unknown; text?: unknown; error?: unknown } | null | undefined, done = 'Done.'): Said => (r && (r.t === 'ok' || r.link) ? ok(done) : no(r?.text || r?.error));
 
 /** A relay address a lead may type: https, or a local one for a test. */
-export function relayUrl(text) {
+export function relayUrl(text: unknown): string | null {
   try {
     const u = new URL(String(text || '').trim() || DEFAULT_RELAY);
     if (u.protocol !== 'https:' && !['127.0.0.1', 'localhost'].includes(u.hostname)) return null;
@@ -23,72 +42,72 @@ export function relayUrl(text) {
 
 /** store: { load() -> state or null, save(state or null) }. run(input, prefix, extra): an action on this dev's board.
  *  boardOf(): { board, ok, at }. projectsOf(): T3 Code's projects. t3Ok(): whether the board reads T3 Code now. */
-export function teamHost({ store, run, boardOf, projectsOf = () => [], t3Ok = () => false, net = webNet, now = Date.now, timers = globalThis, site = SITE }) {
-  let team = null, state = null, ready = null, busy = Promise.resolve(), lost = '', gen = 0;
+export function teamHost({ store, run, boardOf, projectsOf = () => [], t3Ok = () => false, net = webNet, now = Date.now, timers = globalThis, site = SITE }: HostOptions) {
+  let team: Team | null = null, state: TeamState | null = null, ready: Promise<void> | null = null, busy: Promise<unknown> = Promise.resolve(), lost = '', gen = 0;
   // The store's answer goes back to the team client: a save it awaits (an action's id) fails when the store did.
-  const save = (s) => {
+  const save = (s: TeamState | null): Promise<unknown> => {
     state = s;
     const done = Promise.resolve().then(() => store.save(s));
-    done.catch((ex) => console.error('The team did not save:', String(ex?.message || ex).slice(0, 120)));
+    done.catch((ex: unknown) => console.error('The team did not save:', String((ex as Error)?.message || ex).slice(0, 120)));
     return done;
   };
 
-  function live(s) {
+  function live(s: TeamState | null): void {
     team?.stop();
     team = null; state = s;
     if (!s) return;
     // Each client saves only while it is the live one: a save queued by a team this Mac left never lands after the
     // deletion (PR-Agent r3 on #8).
     const mine = ++gen;
-    const own = (x) => (mine === gen ? save(x) : Promise.reject(new Error('This team was left on this Mac.')));
+    const own = (x: TeamState): Promise<unknown> => (mine === gen ? save(x) : Promise.reject(new Error('This team was left on this Mac.')));
     team = new Team({ state: s, save: own, net, now, timers, run, board: boardOf });
     team.start();
   }
 
   /** Read the saved team, once, at start. A state that does not load is reported and left on disk untouched. */
-  function start() {
-    return ready ||= Promise.resolve().then(() => store.load()).then((s) => { if (s) live(s); }, (ex) => {
+  function start(): Promise<void> {
+    return ready ||= Promise.resolve().then(() => store.load()).then((s) => { if (s) live(s); }, (ex: unknown) => {
       // The saved team stays where it is: a new team or a join must not write over it.
-      lost = String(ex?.message || ex).slice(0, 120);
+      lost = String((ex as Error)?.message || ex).slice(0, 120);
       console.error('The saved team did not load:', lost);
     });
   }
 
   const projectRows = () => {
     const tickets = boardOf()?.board?.tickets || [];
-    const count = (id) => tickets.filter((k) => k.thread?.projectId === id).length;
+    const count = (id: string): number => tickets.filter((k) => k.thread?.projectId === id).length;
     const ok = !!boardOf()?.ok;
     return (projectsOf() || []).map((p) => ({ id: p.id, title: p.title, threads: ok ? count(p.id) : null }));
   };
 
   /** The page, or null for any other path. ?join=<the link's fragment> shows Join for that invite. */
-  function route(url) {
+  function route(url: URL): Routed | null {
     if (url.pathname !== '/team') return null;
     const v = team?.view() || null;
     const raw = url.searchParams.get('join');
     const inv = raw && !v ? readInvite(raw) : null;
-    const opts = { lost, view: v, join: inv && { ...inv, raw }, links: team && v?.status === 'member' ? team.links({ site }) : [],
+    const opts: PageOptions = { lost, view: v, join: inv && { ...inv, raw }, links: team && v?.status === 'member' ? team.links({ site }) : [],
       projects: projectRows(), shared: state?.shared || [], t3: { ok: t3Ok() }, now: now(), name: state?.name || '' };
     const page = teamPage(opts);
     return { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }, body: page };
   }
 
   /** One kind=team action. One at a time: two clicks never race on the roster. */
-  function act(input) {
-    const next = busy.then(() => step(input), (ex) => no(`Not done: ${ex?.message || ex}`, 500));
+  function act(input: TeamInput): Promise<Said> {
+    const next = busy.then(() => step(input), (ex: unknown) => no(`Not done: ${(ex as Error)?.message || ex}`, 500));
     busy = next.catch(() => {});
     return next;
   }
 
   /** A new team or join is live at once and saved before it says done. A failed save keeps the keys in use, says so,
    *  and shows "Not saved" until a later save gets through (PR-Agent r1 on #8). */
-  async function kept(s, done) {
+  async function kept(s: TeamState, done: string): Promise<Said> {
     live(s);
-    if (await team.saveNow()) return ok(done);
+    if (await team!.saveNow()) return ok(done);
     return no('Not saved: Yes Chef could not save the team on this Mac. It is in use now; keep Yes Chef open, check the disk and the Keychain, then try any change again.', 503);
   }
 
-  async function step(input) {
+  async function step(input: TeamInput): Promise<Said> {
     const op = String(input.op || '');
     // The saved team loads first: a make or a join while the Keychain answers must not write over it (PR-Agent r1 on #8).
     await start();
@@ -113,7 +132,7 @@ export function teamHost({ store, run, boardOf, projectsOf = () => [], t3Ok = ()
     if (op === 'leave') {
       // Forgotten only once the saved team is gone from disk: else a restart would bring the ask back (PR-Agent r2 on #8).
       // Stop the client and let its queued saves finish first, so the deletion is the last write (PR-Agent r3 on #8).
-      const was = state, t = team;
+      const was = state, t: Team = team;
       t.stop(); gen++; team = null;
       await t.writes?.catch(() => {});
       try { await save(null); } catch { live(was); return no('Not done: Yes Chef could not forget the team on this Mac. It is still saved; try again.', 503); }
@@ -146,16 +165,16 @@ export function teamHost({ store, run, boardOf, projectsOf = () => [], t3Ok = ()
   return {
     start, route, act,
     /** The Pass read a board: the team's summary follows it, with what the board server reads beside it (3b PR 4). */
-    board(b, readers) { if (team && b) team.board(b, readers); },
+    board(b: Board | null | undefined, readers?: Readers): void { if (team && b) team.board(b, readers); },
     /** A reader beside the board has news: the summary follows, only when it changed. */
-    readersMoved() { team?.readersMoved(); },
+    readersMoved(): void { team?.readersMoved(); },
     /** A board read failed: teammates read this Mac as not checked since then. */
-    health(ok) { team?.health(ok); },
-    wake() { team?.wake(); },
-    stop() { team?.stop(); },
-    view: () => team?.view() || null,
+    health(ok: boolean): void { team?.health(ok); },
+    wake(): void { team?.wake(); },
+    stop(): void { team?.stop(); },
+    view: (): View | null => team?.view() || null,
     /** For tests: the live team client. */
-    _team: () => team,
-    body: (opts) => teamBody(opts),
+    _team: (): Team | null => team,
+    body: (opts: PageOptions): string => teamBody(opts),
   };
 }

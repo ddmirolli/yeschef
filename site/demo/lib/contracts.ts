@@ -14,7 +14,7 @@ export interface PullRequestLink {
 }
 
 /** One thread as the board reads it: a row of t3_thread_list, or the same row made from a live-stream shell
- *  (client/shells.mjs threadRow). */
+ *  (client/shells.ts threadRow). */
 export interface ThreadRow {
   threadId: string;
   projectId?: string | undefined;

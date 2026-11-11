@@ -61,7 +61,7 @@ export function connect() { return kitchen.t3; }
 export { kitchen };
 `);
   // The board reads its threads from T3 Code's live stream (client/t3live.ts). This stand-in hands the server the
-  // same kitchen's threads as stream shells, the inverse of client/shells.mjs threadRow; step 4 checks the result.
+  // same kitchen's threads as stream shells, the inverse of client/shells.ts threadRow; step 4 checks the result.
   writeFileSync(join(tmp, 'client', 't3live.ts'), `// Stand-in written by site/scripts/generate-demo.ts: the made-up kitchen as stream shells, never T3 Code.
 import { kitchen } from './t3mcp.ts';
 const LATER = '2999-01-01T00:00:00.000Z';

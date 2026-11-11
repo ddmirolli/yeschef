@@ -1,4 +1,4 @@
-// A made-up team for Open kitchen's tests and screenshots, in Team.view()'s shape (client/team.mjs, 3b) with the
+// A made-up team for Open kitchen's tests and screenshots, in Team.view()'s shape (client/team.ts, 3b) with the
 // summary fields step 4 PROPOSED to 3b (bases, seen, startedAt, last, ask, changes with its read time, prs[].mergedAt/
 // size/checks/readyAt).
 // Never shown to a user: the Your team view turns on only from real team data. Times are relative to `now`.

@@ -10,4 +10,5 @@ export const SEEN_KEEP_MS = ACT_TTL + AUTH_SKEW_MS + 60000;
 /** A welcome, and a member's ask for one, waits this long on the relay. */
 export const WELCOME_TTL = 7 * 86400000;
 
-export const clean = (s, n) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+/** Text on one line, trimmed, at most n characters. Anything else becomes text first; null and undefined become ''. */
+export const clean = (s: unknown, n: number): string => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);

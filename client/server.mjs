@@ -12,7 +12,7 @@ import { dirname, extname, isAbsolute, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { signIn, connect } from './t3mcp.ts';
 import { createKeys, createLive } from './t3live.ts';
-import { boardThreads, changeTargets, githubTargets } from './shells.mjs';
+import { boardThreads, changeTargets, githubTargets } from './shells.ts';
 import { createChanges } from './changes.ts';
 import { createBaseChecks, createPrSizes, prKey, readBaseFacts, readPrFacts } from './github.ts';
 import { buildBoard, renderApp, kitchenPane, pickedFrom } from './board.ts';
@@ -25,7 +25,7 @@ import { BAR_CSS, BAR_HTML, SPRING, barCore, installBar } from './bar.ts';
 import { onTheme, miniCss, minis, MINI_CSS } from './theme.ts';
 import { keysCore } from './keys.ts';
 import { appendFileSync } from 'node:fs';
-import { teamHost } from './teamhost.mjs';
+import { teamHost } from './teamhost.ts';
 
 // The desktop app's pipe. In the app this runs in an Electron utility process and talks over process.parentPort;
 // started by Node with an IPC channel it uses process.send. Alone (node client/server.mjs) it has neither: the web prototype.
@@ -3438,7 +3438,7 @@ const holds = new Map();
 const answered = new Map();
 const audit = (line) => { try { appendFileSync(join(OUT, 'actions.jsonl'), JSON.stringify(line) + '\n', { mode: 0o600 }); } catch { /* the log never blocks an action's result */ } };
 
-// The team (step 3b, client/teamhost.mjs). Its state holds private keys: the desktop app seals it with the Keychain-held
+// The team (step 3b, client/teamhost.ts). Its state holds private keys: the desktop app seals it with the Keychain-held
 // key (desktop/main.ts, team-please and team-save); the web prototype keeps it in memory only.
 let teamMem = null;
 let teamSaves = 0;

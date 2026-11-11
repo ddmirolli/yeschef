@@ -3,14 +3,16 @@
 // Reconnects follow T3 Code's rules: one owner for retries, jittered backoff capped at five minutes, a probe on wake,
 // and the socket's health kept apart from how fresh the data is.
 import { newId, authToken, AUTH_SKEW_MS } from './seal.ts';
-import { shares } from './roles.mjs';
-import { ASK_MS } from './team-common.mjs';
+import { shares } from './roles.ts';
+import { ASK_MS } from './team-common.ts';
+import type { Incoming, Reply, Request, Team, TeamSocket, TeamStatus } from './team.ts';
+import type { Hello } from '../relay/room.ts';
 
 export const RETRY = { base: 1000, cap: 5 * 60000 };
 export const PING_MS = 30000, PONG_MS = 10000;
 
 export const connection = {
-  start() {
+  start(): void {
     if (['declined', 'removed', 'ended'].includes(this.state.status)) { this.setLink('stopped'); return; }
     this.stopped = false;
     // A retry left waiting from before would fire over the connection this opens.
@@ -18,7 +20,7 @@ export const connection = {
     this.connect();
   },
 
-  stop() {
+  stop(): void {
     this.stopped = true;
     this.attempt = (this.attempt || 0) + 1;
     this.timers.clearTimeout(this.retry); this.retry = null;
@@ -31,19 +33,19 @@ export const connection = {
   },
 
   /** The Mac woke or the network came back: probe now instead of waiting out the backoff. */
-  wake() {
+  wake(): void {
     if (this.stopped || this.link === 'stopped') return;
     if (this.link === 'waiting') { this.timers.clearTimeout(this.retry); this.retry = null; this.connect(); return; }
     if (this.link === 'online') this.ping();
   },
 
-  async connect() {
+  async connect(): Promise<void> {
     if (this.stopped || this.ws || this.link === 'connecting') return;
     this.setLink('connecting');
     // A stop() while this attempt waits on the keys makes it stale: it opens nothing, and a start() after the stop owns
     // the one socket.
     const attempt = this.attempt = (this.attempt || 0) + 1;
-    let ws;
+    let ws: TeamSocket;
     try {
       const me = await this.member();
       this.meId = me.id;
@@ -77,13 +79,13 @@ export const connection = {
     });
   },
 
-  dropAsks(text) {
+  dropAsks(text: string): void {
     for (const [, a] of this.asks) { this.timers.clearTimeout(a.timer); a.resolve({ t: 'err', code: 'closed', text }); }
     this.asks.clear();
   },
 
   /** The socket closed. The relay's own codes say what to do; anything else is the network: back off and try again. */
-  async lost(code, opened = false) {
+  async lost(code: number, opened = false): Promise<void> {
     this.dropAsks('Not sent: the team connection dropped.');
     if (this.stopped) { this.setLink('stopped'); return; }
     if (code === 4001) { this.attempts = 0; this.setLink('off'); this.connect(); return; }
@@ -96,8 +98,8 @@ export const connection = {
       const attempt = this.attempt;
       // The probe has a deadline: a relay that takes the request and never answers must not leave this Mac without a
       // retry.
-      let timer;
-      const why = await Promise.race([this.probe(), new Promise((r) => { timer = this.timers.setTimeout(() => r(null), ASK_MS); })]);
+      let timer: unknown;
+      const why = await Promise.race([this.probe(), new Promise<null>((r) => { timer = this.timers.setTimeout(() => r(null), ASK_MS); })]);
       this.timers.clearTimeout(timer);
       if (attempt !== this.attempt) return;
       if (this.stopped) { this.setLink('stopped'); return; }
@@ -107,7 +109,7 @@ export const connection = {
   },
 
   /** What the relay knows of this member, when the socket cannot say: a status to end on, or null to keep trying. */
-  async probe() {
+  async probe(): Promise<TeamStatus | null> {
     try {
       const me = await this.member();
       const path = `/v1/teams/${this.state.team}/me`;
@@ -118,7 +120,7 @@ export const connection = {
       if (res.status === 401) {
         // A Mac clock far off fails every token: say so, and keep trying, rather than call the dev removed. Measured
         // against the time the token was signed with, so a clock set right while the request was out is no removal.
-        if (Number.isFinite(res.body?.now) && Math.abs(res.body.now - signedAt) > AUTH_SKEW_MS) { this.emit('clock', { off: res.body.now - signedAt }); return null; }
+        if (Number.isFinite(res.body?.now) && Math.abs((res.body!.now as number) - signedAt) > AUTH_SKEW_MS) { this.emit('clock', { off: (res.body!.now as number) - signedAt }); return null; }
         if (Math.abs(this.now() - signedAt) > AUTH_SKEW_MS) return null;
         return this.state.status === 'pending' ? 'declined' : 'removed';
       }
@@ -126,7 +128,7 @@ export const connection = {
     return null;
   },
 
-  schedule() {
+  schedule(): void {
     if (this.stopped) return;
     // Full jitter on a doubling backoff, capped: many Macs that lost one relay do not come back at once.
     const ceil = Math.min(RETRY.cap, RETRY.base * 2 ** Math.min(this.attempts, 20));
@@ -138,7 +140,7 @@ export const connection = {
     this.retryMs = ms;
   },
 
-  end(status) {
+  end(status: TeamStatus): void {
     this.state.status = status;
     if (status !== 'declined') this.state.key = null; // removed or ended: the team key goes with the team
     this.key = null;
@@ -149,7 +151,7 @@ export const connection = {
   },
 
   /** Drop the socket and open a new one: the relay's hello brings the current team. */
-  refresh() {
+  refresh(): void {
     const ws = this.ws;
     if (!ws) return;
     this.ws = null; this.stopBeat();
@@ -157,12 +159,12 @@ export const connection = {
     this.lost(1006, true);
   },
 
-  startBeat() {
+  startBeat(): void {
     this.stopBeat();
     this.beat = this.timers.setInterval(() => this.ping(), PING_MS);
   },
-  stopBeat() { this.timers.clearInterval(this.beat); this.beat = null; this.timers.clearTimeout(this.pongTimer); this.pongTimer = null; },
-  ping() {
+  stopBeat(): void { this.timers.clearInterval(this.beat); this.beat = null; this.timers.clearTimeout(this.pongTimer); this.pongTimer = null; },
+  ping(): void {
     // On the roster with no key: ask the lead again, at most once a day, so an ask that expired while the lead was away
     // is sent again without a reconnect.
     if (this.link === 'online' && this.state.status === 'member' && !this.state.key && !this.isLead) this.askKey().catch(() => {});
@@ -173,8 +175,8 @@ export const connection = {
   },
 
   /** A request over the socket; resolves with the relay's reply ({ t: 'ok' } or { t: 'err', code, text }). */
-  say(msg) {
-    return new Promise((resolve) => {
+  say(msg: Request): Promise<Reply> {
+    return new Promise<Reply>((resolve) => {
       if (!this.ws || this.link !== 'online') { resolve({ t: 'err', code: 'offline', text: 'Not sent: Yes Chef is not connected to the team.' }); return; }
       const id = newId();
       const timer = this.timers.setTimeout(() => { this.asks.delete(id); resolve({ t: 'err', code: 'timeout', text: 'The relay did not answer.' }); }, ASK_MS);
@@ -183,21 +185,23 @@ export const connection = {
     });
   },
 
-  async heard(data, from = this.ws) {
+  async heard(data: unknown, from?: TeamSocket | null): Promise<unknown> {
+    // The socket it came on; by default the live one. (A default here would read `this` before the part's type is known.)
+    if (from === undefined) from = this.ws;
     if (data === 'pong') { this.timers.clearTimeout(this.pongTimer); this.pongTimer = null; return; }
-    let msg;
-    try { msg = JSON.parse(data); } catch { return; }
-    if (msg.id && this.asks.has(msg.id)) {
-      const a = this.asks.get(msg.id); this.asks.delete(msg.id); this.timers.clearTimeout(a.timer); a.resolve(msg); return;
+    let msg: Incoming & { id?: unknown };
+    try { msg = JSON.parse(data as string); } catch { return; }
+    if (msg.id && this.asks.has(msg.id as string)) {
+      const a = this.asks.get(msg.id as string)!; this.asks.delete(msg.id as string); this.timers.clearTimeout(a.timer); a.resolve(msg as Reply); return;
     }
     // One message at a time, in order: a roster must land before the summaries and actions that follow it. A message
     // whose socket was replaced while it waited is dropped: the new socket's hello brings it again, and an old hello
     // never marks a new socket online.
-    this.chain = (this.chain || Promise.resolve()).then(() => (this.ws === from ? this.handle(msg) : undefined)).catch((ex) => this.emit('error', { text: String(ex?.message || ex) }));
+    this.chain = (this.chain || Promise.resolve()).then(() => (this.ws === from ? this.handle(msg) : undefined)).catch((ex: unknown) => this.emit('error', { text: String((ex as Error)?.message || ex) }));
     return this.chain;
   },
 
-  async handle(msg) {
+  async handle(msg: Incoming): Promise<unknown> {
     switch (msg.t) {
       case 'hello': return this.hello(msg);
       case 'roster': return this.takeRoster(msg.roster);
@@ -214,7 +218,7 @@ export const connection = {
     }
   },
 
-  async hello(msg) {
+  async hello(msg: Hello): Promise<void> {
     // Each await below can outlive its socket (stopped, or closed and replaced): then this hello goes no further, so a
     // stopped team never reads as online or takes its inbox.
     const ws = this.ws;
@@ -268,4 +272,4 @@ export const connection = {
     // A board read or failure reported before the roster loaded goes now: it was held until this Mac knew its role.
     else { this.publish(); this.flush(); }
   },
-};
+} satisfies ThisType<Team>;

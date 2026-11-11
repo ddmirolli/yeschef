@@ -19,7 +19,7 @@
 import { execFile } from 'node:child_process';
 import { networkInterfaces } from 'node:os';
 
-/** A thread's shell from T3 Code's live stream (orchestrationV2 shell, read as client/shells.mjs threadRow does). */
+/** A thread's shell from T3 Code's live stream (orchestrationV2 shell, read as client/shells.ts threadRow does). */
 export interface ThreadShell { id: string; [field: string]: unknown }
 /** A project's shell from the live stream: its id, title and workspaceRoot among the rest. */
 export interface ProjectShell { id: string; title?: string; workspaceRoot?: string; [field: string]: unknown }

@@ -27,7 +27,7 @@ export function tomorrowMorning(now = new Date()): string {
  *  answered: optional Map of call key to { picks, at, nonce }, so a call is answered once (a retry of the same send passes). */
 /** projects: T3's project list ({ id, title }); only a launch uses it, and only into one of these projects.
  *  rules: the rules (client/kitchen.ts); a launch carries the project's rules in its brief. */
-/** prefix: who the message is from. A teammate's action names the teammate and their role (client/roles.mjs). */
+/** prefix: who the message is from. A teammate's action names the teammate and their role (client/roles.ts). */
 export async function act({ board, t3, input, now = new Date(), holds, answered, projects = [], rules = null, prefix = PREFIX }: {
   board: Board; t3: T3Caller; input: ActInput; now?: Date; holds?: Map<string, string> | undefined; answered?: Map<string, Answered> | undefined;
   projects?: readonly Pick<Project, 'id' | 'title'>[]; rules?: unknown; prefix?: string;
