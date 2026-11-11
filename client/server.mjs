@@ -1512,7 +1512,7 @@ ${tile('density', 'default', 'Default')}${tile('density', 'comfortable', 'Comfor
 ${kitchenPane({ rules, projects, error: rulesError })}
 <section class="set-pane" data-pane="keys" hidden><div class="kx-top"><label class="kx-q"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><input type="search" id="kx-q" placeholder="Search shortcuts" aria-label="Search shortcuts" autocomplete="off" spellcheck="false"></label></div>
 <div id="kx-list"></div><p class="kx-live" role="status" aria-live="polite"></p>
-<div class="kx-foot"><p class="kx-file">Your changes, in the shape of T3 Code’s keybindings.json: a key, a command, and when it applies.</p><span class="kx-btns"><button type="button" class="btn kx-b" data-kx-file hidden>Open the file</button><button type="button" class="btn kx-b" data-kx-resetall>Reset all</button></span><p class="kx-note" role="status" hidden></p></div></section>
+<div class="kx-foot"><p class="kx-file">Your shortcuts, in the shape of T3 Code’s keybindings.json and with its rules: a key, a command, and when it applies.</p><span class="kx-btns"><button type="button" class="btn kx-b" data-kx-file hidden>Open the file</button><button type="button" class="btn kx-b" data-kx-resetall>Reset all</button></span><p class="kx-note" role="status" hidden></p></div></section>
 </div></div>
 <p class="set-done"><span role="status">Saved on this Mac.</span><button type="button" class="btn fill" data-settings-done><span class="bl">Done</span><kbd>esc</kbd></button></p></dialog>
 <dialog id="launch" aria-labelledby="launch-t"><form class="act launch" method="post" action="/act">
@@ -3223,7 +3223,7 @@ ${BAR_HTML}
     if (rs) { var rid = rs.dataset.kxReset, dk = K.CMD[rid].keys, rst = K.reset(KST, rid); kxApply(rst, rid, K.CMD[rid].t + (dk.length ? ': ' + dk.map(K.label).join(' or ') + ' again.' : ' has no key again.') + kxOthers(rst, rid)); return; }
     if (t.closest('[data-kx-swap]') && kxClash) { var c = kxClash, sst = K.swap(KST, c.id, c.key); if (sst) kxApply(sst, c.id, K.CMD[c.id].t + ': ' + K.label(c.key) + '.' + kxOthers(sst, c.id)); return; }
     if (t.closest('[data-kx-keep]') && kxClash) { var kid = kxClash.id; kxClash = null; kxRender(); kxFocus(kid); kxSay('Kept as it was.'); return; }
-    if (t.closest('[data-kx-resetall]')) { kxApply(K.build([]), null, 'Every shortcut has its default key again.'); var q = $('#kx-q'); if (q) q.focus(); return; }
+    if (t.closest('[data-kx-resetall]')) { kxApply(K.build(K.defaultList()), null, 'Every shortcut has its default key again.'); var q = $('#kx-q'); if (q) q.focus(); return; }
     if (t.closest('[data-kx-file]') && KFILE) KFILE.open().then(function(r){ if (r && r.error) { kxFileNote = 'Could not open the file: ' + r.error; kxRender(); } }, function(){});
   });
   if (kxQ) kxQ.addEventListener('input', kxRender);

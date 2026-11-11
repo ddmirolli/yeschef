@@ -36,7 +36,7 @@ import { fileURLToPath } from 'node:url';
 import { CHANNELS, channelOf } from './channels.mjs';
 import { TESTED_T3, findT3, older, t3Answers } from './t3.mjs';
 import { canUpdateInPlace, createUpdates, feedOverride, menuFor, moveCard, visibleCard } from './updates.mjs';
-import { ensureKeybindings, readKeybindings, writeKeybindings } from './keybindings.mjs';
+import { ensureKeybindings, readKeybindings, syncKeybindings, writeKeybindings } from './keybindings.mjs';
 
 const STARTED = Date.now();
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -499,6 +499,10 @@ async function capture(name) {
 
 async function main() {
   await app.whenReady();
+  // T3 Code's start-up sync for keybindings.json (desktop/keybindings.mjs): every default into a new file, and the
+  // defaults of a command the file does not name.
+  const keys = syncKeybindings(keysFile());
+  if (keys.error) console.error(keys.error);
   protocol.handle('yeschef', boardPage);
   buildMenu();
   if (app.dock && !CAPTURE) app.dock.setIcon(ICON);
