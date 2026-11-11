@@ -754,3 +754,13 @@ test('the axis drops an hour label that would run into now, and keeps its grid l
   assert.ok(!axis.includes('>16:00<'), 'six minutes before now: no label');
   assert.ok(axis.includes('>15:00<'));
 });
+
+// ---- PR B, PR-Agent round 13 ----
+test('r13: a merge is credited to the person whose copy says merged, not the first that mentions it', () => {
+  const v = viewL();
+  const pr431 = who(v, 'ravi').summary.tickets.find((k) => k.prs.some((pr) => pr.n === 431)).prs.find((pr) => pr.n === 431);
+  who(v, 'kai').summary.tickets[0].prs.push({ ...pr431, state: 'open', mergedAt: null });
+  const i = v.people.findIndex((p) => p.id === 'kai');
+  v.people.splice(1, 0, ...v.people.splice(i, 1));
+  assert.equal(board(v).base.merges.find((m) => m.n === 431).person, 'ravi');
+});

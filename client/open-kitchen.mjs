@@ -352,10 +352,11 @@ export function kitchenBoard(ok, { now, want = null }) {
   // A merge is final, so each merged PR's facts (that it merged, when, into which branch, as which commit) are settled
   // across every summary first: a copy in any project may give one, while another still says open or leaves it out.
   // Then the picked projects' PRs are counted with them. A PR is untimed only when no copy says when it merged.
+  // Who merged it is the person whose copy says merged, never the first copy that mentions it.
   const done = new Map();
-  for (const { k } of ok.tickets) for (const pr of k.prs) if (pr.state === 'merged') {
-    const key = prKey(pr.repo, pr.n), d = done.get(key) || { at: null, base: null, sha: null };
-    done.set(key, { at: d.at ?? pr.mergedAt, base: d.base ?? pr.base, sha: d.sha ?? pr.mergeSha });
+  for (const { k, person } of ok.tickets) for (const pr of k.prs) if (pr.state === 'merged') {
+    const key = prKey(pr.repo, pr.n), d = done.get(key) || { at: null, base: null, sha: null, person, thread: k.thread };
+    done.set(key, { ...d, at: d.at ?? pr.mergedAt, base: d.base ?? pr.base, sha: d.sha ?? pr.mergeSha });
   }
   // A copy that never says merged may still know the base branch.
   for (const { k } of ok.tickets) for (const pr of k.prs) {
@@ -363,14 +364,14 @@ export function kitchenBoard(ok, { now, want = null }) {
     if (d && d.base === null && pr.base) d.base = pr.base;
   }
   const merges = [], seenPr = new Set(), untimed = new Set();
-  for (const { k, person } of all) for (const pr of k.prs) {
+  for (const { k } of all) for (const pr of k.prs) {
     const key = prKey(pr.repo, pr.n);
     if (!done.has(key)) continue;
-    const { at, base, sha } = done.get(key);
+    const { at, base, sha, person: by, thread } = done.get(key);
     if (at === null) { untimed.add(key); continue; }
     if (at < d0 || at > now || seenPr.has(key)) continue;
     seenPr.add(key);
-    merges.push({ n: pr.n, repo: pr.repo, branch: base, at, sha, person, thread: k.thread });
+    merges.push({ n: pr.n, repo: pr.repo, branch: base, at, sha, person: by, thread });
   }
   merges.sort((a, z) => a.at - z.at || a.n - z.n);
 
