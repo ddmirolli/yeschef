@@ -28,7 +28,7 @@ Strict TypeScript on T3 Code's toolchain. Dan's rulings, 2026-11-10:
 - **2 = B.** The port does not wait for open pull requests. What is merged gets ported.
 - **3 = B.** The Python pass is retired, not ported (#22).
 
-Node 24 runs `.ts` files with the types stripped, and so does the Node inside Electron, so the app and the relay need no build step for their own code. Ported so far: `relay/`, `client/seal.ts`, and `site/` (#24, Astro).
+Node 24 runs `.ts` files with the types stripped, and so does the Node inside Electron, so the app and the relay need no build step for their own code. Ported so far: `relay/`, `client/seal.ts`, `site/` (#24, Astro), and the client's core: the board, calls, actions, the action bar and keys, the T3 and GitHub clients, the followers, the theme, You and Open kitchen, with their tests. Still JavaScript, in the order they move: the client's team modules, `client/server.mjs`, `desktop/`, then `tools/` and `spikes/`.
 
 ## Tests
 

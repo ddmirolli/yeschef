@@ -69,7 +69,7 @@ Checked on this Mac on 2026-11-09, against the copy in `/Applications` and `desk
 
 - **Find T3 Code.** Today the app assumes `http://127.0.0.1:3773`. T3 Code writes its address to `~/.t3/userdata/server-runtime.json` (`origin`, `port`, `serverVersion`), so the app reads it there, falls back to 3773, and keeps `YESCHEF_T3_ORIGIN` as the override. Assumed: every T3 Code install writes that file in the same place. PR A: done in `desktop/t3.mjs` (checked on this Mac: it found T3 Code 0.1.7 through the file).
 - **No T3 Code.** If T3 Code is not running, the window says so and links to t3.codes. Today it fails at sign-in. PR A: done. The app looks again every three seconds (checked: the capture start saves the page and quits).
-- **Callback port.** Sign-in listens on fixed port 8622. `client/t3mcp.mjs` registers a new OAuth client on every sign-in, so it can take any free port and register that one. This removes a clash with whatever else uses 8622. PR A: done. Checked against a stand-in T3 in `client/t3mcp.test.mjs`, and in a real start the callback listened on a free port. A full approval on a free port is not checked.
+- **Callback port.** Sign-in listens on fixed port 8622. `client/t3mcp.ts` registers a new OAuth client on every sign-in, so it can take any free port and register that one. This removes a clash with whatever else uses 8622. PR A: done. Checked against a stand-in T3 in `client/t3mcp.test.ts`, and in a real start the callback listened on a free port. A full approval on a free port is not checked.
 - **The approval stays T3's.** The user still picks the access level and pastes a pairing code in T3 Code's own page. Yes Chef never makes the pairing code for them. That page is T3 Code's check that a person agreed.
 
 ## 5. Versions

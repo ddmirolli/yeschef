@@ -1,9 +1,9 @@
 // Builds the site's live demo (site/demo/), the real Pass on a made-up kitchen, from the app in client/.
 // Run it from the repo root after a change to the app's UI:  npm run demo:generate --prefix site -- [port]
 //
-// It copies the app's board, calls, kitchen, actions, you and open-kitchen modules to site/demo/lib/ unchanged, and the
-// made-up projects' icons and screenshots from tools/hero-art/. Then it starts client/server.mjs in a temp
-// folder with a stand-in for client/t3mcp.mjs that answers from the typed demo kitchen. It never signs in
+// It copies the app's board, calls, kitchen, actions, you and open-kitchen modules, and the client modules they import,
+// to site/demo/lib/ unchanged, and the made-up projects' icons and screenshots from tools/hero-art/. Then it starts
+// client/server.mjs in a temp folder with a stand-in for client/t3mcp.ts that answers from the typed demo kitchen. It never signs in
 // to T3 Code. It saves site/demo/app.html as an input to Astro; src/pages/demo/app.astro supplies the
 // typed bootstrap. The generated snapshot is not a standalone page.
 import { spawn } from 'node:child_process';
@@ -21,11 +21,17 @@ const DIRS: Record<string, string> = { 'p-pay': 'fernpay', 'p-loop': 'loopline',
 
 // The app modules stay unchanged. Astro supplies browser stand-ins for these Node imports.
 const SHIMMED = new Set(['node:crypto', 'node:fs', 'node:path']);
+// demo/lib holds only these copies, so a module the app no longer uses leaves with the next run.
+rmSync(join(DEMO, 'lib'), { recursive: true, force: true });
 mkdirSync(join(DEMO, 'lib'), { recursive: true });
-for (const f of ['board.mjs', 'calls.mjs', 'kitchen.mjs', 'actions.mjs', 'you.mjs', 'open-kitchen.mjs']) {
+// The list grows as it goes: each client module a copy imports is copied too.
+const copy = ['board.ts', 'calls.ts', 'kitchen.ts', 'actions.ts', 'you.ts', 'open-kitchen.ts'];
+for (const f of copy) {
   const src = readFileSync(join(ROOT, 'client', f), 'utf8');
-  for (const [, spec] of src.matchAll(/^import [^;]*? from '([^']+)';/gm)) {
-    if (!spec.startsWith('./') && !SHIMMED.has(spec)) throw new Error(`client/${f} imports ${spec}: give it a stand-in in site/demo/lib first`);
+  for (const m of src.matchAll(/^import [^;]*? from '([^']+)';/gm)) {
+    const spec = m[1] ?? '';
+    if (spec.startsWith('./')) { if (!copy.includes(spec.slice(2))) copy.push(spec.slice(2)); continue; }
+    if (!SHIMMED.has(spec)) throw new Error(`client/${f} imports ${spec}: give it a stand-in in site/demo/lib first`);
   }
   writeFileSync(join(DEMO, 'lib', f), src);
 }
@@ -46,7 +52,7 @@ try {
   const kitchenUrl = pathToFileURL(join(ROOT, 'site', 'src', 'demo', 'kitchen.ts')).href;
   const { DEMO_RULES } = await import('../src/demo/kitchen.ts');
   writeFileSync(join(tmp, 'kitchen-rules.json'), JSON.stringify(DEMO_RULES));
-  writeFileSync(join(tmp, 'client', 't3mcp.mjs'), `// Stand-in written by site/scripts/generate-demo.ts: the made-up kitchen, never T3 Code.
+  writeFileSync(join(tmp, 'client', 't3mcp.ts'), `// Stand-in written by site/scripts/generate-demo.ts: the made-up kitchen, never T3 Code.
 import { createKitchen } from ${JSON.stringify(kitchenUrl)};
 const kitchen = createKitchen({ where: (dir) => ({ workspaceRoot: ${JSON.stringify(join(tmp, 'proj'))} + '/' + dir, faviconPath: 'icon.svg' }),
   shot: (name) => name, later: null });
@@ -54,10 +60,10 @@ export async function signIn() { return { resource: 'demo', token: 'demo', scope
 export function connect() { return kitchen.t3; }
 export { kitchen };
 `);
-  // The board reads its threads from T3 Code's live stream (client/t3live.mjs). This stand-in hands the server the
+  // The board reads its threads from T3 Code's live stream (client/t3live.ts). This stand-in hands the server the
   // same kitchen's threads as stream shells, the inverse of client/shells.mjs threadRow; step 4 checks the result.
-  writeFileSync(join(tmp, 'client', 't3live.mjs'), `// Stand-in written by site/scripts/generate-demo.ts: the made-up kitchen as stream shells, never T3 Code.
-import { kitchen } from './t3mcp.mjs';
+  writeFileSync(join(tmp, 'client', 't3live.ts'), `// Stand-in written by site/scripts/generate-demo.ts: the made-up kitchen as stream shells, never T3 Code.
+import { kitchen } from './t3mcp.ts';
 const LATER = '2999-01-01T00:00:00.000Z';
 export function createKeys() { return { sweep: async () => 0, revokeMine: async () => 0 }; }
 export function createLive({ onChange }) {
@@ -103,7 +109,7 @@ export function createLive({ onChange }) {
 
   // 3. The demo page: the server's page with the stand-ins first, and the browser's own addresses.
   const { createKitchen } = await import('../src/demo/kitchen.ts');
-  const { imageId } = await import('../demo/lib/calls.mjs');
+  const { imageId } = await import('../demo/lib/calls.ts');
   const head = '<meta name="robots" content="noindex">';
   let html = page.replace('<head><meta charset="utf-8">', (m) => m + head)
     .replace('<title>Yes Chef</title>', '<title>Yes Chef demo</title>');

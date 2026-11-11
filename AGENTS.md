@@ -4,7 +4,7 @@ Yes Chef (https://yeschef.codes, repo `ddmirolli/yeschef`) is Dan's agent-orches
 
 ## Rules
 
-- **The Pass acts only through T3 Code.** Every action is a T3 tool call on a thread on the current board (`client/actions.mjs`). The Pass never merges, pushes, releases, or runs a git write itself. Keep the checks in `client/actions.mjs` and `client/guard.mjs` and their tests intact.
+- **The Pass acts only through T3 Code.** Every action is a T3 tool call on a thread on the current board (`client/actions.ts`). The Pass never merges, pushes, releases, or runs a git write itself. Keep the checks in `client/actions.ts` and `client/guard.ts` and their tests intact.
 - **Missing data renders "not checked".** Never show a cached or guessed value as current.
 - **Never act as Dan from a task.** Never send an action through Dan's installed Yes Chef app or a web prototype he runs, and never answer a call for him. Check the app with `--capture` on a copy of its data folder (`desktop/README.md`). The old Python pass (port 8494, `com.yeschef.pass`) and its board writer were retired on 2026-11-10 (Dan); `~/yeschef/` keeps only old data and `shoot.env`.
 - **Secrets** come only through the ReviewWheel 1Password service account and `op run` (see `tools/shoot.sh`). Never print a secret or write one to a file. One exception, by Dan's CLIProxy ruling (2026-10-28): the local CLIProxy hub's API key lives in the hub's own file, `/opt/homebrew/etc/cliproxyapi-keys.txt` (mode 600), not in the vault. `tools/review.sh` reads it there and passes it only to PR-Agent's environment.

@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { fakeRelay, fakeNet } from '../relay/fake.ts';
 import { Team, createTeam, joinTeam, summarize, identity, notCheckedSince, chartUnder, RETRY, ACT_TTL, BOARD_FRESH_MS } from './team.mjs';
 import { grant, allows, refusal, signature, DEFAULTS, PERMS, shares } from './roles.mjs';
-import { buildBoard } from './board.mjs';
-import { act } from './actions.mjs';
+import { buildBoard } from './board.ts';
+import { act } from './actions.ts';
 import { summaryChanges, summaryPr, summaryAsk, summaryBase, fewerRanges, keepSeen } from './team-summaries.mjs';
-import { openKitchen } from './open-kitchen.mjs';
+import { openKitchen } from './open-kitchen.ts';
 import { sealSigned, sealTo, aad, teamKey, newMember, signRoster } from './seal.ts';
 
 const MIN = 60000;
@@ -1782,7 +1782,7 @@ test('after a restart, the summary the relay kept is not live until this Mac rea
   lead.stop(); again.stop();
 });
 
-// ---- 3b PR 4: the summary fields step 4 reads (client/open-kitchen.mjs cleanTicket, cleanBase) ----
+// ---- 3b PR 4: the summary fields step 4 reads (client/open-kitchen.ts cleanTicket, cleanBase) ----
 const AT = Date.UTC(2026, 10, 11, 9);
 const read = (files, extra = {}) => ({ state: 'checked', at: AT, folder: '/w', head: 'A'.repeat(40), remote: { host: 'github.com', repo: 'acme/app' },
   base: { ref: 'origin/main', branch: 'main', from: 'upstream', commit: 'b'.repeat(40) }, files,

@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MAX_ENTRIES, cleanKeybindings, ensureKeybindings, readKeybindings, syncKeybindings, writeKeybindings } from './keybindings.mjs';
-import { keysCore } from '../client/keys.mjs';
+import { keysCore } from '../client/keys.ts';
 
 const DEFAULTS = keysCore(true).defaultList();
 

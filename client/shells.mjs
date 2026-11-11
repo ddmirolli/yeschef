@@ -96,7 +96,7 @@ export function prBase(shell) {
 }
 
 /** The board threads whose changed files Yes Chef follows: every one not settled, and any with an open pull request,
- *  as [{ id, folder, branch, stamp }] for createChanges().want (client/changes.mjs). A thread the stream does not
+ *  as [{ id, folder, branch, stamp }] for createChanges().want (client/changes.ts). A thread the stream does not
  *  carry is left out, so its changes read "not checked". */
 export function changeTargets(rows, shells, project = () => null) {
   return rows.filter((t) => !t.settled || (t.pullRequests || []).some((p) => p.state === 'open')).flatMap((t) => {
@@ -107,9 +107,9 @@ export function changeTargets(rows, shells, project = () => null) {
 
 const openLinks = (shell) => (shell?.pullRequests || []).filter((l) => l.source !== 'stack-dismissed' && l.snapshot?.state === 'open');
 
-/** What GitHub is asked about the followed threads (client/github.mjs), read only.
+/** What GitHub is asked about the followed threads (client/github.ts), read only.
  *  base: per thread, the repo and base branch of its open pull request, or else the repo and base its local read
- *  found (client/changes.mjs `remote` and `base.branch`), as [{ id, host, repo, branch }] or [{ id, why }].
+ *  found (client/changes.ts `remote` and `base.branch`), as [{ id, host, repo, branch }] or [{ id, why }].
  *  prs: every open pull request of those threads, once each, [{ host, repo, number, stamp }], stamped with the
  *  thread's last move. */
 export function githubTargets(targets, shells, local = () => null) {

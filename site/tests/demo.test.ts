@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { createKitchen } from '../src/demo/kitchen.ts';
 import { createHash as browserHash } from '../src/demo/node-crypto.ts';
 import { createHash } from 'node:crypto';
+import { timeToday } from '../demo/lib/you.ts';
+import type { DemoRun, DemoThread } from '../src/demo/types.ts';
 
 const kitchen = () => createKitchen({
   now: () => new Date('2026-11-10T15:00:00Z').getTime(),
@@ -35,4 +37,35 @@ test('browser screenshot IDs stay identical to the app generator IDs', () => {
   for (const text of ['', '/demo/payouts-before.png', 'Fernpay', 'a'.repeat(130), 'crème']) {
     assert.equal(browserHash('sha1').update(text).digest(), createHash('sha1').update(text).digest('hex'));
   }
+});
+
+// Moved from client/you.test with the TypeScript port: the demo kitchen is the site's, so its test runs with the site.
+const min = 60000;
+const NOW = new Date(2026, 10, 10, 15, 0).getTime();
+
+test('the demo kitchen runs one run per thread at a time, and its answered question stays out of agent time', async () => {
+  let clock = NOW;
+  const k = createKitchen({ now: () => clock, where: () => ({}), shot: (name) => name, later: () => {} });
+  // The demo answers as T3 Code does; these are the fields this test reads.
+  const runsOf = async (threadId: string) => ((await k.t3.call('t3_thread_read', { threadId, runLimit: 50 })) as { recentRuns: DemoRun[] }).recentRuns;
+  const asked = async (threadId: string) => ((await k.t3.call('t3_pending_request', { action: 'list', threadId })) as { requestIds: string[] }).requestIds;
+  const { threads } = (await k.t3.call('t3_thread_list', { settled: false })) as { threads: DemoThread[] };
+  const busy: DemoThread[] = [];
+  for (const t of threads.filter((x) => x.status === 'running')) if (!(await asked(t.threadId)).length) busy.push(t);
+  const cards = threads.find((t) => t.title === 'Driver cards on the dispatch map');
+  const first = busy[0];
+  assert.ok(cards);
+  assert.ok(first);
+  k.board();  // the board sees the question while it waits
+  clock += 5 * min;
+  await k.t3.call('t3_thread_send', { threadId: first.threadId, message: 'Dan, from the Pass: also the totals row' });
+  const sent = await runsOf(first.threadId);
+  assert.equal(sent.filter((r) => !r.completedAt).length, 1);
+  assert.equal(sent[1]?.status, 'interrupted');
+  assert.equal(sent[1]?.completedAt, new Date(clock).toISOString());
+  await k.t3.call('t3_pending_request', { action: 'respond', threadId: cards.threadId, requestId: 'r1', answers: { q1: 'Both, window first' } });
+  const run = k.board().tickets.find((t) => t.thread.threadId === cards.threadId)?.runs?.[0];
+  assert.ok(run);
+  // The cards run began 80 minutes before the kitchen opened and asked at 18; the answer came 5 minutes after it opened.
+  assert.equal(timeToday(run, clock).ms, 62 * min);
 });

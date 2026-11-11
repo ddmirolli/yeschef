@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { threadRow, boardThreads, isSnoozed, changeTargets, threadFolder, prBase, githubTargets } from './shells.mjs';
-import { buildBoard } from './board.mjs';
+import { buildBoard } from './board.ts';
 
 const NOW = Date.parse('2026-11-10T12:00:00.000Z');
 const iso = (h) => new Date(NOW + h * 3600000).toISOString();

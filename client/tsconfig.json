@@ -1,9 +1,9 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["ESNext"],
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "types": ["node"]
   },
-  // The client's TypeScript so far. The rest of client/ joins as it is ported.
-  "include": ["seal.ts", "seal.test.ts"]
+  // The client's TypeScript so far: every .ts here and its tests. The .mjs files join as they are ported.
+  "include": ["*.ts", "test/*.ts"]
 }

@@ -3,7 +3,7 @@
 Status: PR 1 built (the bar, its motion, search, history and suggestions). PR 2 built (Send a note to any thread).
 PR 3 built (Appearance), its choices redrawn as pictures after Dan's look. PR 4 built (editable shortcuts).
 Approved look and motion: [mocks/command-bar-v3.html](mocks/command-bar-v3.html) (mock v3, Dan, 2026-11-10: "Then yes, build").
-Code: `client/bar.mjs`, tested in `client/bar.test.mjs`, wired into the page in `client/server.mjs`.
+Code: `client/bar.ts`, tested in `client/bar.test.ts`, wired into the page in `client/server.mjs`.
 Words: the developer words of `pass-definitions-v1_0.md`. Where the mock uses an older word, the definitions win.
 
 ## Keys
@@ -45,7 +45,7 @@ All values come from mock v3.
 - **Suggestions.** After 5 s empty, it rises with the last action and the suggestions. Suggestion rows pop in from
   +150 ms, 40 ms apart, with a small lift and scale. Typed results show at once, with no pop.
 - **Curve.** Apple's default spring: duration 0.5 s, bounce 0. In CSS that is 735 ms with the `linear()` curve in
-  `bar.mjs` (`SPRING`).
+  `bar.ts` (`SPRING`).
 - **Retarget.** One transform and one grid row move the bar. Typing during a motion only retargets it. Nothing waits
   for an animation to end.
 - **Reduce Motion.** No slide: the bar fades out, moves, and fades back in. Rows fade in. Typing during the fade
@@ -134,7 +134,7 @@ ones that draw the home view in each look. This is that.
   moves, ↵ picks, ⌫ goes back. The current one has the ring. Change density works the same way. The pick becomes the
   last action, "Appearance: Dark" or "Density: Compact", so ↑ ↵ picks it again. Keywords: theme, mode, light, dark,
   system, match, auto, color, night, day.
-- **The pictures use the page's own colors.** When the page is built, `client/theme.mjs` reads the page's tokens for
+- **The pictures use the page's own colors.** When the page is built, `client/theme.ts` reads the page's tokens for
   light and dark (`rootTokens`: every `:root` block in order, `var()` resolved) and draws the pictures with them
   (`miniCss`). A new color on the page changes the pictures too. A token the pictures need and cannot find stops the
   build. The pictures are drawn in container units, so one picture serves the Settings tile and the bar's thumbnail.
@@ -142,7 +142,7 @@ ones that draw the home view in each look. This is that.
   works with the bar, Settings or New thread open. Shortcuts lists it.
 - **Saved on this Mac** (`localStorage`: `yc.theme`). System saves nothing. The choice is on the page before its
   first paint, so a Light choice on a dark Mac never flashes dark.
-- **How.** The page's dark and light rules are `prefers-color-scheme` blocks. `client/theme.mjs` writes each one twice
+- **How.** The page's dark and light rules are `prefers-color-scheme` blocks. `client/theme.ts` writes each one twice
   when the page is built: once for System (a root with no `data-theme`) and once for the choice
   (`:root[data-theme=dark]` or `light`). The guard sits in `:where()`, so no rule changes weight, and with no choice the
   page looks as it did. It goes on each selector's first part as "the root, or anything in it", because the view and
@@ -189,8 +189,8 @@ Scope addition, Dan, 2026-11-10: "also add switching to a quick action in the co
 
 ## Shortcuts
 
-PR 4. Settings → Shortcuts, as in mock v3's Shortcuts tab. Code: `client/keys.mjs` (the commands, key names, routing
-and clashes), tested in `client/keys.test.mjs`. The Mac app's file: `desktop/keybindings.mjs`.
+PR 4. Settings → Shortcuts, as in mock v3's Shortcuts tab. Code: `client/keys.ts` (the commands, key names, routing
+and clashes), tested in `client/keys.test.ts`. The Mac app's file: `desktop/keybindings.mjs`.
 
 - **The list.** One row per command, in two groups: App and On a call. Each row shows its keys as keycaps, with
   Change on the right. The search field on top filters by name, line or key. A third group, Fixed, lists the keys that

@@ -1,29 +1,29 @@
 // The Pass web prototype (docs/pass-product-brief-v1_0.md, Dan's 1a and 2a, 2026-11-06).
-// Read-only. It follows one T3 environment's live stream (client/t3live.mjs) and reads the rest as an outside MCP
+// Read-only. It follows one T3 environment's live stream (client/t3live.ts) and reads the rest as an outside MCP
 // client, and pushes each change to the page. It stores nothing: the keys live in this process, and every fact
 // comes from T3.
 // Run: BRIGADE_PASS_ORIGIN=<this page's https address> BRIGADE_ALLOW=<allow-list file> node client/server.mjs <t3-origin> [port]
 // The desktop app (desktop/main.mjs) starts it with the T3 origin only: it opens no port and takes actions over its pipe.
 import { createServer } from 'node:http';
-import { onScale } from './scale.mjs';
+import { onScale } from './scale.ts';
 import { mkdtempSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, extname, isAbsolute, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { signIn, connect } from './t3mcp.mjs';
-import { createKeys, createLive } from './t3live.mjs';
+import { signIn, connect } from './t3mcp.ts';
+import { createKeys, createLive } from './t3live.ts';
 import { boardThreads, changeTargets, githubTargets } from './shells.mjs';
-import { createChanges } from './changes.mjs';
-import { createBaseChecks, createPrSizes, prKey } from './github.mjs';
-import { buildBoard, renderApp, kitchenPane, pickedFrom } from './board.mjs';
-import { readRuns, dayStart, trackWaits, mayRunToday } from './you.mjs';
-import { normalize as normalRules, change as changeRule } from './kitchen.mjs';
-import { parseCalls, callKey, imagesIn, imageId, shotPath, isShot, SHOT_TYPES } from './calls.mjs';
-import { act } from './actions.mjs';
-import { refuse } from './guard.mjs';
-import { BAR_CSS, BAR_HTML, SPRING, barCore, installBar } from './bar.mjs';
-import { onTheme, miniCss, minis, MINI_CSS } from './theme.mjs';
-import { keysCore } from './keys.mjs';
+import { createChanges } from './changes.ts';
+import { createBaseChecks, createPrSizes, prKey } from './github.ts';
+import { buildBoard, renderApp, kitchenPane, pickedFrom } from './board.ts';
+import { readRuns, dayStart, trackWaits, mayRunToday } from './you.ts';
+import { normalize as normalRules, change as changeRule } from './kitchen.ts';
+import { parseCalls, callKey, imagesIn, imageId, shotPath, isShot, SHOT_TYPES } from './calls.ts';
+import { act } from './actions.ts';
+import { refuse } from './guard.ts';
+import { BAR_CSS, BAR_HTML, SPRING, barCore, installBar } from './bar.ts';
+import { onTheme, miniCss, minis, MINI_CSS } from './theme.ts';
+import { keysCore } from './keys.ts';
 import { appendFileSync } from 'node:fs';
 import { teamHost } from './teamhost.mjs';
 
@@ -47,7 +47,7 @@ const PORT = Number(process.argv[3] || 8620);
 // The page hears from the board at least this often, live or not: each beat rebuilds the board from what the
 // stream holds (no T3 call unless a thread changed) and says whether that data is live.
 const BEAT_MS = 5000;
-// Actions on the web prototype: only through the tailnet, from an allowed device, on this page (client/guard.mjs).
+// Actions on the web prototype: only through the tailnet, from an allowed device, on this page (client/guard.ts).
 // The page's address and the allow list come from the environment: the code carries nobody's address or files.
 const PAGE_ORIGIN = process.env.BRIGADE_PASS_ORIGIN || '';
 const ALLOW = process.env.BRIGADE_ALLOW || '';
@@ -60,7 +60,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 // The Pass's base stylesheet (client/pass.css); the app's own rules follow it (APP_CSS).
 const CSS = readFileSync(join(HERE, 'pass.css'), 'utf8');
 const OUT = mkdtempSync(join(tmpdir(), 'the-pass-'));
-// Rules (client/kitchen.mjs), set in Settings. The desktop app keeps them in its data folder
+// Rules (client/kitchen.ts), set in Settings. The desktop app keeps them in its data folder
 // (YESCHEF_RULES_FILE); the web prototype keeps them in this run's temp folder.
 const RULES_FILE = process.env.YESCHEF_RULES_FILE || join(OUT, 'kitchen-rules.json');
 let rules = normalRules(null);
@@ -112,7 +112,7 @@ function withIcons(list) {
   });
 }
 // The agent's hand-back on each ticket that gave the turn back, kept until the thread runs again: its latest
-// message, and its call (lettered options, client/calls.mjs) if it asked one since the last message it received.
+// message, and its call (lettered options, client/calls.ts) if it asked one since the last message it received.
 // PR bot pings start runs too ("checks passed"); they post no user message, so a call before them stays open.
 const handbackCache = new Map();
 async function handback(t) {
@@ -160,7 +160,7 @@ let linkBase = null;
 const link = (t) => (t.link && t.link.startsWith('http') ? t.link : `${ORIGIN}/${envId}/${t.threadId}`);
 const linkFor = (id) => (linkBase ? linkBase + encodeURIComponent(id) : null);
 
-// The live stream: a read-only key of its own, T3 Code's /ws, and the shell it keeps current (client/t3live.mjs).
+// The live stream: a read-only key of its own, T3 Code's /ws, and the shell it keeps current (client/t3live.ts).
 const keys = createKeys({ origin: ORIGIN, ...(process.env.YESCHEF_T3_BIN ? { bin: process.env.YESCHEF_T3_BIN } : {}) });
 // Reads the stream does not carry, kept until what they depend on changes: a parent the stream does not have
 // (until the next snapshot, or until the stream names it), and a thread's waiting questions (until its pending
@@ -178,12 +178,12 @@ const live = createLive({ origin: ORIGIN, keys, log: (m) => console.log(m), onCh
 } });
 let parentGeneration = -1, projectsRev = -1;
 const questionCache = new Map();
-// Changed files and line ranges per thread: a read-only git diff in each thread's folder (client/changes.mjs).
+// Changed files and line ranges per thread: a read-only git diff in each thread's folder (client/changes.ts).
 // Nothing on the board shows them yet; the team summary and the Overlap and Too big calls read them with
 // changes.get(threadId) and changes.subscribe(fn).
 const changes = createChanges({ log: (m) => console.log(m) });
 // The checks on each followed thread's base branch, and the size of each open PR, from GitHub through the gh CLI
-// this Mac is signed in to, read only (client/github.mjs). No gh, no answer: "not checked". Nothing shows them yet;
+// this Mac is signed in to, read only (client/github.ts). No gh, no answer: "not checked". Nothing shows them yet;
 // readers use baseChecks.get(threadId) and prSizes.get(prKey({ host, repo, number })), and subscribe(fn) on each.
 const baseChecks = createBaseChecks({ log: (m) => console.log(m) });
 const prSizes = createPrSizes({ log: (m) => console.log(m) });
@@ -193,7 +193,7 @@ const prSizes = createPrSizes({ log: (m) => console.log(m) });
 // more threads than one update reads, leaves run times "not checked" for this update; the board itself stays good,
 // and the next update carries on from what it already has.
 const runCache = new Map();
-// Today's waits on questions, seen update by update: T3's run times hold them (client/you.mjs trackWaits).
+// Today's waits on questions, seen update by update: T3's run times hold them (client/you.ts trackWaits).
 const waitLog = new Map();
 const RUN_READS = 40;
 async function runTimes(threads, now) {
@@ -1599,8 +1599,8 @@ button.sf:hover .s{text-decoration:underline}
 .tboard .tmore{margin:8px 0 0;font-size:12.5px;color:var(--label2)}
 @media (max-width:760px){.sf{grid-template-columns:minmax(0,1fr) auto;row-gap:2px;padding:6px 0}.sf .s{grid-column:1 / -1}}
 `;
-// Appearance (theme.mjs): every dark and light rule also answers to the html element's data-theme.
-// The pictures in Settings → Layout and the ⌘K bar's Appearance and Density steps (theme.mjs).
+// Appearance (theme.ts): every dark and light rule also answers to the html element's data-theme.
+// The pictures in Settings → Layout and the ⌘K bar's Appearance and Density steps (theme.ts).
 const MINIS = minis();
 const tile = (name, value, label) => `<label class="look"><input type="radio" name="${name}" value="${value}" aria-label="${label}">${MINIS[value]}<span class="look-n">${label}</span></label>`;
 const STYLE = onScale(onTheme(CSS + APP_CSS + BAR_CSS + MINI_CSS) + miniCss(CSS + APP_CSS + BAR_CSS));
@@ -1660,7 +1660,7 @@ ${BAR_HTML}
   var mounted = null; // the ticket element now open in the reader or the sheet
   var bar = null; // the Cmd+K action bar, once installed at the end
   var MINI = ${JSON.stringify(MINIS)}; // the Settings pictures, for the bar's Appearance and Density steps
-  // Shortcuts (client/keys.mjs, ⌘K bar PR 4): the keys in use, as Settings → Shortcuts set them. The browser keeps the
+  // Shortcuts (client/keys.ts, ⌘K bar PR 4): the keys in use, as Settings → Shortcuts set them. The browser keeps the
   // list under yc.keys; the Mac app keeps it in keybindings.json in its data folder and reads it at start and on focus.
   ${keysCore}
   var K = keysCore(/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || ''));
@@ -2497,7 +2497,7 @@ ${BAR_HTML}
     setIntent(f, 'reply');
     // A reply you already started stays; the ask goes under it (PR-Agent r5 on #49).
     var cur = f.elements.note.value.trimEnd(), add = cur ? cur + '\\n\\n' + b.dataset.askShots : b.dataset.askShots;
-    // A reply holds 4,000 characters (client/actions.mjs MAX_NOTE). Past that, say so; never send a cut ask (PR-Agent r6 on #49).
+    // A reply holds 4,000 characters (client/actions.ts MAX_NOTE). Past that, say so; never send a cut ask (PR-Agent r6 on #49).
     if (cur.indexOf(b.dataset.askShots) < 0 && add.length > 4000) { toast('Your reply is too long to add the ask. Shorten it first.', null, 5000, true); f.elements.note.focus(); return; }
     if (cur.indexOf(b.dataset.askShots) < 0) f.elements.note.value = add;
     f.elements.note.dispatchEvent(new Event('input', { bubbles: true }));
@@ -2850,7 +2850,7 @@ ${BAR_HTML}
       if (cur) cur.replaceWith(nw);
     });
   }
-  // The picks in the address, as pickedFrom reads them (client/board.mjs): repeats and empty names drop out; null is
+  // The picks in the address, as pickedFrom reads them (client/board.ts): repeats and empty names drop out; null is
   // All projects. An array, not an object: a project may be called "__proto__".
   function pickedNow(){
     var out = [];
@@ -3081,7 +3081,7 @@ ${BAR_HTML}
     if (t === sheet) sheet.close();
   });
   sheet.addEventListener('close', function(){ var id = state.sel; if (!(focusView() && wide())) { unmount(); state.sel = null; mark(); } var back = id && $('[data-plate="' + id + '"]:not(form)'); if (back) back.focus({ preventScroll: true }); });
-  // The page's keys, as each command's default key reads (client/keys.mjs). The router below sends every key here.
+  // The page's keys, as each command's default key reads (client/keys.ts). The router below sends every key here.
   function onKey(ev){
     // Esc closes the menu and puts focus back on its chip, so the keys go on from there.
     var m = $('details.pmenu[open]'); if (m && ev.key === 'Escape') { var back = m.contains(document.activeElement) && $('summary', m); m.open = false; if (back) back.focus(); return; }
@@ -3199,7 +3199,7 @@ ${BAR_HTML}
       if (form.elements.note) form.elements.note.focus();
     }
   }
-  // Every key goes through the shortcuts first (client/keys.mjs). With none changed it is onKey, exactly as before.
+  // Every key goes through the shortcuts first (client/keys.ts). With none changed it is onKey, exactly as before.
   // A changed key reaches onKey as the key its command had by default; a command with no default key runs here; a
   // default key its command gave up does nothing where that command applies. A plain key keeps typing in a text field
   // and belongs to an open dialog, as ⌘↵ does there (it sends), and an option's letter comes first while a question waits.
@@ -3229,7 +3229,7 @@ ${BAR_HTML}
     'view.you': function(){ setScope('you'); },
     'view.team': function(){ if (teamNow()) setScope('team'); else toast('View: Team needs a team first.', null, 3000); }
   };
-  // Every key label on the board names its command (data-cmd, client/board.mjs) and shows that command's key now.
+  // Every key label on the board names its command (data-cmd, client/board.ts) and shows that command's key now.
   // A button's first key shows the send key while it is armed (setIntent, noteKey): then only its own key changes.
   function relabel(scope){
     $$('kbd[data-cmd]', scope || document).forEach(function(kb){
@@ -3400,7 +3400,7 @@ ${BAR_HTML}
   applyPrefs(); applyScope(); normalizePicked(); sizeRail(); if (KST.changed || !K.mac) relabel(document); restoreDrafts(document);
   setView(state.view); setFolder('pass');
   fades();
-  // The Cmd+K action bar (client/bar.mjs). View: You and View: Team read and set the same scope as the footer
+  // The Cmd+K action bar (client/bar.ts). View: You and View: Team read and set the same scope as the footer
   // chip's switch; with no reports (#yc-team absent) views() says so and their rows stay hidden (Dan, 2026-11-10).
   ${barCore}
   ${installBar}
