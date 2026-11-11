@@ -225,3 +225,4 @@ Throw this approach away if any of these happen:
 - 2026-11-06 (Dan, 2a): the service is `com.agentbrigade.pass` and its data `~/agent-brigade/` (#4). No project is built into the code.
 - 2026-11-06 (Dan, 1a): this spec moved whole into the Agent Brigade repository. The Pass serves every project in Dan's T3 Code account, so ReviewWheel keeps no part of it, only a pointer.
 - 2026-11-06 (Dan): "Done" becomes **Verified**: a Sent ticket whose receipt is filed. Sent alone means merged, not yet checked. The header counts Verified today.
+- 2026-11-10 (Dan, "3. B"): the Python pass (`pass.py`), the board writer (`board.py`), their tests, the board format page and the `com.yeschef.pass` login service are retired, and port 8494 is freed (D2 ends). The Mac app (`desktop/`) and its board server (`client/`) replace them. The shared stylesheet moved to `client/pass.css`.

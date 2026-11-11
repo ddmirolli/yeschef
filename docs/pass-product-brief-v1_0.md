@@ -43,7 +43,7 @@ Open. The account can carry the download, updates, and billing. It never holds T
 
 ## Today's pass
 
-The Python pass on port 8494 stays live as the working prototype. Its design and words carry over. Its local rules (standard library only, tailnet only, answers only) govern the prototype, not the product.
+The Python pass on port 8494 was the working prototype until 2026-11-10, when Dan retired it: the Mac app replaced it. Its design and words carried over.
 
 ## S0: the client spike
 

@@ -21,7 +21,7 @@ This builds `Yes Chef.app` with electron-builder and puts it in `/Applications`.
 
 Every build is built the way a release is (`docs/desktop-release-plan-v0_1.md`, sections 2 and 3):
 
-- The app is one `app.asar`: `desktop/` without its tests and build scripts, `client/` without its tests, and `pass.py` for the board's stylesheet.
+- The app is one `app.asar`: `desktop/` without its tests and build scripts, and `client/` without its tests (its `pass.css` is the board's base stylesheet).
 - The fuses are flipped before signing: no `ELECTRON_RUN_AS_NODE`, no `NODE_OPTIONS`, no `--inspect`, cookies encrypted, and the app loads only from its asar, which is checked against the hash in `Info.plist`.
 - Every helper, framework and the app are signed inside out with the hardened runtime. The only entitlement is `allow-jit`, for V8 (`build/entitlements.mac.plist`).
 - The build then runs the checks in `build/release.mjs` and stops if one fails.

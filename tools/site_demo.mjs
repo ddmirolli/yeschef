@@ -38,7 +38,6 @@ const tmp = mkdtempSync(join(tmpdir(), 'yc-site-demo-'));
 let server = null;
 try {
   cpSync(join(ROOT, 'client'), join(tmp, 'client'), { recursive: true });
-  copyFileSync(join(ROOT, 'pass.py'), join(tmp, 'pass.py'));
   for (const dir of Object.values(DIRS)) {
     mkdirSync(join(tmp, 'proj', dir), { recursive: true });
     copyFileSync(join(ART, 'icons', `${dir}.svg`), join(tmp, 'proj', dir, 'icon.svg'));
