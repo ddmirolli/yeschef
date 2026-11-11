@@ -113,13 +113,13 @@ export const inbox = {
     // A seen one gets its first answer again; nothing runs twice.
     const had = this.seen.get(seenKey);
     if (had) return { commit: true, replies: [() => this.reply(sender.id, nonce, had.status, had.text)] };
-    // An id leaves only once its action is too old to run anyway, measured against the latest time this Mac has seen,
-    // so a clock set forward and back again cannot drop an id and then take its action again. The time of the newest id
-    // let go is kept: an action from then or before may be one of them, so it does not run.
-    const high = Math.max(now, Number(this.state.clockHigh) || 0);
-    this.state.clockHigh = high;
+    // An id leaves only once its action is too old to run anyway. The time of the newest id let go is kept: an action
+    // from then or before may be one of them, so it does not run. That floor is what stops a clock set forward and back
+    // again from running an action twice, so ids expire against the clock as it is now, and a clock set right again
+    // never expires fresh ids.
+    delete this.state.clockHigh;
     for (const [k, v] of this.seen) {
-      if (high - v.at < SEEN_KEEP_MS) continue;
+      if (now - v.at < SEEN_KEEP_MS) continue;
       this.seen.delete(k);
       this.state.seenFloor = Math.max(Number(this.state.seenFloor) || 0, v.at);
     }
