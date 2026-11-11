@@ -5,7 +5,8 @@
     "target": "ES2023",
     "lib": ["ES2023", "WebWorker"],
     "types": ["@cloudflare/workers-types", "node"],
-    // Not on Effect yet: Date, timers, console, fetch and crypto stay, as T3 Code's apps/web does.
+    // Not on Effect yet: Date, timers, console, fetch and crypto stay, as T3 Code's apps/web does. What the relay reads
+    // crosses Schemas (messages.ts), but the room keeps its own clock, timers and crypto, so every file stays here.
     "plugins": [
       {
         "name": "@effect/language-service",

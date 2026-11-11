@@ -619,6 +619,55 @@ test('a message the relay cannot read gets an error, not a crash', async () => {
   assert.equal((await lws.say({ t: 'send', id: 2 })).code, 'bad');
 });
 
+test('a message with a field of the wrong kind is refused, not read as a guess', async () => {
+  const t = await team();
+  const lws = await t.ws(t.lead);
+  const inv = await t.invite(lws);
+  const { dev } = await t.join(inv);
+  const count = (table: string) => Number(t.relay.sql.exec(`SELECT COUNT(*) AS n FROM ${table}`).toArray()[0]!.n);
+  // The member id in a list: read as text, it was the id, and the ask was dropped.
+  assert.equal((await lws.say({ t: 'decline', id: 1, m: [dev.id] })).code, 'bad');
+  assert.equal(count('pending'), 1, 'the ask still waits');
+  // The invite id in a list.
+  assert.equal((await lws.say({ t: 'revoke', id: 2, invite: [inv.record.invite] })).code, 'bad');
+  assert.equal(count('invite'), 1, 'the invite is still open');
+  // An invite whose end is text.
+  const next = await newInvite({ relay: 'https://relay.test', team: t.id, lead: t.lead, now: t.relay.now() });
+  const box = await seal(t.key, { secret: next.secret }, aad.invite(t.id, next.record.invite));
+  assert.equal((await lws.say({ t: 'invite', id: 3, invite: next.record.invite, verifier: next.record.verifier, until: String(next.record.until), box })).code, 'bad');
+  assert.equal(count('invite'), 1, 'no second invite');
+  // A sealed message whose time to live is text, and a done whose item is a number.
+  await t.approve(lws, dev);
+  const inbox = count('inbox');
+  assert.equal((await lws.say({ t: 'send', id: 4, to: dev.id, blob: 'a.b', ttl: '60000' })).code, 'bad');
+  assert.equal(count('inbox'), inbox, 'nothing waits in the inbox');
+  assert.equal((await lws.say({ t: 'done', id: 5, item: 5 })).code, 'bad');
+});
+
+test('the relay keeps and passes on only the roster it checked, never fields it did not read', async () => {
+  // A new team: the stored roster and the lead's hello hold the signed body and its signature, nothing else.
+  const relay = fakeRelay();
+  const id = newId();
+  const lead = await newMember();
+  const signed = await signRoster(lead, { team: id, ver: 1, lead: lead.id, at: relay.now(), members: [{ id: lead.id, sign: lead.signPub, dh: lead.dhPub }] });
+  assert.equal((await relay.http('POST', `/v1/teams/${id}`, { roster: { ...signed, pad: 'x'.repeat(1000) } })).status, 201);
+  const kept = () => JSON.parse(String(relay.sql.exec('SELECT roster FROM team').toArray()[0]!.roster)) as unknown;
+  assert.deepEqual(kept(), signed);
+  const lws = opened(await relay.connect(`/v1/teams/${id}/ws?auth=${await authToken(lead, { team: id, method: 'GET', path: `/v1/teams/${id}/ws`, now: relay.now() })}`));
+  assert.deepEqual(memberHello(lws).roster, signed);
+
+  // A new roster over the socket: the same for what is stored and what the members hear.
+  const t = await team();
+  const tws = await t.ws(t.lead);
+  const { dev } = await t.join(await t.invite(tws));
+  await t.approve(tws, dev);
+  const dws = await t.ws(dev);
+  const v3 = await t.rosterNow(3);
+  assert.equal((await tws.say({ t: 'roster', id: 'r', roster: { ...v3, pad: 'x'.repeat(1000) } })).t, 'ok');
+  assert.deepEqual(dws.last('roster')?.roster, v3);
+  assert.deepEqual(JSON.parse(String(t.relay.sql.exec('SELECT roster FROM team').toArray()[0]!.roster)), v3);
+});
+
 test('a delete that fails halfway leaves the team answering, so the lead can try again', async () => {
   let fail = true;
   const relay = fakeRelay({ wipe: async () => { if (fail) throw new Error('storage busy'); } });
