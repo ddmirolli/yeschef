@@ -5,12 +5,18 @@ on:
     paths:
       - 'site/**'
       - 'deploy/yeschef/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
       - '.github/workflows/site.yml'
   push:
     branches: [main]
     paths:
       - 'site/**'
       - 'deploy/yeschef/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
       - '.github/workflows/site.yml'
 
 permissions:
@@ -26,17 +32,19 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      # site/ is in the pnpm workspace. Vite+ brings Node (engines.node in package.json) and pnpm (packageManager).
+      - name: Set up Vite+
+        uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1
+        env:
+          VP_DOWNLOAD_TIMEOUT: '120'
         with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: site/package-lock.json
-      - name: Install the locked site dependencies
-        run: npm ci --prefix site
-      - name: Check types and build the static site
-        run: npm run build --prefix site
-      - name: Test downloads, demo isolation, and built pages
+          node-version-file: package.json
+          cache: false
+          run-install: false
+      - name: Install the locked workspace
+        run: vp install --frozen-lockfile
+      # npm test checks the types and builds the static site first.
+      - name: Check types, build, and test downloads, demo isolation, and built pages
         run: npm test --prefix site
       - name: Check public files
         run: node tools/public-tree.ts check
