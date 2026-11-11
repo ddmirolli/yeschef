@@ -11,7 +11,7 @@ import { CHANNELS, FEED, channelOf, compareVersions, isReleaseVersion, nextNight
 import {
   CHECK_EVERY_MS, FIRST_CHECK_MS, NO_ID, STAGE_WAIT_MS, canUpdateInPlace, cardFor, createUpdates, feedOverride, fileHandoff, menuFor, moveCard, shortError, visibleCard,
 } from './updates.ts';
-import type { Card, CardContext, Squirrel, Timers, UpdateState, Updater } from './updates.ts';
+import type { Card, CardContext, Logger, Squirrel, Timers, UpdateState, Updater } from './updates.ts';
 import { nth } from '../client/test/expect.ts';
 
 /** x, or the test fails. */
@@ -53,13 +53,13 @@ function fakeTimers() {
   return t;
 }
 const quiet = { info() {}, warn() {}, error() {}, debug() {} };
-function setup<U extends EventEmitter = FakeUpdater>({ version = '0.2.0', packaged = true, feed = null as string | null, updater = new FakeUpdater() as unknown as U }: {
-  version?: string; packaged?: boolean; feed?: string | null; updater?: U;
+function setup<U extends EventEmitter = FakeUpdater>({ version = '0.2.0', packaged = true, feed = null as string | null, updater = new FakeUpdater() as unknown as U, log = quiet as Logger }: {
+  version?: string; packaged?: boolean; feed?: string | null; updater?: U; log?: Logger;
 } = {}) {
   const squirrel = fakeSquirrel();
   const timers = fakeTimers();
   const seen: UpdateState[] = [];
-  const updates = createUpdates({ updater: updater as unknown as Updater, squirrel: squirrel as unknown as Squirrel, app: { isPackaged: packaged }, version, feed, log: quiet, timers, onChange: (s) => seen.push(s) });
+  const updates = createUpdates({ updater: updater as unknown as Updater, squirrel: squirrel as unknown as Squirrel, app: { isPackaged: packaged }, version, feed, log, timers, onChange: (s) => seen.push(s) });
   return { updates, updater, squirrel, timers, seen };
 }
 const ctx = { name: 'Yes Chef', current: '0.2.0' };
@@ -239,6 +239,73 @@ test('a failed download or install shows its error', () => {
   updater.emit('error', new Error('sha512 checksum mismatch'));
   assert.equal(updates.state.status, 'error');
   assert.equal(shown(updates.state).body, 'sha512 checksum mismatch');
+});
+
+// What electron-updater sends with its events crosses a Schema, as in T3 Code (DesktopUpdates.ts, UpdateInfo and
+// DownloadProgressInfo). An event Yes Chef cannot read is never acted on as a guess.
+const UNREADABLE = 'The update server sent an answer Yes Chef cannot read.';
+function logged() {
+  const lines: { warn: string[]; error: string[] } = { warn: [], error: [] };
+  return { lines, log: { ...quiet, warn: (l: string) => lines.warn.push(l), error: (l: string) => lines.error.push(l) } };
+}
+
+test('a download progress tick Yes Chef cannot read keeps the bar where it was', () => {
+  const { lines, log } = logged();
+  const { updates, updater } = setup({ log });
+  updater.emit('update-available', { version: '0.2.1' });
+  updates.download();
+  updater.emit('download-progress', { percent: 41.7 });
+  for (const tick of [{ percent: 'abc' }, { percent: '55' }, { percent: Number.NaN }, {}, null]) {
+    updater.emit('download-progress', tick);
+    assert.deepEqual([updates.state.status, updates.state.percent], ['downloading', 41], JSON.stringify(tick));
+  }
+  assert.equal(shown(updates.state).body, '41%');
+  assert.equal(lines.warn.length, 5, 'each unread tick is logged');
+  updater.emit('download-progress', { percent: 63.2 });
+  assert.equal(updates.state.percent, 63);
+});
+
+test('an update without a version Yes Chef can read is never offered', async () => {
+  for (const info of [{}, { version: 5 }, null, 'v0.2.1']) {
+    const { lines, log } = logged();
+    const { updates, updater, timers } = setup({ log });
+    // By hand: the check answers with its error, not with "Yes Chef undefined is available".
+    updates.act('check');
+    updater.emit('update-available', info);
+    assert.equal(updates.state.status, 'error', JSON.stringify(info));
+    assert.deepEqual([shown(updates.state).title, shown(updates.state).body], ['Could not update Yes Chef', UNREADABLE]);
+    updates.act('ok');
+    await tick();
+    // In the background: nothing is shown, the line is logged, and the next check runs as usual.
+    nth(timers.timeouts).fn();
+    updater.emit('update-available', info);
+    assert.equal(updates.state.status, 'idle', JSON.stringify(info));
+    assert.equal(visibleCard(updates.state, ctx), null);
+    assert.equal(lines.error.length, 2);
+    await tick();
+    const before = updater.checks;
+    nth(timers.intervals).fn();
+    await tick();
+    assert.equal(updater.checks, before + 1, 'the next background check runs');
+  }
+});
+
+test('a download whose version Yes Chef cannot read is not ready on a guess', () => {
+  for (const info of [null, {}, { version: 2 }]) {
+    const { updates, updater } = setup();
+    updater.emit('update-available', { version: '0.2.1' });
+    updates.download();
+    updater.emit('update-downloaded', info);
+    assert.equal(updates.state.status, 'error', JSON.stringify(info));
+    assert.equal(shown(updates.state).body, UNREADABLE);
+    assert.equal(updater.installs, 0);
+  }
+  // The version the download names is the one the card shows.
+  const { updates, updater } = setup();
+  updater.emit('update-available', { version: '0.2.1' });
+  updates.download();
+  updater.emit('update-downloaded', { version: '0.2.2' });
+  assert.deepEqual([updates.state.status, updates.state.version], ['ready', '0.2.2']);
 });
 
 test('Later hides the card until something changes; a check by hand brings it back', () => {
