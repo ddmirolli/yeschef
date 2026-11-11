@@ -472,7 +472,8 @@ export function kitchenBoard(ok, { now, want = null }) {
 
   // Files two live threads change: one row per file, in one repo and base. Same lines is the Overlap call; different
   // lines are fine; a side with no ranges read is not checked.
-  const readable = (k, live) => comparable(k, live) && !!k.changes.repo;
+  // Files compare within one repo and base branch: a read that leaves out either is not checked, never matched.
+  const readable = (k, live) => comparable(k, live) && !!k.changes.repo && !!k.changes.base;
   const byFile = new Map();
   for (const { k, person, live } of all) {
     if (!readable(k, live)) continue;
@@ -503,7 +504,7 @@ export function kitchenBoard(ok, { now, want = null }) {
   files.sort((a, z) => RANKF[a.state] - RANKF[z.state] || a.path.localeCompare(z.path));
   // When the list was read: the oldest read among the threads it compares.
   const reads = all.filter(({ k, live }) => readable(k, live)).map(({ k }) => k.changes.at);
-  // Not checked: a live thread at work whose files were not sent, or were sent with no repo to compare them in.
+  // Not checked: a live thread at work whose files were not sent, or were sent with no repo or base to compare them in.
   const unread = all.filter(({ k, live }) => live && Object.hasOwn(STAGE_RANK, k.place ?? '') && k.place !== 'Merged' && !readable(k, live)).length;
   const partial = all.filter(({ k, live }) => readable(k, live) && (k.changes.more ?? 0) > 0).length;
   const filesAt = reads.length && reads.every((t) => t !== null) ? Math.min(...reads) : null;

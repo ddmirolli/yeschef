@@ -736,3 +736,13 @@ test('r10: a merge’s branch and commit come from whichever copy gives them, so
   const m = board(v).base.merges.find((x) => x.n === 431);
   assert.equal(m.tone, 'red', 'the merged copy names main, so the break is marked');
 });
+
+// ---- PR B, PR-Agent round 11 ----
+test('r11: checked changes with no base branch are not checked, never counted as read', () => {
+  const v = viewL();
+  const F0 = board(v).files;
+  ticket(v, 'ada').changes.base = null;
+  const F = board(v).files;
+  assert.deepEqual([F.compared, F.unread], [F0.compared - 1, F0.unread + 1]);
+  assert.ok(!F.rows.some((f) => f.path === 'web/src/sidebar.tsx'));
+});
