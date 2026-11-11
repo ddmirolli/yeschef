@@ -23,6 +23,10 @@ export const PING_MS = 30000, PONG_MS = 10000, ASK_MS = 15000;
 export const ACT_TTL = 15 * 60000;
 /** A dev's own board older than this is not checked: an action waits for a fresh one. */
 export const BOARD_FRESH_MS = 60000;
+// A summary reads as live only while its sender is online and its board was read this recently. A sender sends an
+// unchanged summary again after SUMMARY_REFRESH_MS, so a working sender stays live (PR-Agent r20 on public #7).
+export const SUMMARY_LIVE_MS = 15 * 60000;
+const SUMMARY_REFRESH_MS = 10 * 60000;
 // A member without the team key asks the lead for another welcome at most this often.
 export const KEY_ASK_MS = 86400000;
 const LATER_INBOX = 100, SUMMARY_TICKETS = 100, SEEN_MAX = 500, STATE_V = 1;
@@ -138,7 +142,7 @@ export class Team {
 
   /** What the screens show. Health and freshness are apart: a summary carries its own time, and nobody reads as
    *  online, nor any summary as live, while this Mac's socket is not. A teammate who is offline has a cached summary,
-   *  not a live one (PR-Agent r15 on public #7). */
+   *  not a live one (PR-Agent r15 on public #7), and so is one whose board was read too long ago (PR-Agent r20). */
   view() {
     const live = this.link === 'online';
     return {
@@ -148,7 +152,7 @@ export class Team {
       people: [...this.people.values()].map((p) => {
         const s = this.summaries.get(p.id);
         return { id: p.id, name: p.name, role: p.role, perms: p.perms, online: live && this.online.has(p.id),
-          summary: s?.body || null, at: s?.at || null, live: live && !!s && this.online.has(p.id) };
+          summary: s?.body || null, at: s?.at || null, live: live && !!s && this.online.has(p.id) && this.now() - s.at <= SUMMARY_LIVE_MS };
       }),
       pending: [...this.pending.values()],
       invites: [...this.invites.values()].map(({ id, until, by }) => ({ id, until, by })),
@@ -541,7 +545,9 @@ export class Team {
         if (this.stopped || (this.state.status !== 'member' && this.state.status !== 'pending')) { ack = false; return; }
         this.state.key = w.teamKey; this.key = null;
         if (w.teamName) this.state.teamName = clean(w.teamName, 80);
-        this.save();
+        // The relay lets the welcome go only once the key is on disk; if it is not, the welcome comes again (PR-Agent
+        // r20 on public #7).
+        if (!(await this.saveNow())) ack = false;
         if (this.rosterSigned) await this.takeRoster(this.rosterSigned);
         const later = this.later; this.later = [];
         for (const msg of later) await this.handle(msg);
@@ -603,7 +609,12 @@ export class Team {
       this.seen.delete(k);
       this.state.seenFloor = Math.max(Number(this.state.seenFloor) || 0, v.at);
     }
-    if (this.seen.size >= SEEN_MAX) return this.reply(sender.id, nonce, 429, 'Not run: too many teammate actions in the last few minutes. Try again shortly.');
+    // A full list sends no "not run" either: it is not kept, so a lost ack would let the relay's copy run later beside
+    // the sender's retry. The relay keeps it and it is judged again once ids leave (PR-Agent r20 on public #7).
+    if (this.seen.size >= SEEN_MAX) {
+      this.emit('error', { text: 'Too many teammate actions in the last few minutes. The next one waits on the relay.' });
+      return false;
+    }
     let ran = false;
     const answer = async (status, text) => {
       this.seen.set(seenKey, { at: now, status, text });
@@ -706,12 +717,19 @@ export class Team {
     if (this.state.status !== 'member' || !(this.me && shares(this.me.role)) || !this.state.shared?.length) return;
     const body = summarize(board, this.state.shared, this.limits.summaryMax);
     const json = JSON.stringify(body);
-    if (!this.flushing && json === this.sentJson && !this.state.dropped) { this.next = null; return; }
+    if (!this.flushing && json === this.sentJson && !this.state.dropped && !this.due()) { this.next = null; return; }
     // The same summary already waits: it stays, so a sealed blob is not thrown away by each poll (PR-Agent r18 on
     // public #7).
     if (this.next && !this.next.forget && this.next.json === json && this.next.drop === this.state.dropped) return;
     this.next = { json, body, at: this.lastBoardAt, drop: this.state.dropped };
     this.flush();
+  }
+
+  /** The summary the relay holds is old enough to send again unchanged, so it still reads as live. A board time behind
+   *  the last one sent means the clock went back: send it, so the time it carries is right again. */
+  due(at = this.lastBoardAt) {
+    const sent = this.sentBoardAt;
+    return sent == null || !(at >= sent) || at - sent >= SUMMARY_REFRESH_MS;
   }
 
   async flush() {
@@ -727,7 +745,7 @@ export class Team {
     const wait = this.sentAt + this.limits.summaryMs - this.now();
     if (wait > 0) { this.summaryTimer = this.timers.setTimeout(() => { this.summaryTimer = null; this.flush(); }, wait); return; }
     const next = this.next;
-    if (!next.forget && next.json === this.sentJson && !this.state.dropped) { this.next = null; return; }
+    if (!next.forget && next.json === this.sentJson && !this.state.dropped && !this.due(next.at)) { this.next = null; return; }
     this.flushing = true;
     try {
       let blob = null;
@@ -747,6 +765,7 @@ export class Team {
       const r = next.forget ? await this.say({ t: 'forget' }) : await this.say({ t: 'summary', blob });
       if (r.t === 'ok') {
         this.sentJson = next.forget ? null : next.json; this.sentAt = this.now(); this.setAt = this.now(); this.flushFails = 0;
+        this.sentBoardAt = next.forget ? null : next.at;
         if (this.state.dropped && next.drop === this.state.dropped) { delete this.state.dropped; this.save(); }
         if (this.next === next) this.next = null;
       } else if (r.code === 'slow') {
