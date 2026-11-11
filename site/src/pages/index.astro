@@ -1,67 +1,32 @@
-<!doctype html>
-<html lang="en" data-view="team">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Yes Chef | The French Brigade layer for agentic dev teams</title>
-  <meta name="description" content="The French Brigade layer for agentic dev teams. Run your team’s T3 Code in our open-source layer, work The Pass like a Chef de Cuisine, and let every agent cook.">
-  <meta name="color-scheme" content="dark light">
-  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
-  <meta name="theme-color" content="#f7f7f5" media="(prefers-color-scheme: light)">
-  <link rel="icon" href="assets/yeschef-icon.svg" type="image/svg+xml">
-  <link rel="preload" href="fonts/fraunces-latin-var.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="fonts/figtree-latin-var.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="fonts/fraunces-latin-var-italic.woff2" as="font" type="font/woff2" crossorigin>
-  <meta property="og:type" content="website">
-  <meta property="og:title" content="Yes Chef | The French Brigade layer for agentic dev teams">
-  <meta property="og:description" content="Run your team’s T3 Code in our open-source layer, work The Pass like a Chef de Cuisine, and let every agent cook.">
-  <script>
-    /* The "I run" view before the first paint: ?view= when a link names one, else team, on every visit (Dan,
-       2026-11-10: a page that remembered solo opened on solo). */
-    (function () {
-      var view = new URLSearchParams(location.search).get("view");
-      document.documentElement.setAttribute("data-view", view === "solo" ? "solo" : "team");
-    })();
-  </script>
-  <link rel="stylesheet" href="style.css">
-</head>
-<body>
-  <a class="skip" href="#main">Skip to content</a>
-
-  <nav class="nav" aria-label="Site">
-    <div class="nav-inner">
-      <a class="brand" href="#top" aria-label="Yes Chef home">
-        <img src="assets/yeschef-icon.svg" alt="" width="28" height="28">
-        <span>Yes Chef</span>
-      </a>
-      <div class="nav-right">
-        <div class="persona persona-nav">
-          <span class="persona-label" id="persona-nav-label">I run</span>
-          <span class="persona-seg" role="group" aria-labelledby="persona-nav-label">
-            <span class="persona-thumb" aria-hidden="true"></span>
-            <button type="button" data-view="solo" aria-pressed="false">solo</button>
-            <button type="button" data-view="team" aria-pressed="true">team</button>
-          </span>
-        </div>
-        <a class="nav-link" href="/download">Download</a>
-        <a class="nav-link nav-gh" href="https://github.com/ddmirolli/yeschef" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg><span class="nav-gh-text">GitHub</span></a>
-      </div>
-    </div>
-  </nav>
-
+---
+import SiteLayout from '../layouts/SiteLayout.astro';
+import { inlineScript } from '../scripts/inline';
+const firstPaint = inlineScript('src/scripts/first-paint.ts');
+---
+<SiteLayout
+  home
+  title="Yes Chef | The French Brigade layer for agentic dev teams"
+  description="The French Brigade layer for agentic dev teams. Run your team’s T3 Code in our open-source layer, work The Pass like a Chef de Cuisine, and let every agent cook."
+>
+  <Fragment slot="head">
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Yes Chef | The French Brigade layer for agentic dev teams" />
+    <meta property="og:description" content="Run your team’s T3 Code in our open-source layer, work The Pass like a Chef de Cuisine, and let every agent cook." />
+    <script is:inline set:html={firstPaint}></script>
+  </Fragment>
   <main id="main">
     <section class="hero" id="top">
       <div class="hero-grid" aria-hidden="true"></div>
 
       <div class="hero-float" aria-hidden="true">
-        <span class="hero-float-mark hf-opencode"><span class="hero-float-card"><img src="assets/opencode-dark.svg" alt=""><span class="hero-float-station">Rôtisseur</span></span></span>
-        <span class="hero-float-mark hf-antigravity"><span class="hero-float-card"><img src="assets/antigravity.svg" alt=""><span class="hero-float-station">Entremetier</span></span></span>
-        <span class="hero-float-mark hf-claude"><span class="hero-float-card"><img src="assets/claude-ai-icon.svg" alt=""><span class="hero-float-station">Saucier</span></span></span>
-        <span class="hero-float-mark hf-codex"><span class="hero-float-card"><img src="assets/openai_dark.svg" alt=""><span class="hero-float-station">Garde manger</span></span></span>
-        <span class="hero-float-mark hf-grok"><span class="hero-float-card"><img src="assets/grok-dark.svg" alt=""><span class="hero-float-station">Poissonnier</span></span></span>
-        <span class="hero-float-mark hf-t3"><span class="hero-float-card"><img src="assets/t3code-mark.svg" alt=""><span class="hero-float-station">Cuisine</span></span></span>
-        <span class="hero-float-mark hf-gemini"><span class="hero-float-card"><img src="assets/gemini-mark.svg" alt=""><span class="hero-float-station">Tournant</span></span></span>
-        <span class="hero-float-mark hf-cursor"><span class="hero-float-card"><img src="assets/cursor_light.svg" alt=""><span class="hero-float-station">Pâtissier</span></span></span>
+        <span class="hero-float-mark hf-opencode"><span class="hero-float-card"><img src="/assets/opencode-dark.svg" alt=""><span class="hero-float-station">Rôtisseur</span></span></span>
+        <span class="hero-float-mark hf-antigravity"><span class="hero-float-card"><img src="/assets/antigravity.svg" alt=""><span class="hero-float-station">Entremetier</span></span></span>
+        <span class="hero-float-mark hf-claude"><span class="hero-float-card"><img src="/assets/claude-ai-icon.svg" alt=""><span class="hero-float-station">Saucier</span></span></span>
+        <span class="hero-float-mark hf-codex"><span class="hero-float-card"><img src="/assets/openai_dark.svg" alt=""><span class="hero-float-station">Garde manger</span></span></span>
+        <span class="hero-float-mark hf-grok"><span class="hero-float-card"><img src="/assets/grok-dark.svg" alt=""><span class="hero-float-station">Poissonnier</span></span></span>
+        <span class="hero-float-mark hf-t3"><span class="hero-float-card"><img src="/assets/t3code-mark.svg" alt=""><span class="hero-float-station">Cuisine</span></span></span>
+        <span class="hero-float-mark hf-gemini"><span class="hero-float-card"><img src="/assets/gemini-mark.svg" alt=""><span class="hero-float-station">Tournant</span></span></span>
+        <span class="hero-float-mark hf-cursor"><span class="hero-float-card"><img src="/assets/cursor_light.svg" alt=""><span class="hero-float-station">Pâtissier</span></span></span>
       </div>
 
       <div class="container hero-inner">
@@ -83,15 +48,15 @@
         </div>
 
         <!-- The live demo (Dan, 2026-11-09): the agents view runs the app itself on a made-up kitchen (demo/app.html,
-             built by tools/site_demo.mjs); the devs view is a clickable mock of a lead's Pass (demo/team.html).
+             built by site/scripts/generate-demo.ts); the devs view is a clickable mock of a lead's Pass (demo/team.html).
              site.js loads the frame for the view on screen, and the other one on the first flip. -->
         <div class="demo swap" data-rise style="--d:520ms">
           <figure class="board demo-fig" data-swap="solo">
-            <div class="board-frame demo-frame"><iframe data-src="demo/app.html" title="Yes Chef demo: the app on a made-up kitchen"></iframe></div>
+            <div class="board-frame demo-frame"><iframe data-src="/demo/app.html" title="Yes Chef demo: the app on a made-up kitchen"></iframe></div>
             <figcaption>The app itself, on a made-up kitchen. Pick a ticket, answer it, send it out or refire it. The agents answer in a few seconds.</figcaption>
           </figure>
           <figure class="board demo-fig" data-swap="team">
-            <div class="board-frame demo-frame"><iframe data-src="demo/team.html" title="Teams demo: a lead’s Pass, a clickable mock"></iframe></div>
+            <div class="board-frame demo-frame"><iframe data-src="/demo/team.html" title="Teams demo: a lead’s Pass, a clickable mock"></iframe></div>
             <figcaption>Teams is in design. This is a clickable mock of a lead’s Pass: handle a card, open the kitchen, switch the mode.</figcaption>
           </figure>
         </div>
@@ -173,12 +138,12 @@
             <div class="ch-row"><div class="ch-node ch-you"><b>You</b><span>Chef</span></div></div>
             <div class="ch-row"><div class="ch-node ch-pass"><b>The Pass</b><span>Questions and finished work, oldest first</span></div></div>
             <div class="ch-row ch-line">
-              <div class="ch-agent"><span class="line-mark"><img src="assets/claude-ai-icon.svg" alt=""></span><b>Claude Code</b><span>Saucier</span></div>
-              <div class="ch-agent"><span class="line-mark"><img src="assets/openai_dark.svg" alt=""></span><b>Codex</b><span>Garde manger</span></div>
-              <div class="ch-agent"><span class="line-mark"><img src="assets/cursor_light.svg" alt=""></span><b>Cursor</b><span>Pâtissier</span></div>
-              <div class="ch-agent"><span class="line-mark"><img src="assets/opencode-dark.svg" alt=""></span><b>OpenCode</b><span>Rôtisseur</span></div>
-              <div class="ch-agent"><span class="line-mark"><img src="assets/grok-dark.svg" alt=""></span><b>Grok</b><span>Poissonnier</span></div>
-              <div class="ch-agent"><span class="line-mark"><img src="assets/antigravity.svg" alt=""></span><b>Antigravity</b><span>Entremetier</span></div>
+              <div class="ch-agent"><span class="line-mark"><img src="/assets/claude-ai-icon.svg" alt=""></span><b>Claude Code</b><span>Saucier</span></div>
+              <div class="ch-agent"><span class="line-mark"><img src="/assets/openai_dark.svg" alt=""></span><b>Codex</b><span>Garde manger</span></div>
+              <div class="ch-agent"><span class="line-mark"><img src="/assets/cursor_light.svg" alt=""></span><b>Cursor</b><span>Pâtissier</span></div>
+              <div class="ch-agent"><span class="line-mark"><img src="/assets/opencode-dark.svg" alt=""></span><b>OpenCode</b><span>Rôtisseur</span></div>
+              <div class="ch-agent"><span class="line-mark"><img src="/assets/grok-dark.svg" alt=""></span><b>Grok</b><span>Poissonnier</span></div>
+              <div class="ch-agent"><span class="line-mark"><img src="/assets/antigravity.svg" alt=""></span><b>Antigravity</b><span>Entremetier</span></div>
             </div>
             <figcaption>Each agent works one ticket in its own T3 Code thread. Any agent T3 Code runs gets a station.</figcaption>
           </figure>
@@ -186,10 +151,10 @@
             <div class="ch-row"><div class="ch-node ch-you"><b>You</b><span>Chef de cuisine</span></div></div>
             <div class="ch-row"><div class="ch-node"><b>Maya</b><span>Sous chef, can Go for you</span></div></div>
             <div class="ch-row ch-staff">
-              <div class="ch-dev"><b>Kai</b><span>Chef de partie, desktop</span><i class="ch-marks"><img src="assets/claude-ai-icon.svg" alt=""><img src="assets/openai_dark.svg" alt=""><img src="assets/grok-dark.svg" alt=""></i><em>Own Pass</em></div>
-              <div class="ch-dev"><b>Jon</b><span>Chef de partie, relay</span><i class="ch-marks"><img src="assets/claude-ai-icon.svg" alt=""><img src="assets/cursor_light.svg" alt=""></i><em>Own Pass</em></div>
-              <div class="ch-dev"><b>Sam</b><span>Commis, mobile</span><i class="ch-marks"><img src="assets/opencode-dark.svg" alt=""><img src="assets/cursor_light.svg" alt=""></i><em>Own Pass</em></div>
-              <div class="ch-dev"><b>Lee</b><span>Commis, mobile</span><i class="ch-marks"><img src="assets/claude-ai-icon.svg" alt=""><img src="assets/opencode-dark.svg" alt=""></i><em>Own Pass</em></div>
+              <div class="ch-dev"><b>Kai</b><span>Chef de partie, desktop</span><i class="ch-marks"><img src="/assets/claude-ai-icon.svg" alt=""><img src="/assets/openai_dark.svg" alt=""><img src="/assets/grok-dark.svg" alt=""></i><em>Own Pass</em></div>
+              <div class="ch-dev"><b>Jon</b><span>Chef de partie, relay</span><i class="ch-marks"><img src="/assets/claude-ai-icon.svg" alt=""><img src="/assets/cursor_light.svg" alt=""></i><em>Own Pass</em></div>
+              <div class="ch-dev"><b>Sam</b><span>Commis, mobile</span><i class="ch-marks"><img src="/assets/opencode-dark.svg" alt=""><img src="/assets/cursor_light.svg" alt=""></i><em>Own Pass</em></div>
+              <div class="ch-dev"><b>Lee</b><span>Commis, mobile</span><i class="ch-marks"><img src="/assets/claude-ai-icon.svg" alt=""><img src="/assets/opencode-dark.svg" alt=""></i><em>Own Pass</em></div>
             </div>
             <figcaption>Each dev keeps their own T3 Code, subscriptions and agents, and runs them from their own Pass. Teams is in design.</figcaption>
           </figure>
@@ -355,21 +320,21 @@
         <div class="swap start-shots">
           <div class="shots" data-swap="solo">
             <figure class="board">
-              <div class="board-frame"><picture><source media="(prefers-color-scheme: light)" srcset="assets/app-kitchen-light.png"><img src="assets/app-kitchen-dark.png" width="1440" height="900" loading="lazy" decoding="async" alt="The full kitchen in Yes Chef: the made-up kitchen's T3 Code threads as tickets under Order, Prep, Fire, Tasting, Plating and Sent, with Held on the right."></picture></div>
+              <div class="board-frame"><picture><source media="(prefers-color-scheme: light)" srcset="assets/app-kitchen-light.png"><img src="/assets/app-kitchen-dark.png" width="1440" height="900" loading="lazy" decoding="async" alt="The full kitchen in Yes Chef: the made-up kitchen's T3 Code threads as tickets under Order, Prep, Fire, Tasting, Plating and Sent, with Held on the right."></picture></div>
               <figcaption>The full kitchen (V): every thread as a ticket, at its stage.</figcaption>
             </figure>
             <figure class="board">
-              <div class="board-frame"><picture><source media="(prefers-color-scheme: light)" srcset="assets/app-launch-light.png"><img src="assets/app-launch-dark.png" width="1440" height="900" loading="lazy" decoding="async" alt="New thread in T3 Code, opened over the Pass: a project, what the agent should do, an optional title, and a new worktree or the project checkout. The project's kitchen rules go with it."></picture></div>
+              <div class="board-frame"><picture><source media="(prefers-color-scheme: light)" srcset="assets/app-launch-light.png"><img src="/assets/app-launch-dark.png" width="1440" height="900" loading="lazy" decoding="async" alt="New thread in T3 Code, opened over the Pass: a project, what the agent should do, an optional title, and a new worktree or the project checkout. The project's kitchen rules go with it."></picture></div>
               <figcaption>⌘T: a new thread in T3 Code, with your kitchen rules.</figcaption>
             </figure>
           </div>
           <div class="shots" data-swap="team">
             <figure class="board">
-              <div class="board-frame"><img src="assets/team-s3-invite.png" width="1440" height="900" loading="lazy" decoding="async" alt="Invite your kitchen staff. A join link to copy, good for 7 days. On the left, the Joined drawer lists Maya, Jon and Sam. On the chart, you are chef de cuisine, Maya is being dropped in as sous chef, Kai leads Desktop as chef de partie, and Mobile and Relay wait for theirs. Add station adds a kind of work."></div>
+              <div class="board-frame"><img src="/assets/team-s3-invite.png" width="1440" height="900" loading="lazy" decoding="async" alt="Invite your kitchen staff. A join link to copy, good for 7 days. On the left, the Joined drawer lists Maya, Jon and Sam. On the chart, you are chef de cuisine, Maya is being dropped in as sous chef, Kai leads Desktop as chef de partie, and Mobile and Relay wait for theirs. Add station adds a kind of work."></div>
               <figcaption>Invite your staff with one link, then drag each person onto the chart.</figcaption>
             </figure>
             <figure class="board">
-              <div class="board-frame"><img src="assets/team-s5-join.png" width="1440" height="900" loading="lazy" decoding="async" alt="A dev joins Dan’s kitchen. T3 Code on their Mac is connected, read only for the kitchen. Switches share app and relay and keep blog and dotfiles off. The kitchen sees ticket titles, stages, the latest message and the names of changed files, never code or diffs. Decline or Join."></div>
+              <div class="board-frame"><img src="/assets/team-s5-join.png" width="1440" height="900" loading="lazy" decoding="async" alt="A dev joins Dan’s kitchen. T3 Code on their Mac is connected, read only for the kitchen. Switches share app and relay and keep blog and dotfiles off. The kitchen sees ticket titles, stages, the latest message and the names of changed files, never code or diffs. Decline or Join."></div>
               <figcaption>A dev joins: their T3 Code, the projects they share, and what the kitchen sees.</figcaption>
             </figure>
           </div>
@@ -381,27 +346,14 @@
       <div class="container close-inner">
         <h2 id="close-title" class="display close-title">
           <span class="close-call swap"><q data-swap="solo">Agents, cook.</q><q data-swap="team">Devs, cook.</q></span>
-          <img class="close-mark" src="assets/yeschef-icon.svg" alt="" width="128" height="128">
+          <img class="close-mark" src="/assets/yeschef-icon.svg" alt="" width="128" height="128">
           <span>Yes, Chef!</span>
         </h2>
         <a class="btn btn-primary btn-lg" href="/download" data-dl><svg class="btn-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span>Download for Mac</span></a>
       </div>
     </section>
   </main>
-
-  <footer class="footer">
-    <div class="footer-inner">
-      <div class="footer-brand">
-        <img src="assets/yeschef-icon.svg" alt="" width="20" height="20">
-        <span><b>Yes Chef</b> · an independent product built on T3 Code</span>
-      </div>
-      <div class="footer-links">
-        <a href="https://t3.codes" rel="noopener noreferrer" target="_blank">T3 Code</a>
-      </div>
-    </div>
-  </footer>
-
-  <script src="releases.js"></script>
-  <script src="site.js"></script>
-</body>
-</html>
+  <script>
+    import '../scripts/site';
+  </script>
+</SiteLayout>

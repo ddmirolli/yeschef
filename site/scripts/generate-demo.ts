@@ -1,11 +1,11 @@
 // Builds the site's live demo (site/demo/), the real Pass on a made-up kitchen, from the app in client/.
-// Run it from the repo root after a change to the app's UI:  node tools/site_demo.mjs [port]
+// Run it from the repo root after a change to the app's UI:  npm run demo:generate --prefix site -- [port]
 //
 // It copies the app's board, calls, kitchen, actions, you and open-kitchen modules to site/demo/lib/ unchanged, and the
 // made-up projects' icons and screenshots from tools/hero-art/. Then it starts client/server.mjs in a temp
-// folder with a stand-in for client/t3mcp.mjs that answers from site/demo/kitchen.mjs, so it never signs in
-// to T3 Code. It saves the server's page as site/demo/app.html, with shim.js and boot.mjs added: in the
-// browser the page reads the same kitchen in place of the server (see site/demo/shim.js).
+// folder with a stand-in for client/t3mcp.mjs that answers from the typed demo kitchen. It never signs in
+// to T3 Code. It saves site/demo/app.html as an input to Astro; src/pages/demo/app.astro supplies the
+// typed bootstrap. The generated snapshot is not a standalone page.
 import { spawn } from 'node:child_process';
 import { copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -15,10 +15,11 @@ import { pathToFileURL } from 'node:url';
 const ROOT = process.cwd();
 const PORT = Number(process.argv[2] || 8690);
 const DEMO = join(ROOT, 'site', 'demo');
+const STATIC = join(ROOT, 'site', 'public', 'demo');
 const ART = join(ROOT, 'tools', 'hero-art');
-const DIRS = { 'p-pay': 'fernpay', 'p-loop': 'loopline', 'p-quill': 'quillo' };
+const DIRS: Record<string, string> = { 'p-pay': 'fernpay', 'p-loop': 'loopline', 'p-quill': 'quillo' };
 
-// 1. The app's modules, unchanged. Only these node: imports have browser stand-ins (lib/node-*.mjs).
+// The app modules stay unchanged. Astro supplies browser stand-ins for these Node imports.
 const SHIMMED = new Set(['node:crypto', 'node:fs', 'node:path']);
 mkdirSync(join(DEMO, 'lib'), { recursive: true });
 for (const f of ['board.mjs', 'calls.mjs', 'kitchen.mjs', 'actions.mjs', 'you.mjs', 'open-kitchen.mjs']) {
@@ -28,24 +29,24 @@ for (const f of ['board.mjs', 'calls.mjs', 'kitchen.mjs', 'actions.mjs', 'you.mj
   }
   writeFileSync(join(DEMO, 'lib', f), src);
 }
-mkdirSync(join(DEMO, 'icons'), { recursive: true });
-mkdirSync(join(DEMO, 'img'), { recursive: true });
-for (const dir of Object.values(DIRS)) copyFileSync(join(ART, 'icons', `${dir}.svg`), join(DEMO, 'icons', `${dir}.svg`));
-for (const w of ['before', 'after']) for (const t of ['dark', 'light']) copyFileSync(join(ART, `payouts-${w}-${t}.png`), join(DEMO, 'img', `payouts-${w}-${t}.png`));
+mkdirSync(join(STATIC, 'icons'), { recursive: true });
+mkdirSync(join(STATIC, 'img'), { recursive: true });
+for (const dir of Object.values(DIRS)) copyFileSync(join(ART, 'icons', `${dir}.svg`), join(STATIC, 'icons', `${dir}.svg`));
+for (const w of ['before', 'after']) for (const t of ['dark', 'light']) copyFileSync(join(ART, `payouts-${w}-${t}.png`), join(STATIC, 'img', `payouts-${w}-${t}.png`));
 
 // 2. The server's page, from a copy of the app that reads the made-up kitchen.
 const tmp = mkdtempSync(join(tmpdir(), 'yc-site-demo-'));
-let server = null;
+let server: ReturnType<typeof spawn> | null = null;
 try {
   cpSync(join(ROOT, 'client'), join(tmp, 'client'), { recursive: true });
   for (const dir of Object.values(DIRS)) {
     mkdirSync(join(tmp, 'proj', dir), { recursive: true });
     copyFileSync(join(ART, 'icons', `${dir}.svg`), join(tmp, 'proj', dir, 'icon.svg'));
   }
-  const kitchenUrl = pathToFileURL(join(DEMO, 'kitchen.mjs')).href;
-  const { DEMO_RULES } = await import(kitchenUrl);
+  const kitchenUrl = pathToFileURL(join(ROOT, 'site', 'src', 'demo', 'kitchen.ts')).href;
+  const { DEMO_RULES } = await import('../src/demo/kitchen.ts');
   writeFileSync(join(tmp, 'kitchen-rules.json'), JSON.stringify(DEMO_RULES));
-  writeFileSync(join(tmp, 'client', 't3mcp.mjs'), `// Stand-in written by tools/site_demo.mjs: the made-up kitchen, never T3 Code.
+  writeFileSync(join(tmp, 'client', 't3mcp.mjs'), `// Stand-in written by site/scripts/generate-demo.ts: the made-up kitchen, never T3 Code.
 import { createKitchen } from ${JSON.stringify(kitchenUrl)};
 const kitchen = createKitchen({ where: (dir) => ({ workspaceRoot: ${JSON.stringify(join(tmp, 'proj'))} + '/' + dir, faviconPath: 'icon.svg' }),
   shot: (name) => name, later: null });
@@ -55,7 +56,7 @@ export { kitchen };
 `);
   // The board reads its threads from T3 Code's live stream (client/t3live.mjs). This stand-in hands the server the
   // same kitchen's threads as stream shells, the inverse of client/shells.mjs threadRow; step 4 checks the result.
-  writeFileSync(join(tmp, 'client', 't3live.mjs'), `// Stand-in written by tools/site_demo.mjs: the made-up kitchen as stream shells, never T3 Code.
+  writeFileSync(join(tmp, 'client', 't3live.mjs'), `// Stand-in written by site/scripts/generate-demo.ts: the made-up kitchen as stream shells, never T3 Code.
 import { kitchen } from './t3mcp.mjs';
 const LATER = '2999-01-01T00:00:00.000Z';
 export function createKeys() { return { sweep: async () => 0, revokeMine: async () => 0 }; }
@@ -88,8 +89,8 @@ export function createLive({ onChange }) {
   server = spawn(process.execPath, [join(tmp, 'client', 'server.mjs'), 'https://t3.codes', String(PORT)], { cwd: tmp, stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, YESCHEF_RULES_FILE: join(tmp, 'kitchen-rules.json'), BRIGADE_PASS_ORIGIN: `http://127.0.0.1:${PORT}`, BRIGADE_ALLOW: '/dev/null' } });
   let log = '';
-  server.stdout.on('data', (d) => { log += d; });
-  server.stderr.on('data', (d) => { log += d; });
+  server.stdout?.on('data', (d) => { log += d; });
+  server.stderr?.on('data', (d) => { log += d; });
   let page = null;
   for (let i = 0; i < 60 && !page; i++) {
     await new Promise((r) => setTimeout(r, 250));
@@ -101,27 +102,24 @@ export function createLive({ onChange }) {
   if (!page) throw new Error(`the app server did not start on ${PORT}:\n${log.slice(-2000)}`);
 
   // 3. The demo page: the server's page with the stand-ins first, and the browser's own addresses.
-  const { createKitchen } = await import(pathToFileURL(join(DEMO, 'kitchen.mjs')).href);
-  const { imageId } = await import(pathToFileURL(join(DEMO, 'lib', 'calls.mjs')).href);
-  const head = '<meta name="robots" content="noindex">'
-    + '<script type="importmap">{"imports":{"node:crypto":"./lib/node-crypto.mjs","node:fs":"./lib/node-shims.mjs","node:path":"./lib/node-shims.mjs"}}</script>'
-    + '<script src="shim.js"></script>';
+  const { createKitchen } = await import('../src/demo/kitchen.ts');
+  const { imageId } = await import('../demo/lib/calls.mjs');
+  const head = '<meta name="robots" content="noindex">';
   let html = page.replace('<head><meta charset="utf-8">', (m) => m + head)
-    .replace('<title>Yes Chef</title>', '<title>Yes Chef demo</title>')
-    .replace(/<\/body>\s*<\/html>\s*$/, '<script type="module" src="boot.mjs"></script></body></html>');
+    .replace('<title>Yes Chef</title>', '<title>Yes Chef demo</title>');
   // Open in T3 goes to T3 Code's site: the made-up threads are nowhere in T3 Code.
   html = html.replace(/href="https:\/\/t3\.codes\/demo\/demo-\d+"/g, 'href="https://t3.codes/"');
   for (const [id, dir] of Object.entries(DIRS)) html = html.replaceAll(`/icon/${encodeURIComponent(id)}"`, `icons/${dir}.svg"`);
   for (const name of ['payouts-before', 'payouts-after']) html = html.replaceAll(`/img/${imageId(`/demo/${name}.png`)}"`, `img/${name}-dark.png"`);
 
   // 4. Checks: everything was found, and the browser's first render matches the server's board.
-  for (const want of [head, 'src="boot.mjs"', 'Yes Chef demo']) if (!html.includes(want)) throw new Error(`app.html is missing ${want.slice(0, 60)}`);
+  for (const want of [head, 'Yes Chef demo']) if (!html.includes(want)) throw new Error(`app.html is missing ${want.slice(0, 60)}`);
   const left = html.match(/["(]\/(icon|img|act|events)\b[^"]*/g)?.filter((s) => !s.startsWith('"/act')) || [];
   if (left.length) throw new Error(`app.html still points at server routes: ${[...new Set(left)].join(', ')}`);
   const browser = createKitchen({ where: (dir) => ({ icon: `icons/${dir}.svg` }), shot: (name) => `img/${name}-dark.png`, later: null });
   // The same board, byte for byte, apart from what each render takes from the clock: form ids, the poll time (also
   // You's clock) and the rules' revision.
-  const ids = (s) => s.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, 'ID').replace(/Checked [^"<]*?\(\d+ ms\)/g, 'Checked').replace(/"rev":\d+/g, '"rev":0')
+  const ids = (s: string) => s.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, 'ID').replace(/Checked [^"<]*?\(\d+ ms\)/g, 'Checked').replace(/"rev":\d+/g, '"rev":0')
     .replace(/<time[^>]*>[^<]*<\/time>/g, '<time>');
   const served = ids(html.slice(html.indexOf('<main id="app">') + 15, html.indexOf('</main>'))), drawn = ids(browser.page(''));
   if (served !== drawn) {

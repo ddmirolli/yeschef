@@ -1,9 +1,11 @@
-/* Yes Chef marketing site. Plain JS, no build, no requests. */
+type View = 'solo' | 'team';
+
+/* Yes Chef marketing site interactions. */
 (function () {
   "use strict";
 
   /* Nav: a hairline once the page has scrolled. */
-  var nav = document.querySelector(".nav");
+  const nav = document.querySelector<HTMLElement>(".nav");
   function onScroll() {
     if (!nav) return;
     nav.classList.toggle("is-scrolled", window.scrollY > 12);
@@ -26,20 +28,20 @@
    * DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
    * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
    *
-   * Changes: plain JS; the gated list takes any element that reads --home-motion-state.
+   * Changes: TypeScript; the gated list takes any element that reads --home-motion-state.
    */
-  function startHomeMotion(hero, field, extra) {
+  function startHomeMotion(hero: HTMLElement, field: HTMLElement, extra: HTMLElement[]) {
     if (typeof IntersectionObserver === "undefined") return function () {};
-    var marks = Array.prototype.slice.call(field.querySelectorAll(".hero-float-mark"));
+    var marks = Array.from(field.querySelectorAll<HTMLElement>(".hero-float-mark"));
     var gated = marks.concat(extra || []);
-    var visible = new Set();
+    var visible = new Set<Element>();
     var reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     var finePointer = window.matchMedia("(pointer: fine)");
     var disposed = false;
-    var pointerFrame;
-    var pointer = null;
+    var pointerFrame: number | undefined;
+    var pointer: { x: number; y: number } | null = null;
 
-    function canMove(element) {
+    function canMove(element: HTMLElement) {
       return !disposed && visible.has(element) && document.visibilityState === "visible" && !reducedMotion.matches;
     }
     function canParallax() {
@@ -110,11 +112,12 @@
   };
   // The two lower hero marks sit level with the button. offsetTop ignores the rise animation's transform.
   function seat() {
-    var float = document.querySelector(".hero-float");
-    var button = document.querySelector(".hero-actions .btn");
+    var float = document.querySelector<HTMLElement>(".hero-float");
+    var button = document.querySelector<HTMLElement>(".hero-actions .btn");
     if (!float || !button) return;
-    var y = button.offsetHeight / 2, el = button;
-    while (el && el !== float.offsetParent) { y += el.offsetTop; el = el.offsetParent; }
+    var y = button.offsetHeight / 2;
+    var el: HTMLElement | null = button;
+    while (el && el !== float.offsetParent) { y += el.offsetTop; el = el.offsetParent instanceof HTMLElement ? el.offsetParent : null; }
     if (!el) return;
     float.style.setProperty("--cta-y", y + "px");
     float.classList.add("seated");
@@ -122,12 +125,12 @@
   // The hero demo (Dan, 2026-11-09): the app on a made-up kitchen for agents, the Teams mock for devs. The
   // frame for the view on screen loads at once and the other on the first flip, so a visitor who never
   // flips loads one demo.
-  function loadDemo(view) {
-    var frame = document.querySelector('.demo [data-swap="' + view + '"] iframe[data-src]');
-    if (frame && !frame.getAttribute("src")) frame.setAttribute("src", frame.getAttribute("data-src"));
+  function loadDemo(view: View) {
+    var frame = document.querySelector<HTMLIFrameElement>('.demo [data-swap="' + view + '"] iframe[data-src]');
+    if (frame && !frame.getAttribute("src")) frame.setAttribute("src", frame.dataset.src ?? "");
     return frame;
   }
-  function pick(view) {
+  function pick(view: View) {
     root.setAttribute("data-view", view);
     loadDemo(view);
     document.title = titles[view];
@@ -137,7 +140,7 @@
     }
     seat();
   }
-  function choose(view) {
+  function choose(view: View) {
     pick(view);
     var url = new URL(location.href);
     url.searchParams.set("view", view);
@@ -147,16 +150,16 @@
   window.addEventListener("resize", seat);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(seat);
   document.addEventListener("click", function (event) {
-    var button = event.target.closest && event.target.closest(".persona-seg button");
-    if (button) choose(button.getAttribute("data-view"));
+    var button = event.target instanceof Element && event.target.closest(".persona-seg button");
+    if (button) choose(button.getAttribute("data-view") === "solo" ? "solo" : "team");
   });
   // Left and right arrows move the pick, as on a segmented control.
   document.addEventListener("keydown", function (event) {
-    var button = event.target.closest && event.target.closest(".persona-seg button");
+    var button = event.target instanceof Element && event.target.closest(".persona-seg button");
     if (!button || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
-    var view = event.key === "ArrowLeft" ? "solo" : "team";
+    var view: View = event.key === "ArrowLeft" ? "solo" : "team";
     choose(view);
-    var next = button.parentNode.querySelector('button[data-view="' + view + '"]');
+    var next = button.parentElement?.querySelector<HTMLButtonElement>('button[data-view="' + view + '"]');
     if (next) next.focus();
     event.preventDefault();
   });
@@ -164,14 +167,14 @@
   // The buttons under the modes drive the demo: back up to it, then set it to what the card describes. The
   // demo pages are on this site, so the page reaches into them directly.
   var reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-  function inDemo(act) {
-    var frame = loadDemo(root.getAttribute("data-view"));
+  function inDemo(act: (document: Document) => void) {
+    const frame = loadDemo(root.getAttribute("data-view") === "solo" ? "solo" : "team");
     if (!frame) return;
     frame.scrollIntoView({ behavior: reducedMotion.matches ? "auto" : "smooth", block: "center" });
     var run = function () {
       try {
-        if (frame.contentWindow.__demoTouch) frame.contentWindow.__demoTouch();
-        act(frame.contentDocument);
+        frame.contentWindow?.__demoTouch?.();
+        if (frame.contentDocument) act(frame.contentDocument);
       } catch (e) {}
     };
     var doc = frame.contentDocument;
@@ -179,7 +182,7 @@
     else frame.addEventListener("load", run, { once: true });
   }
   document.addEventListener("click", function (event) {
-    var link = event.target.closest && event.target.closest("[data-demo-mode], [data-demo-rules]");
+    var link = event.target instanceof Element && event.target.closest("[data-demo-mode], [data-demo-rules]");
     if (!link) return;
     var mode = link.getAttribute("data-demo-mode");
     inDemo(function (doc) {
@@ -187,13 +190,13 @@
         // The mode chip flips between Open and Brigade (Open kitchen and French Brigade until 2026-11-10); click it only
         // to change.
         var name = doc.querySelector("[data-mode-name]");
-        var now = name && /Brigade/.test(name.textContent) ? "brigade" : "open";
-        if (now !== mode) doc.querySelector("[data-mode]").click();
+        var now = name && /Brigade/.test((name.textContent ?? "")) ? "brigade" : "open";
+        if (now !== mode) doc.querySelector<HTMLElement>("[data-mode]")?.click();
       } else {
         // Settings, then its Rules tab, as a visitor would open them.
-        var open = doc.querySelector("[data-settings]");
+        var open = doc.querySelector<HTMLElement>("[data-settings]");
         if (open) open.click();
-        var tab = doc.querySelector('.set-tab[data-tab="rules"]');
+        var tab = doc.querySelector<HTMLElement>('.set-tab[data-tab="rules"]');
         if (tab) { tab.click(); tab.focus({ preventScroll: true }); }
       }
     });
@@ -202,7 +205,7 @@
   // The nav's toggle shows once the hero's toggle has scrolled up under the nav (rulings 2B and 3C).
   // Checked on scroll, once a frame: a jump from above the toggle to below it never crosses the
   // viewport, so an IntersectionObserver would not fire.
-  var heroToggle = document.querySelector(".hero .persona");
+  const heroToggle = document.querySelector(".hero .persona");
   if (heroToggle && nav) {
     var dockFrame = 0;
     var checkDock = function () {
@@ -217,8 +220,8 @@
     checkDock();
   }
 
-  var hero = document.querySelector(".hero");
-  var field = document.querySelector(".hero-float");
-  var feeds = Array.prototype.slice.call(document.querySelectorAll(".noise-feed"));
+  var hero = document.querySelector<HTMLElement>(".hero");
+  var field = document.querySelector<HTMLElement>(".hero-float");
+  var feeds = Array.from(document.querySelectorAll<HTMLElement>(".noise-feed"));
   if (hero && field) startHomeMotion(hero, field, feeds);
 })();

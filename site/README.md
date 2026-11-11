@@ -1,27 +1,61 @@
 # Yes Chef marketing site
 
-Static. No build, no packages. One remote request: the visitor's browser asks GitHub's public API for the newest release (`releases.js`), as t3.codes does. Serve the folder as it is (the demos need a server that sends `.mjs` as JavaScript, which this one does on macOS; `python3 -m http.server` has no `/download` route, so open `download.html` there):
+Astro and strict TypeScript, built as static HTML, CSS, and browser modules. Node.js 24 runs the build and tests. The deployed site needs no server runtime.
+
+Dan chose Astro and TypeScript on 2026-11-10 and asked to preserve the existing design and style. This migration keeps the page copy, CSS, assets, solo/team views, downloads, and embedded demos. The application's TypeScript refactor is separate.
+
+## Develop and verify
+
+Run from the repository root:
 
 ```sh
-python3 -m http.server 8615 --bind 127.0.0.1 --directory site
+npm ci --prefix site
+npm run dev --prefix site -- --port 8615
 ```
+
+Build before running the tests, which also inspect the generated HTML:
+
+```sh
+npm run build --prefix site
+npm test --prefix site
+python3 -m unittest test_public.py
+```
+
+The build runs strict TypeScript and Astro checks before it writes `site/dist/`. `.github/workflows/site.yml` runs the same checks on site pull requests. To check Cloudflare's redirects and static routing locally:
+
+```sh
+site/node_modules/.bin/wrangler dev --config deploy/yeschef/wrangler.jsonc --ip 127.0.0.1 --port 8615 --local
+```
+
+Browser checks use Browserbase. `site/scripts/verify-browser.ts` compares a served copy of the previous site with the rebuilt site, takes screenshots, and tests view switching, responsive layout, demo actions, and downloads. Supply `BROWSERBASE_API_KEY` through the existing service-account wrapper used by `tools/shoot.sh`. The child process must receive no `OP_*` variables. Run `npm run test:browser --prefix site -- BEFORE_PORT AFTER_PORT OUTPUT_DIR` with that wrapper. The two ports must serve the previous site and the built site respectively. The output folder stays outside the repository.
 
 ## Deploy
 
-Live at https://yeschef.codes as the Cloudflare Worker `yeschef-site` (static assets, custom domain), config in `deploy/yeschef/wrangler.jsonc`. Deploy from the repo root with Wrangler 4 (`npx wrangler@4 deploy --config deploy/yeschef/wrangler.jsonc`), with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` supplied at run time by the RW 1Password service account. `site/.assetsignore` keeps this README and `CREDITS.md` off the site.
+The existing Cloudflare Worker is `yeschef-site`, at https://yeschef.codes. `deploy/yeschef/wrangler.jsonc` serves only `site/dist/`. Source files, tests, dependencies, and documentation stay outside the deployed assets. Cloudflare keeps the extensionless `/download` route and redirects `/download.html` to it. The embedded demos retain `/demo/app.html` and `/demo/team.html` as working addresses.
 
-## Files
+After Dan's send-it-out, run `npm run deploy --prefix site` with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` supplied at run time by the RW service account. This builds before it deploys. The existing deployment keeps serving until that step. No DNS, domain, relay, or desktop-release setting changes.
 
-- `index.html`: the page.
-- `download.html`: the download page, served at `/download` (Cloudflare serves `download.html` there and sends `/download.html` to it).
-- `releases.js`: the download links, the way t3.codes does them (PR D, 2026-11-10). Every Download button starts at `/download`; the script asks GitHub for the newest Stable release (`/releases/latest`) and links its `-arm64.dmg`. On `/download` it does the same for Stable or Nightly (`?channel=nightly`, the newest of GitHub's latest 30 releases with a `-nightly.` tag; if all 30 are Stable, the page links GitHub's Nightly list rather than say there is none). The site shows no version, size or system requirements (Dan, 2026-11-10): the hero is the Download button and the GitHub line, and `/download` is the channel toggle and the DMG. Answers are kept for the tab in sessionStorage. A 404 (no release yet, or the repo still private) leaves the buttons on `/download`, which says "No release yet." A failed request or a body that fails to read leaves the buttons there too, and the page links GitHub Releases. A release changes nothing here: the site needs no deploy to ship a version. `releases.test.mjs` tests it (`node --test site/*.test.mjs`); `.assetsignore` keeps tests off the site.
-- `style.css`: the page styles.
-- `site.js`: the nav hairline, the hero motion (ported from T3 Code's site, MIT; see `CREDITS.md`), the "I run" toggle, the hero demos (each loads the first time its view shows), and the buttons under the modes that drive them.
-- `demo/`: the hero demos, one per view, each in an iframe.
-  - `app.html` (agents view): the Yes Chef app itself on a made-up kitchen. Generated; never edit it by hand (see Placeholders). `shim.js` stands in for the app's server, `boot.mjs` starts `kitchen.mjs` (the made-up kitchen and its kitchen rules), and `lib/` holds the app's own modules, copied from `client/`.
-  - `team.html` (devs view): a clickable mock of a lead's Pass and full kitchen, written by hand. Teams is in design.
-- `fonts/`: Fraunces (headings) and Figtree (body), latin subsets, SIL OFL 1.1.
-- `assets/`: the Yes Chef mark, the agent marks from T3 Code's site, and the start section's shots.
+## Source and behavior
+
+- `src/pages/`: Astro pages for the home, download, and two demos.
+- `src/layouts/SiteLayout.astro`, `src/components/`: the shared head, navigation, and footer.
+- `src/styles/`: the original global and team-demo CSS. Fonts keep the same public URLs.
+- `src/scripts/`: typed home interactions, first-paint view selection, download controls, and release lookup.
+- `src/demo/`: typed demo state, controls, bootstrap, and browser-only Node stand-ins.
+- `public/`: the original images, marks, and fonts, at their existing URLs.
+- `demo/app.html` and `demo/lib/*.mjs`: generated snapshots of the application, consumed by the Astro demo page and its bundled bootstrap. These are the only retained JavaScript inputs. They belong to the application's refactor, rather than a second handwritten site implementation. The adjacent declarations describe the boundary the typed site uses.
+
+The home page opens on team unless `?view=solo` is explicit. Switching views updates the URL and both controls without saving a preference. The first-paint script is built from checked TypeScript and runs inline in the head.
+
+Every home Download button starts at `/download`. The typed release lookup asks GitHub's public API for the latest Stable arm64 DMG and caches the answer for the tab. The download page also supports `?channel=nightly`, using the latest 30 releases. A full page without a Nightly links the Nightly list rather than claiming none exists. A missing release disables the download; an unavailable API links GitHub Releases. The page shows no version, size, or requirements. A desktop release needs no site deploy.
+
+## Refresh the solo demo
+
+`npm run demo:generate --prefix site -- PORT` refreshes the app snapshot after an application UI change. Pick an unused port, or omit it to use 8690. The generator runs a temporary copy of `client/` against the made-up kitchen and checks its rendered board against the browser kitchen. It never signs in to T3 Code. It copies the app modules to `demo/lib/` and demo pictures to `public/demo/`. Rebuild the site after generating.
+
+Keep changes to the app's generated snapshot separate from a site-only migration. When the application refactor changes the generator's inputs, update `scripts/generate-demo.ts` and the boundary declarations together, then run the generator and browser checks. The app's own source stays in `client/` and `desktop/`.
+
+The demos contain only made-up products, people, tickets, checks, and pull request numbers. Teams remains a mock. Nothing leaves either pass without the visitor's action.
 
 ## Origin
 
@@ -57,21 +91,3 @@ Later on 2026-11-09, after #60, Dan asked for a full pass:
 - Tokens stay "modeled, not measured", and the page gives no number for time saved until it is measured.
 
 Later on 2026-11-09 Dan renamed the toggle's segments from [agents][devs] to [solo][team], the same words as `?view=solo` and `?view=team`.
-
-## Placeholders
-
-- The hero's and the close's buttons were "Sign in with T3 Code" (`#sign-in`) until PR D. There is no hosted sign-in: the Mac app signs in with T3 Connect.
-- The nav's GitHub link points at `ddmirolli/yeschef`, which is private until it goes open source.
-- `demo/app.html`: the Yes Chef app's own page on a made-up kitchen (three made-up products, Fernpay, Loopline and Quillo, with logos in `tools/hero-art/icons/`), from `demo/kitchen.mjs`. Never real projects. After a change to the app's UI in `client/`, run `node tools/site_demo.mjs` from the repo root. It copies the app's modules to `demo/lib/`, saves the server's page with the stand-ins, and fails unless the browser's first render matches the server's. The open ticket's before and after shots come from `tools/hero-art/plates.html` (steps at its top).
-- `assets/app-kitchen-*.png` and `assets/app-launch-*.png`: the agents view's start shots, taken from the demo at 1440 by 900. To retake them, serve a copy of `demo/` with `app.html` as `index.html`, then:
-
-  ```sh
-  rm -rf /tmp/yc-demo && mkdir /tmp/yc-demo && cp -R site/demo/. /tmp/yc-demo/ && cp site/demo/app.html /tmp/yc-demo/index.html
-  python3 -m http.server 8616 --bind 127.0.0.1 --directory /tmp/yc-demo &
-  tools/shoot.sh 8616 /tmp/yc-shots kitchen '[{"press":"Escape"},{"press":"v"},{"wait":800},{"press":"Escape"}]'
-  tools/shoot.sh 8616 /tmp/yc-shots launch '[{"press":"Meta+k"},{"wait":500},{"fill":"#launch textarea[name=prompt]","text":"Add a CSV export to the payouts table. One button above the table, the rows as filtered."}]'
-  ```
-
-  Copy `/tmp/yc-shots/<kitchen|launch>-<dark|light>-1440-open.png` to `assets/app-<kitchen|launch>-<dark|light>.png`, then stop the server.
-- `assets/team-s3-invite.png` and `assets/team-s5-join.png`: the Teams mocks from `docs/mocks/team/`. Teams is in design, and the start section says so. `demo/team.html` follows the same brief.
-- Every ticket in the demos, its screens, checks and pull request numbers are invented for the page.

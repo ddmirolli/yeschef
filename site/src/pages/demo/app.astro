@@ -1,0 +1,24 @@
+---
+import generatedPage from '../../../demo/app.html?raw';
+import { inlineScript } from '../../scripts/inline';
+
+// The application owns this generated snapshot. The site owns its isolated bootstrap.
+const head = generatedPage.match(/<head>([\s\S]*?)<\/head>/)?.[1]
+  ?.replace(/<script type="importmap">[\s\S]*?<\/script>/, '')
+  .replace('<script src="shim.js"></script>', '');
+const body = generatedPage.match(/<body[^>]*>([\s\S]*?)<\/body>/)?.[1]
+  ?.replace('<script type="module" src="boot.mjs"></script>', '');
+if (!head || !body) throw new Error('Regenerate the solo app demo before building the site.');
+const shim = inlineScript('src/demo/shim.ts');
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <script is:inline set:html={shim}></script>
+    <Fragment set:html={head} />
+  </head>
+  <body class="pass-app">
+    <Fragment set:html={body} />
+    <script>import '../../demo/boot';</script>
+  </body>
+</html>

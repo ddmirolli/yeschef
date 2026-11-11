@@ -16,7 +16,7 @@ Yes Chef (https://yeschef.codes, repo `ddmirolli/yeschef`) is Dan's agent-orches
 
 - `python3 -m unittest test_public.py`
 - The desktop app: `node --test desktop/*.test.mjs`, and `npm run capture` in `desktop/` on a copy of the data folder (see `desktop/README.md`).
-- The site's download links: `node --test site/*.test.mjs`.
+- The site: `npm ci --prefix site`, `npm run build --prefix site`, then `npm test --prefix site`. Read `site/README.md` for Browserbase checks and the generated app-demo boundary.
 - The web prototype in `client/`: `node --test client/*.test.mjs`. It runs against a real T3 sign-in, so a task starts it only when Dan asks.
 - The team relay: `node --test relay/*.test.mjs`, then `node relay/smoke.mjs http://127.0.0.1:8790` against `wrangler dev` (`relay/README.md`). The production relay deploys only as a land step, after Dan's send-it-out.
 
