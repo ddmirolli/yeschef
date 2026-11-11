@@ -1,7 +1,7 @@
 // Builds the site's live demo (site/demo/), the real Pass on a made-up kitchen, from the app in client/.
 // Run it from the repo root after a change to the app's UI:  node tools/site_demo.mjs [port]
 //
-// It copies the app's board, calls, kitchen and actions modules to site/demo/lib/ unchanged, and the
+// It copies the app's board, calls, kitchen, actions, you and open-kitchen modules to site/demo/lib/ unchanged, and the
 // made-up projects' icons and screenshots from tools/hero-art/. Then it starts client/server.mjs in a temp
 // folder with a stand-in for client/t3mcp.mjs that answers from site/demo/kitchen.mjs, so it never signs in
 // to T3 Code. It saves the server's page as site/demo/app.html, with shim.js and boot.mjs added: in the
@@ -21,7 +21,7 @@ const DIRS = { 'p-pay': 'fernpay', 'p-loop': 'loopline', 'p-quill': 'quillo' };
 // 1. The app's modules, unchanged. Only these node: imports have browser stand-ins (lib/node-*.mjs).
 const SHIMMED = new Set(['node:crypto', 'node:fs', 'node:path']);
 mkdirSync(join(DEMO, 'lib'), { recursive: true });
-for (const f of ['board.mjs', 'calls.mjs', 'kitchen.mjs', 'actions.mjs', 'you.mjs']) {
+for (const f of ['board.mjs', 'calls.mjs', 'kitchen.mjs', 'actions.mjs', 'you.mjs', 'open-kitchen.mjs']) {
   const src = readFileSync(join(ROOT, 'client', f), 'utf8');
   for (const [, spec] of src.matchAll(/^import [^;]*? from '([^']+)';/gm)) {
     if (!spec.startsWith('./') && !SHIMMED.has(spec)) throw new Error(`client/${f} imports ${spec}: give it a stand-in in site/demo/lib first`);
@@ -52,6 +52,38 @@ const kitchen = createKitchen({ where: (dir) => ({ workspaceRoot: ${JSON.stringi
   shot: (name) => name, later: null });
 export async function signIn() { return { resource: 'demo', token: 'demo', scope: 'orchestration:read' }; }
 export function connect() { return kitchen.t3; }
+export { kitchen };
+`);
+  // The board reads its threads from T3 Code's live stream (client/t3live.mjs). This stand-in hands the server the
+  // same kitchen's threads as stream shells, the inverse of client/shells.mjs threadRow; step 4 checks the result.
+  writeFileSync(join(tmp, 'client', 't3live.mjs'), `// Stand-in written by tools/site_demo.mjs: the made-up kitchen as stream shells, never T3 Code.
+import { kitchen } from './t3mcp.mjs';
+const LATER = '2999-01-01T00:00:00.000Z';
+export function createKeys() { return { sweep: async () => 0, revokeMine: async () => 0 }; }
+export function createLive({ onChange }) {
+  let shells = [], up = false;
+  const shell = async (t) => {
+    const asks = (await kitchen.t3.call('t3_pending_request', { action: 'list', threadId: t.threadId })).requestIds || [];
+    return { id: t.threadId, projectId: t.projectId, title: t.title, status: t.status, latestRunId: t.latestRunId,
+      modelSelection: { model: t.model }, pullRequests: t.pullRequests.map((p) => ({ ...p, snapshot: { state: p.state } })),
+      settledOverride: t.settled ? 'settled' : null, settledAt: t.settledAt ?? null, snoozedUntil: t.snoozed ? LATER : null,
+      lineage: { parentThreadId: t.parentThreadId }, visibleItemCount: t.itemCount, createdAt: t.updatedAt, updatedAt: t.updatedAt,
+      pendingRuntimeRequest: asks.length ? { id: asks[0] } : null };
+  };
+  return {
+    async start() {
+      const rows = [];
+      for (const settled of [false, true]) rows.push(...(await kitchen.t3.call('t3_thread_list', { settled })).threads);
+      shells = await Promise.all(rows.map(shell));
+      up = true;
+      onChange({ ids: [], live: true });
+    },
+    async stop() { up = false; },
+    probe() {},
+    live: () => up, why: () => 'the demo stream has not started', generation: () => 1, projectsRev: () => 1,
+    threads: () => shells, project: () => null,
+  };
+}
 `);
   // The server needs a page address and an allow list to start (#62). Nothing here sends, so both are placeholders.
   server = spawn(process.execPath, [join(tmp, 'client', 'server.mjs'), 'https://t3.codes', String(PORT)], { cwd: tmp, stdio: ['ignore', 'pipe', 'pipe'],

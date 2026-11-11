@@ -112,7 +112,7 @@ Settings → Rules (Kitchen rules until 2026-11-10) holds how your projects work
 The words only; what each does lives in the Teams brief.
 
 - **Modes:** **Open kitchen** and **French Brigade**, always in full, in the product and in marketing. Never "Open" or "Brigade" alone. Dan, 2026-11-10: the names should always call people's minds back to why the app is called Yes Chef, and to what that frame gives them.
-- **Views:** **You** (every user: your own threads) and **Your team** (a user with people under them: everyone below, at every level, in the mode the lead set). The Pass follows the view.
+- **Views:** **You** (every user: your own threads) and **Team** (a user with people under them: everyone below, at every level, in the mode the lead set). The Pass follows the view. The footer chip and its toggle show the person and You, or the toque and Team, in both modes; never the team's name or the mode's (Dan, 2026-11-10).
 - **Roles:** Lead, Deputy, Area owner, Engineer, Viewer (Chef de cuisine, Sous chef, Chef de partie, Commis and Stagiaire in marketing).
 - **Team** lists the people. **Projects** lists the work, one **Project** each. **Overlap:** two devs' tickets change the same file at the same time.
 

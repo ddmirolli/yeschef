@@ -71,25 +71,38 @@ The two install side by side and share nothing. T3 Code keeps one bundle ID for 
 
 ## Release
 
+Releases build in GitHub Actions (`.github/workflows/release.yml`), as T3 Code's do. The release plan, section 7, has the details.
+
+- **Nightly** builds by itself every day at 08:23 UTC when main has changed since the newest Nightly. To ship one sooner: github.com/ddmirolli/yeschef, Actions, Release, Run workflow, branch `main`, channel `nightly`.
+- **Stable**: Run workflow, channel `stable`, a version such as `0.2.0`. It builds the commit of the newest Nightly (the build Nightly users ran) and needs that version's section in `CHANGELOG.md`, which becomes the release notes. It waits for Dan's approval in the `stable` Environment before it builds.
+- **Dry run**: every pull request that touches the app, or channel `dry-run`. Unsigned, never published.
+- **Signing check**: channel `signing-check`. Reads the signing secrets, asks Apple whether it accepts the notarization key, builds nothing.
+
+A run plans (the version and the commit), builds on a macOS arm64 runner (a clean copy of the commit, `npm ci`, then `npm run dist` with `--version`: build, notarize and staple the app and the DMG, the feed rewrite, the checks and the hidden start), then publishes (a draft release with the DMG, the ZIP, its blockmap and the feed, every file checked by name and size, then published, Nightly as a prerelease and Stable as latest, and the feed read back the way the app reads it).
+
+The signing secrets live only in the "Yes Chef Release" 1Password vault. A read-only service account reads them, and GitHub holds only its token, in the `release` Environment, which runs from main only. Agents never approve a Stable.
+
+The version goes into the build, not into a commit, so a release pushes nothing to main. GitHub makes the tag when the release is published. After a Stable, a PR can set `package.json` to that version, so local builds carry it.
+
+### The local fallback
+
 ```sh
-cd ~/Developer/yeschef/desktop
+cd desktop
 npm run release -- nightly    # a Nightly from main as it is now
 npm run release -- 0.2.0      # a Stable, from the commit of the newest Nightly
 ```
 
-Dan runs it, from a clean main that matches GitHub, in a new Terminal window opened only for it. Agents never do: `build/release.zsh` refuses to run without a terminal, and so do the build and publish steps of `build/publish.mjs`.
+For a day when Actions cannot run. It runs the same plan, build and publish on Dan's Mac. Dan runs it, from a clean main that matches GitHub, in a new Terminal window opened only for it. Agents never do: `build/release.zsh` refuses to run without a terminal, and so do the build and publish steps of `build/publish.mjs`.
 
-1. Checks and the plan, with no key: main, the repo is public, gh is signed in, the Developer ID certificate is here, and the version and commit. A Stable needs a published Nightly (it ships the build Nightly users ran) and its section in `CHANGELOG.md`, which becomes the release notes. Answer y to go on.
-2. One Touch ID approval: 1Password gives the App Store Connect key from the "Yes Chef Release" vault. The `.p8` goes to a private temp folder (`mktemp -d`) that is deleted on exit, as `APPLE_API_KEY`, with `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`.
-3. The build: a clean copy of the commit (`git archive`), `npm ci`, then `npm run dist` with `--version`: build, notarize and staple the app and the DMG, the feed rewrite, the checks and the hidden start.
+1. Checks and the plan, with no key: main, the repo is public, gh is signed in, the Developer ID certificate is here, and the version and commit. Answer y to go on.
+2. One Touch ID approval: 1Password gives the App Store Connect key from the "Yes Chef Release" vault, signed in as Dan. The `.p8` goes to a private temp folder (`mktemp -d`) that is deleted on exit, as `APPLE_API_KEY`, with `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`.
+3. The build, as above.
 4. The key is deleted. Lock 1Password then; publishing needs no key.
-5. A draft release at the built commit, with the DMG, the ZIP, its blockmap and the feed; the attached files are checked by name and size; then it is published, Nightly as a prerelease, Stable as latest. Last, the feed is read back from GitHub the way the app reads it.
-
-The version goes into the build, not into a commit, so a release pushes nothing to main. GitHub makes the tag when the release is published. After a Stable, a PR can set `package.json` to that version, so local builds carry it.
+5. The release, as above.
 
 On macOS 27, Terminal first needs System Settings → Privacy & Security → Files & Folders → Terminal → "Data shared by 1Password". Without it the 1Password CLI says "No accounts configured" and offers to add the account with a typed password: stop it with Ctrl+C. `YESCHEF_OP_ACCOUNT` names the account if 1Password has several.
 
-The download page on the site is PR D.
+The site's `/download` page reads the newest release from GitHub by itself.
 
 ## Signing in
 

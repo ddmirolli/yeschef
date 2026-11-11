@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { BAR_CSS, BAR_HTML, SPRING, barCore, installBar } from './bar.mjs';
+import { ICON } from './board.mjs';
 
 const core = barCore();
 
@@ -16,6 +17,28 @@ test('every word typed must appear in the row, in any case and any order', () =>
   assert.deepEqual(core.filter(rows, 'settings').map((r) => r.t), ['Rules']);
   assert.deepEqual(core.filter(rows, 'hay').map((r) => r.t), ['x']);
   assert.deepEqual(core.filter(rows, 'x').map((r) => r.t), []);
+});
+
+test('a step\'s choice shows at the top once a typed word starts its name', () => {
+  const hay = 'Change appearance: Dark mode theme';
+  assert.equal(core.nestedHit('dark', hay, 'Dark'), true);
+  assert.equal(core.nestedHit('appearance da', hay, 'Dark'), true);
+  assert.equal(core.nestedHit('DARK', hay, 'Dark'), true);
+  assert.equal(core.nestedHit('appearance', hay, 'Dark'), false, 'the step\'s own name finds the step, not every choice');
+  assert.equal(core.nestedHit('ark', hay, 'Dark'), false, 'inside a word is not enough');
+  assert.equal(core.nestedHit('dark sepia', hay, 'Dark'), false, 'every word must still match');
+  assert.equal(core.nestedHit('  ', hay, 'Dark'), false);
+});
+
+test('in a step, a typed name puts its own choice first: keep holds the group order only, never the rows\' order', () => {
+  const step = [
+    { t: 'System', d: 'Light or dark, as your Mac is set', g: 'Appearance', kw: 'mode theme' },
+    { t: 'Light', d: 'Always light', g: 'Appearance', kw: 'mode theme' },
+    { t: 'Dark', d: 'Always dark', g: 'Appearance', kw: 'mode theme' },
+  ];
+  assert.deepEqual(core.filter(step, 'dark', true).map((r) => r.t), ['Dark', 'System']);
+  assert.deepEqual(core.filter(step, 'light', true).map((r) => r.t), ['Light', 'System']);
+  assert.deepEqual(core.filter(step, '', true).map((r) => r.t), ['System', 'Light', 'Dark'], 'empty: the step\'s own order');
 });
 
 test('recent actions: newest first, no copies, five at most, malformed entries dropped', () => {
@@ -58,14 +81,16 @@ test('the next in The Pass is the one after the open ticket, else the first othe
   assert.equal(core.after([], null), null);
 });
 
-test('View: You and View: Your team show only to a user with reports, once the app can switch', () => {
+test('View: You and View: Team show only to a user with reports, once the app can switch', () => {
   const v = { hasReports: true, current: 'team', team: { name: 'Lantern', below: 14 } };
   assert.deepEqual(core.viewRows(v, false), []);
   assert.deepEqual(core.viewRows({ ...v, hasReports: false }, true), []);
   assert.deepEqual(core.viewRows({ ...v, hasReports: 'yes' }, true), []);
   assert.deepEqual(core.viewRows(null, true), []);
   const rows = core.viewRows(v, true);
-  assert.deepEqual(rows.map((r) => [r.t, r.now]), [['View: You', false], ['View: Your team', true]]);
+  assert.deepEqual(rows.map((r) => [r.t, r.now]), [['View: You', false], ['View: Team', true]]);
+  // The app's own person and toque, as on the footer chip (Dan, 2026-11-10).
+  assert.deepEqual(rows.map((r) => r.icon), ['person', 'toque']);
   assert.equal(rows[1].d, 'Lantern, 14 people below you');
   for (const w of ['switch', 'team', 'me', 'mine', 'solo', 'lead', 'reports', 'scope']) assert.equal(core.filter(rows, w).length, 2, w);
   assert.equal(core.viewRows({ ...v, team: { name: 'Solo', below: 1 } }, true)[1].d, 'Solo, 1 person below you');
@@ -84,7 +109,7 @@ test('barCore and installBar stand alone, so the page can inline their source te
   const doc = { getElementById: () => null };
   const ib = vm.runInContext(`(${installBar})`, vm.createContext({ document: doc }));
   assert.equal(ib({ $: () => null, $$: () => [] }, c), null);
-  for (const name of ['BAR_CSS', 'BAR_HTML', 'SPRING', 'ICONS', 'barCore']) assert.equal(String(installBar).includes(name), false, name);
+  for (const name of ['BAR_CSS', 'BAR_HTML', 'SPRING', 'ICONS', 'APP_ICONS', 'appSymbol', 'barCore']) assert.equal(String(installBar).includes(name), false, name);
   // The source text goes inside the page's <script> element, so it must not close it.
   for (const src of [String(barCore), String(installBar)]) assert.equal(/<\/script/i.test(src), false);
 });
@@ -98,6 +123,13 @@ test('the motion is Apple\'s default spring: 0.5 s, no bounce, as 735 ms of line
   assert.match(BAR_HTML, /<dialog id="bar"/);
   assert.match(BAR_HTML, /role="combobox"/);
   assert.match(BAR_HTML, /<symbol id="cb-search"/);
+});
+
+test('the view rows draw the app\'s own person and toque, not glyphs of the bar\'s own', () => {
+  assert.match(BAR_HTML, /<symbol id="cb-person" viewBox="3 3 18 18"><g fill="none" stroke="currentColor"[^>]*>(<circle cx="12" cy="8\.25"[^>]*\/>)/);
+  assert.ok(BAR_HTML.includes(`<symbol id="cb-person" viewBox="3 3 18 18"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON.person}</g></symbol>`));
+  assert.ok(BAR_HTML.includes(`<symbol id="cb-toque" viewBox="3 3 18 18"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON.toque}</g></symbol>`));
+  assert.doesNotMatch(BAR_HTML, /<symbol id="cb-you"/);
 });
 
 test('matches rank by the title inside each group; the groups keep their order', () => {

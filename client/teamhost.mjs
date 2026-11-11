@@ -122,6 +122,8 @@ export function teamHost({ store, run, boardOf, projectsOf = () => [], t3Ok = ()
     start, route, act,
     /** The Pass read a board: the team's summary follows it. */
     board(b) { if (team && b) team.board(b); },
+    /** A board read failed: teammates read this Mac as not checked since then. */
+    health(ok) { team?.health(ok); },
     wake() { team?.wake(); },
     stop() { team?.stop(); },
     view: () => team?.view() || null,

@@ -27,15 +27,16 @@
 // download and the restart from a card in the window or the Yes Chef menu. YESCHEF_UPDATE_FEED points the check at a
 // feed served on 127.0.0.1, to test an update without GitHub; with --capture and YESCHEF_UPDATE_DRILL=restart, quit or
 // quit-now, the hidden window clicks through the update itself (see drill below).
-import { app, BrowserWindow, Menu, autoUpdater as squirrel, dialog, ipcMain, net, protocol, safeStorage, shell, utilityProcess } from 'electron';
+import { app, BrowserWindow, Menu, autoUpdater as squirrel, dialog, ipcMain, nativeTheme, net, powerMonitor, protocol, safeStorage, shell, utilityProcess } from 'electron';
 import electronUpdater from 'electron-updater';
 import { createInterface } from 'node:readline';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CHANNELS, channelOf } from './channels.mjs';
 import { TESTED_T3, findT3, older, t3Answers } from './t3.mjs';
 import { canUpdateInPlace, createUpdates, feedOverride, menuFor, moveCard, visibleCard } from './updates.mjs';
+import { ensureKeybindings, readKeybindings, syncKeybindings, writeKeybindings } from './keybindings.mjs';
 
 const STARTED = Date.now();
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -341,6 +342,39 @@ function fromWindow(event) {
     return !!win && event.sender === win.webContents && !!frame && frame.parent === null && (isBoard(frame.url) || frame.url.startsWith('data:text/html'));
   } catch { return false; }
 }
+// Appearance: the board's choice (Settings, the action bar, Option-Shift-Cmd-A), so the title bar, menus and the card
+// follow it too. Only the board page in this window sets it, and only to one of the three; anything else is Match system.
+ipcMain.handle('yeschef:theme', (event, t) => {
+  let fromBoard = false;
+  try { const frame = event.senderFrame; fromBoard = !!win && event.sender === win.webContents && !!frame && frame.parent === null && isBoard(frame.url); } catch { fromBoard = false; }
+  if (!fromBoard) return false;
+  nativeTheme.themeSource = t === 'light' || t === 'dark' ? t : 'system';
+  return true;
+});
+// Settings → Shortcuts (desktop/keybindings.mjs): the board reads and writes keybindings.json in the data folder, and
+// asks to open it. Only the board page in this window, as for Appearance. A capture run without its own data folder
+// keeps the file in a temp folder, so a test never changes Dan's, as for the rules.
+let keysDir = null;
+function keysFile() {
+  if (KEEP) return join(app.getPath('userData'), 'keybindings.json');
+  keysDir ??= mkdtempSync(join(app.getPath('temp'), 'yeschef-keys-'));
+  return join(keysDir, 'keybindings.json');
+}
+ipcMain.handle('yeschef:keys', async (event, req) => {
+  let fromBoard = false;
+  try { const frame = event.senderFrame; fromBoard = !!win && event.sender === win.webContents && !!frame && frame.parent === null && isBoard(frame.url); } catch { fromBoard = false; }
+  if (!fromBoard) return { error: 'Shortcuts are saved only from the Yes Chef board window.' };
+  const ask = req && typeof req === 'object' ? req.op : null;
+  if (ask === 'read') return readKeybindings(keysFile());
+  if (ask === 'write') return writeKeybindings(keysFile(), req.list);
+  if (ask === 'open') {
+    const made = ensureKeybindings(keysFile());
+    if (made.error) return made;
+    const failed = await shell.openPath(keysFile());
+    return failed ? { error: failed } : { ok: true };
+  }
+  return { error: 'Yes Chef does not know that request.' };
+});
 // null asks for the card showing now; { card, button } is a click, which counts only on a button of that card.
 ipcMain.handle('yeschef:card', (event, click) => {
   if (!fromWindow(event)) return null;
@@ -420,6 +454,18 @@ function buildMenu() {
 }
 
 function stopServer() { if (serverUp) server.kill(); }
+// The board server revokes its read-only stream key before it goes (client/server.mjs, stopLive). Quit waits for that,
+// up to 3 s; a key it could not revoke is revoked at the next start.
+function stopStream() {
+  if (!serverUp) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => { clearTimeout(timer); server.off('message', hear); resolve(); };
+    const timer = setTimeout(done, 3000);
+    function hear(m) { if (m && m.type === 'stopped') done(); }
+    server.on('message', hear);
+    server.postMessage({ type: 'stop' });
+  });
+}
 
 // A send waiting out its Undo keeps its four seconds when you quit, close the window or Force Reload: the app waits
 // while the page sends it (or you undo it) and T3 answers, then goes on (hill climb 2 r1, Sol). It asks the page every
@@ -481,7 +527,18 @@ async function waitForT3() {
 // Capture mode saves what the hidden window shows.
 async function capture(name) {
   await new Promise((r) => setTimeout(r, 500));
-  const image = await win.webContents.capturePage();
+  // On GitHub's macOS runners, which have no GPU, capturePage sometimes rejects with UnknownVizError while the page
+  // itself is fine (2 of 4 pull request dry runs, 2026-11-10). It is tried three times; each failure is logged.
+  let image;
+  for (let tries = 1; !image; tries++) {
+    try {
+      image = await win.webContents.capturePage();
+    } catch (e) {
+      if (tries === 3) throw e;
+      console.log(`capturePage failed (${e.message}); trying again.`);
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
   const outDir = process.env.YESCHEF_CAPTURE_DIR || join(HERE, 'out');
   mkdirSync(outDir, { recursive: true });
   writeFileSync(join(outDir, name), image.toPNG());
@@ -490,6 +547,10 @@ async function capture(name) {
 
 async function main() {
   await app.whenReady();
+  // T3 Code's start-up sync for keybindings.json (desktop/keybindings.mjs): every default into a new file, and the
+  // defaults of a command the file does not name.
+  const keys = syncKeybindings(keysFile());
+  if (keys.error) console.error(keys.error);
   protocol.handle('yeschef', boardPage);
   buildMenu();
   if (app.dock && !CAPTURE) app.dock.setIcon(ICON);
@@ -617,11 +678,15 @@ async function drill() {
 }
 
 app.on('window-all-closed', () => app.quit());
+// After sleep or a screen unlock the live stream checks its socket at once (T3 Code's probe on wake).
+app.whenReady().then(() => {
+  for (const ev of ['resume', 'unlock-screen']) powerMonitor.on(ev, () => { if (serverUp) server.postMessage({ type: 'wake' }); });
+});
 app.on('before-quit', (event) => {
   if (drained) return;
   event.preventDefault();
   // When I Quit: the quit also waits for Squirrel.Mac to finish taking the update, so it installs (PR-Agent r2 on #66).
-  Promise.all([drain(win), updates?.whenStaged()]).then(() => { drained = true; app.quit(); });
+  Promise.all([drain(win), updates?.whenStaged()]).then(() => stopStream()).then(() => { drained = true; app.quit(); });
 });
 app.on('will-quit', () => {
   stopServer();
