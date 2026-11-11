@@ -20,6 +20,7 @@ Yes Chef (https://yeschef.codes, repo `ddmirolli/yeschef`) is Dan's agent-orches
 - The desktop app: `node --test desktop/*.test.mjs`, and `npm run capture` in `desktop/` on a copy of the data folder (see `desktop/README.md`).
 - The site's download links: `node --test site/*.test.mjs`.
 - The web prototype in `client/`: `node --test client/*.test.mjs`. It runs against a real T3 sign-in, so a task starts it only when Dan asks.
+- The team relay: `node --test relay/*.test.mjs`, then `node relay/smoke.mjs http://127.0.0.1:8790` against `wrangler dev` (`relay/README.md`). The production relay deploys only as a land step, after Dan's send-it-out.
 
 ## Docs
 
@@ -27,4 +28,5 @@ Yes Chef (https://yeschef.codes, repo `ddmirolli/yeschef`) is Dan's agent-orches
 - `docs/agent-brigade-spec-v1_0.md`: the governing spec (moved here from ReviewWheel on 2026-11-06).
 - `docs/pass-definitions-v1_0.md`: the locked words for the stages and panels. Where the spec uses an older word, this page wins.
 - `docs/pass-calls-v1_0.md`: how an agent asks Dan a decision, with screenshots, in its own T3 message, and how the Pass shows and answers it. The Pass replaces the ATC: never route a call through a coordinator.
+- `docs/team-relay-v0_1.md`: the team relay: what it keeps, the keys, the invite, the socket, the cap.
 - `docs/ui-rubric-v1_1.md`: the grading rubric for UI, UX and design (v1.1 locked by Dan, 2026-11-07). Every council or hill-climb score uses it.
