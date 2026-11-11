@@ -170,3 +170,59 @@ test('a team whose last change did not save says so above the page', () => {
   assert.match(teamPage({ view }), /role="alert">Not saved: Yes Chef could not save/);
   assert.doesNotMatch(teamPage({ view: { ...view, unsaved: false } }), /Not saved:/);
 });
+
+test('a make or a join waits for the saved team to load, so it never writes over it (PR-Agent r1 on #8)', async () => {
+  const relay = fakeRelay();
+  const net = fakeNet(relay);
+  // A lead's saved team, read slowly (the Keychain is asking).
+  const a = host(relay, net);
+  await a.h.act({ op: 'create', teamName: 'Fernpay', name: 'Sam', relay: 'https://relay.test' });
+  const kept = structuredClone(a.store.saved.at(-1));
+  a.h.stop();
+  let let_go;
+  const store = { saved: [], load: () => new Promise((r) => { let_go = () => r(kept); }), save(s) { this.saved.push(s); } };
+  const b = host(relay, net, store);
+  b.h.start();
+  const made = b.h.act({ op: 'create', teamName: 'Other', name: 'Sam', relay: 'https://relay.test' });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(store.saved.length, 0, 'nothing is written while the saved team loads');
+  let_go();
+  const r = await made;
+  assert.equal(r.status, 409);
+  assert.equal(b.h.view().teamName, 'Fernpay');
+  assert.equal(store.saved.filter((s) => s && s.teamName === 'Other').length, 0);
+  b.h.stop();
+});
+
+test('a new team that did not save says so, keeps its keys in use, and the page says Not saved (PR-Agent r1 on #8)', async () => {
+  const relay = fakeRelay();
+  const store = { saved: [], load: () => null, save() { return Promise.reject(new Error('the Keychain said no')); } };
+  const { h, page } = host(relay, fakeNet(relay), store);
+  const err = console.error; console.error = () => {};
+  const r = await h.act({ op: 'create', teamName: 'Fernpay', name: 'Sam', relay: 'https://relay.test' });
+  console.error = err;
+  assert.equal(r.status, 503);
+  assert.match(r.text, /^Not saved/);
+  assert.equal(h.view().teamName, 'Fernpay', 'the team stays in use');
+  assert.match(body(page()), /role="alert">Not saved/);
+  h.stop();
+});
+
+test('a member who may invite still has their own sharing switches and Stop sharing (PR-Agent r1 on #8)', () => {
+  const me = { id: 'D', name: 'Dee', role: 'deputy', perms: ['see', 'reply', 'projects', 'invite'], area: null, under: 'L' };
+  const view = { status: 'member', lead: false, link: 'online', teamName: 'Fernpay', me, areas: [], pending: [], invites: [],
+    people: [{ id: 'L', name: 'Sam', role: 'lead', perms: ['see', 'invite'] }, me] };
+  const html = body(teamPage({ view, projects, shared: ['p-app'] }));
+  assert.match(html, /Invite your team/);
+  assert.match(html, /data-form="share"[\s\S]*value="p-app" checked[\s\S]*value="p-site"/);
+  assert.match(html, /data-op="share">Stop sharing/);
+  const lead = body(teamPage({ view: { ...view, lead: true, me: view.people[0] }, projects }));
+  assert.doesNotMatch(lead, /data-form="share"/, 'the lead page is unchanged');
+});
+
+test('the page script escapes quotes for attributes, rebuilds the area options, and keeps a sharing change made mid-save (PR-Agent r1 on #8)', () => {
+  const src = teamPage({}).match(/<script>\(([\s\S]*?)\)\(\);<\/script>/)[1];
+  assert.match(src, /replace\(\/"\/g, '&quot;'\)/);
+  assert.match(src, /data\.areas\.forEach\(function \(a\) \{ sel\.appendChild\(new Option\(a\.name, a\.id\)\)/);
+  assert.match(src, /if \(fields\.op === 'share'\) queued = fields/);
+});

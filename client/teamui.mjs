@@ -164,6 +164,7 @@ dialog.dlg::backdrop{background:var(--scrim)}
 
 /* The dev's side: Join, waiting, joined, and a team that ended */
 .dev{width:640px;max-width:calc(100vw - 32px);margin:24px auto 48px}
+.dev.own{margin:28px 0 0}
 .from{display:flex;gap:14px;align-items:center}
 .from h1{font-size:26px}
 .from .who{font-size:13.5px;color:var(--label2);margin-top:3px}
@@ -266,12 +267,13 @@ function chart(v) {
   </div>`;
 }
 
-function leadPage(v, links, now) {
+function leadPage(v, links, now, own = '') {
   return `<div class="lead">${drawer(v, now)}<main>
     <h1 class="ih"><span class="logo">${use('person-plus', 36, 36)}</span>Invite your team</h1>
     <p class="lede">Send the link any way you like. Each dev connects their own T3 Code, picks the projects to share, and asks to join.</p>
     ${linkCard(links, now)}
     ${chart(v)}
+    ${own}
   </main></div>`;
 }
 
@@ -318,6 +320,19 @@ function waitingPage(v, projects) {
   </div>`;
 }
 
+const sharingBox = (me, projects, shared) => (me.role === 'viewer'
+  ? '<div class="box2"><div class="bh">Sharing</div><div class="rowi"><span class="grow"><i>A Viewer shares nothing with the team.</i></span></div></div>'
+  : `<form class="box2" data-form="share"><div class="bh">Sharing</div>${projectRows(projects, shared)}</form>`);
+
+/** A member who may invite (a Deputy by default) keeps their own sharing switches under the chart (PR-Agent r1 on #8). */
+function ownSharing(v, projects, shared) {
+  if (v.lead) return '';
+  return `<div class="dev own">${sharingBox(v.me, projects, shared)}
+    <p class="err" role="alert"></p>
+    ${v.me.role === 'viewer' ? '' : `<div class="devfoot"><span class="fine">Stop sharing takes your tickets off the team's board at once.</span><button type="button" class="btn" data-op="share">Stop sharing</button></div>`}
+  </div>`;
+}
+
 function joinedPage(v, projects, shared) {
   const me = v.me;
   const lead = v.people.find((p) => p.role === 'lead');
@@ -334,8 +349,7 @@ function joinedPage(v, projects, shared) {
     <div class="box2"><div class="bh">Who can act on your threads</div><div class="acts-li">
       <div>${actors.length ? `${e(and(actors.map((p) => `${p.name} (${ROLE_NAMES[p.role]})`)))} can act on your tickets. What they send lands in your thread with their name on it.` : 'No one else can act on your tickets.'}</div>
       <div class="muted">Your Yes Chef checks their role, and that the thread is in a project you share, before it sends anything.</div></div></div>
-    ${me.role === 'viewer' ? '<div class="box2"><div class="bh">Sharing</div><div class="rowi"><span class="grow"><i>A Viewer shares nothing with the team.</i></span></div></div>'
-      : `<form class="box2" data-form="share"><div class="bh">Sharing</div>${projectRows(projects, shared)}</form>`}
+    ${sharingBox(me, projects, shared)}
     <p class="err" role="alert"></p>
     <div class="devfoot"><span class="fine">Stop sharing takes your tickets off the team's board at once.</span>${me.role === 'viewer' ? '' : '<button type="button" class="btn" data-op="share">Stop sharing</button>'}<a class="btn primary" href="/">Open The Pass</a></div>
   </div>`;
@@ -382,7 +396,7 @@ export function teamBody({ lost = '', view = null, join = null, links = [], proj
   // The team's last change did not reach the disk: after a restart this Mac could read an older team (PR-Agent r4 on
   // public #7). Said above the page, in plain words.
   const warn = view.unsaved ? `<p class="unsaved" role="alert">Not saved: Yes Chef could not save the team's latest change on this Mac. It is in use now; check the disk and the Keychain, then restart Yes Chef.</p>` : '';
-  if (view.lead || (view.me.perms || []).includes('invite')) return warn + leadPage(view, links, now);
+  if (view.lead || (view.me.perms || []).includes('invite')) return warn + leadPage(view, links, now, ownSharing(view, projects, shared));
   return warn + joinedPage(view, projects, shared);
 }
 
@@ -391,22 +405,24 @@ export function teamBody({ lost = '', view = null, join = null, links = [], proj
 function pageScript() {
   var data = JSON.parse(document.getElementById('yc-team-data').textContent);
   var $ = function (s, r) { return (r || document).querySelector(s); };
-  var busy = false, dragging = null;
+  var busy = false, dragging = null, queued = null;
   function post(body) {
     if (window.yeschef && typeof window.yeschef.act === 'function') return window.yeschef.act(body);
     return fetch('/act', { method: 'POST', body: body }).then(function (r) { return r.text().then(function (t) { return [r.status, t]; }); });
   }
   function say(text) { var el = $('.err'); if (el) el.textContent = text || ''; else if (text) alert(text); }
+  // A sharing change made while another action runs is kept (the latest one) and sent next (PR-Agent r1 on #8).
+  function next() { var q = queued; queued = null; return q ? act(q) : null; }
   function act(fields) {
-    if (busy) return Promise.resolve();
+    if (busy) { if (fields.op === 'share') queued = fields; return Promise.resolve(); }
     busy = true; say('');
     var q = new URLSearchParams({ kind: 'team' });
     Object.keys(fields).forEach(function (k) { if (fields[k] != null) q.append(k, Array.isArray(fields[k]) ? fields[k].join(',') : String(fields[k])); });
     return post(q.toString()).then(function (r) {
       busy = false;
-      if (r[0] !== 200) { say(r[1] || 'Not done.'); return false; }
-      return refresh(true);
-    }, function () { busy = false; say('Not done: Yes Chef did not answer.'); return false; });
+      if (r[0] !== 200) { say(r[1] || 'Not done.'); return next() || false; }
+      return next() || refresh(true);
+    }, function () { busy = false; say('Not done: Yes Chef did not answer.'); return next() || false; });
   }
   function refresh(force) {
     if (!force && (busy || dragging || (dlg && dlg.open) || document.activeElement && /INPUT|SELECT/.test(document.activeElement.tagName) || $('details[open]'))) return Promise.resolve();
@@ -431,7 +447,8 @@ function pageScript() {
       return '<label class="ck' + (locked ? ' locked' : '') + '"><input type="checkbox" value="' + p.key + '"' + (on.has(p.key) || locked ? ' checked' : '') + (locked ? ' disabled' : '') + '><div>' + esc(p.label) + (p.hint ? '<i>' + esc(p.hint) + '</i>' : '') + '</div></label>';
     }).join('');
   }
-  function esc(s) { var d = document.createElement('div'); d.textContent = String(s == null ? '' : s); return d.innerHTML; }
+  // Also quotes: esc() feeds attribute values too (PR-Agent r1 on #8).
+  function esc(s) { var d = document.createElement('div'); d.textContent = String(s == null ? '' : s); return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
   function setRole(role, perms) {
     pick.role = role;
     Array.prototype.forEach.call(dlg.querySelectorAll('.roles button'), function (b) { b.setAttribute('aria-pressed', String(b.dataset.role === role)); });
@@ -439,6 +456,10 @@ function pageScript() {
     var ap = $('.area-pick', dlg), sel = $('select', ap);
     var inArea = (role === 'owner' || role === 'engineer') && data.areas.length;
     ap.hidden = !inArea;
+    // The options follow the latest data: an area added since the page loaded is there (PR-Agent r1 on #8).
+    sel.textContent = '';
+    sel.appendChild(new Option('No area', ''));
+    data.areas.forEach(function (a) { sel.appendChild(new Option(a.name, a.id)); });
     if (inArea) sel.value = pick.area && data.areas.some(function (a) { return a.id === pick.area; }) ? pick.area : '';
   }
   function open(m, role, area) {

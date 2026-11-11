@@ -76,8 +76,18 @@ export function teamHost({ store, run, boardOf, projectsOf = () => [], t3Ok = ()
     return next;
   }
 
+  /** A new team or join is live at once and saved before it says done. A failed save keeps the keys in use, says so,
+   *  and shows "Not saved" until a later save gets through (PR-Agent r1 on #8). */
+  async function kept(s, done) {
+    live(s);
+    if (await team.saveNow()) return ok(done);
+    return no('Not saved: Yes Chef could not save the team on this Mac. It is in use now; keep Yes Chef open, check the disk and the Keychain, then try any change again.', 503);
+  }
+
   async function step(input) {
     const op = String(input.op || '');
+    // The saved team loads first: a make or a join while the Keychain answers must not write over it (PR-Agent r1 on #8).
+    await start();
     if (lost) return no(`Not checked: the saved team did not load (${lost}). Quit Yes Chef and start it again.`, 503);
     if (op === 'create') {
       if (team) return no('This Mac is already on a team. Leave it first.', 409);
@@ -85,16 +95,14 @@ export function teamHost({ store, run, boardOf, projectsOf = () => [], t3Ok = ()
       if (!relay) return no('The relay must be an https address, like ' + DEFAULT_RELAY + '.');
       if (!String(input.teamName || '').trim() || !String(input.name || '').trim()) return no('Type a team name and your name.');
       const s = await createTeam({ relay, teamName: input.teamName, name: input.name, net, now });
-      save(s); live(s);
-      return ok('Team made.');
+      return kept(s, 'Team made.');
     }
     if (op === 'join') {
       if (team) return no('This Mac is already on a team. Leave it first.', 409);
       const ids = list(input.shared);
       const titles = (projectsOf() || []).filter((p) => ids.includes(p.id)).map((p) => p.title);
       const s = await joinTeam({ link: String(input.link || ''), name: input.name, projects: titles, shared: ids, net, now });
-      save(s); live(s);
-      return ok('Asked.');
+      return kept(s, 'Asked.');
     }
     if (op === 'forgetLink') return ok();
     if (!team) return no('This Mac is not on a team.', 409);
