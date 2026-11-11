@@ -1502,3 +1502,54 @@ test('a clock set a day ahead and then right again does not shut out teammate ac
   assert.equal(ran.length, 1, out.text);
   lead.stop(); dev.stop();
 });
+
+test('a full list of action ids sends no "not run" and leaves the action on the relay', async () => {
+  const { relay, lead, dev, ran, setBoard } = await crew();
+  setBoard({ board: boardNow(relay.now()), ok: true, at: relay.now() });
+  for (let i = 0; i < 500; i++) dev.seen.set(`x:${i}`, { at: relay.now(), status: 200, text: '' });
+  const me = await lead.member();
+  const key = await teamKey(lead.state.key);
+  const blob = await sealSigned(key, me, { k: 'act', nonce: 'HHHHHHHHHHHHHHHHHHHHHH', at: relay.now(), action: { kind: 'reply', thread: 'th-parser', note: 'full' } }, aad.send(lead.state.team, me.id, dev.meId));
+  const sent = [];
+  const say = dev.say.bind(dev);
+  dev.say = async (msg) => { sent.push(msg); return say(msg); };
+  await dev.take({ item: 'i1', from: me.id, blob });
+  assert.equal(ran.length, 0);
+  assert.equal(sent.some((m) => m.t === 'send'), false);
+  assert.equal(sent.some((m) => m.t === 'done'), false);
+  lead.stop(); dev.stop();
+});
+
+test('a summary whose board was read long ago is not live; a working sender refreshes it', async () => {
+  const { relay, timers, lead, dev } = await crew();
+  const b = boardNow(relay.now());
+  dev.board(b);
+  await until(() => lead.summaries.size === 1);
+  const person = () => lead.view().people.find((p) => p.id === dev.meId);
+  const first = person().at;
+  assert.equal(person().live, true);
+  await timers.advance(11 * MIN);
+  dev.board(b);
+  await settle(); await settle(); await settle();
+  await timers.advance(10000);
+  await until(() => person().at > first, 'the unchanged summary sent again');
+  assert.equal(person().live, true);
+  await timers.advance(16 * MIN);
+  assert.equal(person().live, false, 'no board read for 16 minutes');
+  lead.stop(); dev.stop();
+});
+
+test('a welcome whose key did not reach the disk stays on the relay', async () => {
+  const { lead, dev } = await crew();
+  const me = await lead.member();
+  const devDh = dev.people.get(dev.meId).dh;
+  const blob = await sealTo(me, devDh, { teamKey: lead.state.key }, aad.welcome(lead.state.team, me.id, dev.meId));
+  dev.state.key = null; dev.key = null;
+  dev.saveFn = async () => { throw new Error('disk full'); };
+  const sent = [];
+  const say = dev.say.bind(dev);
+  dev.say = async (msg) => { sent.push(msg); return say(msg); };
+  await dev.take({ item: 'w2', from: me.id, blob });
+  assert.equal(sent.some((m) => m.t === 'done' && m.item === 'w2'), false);
+  lead.stop(); dev.stop();
+});
