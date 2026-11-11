@@ -1,0 +1,58 @@
+name: Workspace
+
+# The pnpm workspace (client/ and relay/ so far): strict TypeScript and the tests, set up as T3 Code's CI does it.
+on:
+  pull_request:
+    paths:
+      - 'client/**'
+      - 'relay/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'tsconfig.base.json'
+      - 'vite.config.ts'
+      - '.github/workflows/workspace.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'client/**'
+      - 'relay/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'tsconfig.base.json'
+      - 'vite.config.ts'
+      - '.github/workflows/workspace.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workspace-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: Typecheck and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Vite+ brings Node (engines.node in package.json) and pnpm (packageManager).
+      - name: Set up Vite+
+        uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1
+        env:
+          VP_DOWNLOAD_TIMEOUT: '120'
+        with:
+          node-version-file: package.json
+          cache: false
+          run-install: false
+      - name: Install the locked workspace
+        run: vp install --frozen-lockfile
+      - name: Typecheck
+        run: vp run -r typecheck
+      - name: Test
+        run: vp run -r test

@@ -1,10 +1,11 @@
-import { test } from 'node:test';
+import { test } from 'vite-plus/test';
 import assert from 'node:assert/strict';
 import {
   b64u, unb64u, newId, isId, memberId, newMember, saveMember, loadMember, sign, verify, authToken, checkAuth, AUTH_SKEW_MS,
   signRoster, readRoster, newTeamKey, teamKey, seal, open, aad, sealSigned, openSigned, sealTo, openFrom,
   newInvite, readInvite, joinRequest, openJoin, proofMatches, matchCode,
-} from './seal.mjs';
+  type Member, type SavedMember,
+} from './seal.ts';
 
 const T = 'AAAAAAAAAAAAAAAAAAAAAA';
 
@@ -26,7 +27,7 @@ test('a member is two key pairs; the id comes from the signing key; a saved memb
   const back = await loadMember(await saveMember(m));
   assert.equal(back.id, m.id);
   assert.ok(await verify(m.signPub, await sign(back, 'x'), 'x'));
-  const bad = JSON.parse(await saveMember(m));
+  const bad = JSON.parse(await saveMember(m)) as SavedMember;
   bad.id = (await newMember()).id;
   await assert.rejects(loadMember(bad), /does not match/);
 });
@@ -45,7 +46,7 @@ test('an auth token holds for its team, method, path and five minutes only', asy
   const a = await newMember(), b = await newMember();
   const now = Date.UTC(2026, 10, 10, 12);
   const keys = new Map([[a.id, a.signPub], [b.id, b.signPub]]);
-  const opts = { team: T, method: 'GET', path: `/v1/teams/${T}/ws`, signPubOf: (id) => keys.get(id) || null };
+  const opts = { team: T, method: 'GET', path: `/v1/teams/${T}/ws`, signPubOf: (id: string) => keys.get(id) || null };
   const tok = await authToken(a, { ...opts, now });
   assert.equal(await checkAuth(tok, { ...opts, now }), a.id);
   assert.equal(await checkAuth(tok, { ...opts, now: now + AUTH_SKEW_MS + 1 }), null);
@@ -61,7 +62,7 @@ test('an auth token holds for its team, method, path and five minutes only', asy
   for (const junk of ['', 'a.b', `${a.id}.12.x`, `${tok}.extra`]) assert.equal(await checkAuth(junk, { ...opts, now }), null);
 });
 
-async function roster(lead, members, { ver = 1, team = T } = {}) {
+async function roster(lead: Member, members: Member[], { ver = 1, team = T }: { ver?: number; team?: string } = {}) {
   return signRoster(lead, { team, ver, lead: lead.id, at: 1, members: members.map((m) => ({ id: m.id, sign: m.signPub, dh: m.dhPub })), detail: 'x.y' });
 }
 
@@ -69,7 +70,7 @@ test('a roster reads only when its lead signed it, and a pinned lead must match'
   const lead = await newMember(), dev = await newMember();
   const r = await roster(lead, [lead, dev]);
   const body = await readRoster(r, { team: T });
-  assert.equal(body.members.length, 2);
+  assert.equal(body?.members.length, 2);
   assert.ok(await readRoster(r, { team: T, leadSignPub: lead.signPub }));
   assert.equal(await readRoster(r, { team: T, leadSignPub: dev.signPub }), null);
   assert.equal(await readRoster(r, { team: newId() }), null);
@@ -96,7 +97,7 @@ test('a seal opens only with its key and in its place', async () => {
   await assert.rejects(open(other, blob, aad.summary(T, 'a')));
   await assert.rejects(open(k, blob, aad.summary(T, 'b')));
   const [iv, ct] = blob.split('.');
-  await assert.rejects(open(k, `${iv}.${ct[0] === 'A' ? 'B' : 'A'}${ct.slice(1)}`, aad.summary(T, 'a')));
+  await assert.rejects(open(k, `${iv}.${ct![0] === 'A' ? 'B' : 'A'}${ct!.slice(1)}`, aad.summary(T, 'a')));
   await assert.rejects(open(k, 'nonsense', aad.summary(T, 'a')));
 });
 
@@ -128,9 +129,9 @@ test('an invite keeps its secret after the #; the relay can check a join but not
   const { link, record, secret } = await newInvite({ relay: 'https://relay.example.com', team: T, lead, leadName: 'Sam', teamName: 'Fernpay', now });
   const [before, frag] = link.split('#');
   assert.equal(before, 'https://yeschef.codes/join');
-  assert.ok(!before.includes(secret));
+  assert.ok(!before!.includes(secret));
   assert.equal(record.until, now + 7 * 86400000);
-  const inv = readInvite(link);
+  const inv = readInvite(link)!;
   assert.equal(inv.team, T);
   assert.equal(inv.secret, secret);
   assert.equal(inv.leadSignPub, lead.signPub);
@@ -153,17 +154,17 @@ test('an invite keeps its secret after the #; the relay can check a join but not
 test('readInvite refuses junk and a relay that is not https', () => {
   assert.equal(readInvite('https://yeschef.codes/join#nope'), null);
   assert.equal(readInvite(''), null);
-  const p = (r) => 'x#' + b64u(new TextEncoder().encode(JSON.stringify({ v: 1, r, t: T, i: T, k: 'k', l: 'l', u: 1 })));
+  const p = (r: string) => 'x#' + b64u(new TextEncoder().encode(JSON.stringify({ v: 1, r, t: T, i: T, k: 'k', l: 'l', u: 1 })));
   assert.equal(readInvite(p('http://relay.example.com')), null);
   assert.equal(readInvite(p('javascript:alert(1)')), null);
-  assert.equal(readInvite(p('http://127.0.0.1:8790')).relay, 'http://127.0.0.1:8790');
-  assert.equal(readInvite(p('https://relay.example.com/some/path')).relay, 'https://relay.example.com');
+  assert.equal(readInvite(p('http://127.0.0.1:8790'))?.relay, 'http://127.0.0.1:8790');
+  assert.equal(readInvite(p('https://relay.example.com/some/path'))?.relay, 'https://relay.example.com');
 });
 
 test('the match code: six digits, the same on both Macs, other digits for a swapped key or another invite', async () => {
   const lead = await newMember(), dev = await newMember(), other = await newMember();
   const { link, secret } = await newInvite({ relay: 'https://relay.test', team: T, lead });
-  const inv = readInvite(link);
+  const inv = readInvite(link)!;
   const req = await joinRequest(inv, dev, { name: 'Ada' });
   const at = { team: T, invite: inv.invite };
   // The dev's Mac reads its own keys; the lead's reads the ask the relay passed on.

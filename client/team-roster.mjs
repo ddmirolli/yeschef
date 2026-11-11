@@ -1,6 +1,6 @@
 // The team client's roster: the signed versions and their floor, invites and asks to join, the lead's edits, and the
 // welcomes that carry the team key.
-import { open, seal, aad, readRoster, signRoster, newInvite, openJoin, sealTo, openFrom, isId, newId, matchCode, inviteLink } from './seal.mjs';
+import { open, seal, aad, readRoster, signRoster, newInvite, openJoin, sealTo, openFrom, isId, newId, matchCode, inviteLink } from './seal.ts';
 import { grant, shares } from './roles.mjs';
 import { clean, WELCOME_TTL } from './team-common.mjs';
 

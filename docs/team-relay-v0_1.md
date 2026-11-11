@@ -1,12 +1,12 @@
 # The team relay
 
-**Status:** v0.1, 2026-11-10. Built in `relay/`, `client/seal.mjs`, `client/team.mjs` and `client/roles.mjs`. The screens and the Keychain come in a later PR. **Ruling:** Dan, 2026-11-10, "A": one Yes Chef relay on Cloudflare, free with a cap, and teams can host their own past it. Dan pays the bill. The cap's number waits for usage numbers.
+**Status:** v0.1, 2026-11-10. Built in `relay/`, `client/seal.ts`, `client/team.mjs` and `client/roles.mjs`. The screens and the Keychain come in a later PR. **Ruling:** Dan, 2026-11-10, "A": one Yes Chef relay on Cloudflare, free with a cap, and teams can host their own past it. Dan pays the bill. The cap's number waits for usage numbers.
 
 ## What it is
 
 The relay is the only server Yes Chef runs. It passes sealed team data between each member's Yes Chef and cannot read it.
 
-- **One Worker, one Durable Object per team.** The Worker routes `/v1/teams/<team>` to that team's object (`relay/worker.mjs`). The team's logic is plain JavaScript (`relay/room.mjs`), so the tests run it in Node.
+- **One Worker, one Durable Object per team.** The Worker routes `/v1/teams/<team>` to that team's object (`relay/worker.ts`). The team's logic is plain TypeScript with no Cloudflare imports (`relay/room.ts`), so the tests run it in Node.
 - **SQLite storage.** Cloudflare's free plan runs only SQLite-backed objects.
 - **WebSocket hibernation.** A team's object sleeps between messages while its sockets stay open, so a quiet team costs no duration. A `ping` gets its `pong` without waking the object.
 - **The same pattern as T3 Code's relay, not its code or service.** T3 runs one relay on Cloudflare, free for now with a cap of 3 machines per account, and says "you can always fork it, self host, or use Tailscale" (`docs/user/faq.md` in T3 Code, read 2026-11-10).
@@ -28,7 +28,7 @@ It keeps no code, no diffs, no T3 Code tokens and no history. A team id that nob
 
 ## Keys
 
-All WebCrypto (`client/seal.mjs`), so the app and the relay share one file.
+All WebCrypto (`client/seal.ts`), so the app and the relay share one file.
 
 - **A member** is two P-256 key pairs made on the member's Mac: one signs (ECDSA), one agrees keys (ECDH). Its id is the first 16 bytes of SHA-256 over the signing key. The private keys never leave the Mac.
 - **The team key** is AES-GCM, 256 bits, made by the lead. It seals summaries, actions and the roster's names and roles.
@@ -171,8 +171,8 @@ Close codes: 4001 approved (connect again as a member), 4002 declined, 4003 remo
 
 ## Tests
 
-- `node --test client/seal.test.mjs relay/*.test.mjs`: keys, seals, invites, and the room in Node (`relay/fake.mjs` runs Cloudflare's SQL API over `node:sqlite`).
-- `node relay/smoke.mjs <relay origin>`: the whole flow over real HTTP and sockets, against `wrangler dev` or a deployed relay. It makes throwaway keys and deletes its team at the end.
+- `vp run -r test` (after `vp install`): keys, seals, invites, and the room in Node (`relay/fake.ts` runs Cloudflare's SQL API over `node:sqlite`).
+- `node relay/smoke.ts <relay origin>`: the whole flow over real HTTP and sockets, against `wrangler dev` or a deployed relay. It makes throwaway keys and deletes its team at the end.
 
 ## Open
 

@@ -1,0 +1,12 @@
+{
+  "name": "yeschef-client",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vp test run --config ../vite.config.ts --dir . && node --test *.test.mjs",
+    "typecheck": "effect-tsgo tsrs --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:"
+  }
+}

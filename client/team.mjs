@@ -6,7 +6,7 @@
 // One Team, four parts behind it: the connection (team-connection.mjs), the roster (team-roster.mjs), the inbox
 // (team-inbox.mjs) and the summaries (team-summaries.mjs). This file holds the state they share, the store, and what
 // the screens read.
-import { newId, isId, newMember, saveMember, loadMember, signRoster, newTeamKey, teamKey, seal, aad, readInvite, joinRequest, matchCode } from './seal.mjs';
+import { newId, isId, newMember, saveMember, loadMember, signRoster, newTeamKey, teamKey, seal, aad, readInvite, joinRequest, matchCode } from './seal.ts';
 import { grant } from './roles.mjs';
 import { clean, ASK_MS, ACT_TTL } from './team-common.mjs';
 import { connection, RETRY, PING_MS, PONG_MS } from './team-connection.mjs';

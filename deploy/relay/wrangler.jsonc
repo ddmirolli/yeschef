@@ -4,7 +4,7 @@
 // The cap stays empty until Dan sets it from the usage numbers (GET /v1/usage, relay/README.md).
 {
   "name": "yeschef-relay",
-  "main": "../../relay/worker.mjs",
+  "main": "../../relay/worker.ts",
   "compatibility_date": "2026-11-01",
   "durable_objects": {
     "bindings": [

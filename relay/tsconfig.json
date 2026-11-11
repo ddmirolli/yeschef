@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.base.json",
+  // As T3 Code's relay (infra/relay/tsconfig.json): Workers types, and Node's for the tests and the smoke test.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "WebWorker"],
+    "types": ["@cloudflare/workers-types", "node"]
+  },
+  "include": ["*.ts", "../client/seal.ts"]
+}

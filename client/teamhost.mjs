@@ -3,7 +3,7 @@
 // store seals the state with the Keychain-held key before it touches a disk (desktop/main.mjs); the web prototype keeps
 // it in memory only, so a prototype run never writes a private key to a file.
 import { createTeam, joinTeam, Team, webNet } from './team.mjs';
-import { readInvite } from './seal.mjs';
+import { readInvite } from './seal.ts';
 import { teamPage, teamBody, DEFAULT_RELAY, SITE } from './teamui.mjs';
 
 const ok = (text = 'Done.') => ({ status: 200, text });

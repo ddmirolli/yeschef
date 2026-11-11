@@ -4,7 +4,7 @@
 // Summaries are events, as in T3 Code's AgentAwarenessRelay: one goes out when its content changes, and only then. A
 // read time (a key named `at`) is not a change: it rides along with a real one. Whether a teammate reads as live comes
 // from events too: the relay's presence and the health their summary carries. Nothing compares two Macs' clocks.
-import { sealSigned, openSigned, aad } from './seal.mjs';
+import { sealSigned, openSigned, aad } from './seal.ts';
 import { shares } from './roles.mjs';
 import { clean } from './team-common.mjs';
 import { RETRY } from './team-connection.mjs';

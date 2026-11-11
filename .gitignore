@@ -6,3 +6,6 @@ __pycache__/
 site/node_modules/
 site/.astro/
 site/dist/
+node_modules/
+*.tsbuildinfo
+.vitest-*
