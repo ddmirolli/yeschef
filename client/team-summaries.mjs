@@ -8,7 +8,7 @@ import { sealSigned, openSigned, aad } from './seal.ts';
 import { shares } from './roles.mjs';
 import { clean } from './team-common.mjs';
 import { RETRY } from './team-connection.mjs';
-import { rangesOf } from './changes.mjs';
+import { rangesOf } from './changes.ts';
 
 const SUMMARY_TICKETS = 100;
 
@@ -118,7 +118,7 @@ export const summaries = {
    *  when it changed. A board that failed its last read sends nothing new. */
   readersMoved() { if (this.lastBoard && this.healthOk) this.publish(); },
 
-  /** The dev opened a call on their own Pass: its id (client/open-kitchen.mjs callId) goes in their summary's `seen` (kept as state.seenCalls: state.seen is the actions already run), so
+  /** The dev opened a call on their own Pass: its id (client/open-kitchen.ts callId) goes in their summary's `seen` (kept as state.seenCalls: state.seen is the actions already run), so
    *  the lead's Mac stops the call reaching them. Kept on disk for a day. */
   markSeen(callId) {
     if (typeof callId !== 'string' || !callId || callId.length > 300) return;
@@ -254,7 +254,7 @@ export const summaries = {
   },
 };
 
-// ---- the summary's fields (3b PR 4, agreed with step 4: client/open-kitchen.mjs cleanTicket and cleanBase read them) ----
+// ---- the summary's fields (3b PR 4, agreed with step 4: client/open-kitchen.ts cleanTicket and cleanBase read them) ----
 const FILES_MAX = 150, RANGES_MAX = 24, BASES_MAX = 10, SEEN_MAX = 100, SEEN_MS = 24 * 3600000, SEEN_BYTES = 8192;
 // A time as epoch ms, or null. T3 and GitHub give ISO strings; the summary sends numbers.
 const time = (v) => { const t = typeof v === 'number' ? v : typeof v === 'string' ? Date.parse(v) : NaN; return Number.isFinite(t) ? t : null; };
@@ -275,7 +275,7 @@ export function fewerRanges(list, n = RANGES_MAX) {
   return r;
 }
 
-/** A thread's changed files (client/changes.mjs readChanges) as the summary sends them. Ranges are on the base side,
+/** A thread's changed files (client/changes.ts readChanges) as the summary sends them. Ranges are on the base side,
  *  the one coordinate two devs share. Unknown stays null, never 0 or []. At most 150 files, the most lines changed
  *  first (a file of unknown size counts as large); `more` counts the files left out, plus one when git's own list was
  *  cut. Lockfiles and generated files carry `x: 1` and stay out of `size`. */
@@ -297,7 +297,7 @@ export function summaryChanges(r) {
 }
 
 /** A PR as the summary sends it: T3's link (state, target branch, draft, merge time), and the size GitHub gave when
- *  the board server read it (client/github.mjs readPrSize). `size` is null when GitHub's file list was partial. */
+ *  the board server read it (client/github.ts readPrSize). `size` is null when GitHub's file list was partial. */
 export function summaryPr(p, read) {
   const out = { repo: clean(p.repository, 100), n: p.number, state: p.state, url: typeof p.url === 'string' && /^https:\/\//.test(p.url) ? p.url.slice(0, 300) : null,
     base: name(p.base, 100), draft: typeof p.draft === 'boolean' ? p.draft : null, mergedAt: time(p.mergedAt) };
@@ -310,7 +310,7 @@ export function summaryPr(p, read) {
   return out;
 }
 
-/** The first open question on a ticket: a T3 question, else a call in the agent's hand-back (client/calls.mjs). `at`
+/** The first open question on a ticket: a T3 question, else a call in the agent's hand-back (client/calls.ts). `at`
  *  is when the thread stopped to ask; `n` how many are open. */
 export function summaryAsk(k) {
   const qs = (k.asks || []).flatMap((a) => (a.items || []).map((it) => ({ it, at: a.thread?.updatedAt })));
@@ -326,7 +326,7 @@ export function summaryAsk(k) {
     options: (Array.isArray(c.options) ? c.options : []).slice(0, 6).map((o) => ({ k: name(o?.letter, 4), t: name(o?.text, 120) })) };
 }
 
-/** One base branch's checks as the summary sends it (client/github.mjs readBaseChecks). `failing`: up to 5 names. */
+/** One base branch's checks as the summary sends it (client/github.ts readBaseChecks). `failing`: up to 5 names. */
 export function summaryBase(b) {
   return { repo: name(b.repo, 100), branch: name(b.branch, 100), sha: sha(b.sha), title: name(b.title, 120), committedAt: time(b.committedAt),
     result: name(b.result, 20), requiredResult: name(b.requiredResult, 20),

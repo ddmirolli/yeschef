@@ -1,11 +1,11 @@
-// Settings → Shortcuts on the Mac (client/keys.mjs): your shortcuts, in keybindings.json in the app's data folder, in
+// Settings → Shortcuts on the Mac (client/keys.ts): your shortcuts, in keybindings.json in the app's data folder, in
 // T3 Code's shape and with its rules: a list of { key, command, when? }. At start the app writes every default into a
 // new file and adds the defaults of a command the file does not name, as T3 Code does (syncKeybindings). The board
 // reads the file at start and each time the window comes back, so an edit made in the file applies, and writes it on
-// each change in Settings. What each entry means, and what is wrong with one, is the board's (client/keys.mjs).
+// each change in Settings. What each entry means, and what is wrong with one, is the board's (client/keys.ts).
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { keysCore } from '../client/keys.mjs';
+import { keysCore } from '../client/keys.ts';
 
 export const MAX_ENTRIES = 500;
 export const MAX_FIELD = 200;

@@ -1,14 +1,15 @@
 import type { DemoKitchen, DemoOptions, DemoPr, DemoThread, DemoItem, DemoQuestion, DemoRun, DemoToolArgs } from './types.ts';
 // The made-up kitchen behind the site's hero demo (agents view). It plays T3 Code for the app's own modules
-// (lib/board.mjs, lib/actions.mjs, copied unchanged from client/), so the demo is the real app UI.
+// (lib/board.ts, lib/actions.ts, copied unchanged from client/), so the demo is the real app UI.
 // Three made-up products: Fernpay, Loopline, Quillo. Nothing here reaches T3 Code or any server.
 // Nothing leaves the pass on its own: every ticket there waits for the visitor's call. The agents answer a
 // call a few seconds later, the way a real agent would, and two tickets in progress finish while the visitor watches.
-import { buildBoard, renderApp, pickedFrom } from '../../demo/lib/board.mjs';
-import { parseCalls, callKey, imageId } from '../../demo/lib/calls.mjs';
-import { act } from '../../demo/lib/actions.mjs';
-import { normalize, change } from '../../demo/lib/kitchen.mjs';
-import { readRuns, dayStart, trackWaits, mayRunToday } from '../../demo/lib/you.mjs';
+import { buildBoard, renderApp, pickedFrom } from '../../demo/lib/board.ts';
+import { parseCalls, callKey, imageId } from '../../demo/lib/calls.ts';
+import { act } from '../../demo/lib/actions.ts';
+import { normalize, change } from '../../demo/lib/kitchen.ts';
+import { readRuns, dayStart, trackWaits, mayRunToday } from '../../demo/lib/you.ts';
+import type { RunsEntry, WaitEntry } from '../../demo/lib/you.ts';
 
 function requiredThread(thread: DemoThread | undefined): DemoThread {
   if (!thread) throw new Error('The demo thread is missing.');
@@ -46,8 +47,8 @@ export function createKitchen({ now = Date.now, where, shot, onChange = () => {}
   const runLog = new Map<string, DemoRun[]>();
   const ran = (t: DemoThread, ...spans: [number, number | null][]) => runLog.set(t.threadId, spans.map(([from, to], i) => ({ runId: `${t.threadId}-r${spans.length - i}`,
     status: to == null ? 'running' : 'completed', startedAt: ago(from), completedAt: to == null ? null : ago(to) })));
-  // The waits on questions the board has seen, as client/server.mjs keeps them (client/you.mjs trackWaits).
-  const waitLog = new Map<string, unknown>();
+  // The waits on questions the board has seen, as client/server.mjs keeps them (client/you.ts trackWaits).
+  const waitLog = new Map<string, WaitEntry>();
 
   // Backlog: nothing started.
   T('Usage alerts', 'p-pay', 'idle', { min: 300 });
@@ -157,7 +158,7 @@ export function createKitchen({ now = Date.now, where, shot, onChange = () => {}
       [pr(PAY, nextPr++, 'open')]));
   }
 
-  // T3 Code's tools, as the app calls them (client/server.mjs and client/actions.mjs).
+  // T3 Code's tools, as the app calls them (client/server.mjs and client/actions.ts).
   async function call(name: string, args: DemoToolArgs = {}): Promise<unknown> {
     const thread = () => byId(args.threadId ?? '');
     switch (name) {
@@ -218,7 +219,7 @@ export function createKitchen({ now = Date.now, where, shot, onChange = () => {}
     const moved = (x: DemoThread) => Date.parse(x.updatedAt) || 0;
     const ordered = [...threads].sort((a, b) => moved(b) - moved(a) || String(b.threadId).localeCompare(String(a.threadId)));
     // Run times for the threads that ran today, as client/server.mjs runTimes() reads them.
-    const t0 = dayStart(now()), runs = new Map<string, unknown>();
+    const t0 = dayStart(now()), runs = new Map<string, RunsEntry>();
     for (const t of threads.filter((x) => mayRunToday(x, t0))) {
       const list = runLog.get(t.threadId) || [];
       runs.set(t.threadId, readRuns({ recentRuns: list.slice(0, 50), thread: { runCount: list.length } }));

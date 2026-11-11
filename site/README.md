@@ -43,7 +43,7 @@ After Dan's send-it-out, run `npm run deploy --prefix site` with `CLOUDFLARE_API
 - `src/scripts/`: typed home interactions, first-paint view selection, download controls, and release lookup.
 - `src/demo/`: typed demo state, controls, bootstrap, and browser-only Node stand-ins.
 - `public/`: the original images, marks, and fonts, at their existing URLs.
-- `demo/app.html` and `demo/lib/*.mjs`: generated snapshots of the application, consumed by the Astro demo page and its bundled bootstrap. These are the only retained JavaScript inputs. They belong to the application's refactor, rather than a second handwritten site implementation. The adjacent declarations describe the boundary the typed site uses.
+- `demo/app.html` and `demo/lib/*.ts`: generated snapshots of the application, consumed by the Astro demo page and its bundled bootstrap. `demo/lib/` holds unchanged copies of the app's TypeScript modules, so the typed site checks against the app's own types. They belong to the application, rather than a second handwritten site implementation.
 
 The home page opens on team unless `?view=solo` is explicit. Switching views updates the URL and both controls without saving a preference. The first-paint script is built from checked TypeScript and runs inline in the head.
 
@@ -53,7 +53,7 @@ Every home Download button starts at `/download`. The typed release lookup asks 
 
 `npm run demo:generate --prefix site -- PORT` refreshes the app snapshot after an application UI change. Pick an unused port, or omit it to use 8690. The generator runs a temporary copy of `client/` against the made-up kitchen and checks its rendered board against the browser kitchen. It never signs in to T3 Code. It copies the app modules to `demo/lib/` and demo pictures to `public/demo/`. Rebuild the site after generating.
 
-Keep changes to the app's generated snapshot separate from a site-only migration. When the application refactor changes the generator's inputs, update `scripts/generate-demo.ts` and the boundary declarations together, then run the generator and browser checks. The app's own source stays in `client/` and `desktop/`.
+Keep changes to the app's generated snapshot separate from a site-only migration. When the application refactor changes the generator's inputs, update `scripts/generate-demo.ts`, then run the generator and browser checks. The app's own source stays in `client/` and `desktop/`.
 
 The demos contain only made-up products, people, tickets, checks, and pull request numbers. Teams remains a mock. Nothing leaves either pass without the visitor's action.
 

@@ -1,3 +1,5 @@
+import type { Board } from '../../demo/lib/board.ts';
+
 export interface DemoPr { repository: string; number: number; state: string; url: string; }
 export interface DemoThread {
   threadId: string; title: string; projectId: string; status: string;
@@ -10,10 +12,8 @@ export interface DemoQuestion {
 }
 export interface DemoRun { runId: string | null; status: string; startedAt: string; completedAt: string | null; }
 export interface DemoProject { id: string; title: string; icon?: string; workspaceRoot?: string; faviconPath?: string; }
-export interface DemoBoard {
-  tickets: { thread: DemoThread; place: string; atPass: boolean; asks: { thread: DemoThread; items: DemoQuestion[] }[] }[];
-  verifiedToday: number; runsChecked: boolean;
-}
+/** The app's own board (client/board.ts), from the copy in site/demo/lib. */
+export type DemoBoard = Board;
 export interface DemoRules { all: Record<string, string>; projects: Record<string, Record<string, string>>; }
 export interface DemoOptions {
   now?: () => number;
@@ -23,7 +23,7 @@ export interface DemoOptions {
   later?: ((callback: () => void, delay: number) => unknown) | null;
 }
 export interface DemoToolArgs {
-  threadId?: string; projectId?: string; action?: string; settled?: boolean;
+  threadId?: string; projectId?: string; action?: string; requestId?: string; settled?: boolean;
   afterPosition?: number; runLimit?: number; answers?: Record<string, string>; title?: string; message?: string;
 }
 export interface DemoKitchen {

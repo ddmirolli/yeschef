@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
-import { keysCore } from './keys.mjs';
+import { keysCore } from './keys.ts';
 
 const SERVER = fileURLToPath(new URL('./server.mjs', import.meta.url));
 const clean = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(BRIGADE_|YESCHEF_)/.test(k)));
@@ -34,7 +34,7 @@ test('Settings has no Ticket layout: every ticket uses the bar, and a stored "si
   const src = readFileSync(SERVER, 'utf8');
   assert.doesNotMatch(src, /Ticket layout|name="layout"|Side panel<|pv-side|a-side|a-bottom/);
   assert.doesNotMatch(src, /getItem\('yc\.layout2'\)|store\('yc\.layout2'/);
-  // Density stays, and Shortcuts lists every command in client/keys.mjs, More's key among them.
+  // Density stays, and Shortcuts lists every command in client/keys.ts, More's key among them.
   assert.match(src, /<legend>Density<\/legend>/);
   assert.match(src, /<div id="kx-list"><\/div>/);
   assert.deepEqual(keysCore(true).CMD['ticket.more'].keys, ['.']);

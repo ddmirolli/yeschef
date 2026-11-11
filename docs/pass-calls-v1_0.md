@@ -40,4 +40,4 @@ End the turn with one message that holds the decision. This is the form Dan's ou
 - A screenshot is served only while a message on the board names it, and only if its bytes are a PNG, JPEG, WebP, or GIF up to 20 MB, outside hidden folders (except `~/.t3`).
 - T3's own question tool (`AskUserQuestion`) still works and shows first. It carries no screenshots and times out, so a decision with visuals uses this message form.
 
-Code: `client/calls.mjs` (parser, image checks), `client/board.mjs` (sheet), `client/actions.mjs` (the `call` answer). Tests: `client/calls.test.mjs`.
+Code: `client/calls.ts` (parser, image checks), `client/board.ts` (sheet), `client/actions.ts` (the `call` answer). Tests: `client/calls.test.ts`.

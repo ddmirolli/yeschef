@@ -65,7 +65,7 @@ export async function joinTeam({ link, name, projects = [], shared = [], net = w
 }
 
 /** The live team. state: from createTeam or joinTeam. save(state): called whenever it changes.
- *  run(input, prefix): runs an action on this dev's own board through their T3 sign-in (client/actions.mjs act()).
+ *  run(input, prefix): runs an action on this dev's own board through their T3 sign-in (client/actions.ts act()).
  *  board(): { board, ok, at }: this dev's board as the Pass last read it. */
 export class Team {
   constructor({ state, save = () => {}, net = webNet, now = Date.now, timers = globalThis, random = Math.random, run = null, board = null }) {
