@@ -1470,3 +1470,37 @@ test('a welcome whose key did not reach the disk stays on the relay', async () =
   assert.equal(sent.some((m) => m.t === 'done' && m.item === 'w2'), false);
   lead.stop(); dev.stop();
 });
+
+test('a welcome that comes again while its key is not on disk stays on the relay until a save works', async () => {
+  const { lead, dev } = await crew();
+  const me = await lead.member();
+  const devDh = dev.people.get(dev.meId).dh;
+  const blob = await sealTo(me, devDh, { teamKey: lead.state.key }, aad.welcome(lead.state.team, me.id, dev.meId));
+  dev.state.key = null; dev.key = null;
+  const saveFn = dev.saveFn;
+  dev.saveFn = async () => { throw new Error('disk full'); };
+  const done = [];
+  const say = dev.say.bind(dev);
+  dev.say = async (msg) => { if (msg.t === 'done') done.push(msg.item); return say(msg); };
+  await dev.take({ item: 'w2', from: me.id, blob });
+  await dev.take({ item: 'w2', from: me.id, blob });
+  assert.deepEqual(done, [], 'not let go while the key is not on disk');
+  dev.saveFn = saveFn;
+  await dev.take({ item: 'w2', from: me.id, blob });
+  assert.deepEqual(done, ['w2']);
+  lead.stop(); dev.stop();
+});
+
+test('an id dated ahead by a clock set right again does not keep expired ids from leaving', async () => {
+  const { relay, timers, lead, dev, ran, setBoard } = await crew();
+  setBoard({ board: boardNow(relay.now()), ok: true, at: relay.now() });
+  dev.seen.clear();
+  dev.seen.set('x:ahead', { at: relay.now() + 86400000, status: 409, text: '' });
+  dev.state.clockHigh = relay.now() + 86400000;
+  for (let i = 0; i < 499; i++) dev.seen.set(`x:${i}`, { at: relay.now() - 20 * MIN, status: 200, text: '' });
+  const out = lead.act(dev.meId, { kind: 'reply', thread: 'th-parser', note: 'x' });
+  await settle(); await settle(); await settle(); await settle();
+  await timers.advance(30000);
+  assert.equal(ran.length, 1, (await out).text);
+  lead.stop(); dev.stop();
+});

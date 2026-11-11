@@ -547,7 +547,8 @@ export class Team {
         if (w.teamName) this.state.teamName = clean(w.teamName, 80);
         // The relay lets the welcome go only once the key is on disk; if it is not, the welcome comes again (PR-Agent
         // r20 on public #7).
-        if (!(await this.saveNow())) ack = false;
+        this.keyUnsaved = !(await this.saveNow());
+        if (this.keyUnsaved) ack = false;
         if (this.rosterSigned) await this.takeRoster(this.rosterSigned);
         const later = this.later; this.later = [];
         for (const msg of later) await this.handle(msg);
@@ -558,7 +559,13 @@ export class Team {
       const key = await this.teamKey();
       let body;
       try { body = await openSigned(key, blob, aad.send(this.state.team, from, me.id), sender.sign); }
-      catch { if (this.isLead) await this.takeKeyAsk(sender, blob); return; }
+      catch {
+        if (this.isLead) await this.takeKeyAsk(sender, blob);
+        // The lead's welcome again, its key still not on disk: it stays on the relay until a save works, so a restart
+        // cannot leave this Mac keyless with the welcome gone (PR-Agent r21 on public #7).
+        else if (this.keyUnsaved && from === this.roster?.lead) { this.keyUnsaved = !(await this.saveNow()); if (this.keyUnsaved) ack = false; }
+        return;
+      }
       // The team may have changed while the blob was opened: this Mac removed or stopped, or the sender removed or
       // given another role. Only the roster as it is now counts (PR-Agent r2 on public #7).
       if (this.stopped || this.state.status !== 'member') { ack = false; return; }
@@ -604,8 +611,10 @@ export class Team {
     // (PR-Agent r19 on public #7).
     const high = Math.max(now, Number(this.state.clockHigh) || 0);
     this.state.clockHigh = high;
+    // Every expired id, wherever it sits: one dated ahead by a clock set right again is no barrier to the rest (PR-Agent
+    // r21 on public #7).
     for (const [k, v] of this.seen) {
-      if (high - v.at < SEEN_KEEP_MS) break;
+      if (high - v.at < SEEN_KEEP_MS) continue;
       this.seen.delete(k);
       this.state.seenFloor = Math.max(Number(this.state.seenFloor) || 0, v.at);
     }
