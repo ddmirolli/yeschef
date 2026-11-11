@@ -3,9 +3,11 @@
 // The saved shape is T3 Code's keybindings.json: a list of { key, command, when }. A key reads as in T3 Code: modifiers
 // in the order mod, alt, shift, then the key ("mod+alt+shift+a"); mod is ⌘ on a Mac and Ctrl elsewhere. A when names
 // where the key applies, with && and ! ("ticket && !dialog"). There are no chords.
-// The list holds only what differs from the defaults, as VS Code's keybindings.json does: an entry adds a key to a
-// command, and an entry whose command starts with "-" takes that key away from it (with no key, every key). Reset all
-// empties the list. An entry for a command Yes Chef does not have is kept as written and does nothing.
+// The list follows T3 Code's rules too. A command the list names has only the list's keys; one it does not name keeps
+// its defaults. The defaults come first and the list after them, and of the rules for a key whose whens hold, the last
+// runs. A key Settings records goes at the end. The Mac app writes every default into a new file and adds those of a
+// new command at start, as T3 Code does (desktop/keybindings.mjs). An entry Yes Chef cannot use, or for a command it
+// does not have, stays where it is and does nothing.
 // keysCore is inlined into the page script by its source text (client/server.mjs), so it is ES5 and holds no
 // closing script tag.
 export function keysCore(mac) {
@@ -152,9 +154,20 @@ export function keysCore(mac) {
   }
 
   // ----- The keys in use -----
+  // T3 Code's rules (packages/shared/src/keybindings.ts, mergeWithDefaultKeybindings; apps/web/src/keybindings.ts,
+  // resolveShortcutCommand): the rules are the defaults of every command the list does not name, then the list in
+  // order. A command the list names has only the list's keys. Of the rules for a key whose whens hold, the last runs.
   function defaults(id) { var c = CMD[id]; return c.keys.map(function (k) { return { key: k, when: c.when || '' }; }); }
   function has(list, b) { return list.some(function (x) { return x.key === b.key && x.when === b.when; }); }
   function same(a, b) { return a.length === b.length && a.every(function (x) { return has(b, x); }); }
+  /** A rule as T3 Code's Settings writes it: a when only when it has one. */
+  function entry(key, command, when) { var e = { key: key, command: command }; if (when) e.when = when; return e; }
+  /** Every default, in the order T3 Code writes them into a new file. */
+  function defaultList() {
+    var out = [];
+    COMMANDS.forEach(function (c) { defaults(c.id).forEach(function (b) { out.push(entry(b.key, c.id, b.when)); }); });
+    return out;
+  }
   /** Why id can never have key, as a sentence: { reserved, why } for a key the system keeps, { fixed, why } for a
    *  fixed key or a send key with no ⌘ or ⌥. null when id can have it. Settings and the file both use it. */
   function refuse(id, key) {
@@ -164,6 +177,95 @@ export function keysCore(mac) {
     if (c.mod && !/^(mod|alt)\+/.test(key)) return { fixed: true, why: c.t + ' also works while you write a note, so its key needs ' + (mac ? '⌘ or ⌥' : 'Ctrl or Alt') + '.' };
     return null;
   }
+  /** One entry of the list: { rule: { id, key, when } } when Yes Chef uses it, else { note } saying why not. An entry
+   *  with no when applies everywhere, as in T3 Code. */
+  function compile(e, i) {
+    var at = 'Entry ' + (i + 1);
+    if (!e || typeof e !== 'object' || typeof e.command !== 'string') return { note: at + ' has no command.' };
+    var c = CMD[e.command];
+    if (!c) return { note: at + ': ' + e.command + ' is not a Yes Chef command.' };
+    if (!okWhen(e.when)) return { note: at + ': Yes Chef cannot read its when.' };
+    var w = lits(e.when).join(' && ');
+    // A when that can never hold ("ticket && !ticket") would shadow other commands' keys and never run.
+    if (exclusive(w, w)) return { note: at + ' is not used: its when can never hold.' };
+    var k = norm(e.key);
+    // The key is shown only when it is text: converting anything else could run code the file names, or throw.
+    if (!k) return { note: at + (typeof e.key === 'string' ? ': “' + e.key.slice(0, 40) + '” is not a key Yes Chef can read.' : e.key == null ? ' has no key.' : ': its key is not text.') };
+    var no = refuse(c.id, k);
+    if (no) return { note: at + ' is not used: ' + no.why };
+    // An open dialog keeps its plain keys and ⌘↵ (route), so such a key that applies only in a dialog would never run.
+    if (dialogKey(k) && lits(w).indexOf('dialog') >= 0) return { note: at + ' is not used: its when needs a dialog, and a dialog keeps ' + label(k) + ' for itself.' };
+    return { rule: { id: c.id, key: k, when: w } };
+  }
+  // Every place a key can be pressed: route gets { ticket, dialog }, and any other name in a when is false there.
+  var PLACES = [{ ticket: false, dialog: false }, { ticket: true, dialog: false }, { ticket: false, dialog: true }, { ticket: true, dialog: true }];
+  /** Whether rules[i] runs in ctx: its when holds there and no later rule for its key does. An open dialog keeps its
+   *  plain keys and ⌘↵ (route), so those never run there. */
+  function runsAt(rules, i, ctx) {
+    var r = rules[i];
+    if ((ctx.dialog && dialogKey(r.key)) || !holds(r.when, ctx)) return false;
+    for (var j = i + 1; j < rules.length; j++) if (rules[j].key === r.key && holds(rules[j].when, ctx)) return false;
+    return true;
+  }
+  function runs(rules, i) { return PLACES.some(function (ctx) { return runsAt(rules, i, ctx); }); }
+  /** Whether a command that always keeps a key has one that runs it in every place outside a dialog where its own when
+   *  holds: the Action bar with and without a ticket, the suggested action on the open ticket. */
+  function reaches(rules, c) {
+    return PLACES.every(function (ctx) {
+      if (ctx.dialog || !holds(c.when || '', ctx)) return true;
+      return rules.some(function (r, i) { return r.id === c.id && runsAt(rules, i, ctx); });
+    });
+  }
+  /** Each command's keys that run somewhere, as { key, when }: what Settings shows. */
+  function shown(rules) {
+    var by = {};
+    COMMANDS.forEach(function (c) { by[c.id] = []; });
+    rules.forEach(function (r, i) { if (!has(by[r.id], r) && runs(rules, i)) by[r.id].push({ key: r.key, when: r.when }); });
+    return by;
+  }
+  /** The keys from a saved list: { list, rules, by: { command: [{ key, when }] }, notes, changed }. list is the list as
+   *  saved, every entry kept where it is; rules are in the order they apply; notes say what in the list is not used.
+   *  guard: a command that always keeps a key, left with none, gets its defaults back after every other rule. That is
+   *  Yes Chef's own rule; T3 Code has none. */
+  function make(list, guard) {
+    var notes = [], kept = [], mine = [], named = Object.create(null), rules = [];
+    if (list != null && !Array.isArray(list)) notes.push('The file is not a list, so every key is its default.');
+    (Array.isArray(list) ? list : []).forEach(function (e, i) {
+      var r = compile(e, i);
+      kept.push(e);
+      if (r.note) notes.push(r.note); else { mine.push(r.rule); named[r.rule.id] = 1; }
+    });
+    COMMANDS.forEach(function (c) { if (!named[c.id]) defaults(c.id).forEach(function (b) { rules.push({ id: c.id, key: b.key, when: b.when }); }); });
+    rules = rules.concat(mine);
+    var by = shown(rules), again = guard;
+    for (var pass = 0; again && pass < COMMANDS.length; pass++) {
+      again = false;
+      COMMANDS.forEach(function (c) {
+        if (!c.need || reaches(rules, c)) return;
+        again = true;
+        var was = by;
+        defaults(c.id).forEach(function (b) { rules.push({ id: c.id, key: b.key, when: b.when }); });
+        by = shown(rules);
+        var lost = COMMANDS.filter(function (o) {
+          return o.id !== c.id && c.keys.some(function (k) { return keysIn(was[o.id]).indexOf(k) >= 0 && keysIn(by[o.id]).indexOf(k) < 0; });
+        });
+        notes.push(c.t + ' always has a key, so it keeps ' + label(c.keys[0]) + (lost.length ? ', not ' + lost.map(function (o) { return o.t; }).join(' or ') : '') + '.');
+      });
+    }
+    return { list: kept, rules: rules, by: by, notes: notes, changed: COMMANDS.some(function (c) { return !same(by[c.id], defaults(c.id)); }) };
+  }
+  function build(list) { return make(list, true); }
+  /** The list to save: every entry as it was, in order, with what Settings changed at the end. */
+  function toList(st) { return st.list.slice(); }
+  function keysIn(bs) { var out = []; bs.forEach(function (b) { if (out.indexOf(b.key) < 0) out.push(b.key); }); return out; }
+  /** The command's keys now. */
+  function keysOf(st, id) { return keysIn(st.by[id] || []); }
+  /** The list with id's rules taken out and rules put at the end, as T3 Code's Settings saves a key: an entry Yes Chef
+   *  does not use stays where it is. */
+  function put(list, id, rules) {
+    return list.filter(function (e, i) { var r = compile(e, i); return !(r.rule && r.rule.id === id); })
+      .concat(rules.map(function (b) { return entry(b.key, id, b.when); }));
+  }
   /** The commands other than id that have key where when can apply too: with id, they would clash. */
   function holders(by, key, when, id) {
     var out = [];
@@ -172,127 +274,51 @@ export function keysCore(mac) {
     });
     return out;
   }
-  /** Takes key from those commands, in by. Returns their ids. */
-  function takeFrom(by, key, when, id) {
-    var hs = holders(by, key, when, id);
-    hs.forEach(function (h) { by[h] = by[h].filter(function (b) { return b.key !== key || exclusive(b.when, when); }); });
-    return hs;
-  }
-  /** The keys in use from a saved list: { by: { command: [{ key, when }] }, notes, extra, changed }. notes say what in
-   *  the list was not used; extra keeps the entries for commands Yes Chef does not have. An entry Settings would refuse
-   *  is skipped. A key that two commands have where both can apply goes to the later entry, and an entry beats a
-   *  default, as in VS Code. */
-  function build(list) {
-    var by = {}, notes = [], extra = [];
-    COMMANDS.forEach(function (c) { by[c.id] = defaults(c.id).map(function (b) { b.at = -1; return b; }); });
-    if (list != null && !Array.isArray(list)) notes.push('The file is not a list, so every key is its default.');
-    (Array.isArray(list) ? list : []).forEach(function (e, i) {
-      var at = 'Entry ' + (i + 1);
-      if (!e || typeof e !== 'object' || typeof e.command !== 'string') { notes.push(at + ' has no command.'); return; }
-      var off = e.command.charAt(0) === '-', id = off ? e.command.slice(1) : e.command, c = CMD[id];
-      if (!c) { extra.push(e); notes.push(at + ': ' + e.command + ' is not a Yes Chef command.'); return; }
-      if (!okWhen(e.when)) { notes.push(at + ': Yes Chef cannot read its when.'); return; }
-      // A when that can never hold ("ticket && !ticket") would take its key from other commands and never use it.
-      if (!off && exclusive(e.when, e.when)) { notes.push(at + ' is not used: its when can never hold.'); return; }
-      var w = e.when == null ? (c.when || '') : lits(e.when).join(' && ');
-      if (off && (e.key == null || e.key === '')) { by[id] = []; return; }
-      var k = norm(e.key);
-      // The key is shown only when it is text: converting anything else could run code the file names, or throw.
-      if (!k) { notes.push(at + (typeof e.key === 'string' ? ': “' + e.key.slice(0, 40) + '” is not a key Yes Chef can read.' : e.key == null ? ' has no key.' : ': its key is not text.')); return; }
-      if (off) { by[id] = by[id].filter(function (b) { return b.key !== k; }); return; }
-      var no = refuse(id, k);
-      if (no) { notes.push(at + ' is not used: ' + no.why); return; }
-      // An open dialog keeps its plain keys and ⌘↵ (route), so such a key that applies only in a dialog would never run.
-      if (dialogKey(k) && lits(w).indexOf('dialog') >= 0) { notes.push(at + ' is not used: its when needs a dialog, and a dialog keeps ' + label(k) + ' for itself.'); return; }
-      var dup = by[id].filter(function (b) { return b.key === k && b.when === w; })[0];
-      if (dup) dup.at = i; else by[id].push({ key: k, when: w, at: i });
-    });
-    // The latest entry first: it takes its key from every command that has it where both can apply.
-    var claims = [];
-    COMMANDS.forEach(function (c) { by[c.id].forEach(function (b) { if (b.at >= 0) claims.push({ id: c.id, b: b }); }); });
-    claims.sort(function (p, q) { return q.b.at - p.b.at; });
-    claims.forEach(function (p) {
-      if (by[p.id].indexOf(p.b) < 0) return;
-      holders(by, p.b.key, p.b.when, p.id).forEach(function (h) {
-        by[h] = by[h].filter(function (x) {
-          if (x.key !== p.b.key || exclusive(x.when, p.b.when)) return true;
-          if (x.at >= 0) notes.push('Entry ' + (x.at + 1) + ' is not used: entry ' + (p.b.at + 1) + ' gives ' + label(x.key) + ' to ' + CMD[p.id].t + '.');
-          return false;
-        });
-      });
-    });
-    // A command that always keeps a key, left with none, gets its default back from whichever command has it.
-    var again = true;
-    while (again) {
-      again = false;
-      COMMANDS.forEach(function (c) {
-        if (!c.need || by[c.id].length) return;
-        again = true;
-        by[c.id] = defaults(c.id);
-        var lost = [];
-        c.keys.forEach(function (k) { takeFrom(by, k, c.when || '', c.id).forEach(function (h) { if (lost.indexOf(h) < 0) lost.push(h); }); });
-        notes.push(c.t + ' always has a key, so it keeps ' + label(c.keys[0]) + (lost.length ? ', not ' + lost.map(function (h) { return CMD[h].t; }).join(' or ') : '') + '.');
-      });
-    }
-    COMMANDS.forEach(function (c) { by[c.id] = by[c.id].map(function (b) { return { key: b.key, when: b.when }; }); });
-    return state(by, notes, extra);
-  }
-  function state(by, notes, extra) {
-    return { by: by, notes: notes || [], extra: extra || [], changed: COMMANDS.some(function (c) { return !same(by[c.id], defaults(c.id)); }) };
-  }
-  /** The list to save: what differs from the defaults, then the entries kept for other commands. */
-  function toList(st) {
-    var out = [];
-    // A when is written unless it is empty and the command's own is too: an entry with none takes the command's.
-    function entry(key, command, when, own) { var e = { key: key, command: command }; if (when || own) e.when = when; return e; }
-    COMMANDS.forEach(function (c) {
-      var now = st.by[c.id], dflt = defaults(c.id);
-      if (same(now, dflt)) return;
-      if (!now.length && dflt.length) { out.push({ command: '-' + c.id }); return; }
-      dflt.forEach(function (b) { if (!has(now, b)) out.push(entry(b.key, '-' + c.id, b.when, c.when)); });
-      now.forEach(function (b) { if (!has(dflt, b)) out.push(entry(b.key, c.id, b.when, c.when)); });
-    });
-    return out.concat(st.extra);
-  }
-  function copy(st) { var by = {}; for (var id in st.by) by[id] = st.by[id].slice(); return { by: by, extra: st.extra }; }
-  /** The command's keys now. */
-  function keysOf(st, id) { return (st.by[id] || []).map(function (b) { return b.key; }); }
   /** id now has only key. */
-  function set(st, id, key) { var s = copy(st), w = CMD[id].when || ''; s.by[id] = [{ key: key, when: w }]; takeFrom(s.by, key, w, id); return state(s.by, [], s.extra); }
-  /** Swap them: id gets key, every command that had it where both apply gives it up, and the first of them gets id's
-   *  other keys, each one it can have. { blocked: command } when a command that always keeps a key would be left
-   *  without one; else { st, other, gives }, where gives are the keys other got. */
+  function set(st, id, key) { return build(put(st.list, id, [{ key: key, when: CMD[id].when || '' }])); }
+  /** Swap them: id gets key, after every rule, so it runs key wherever its when holds. The first command that had key
+   *  where both apply gets id's other keys, each one it can have, in place of key; with none to give, it keeps its rule
+   *  for key, which then runs only where id's does not apply (Take it). { blocked: command } when a command that
+   *  always keeps a key would be left without one; else { st, other, gives }, where gives are the keys other got. */
   function trade(st, id, key) {
-    var s = copy(st), w = CMD[id].when || '', old = keysOf(st, id).filter(function (k) { return k !== key; });
-    s.by[id] = [{ key: key, when: w }];
-    var hs = takeFrom(s.by, key, w, id), other = hs[0], gives = [];
+    var w = CMD[id].when || '', old = keysOf(st, id).filter(function (k) { return k !== key; });
+    var hs = holders(st.by, key, w, id), other = hs[0], gives = [];
+    var list = put(st.list, id, [{ key: key, when: w }]), s = make(list, false);
     if (other) {
       var ow = CMD[other].when || '';
       old.forEach(function (k) {
         if (refuse(other, k) || holders(s.by, k, ow, other).length || has(s.by[other], { key: k, when: ow })) return;
-        s.by[other].push({ key: k, when: ow });
         gives.push(k);
       });
+      if (gives.length) {
+        list = put(list, other, s.by[other].filter(function (b) { return b.key !== key; }).concat(gives.map(function (k) { return { key: k, when: ow }; })));
+        s = make(list, false);
+      }
     }
-    for (var i = 0; i < hs.length; i++) if (CMD[hs[i]].need && !s.by[hs[i]].length) return { blocked: hs[i] };
-    return { st: state(s.by, [], s.extra), other: other, gives: gives };
+    for (var i = 0; i < hs.length; i++) if (CMD[hs[i]].need && !reaches(s.rules, CMD[hs[i]])) return { blocked: hs[i] };
+    return { st: build(list), other: other, gives: gives };
   }
   /** The keys after Swap them, or null when clash() says it cannot be done. */
   function swap(st, id, key) { return trade(st, id, key).st || null; }
   /** Its default keys whether they are free: no other command has one where both can apply. */
   function free(by, id) { var w = CMD[id].when || ''; return CMD[id].keys.every(function (k) { return !holders(by, k, w, id).length; }); }
-  /** id gets its default keys back, and a command that had one of them gives it up. A command left with no key gets
-   *  its own defaults back when they are free, and always when it must keep a key. */
+  /** id gets its default keys back, after every rule, as T3 Code's Reset to default saves them. A command that this
+   *  leaves with no key gets its own defaults back too when they are free, and always when it must keep a key. */
   function reset(st, id) {
-    var s = copy(st), queue = [id], done = {};
-    function back(r) {
-      s.by[r] = defaults(r);
-      CMD[r].keys.forEach(function (k) {
-        takeFrom(s.by, k, CMD[r].when || '', r).forEach(function (h) { if (!s.by[h].length && (CMD[h].need || free(s.by, h))) queue.push(h); });
+    var list = st.list, cur = make(list, false), queue = [id], done = Object.create(null);
+    while (queue.length) {
+      var r = queue.shift();
+      if (done[r]) continue;
+      done[r] = 1;
+      list = put(list, r, defaults(r));
+      var next = make(list, false);
+      COMMANDS.forEach(function (h) {
+        if (done[h.id]) return;
+        if (h.need ? reaches(cur.rules, h) && !reaches(next.rules, h) : cur.by[h.id].length && !next.by[h.id].length && free(next.by, h.id)) queue.push(h.id);
       });
+      cur = next;
     }
-    while (queue.length) { var r = queue.shift(); if (!done[r]) { done[r] = 1; back(r); } }
-    return state(s.by, [], s.extra);
+    return build(list);
   }
   function isDefault(st, id) { return same(st.by[id], defaults(id)); }
   /** Why key cannot simply go to id: { reserved } or { fixed } with the words, or { other, text, canTake, gives } when
@@ -307,11 +333,11 @@ export function keysCore(mac) {
     var tail = !t.blocked ? '.' : hs.length > 1 ? '. ' + CMD[t.blocked].t + ' always keeps a key.' : ', which always keeps a key.';
     return { other: hs[0], text: label(key) + ' is already ' + names + tail, canTake: !t.blocked, gives: t.gives || [] };
   }
-  /** The command a key runs here, or null. */
+  /** The command a key runs here, or null: the last rule for the key whose when holds, as in T3 Code. */
   function lookup(st, key, ctx) {
-    for (var i = 0; i < COMMANDS.length; i++) {
-      var c = COMMANDS[i];
-      if (st.by[c.id].some(function (b) { return b.key === key && holds(b.when, ctx); })) return c.id;
+    for (var i = st.rules.length - 1; i >= 0; i--) {
+      var r = st.rules[i];
+      if (r.key === key && holds(r.when, ctx)) return r.id;
     }
     return null;
   }
@@ -353,7 +379,7 @@ export function keysCore(mac) {
     COMMANDS: COMMANDS, CMD: CMD, FIXED: FIXED, mac: !!mac,
     parse: parse, norm: norm, comboOf: comboOf, glyphs: glyphs, label: label,
     okWhen: okWhen, holds: holds, exclusive: exclusive,
-    build: build, toList: toList, keysOf: keysOf, set: set, swap: swap, reset: reset, isDefault: isDefault,
+    build: build, compile: compile, defaultList: defaultList, toList: toList, keysOf: keysOf, set: set, swap: swap, reset: reset, isDefault: isDefault,
     clash: clash, refuse: refuse, lookup: lookup, route: route, synth: synth, plain: plain, dialogKey: dialogKey
   };
 }
