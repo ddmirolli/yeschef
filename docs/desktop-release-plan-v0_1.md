@@ -125,7 +125,7 @@ Built in PR C (`desktop/updates.ts`, `desktop/channels.ts`; checked on this Mac 
 
 The steps, the same on a runner and on a Mac:
 
-1. Pick the version and the commit. Nightly's version is computed (section 5) and it builds main; Stable's version is Dan's and it builds the commit of the newest published Nightly. The version goes into the build, and GitHub makes the tag `v<version>` at that commit when the release is published.
+1. Pick the version and the commit. Nightly's version is computed (section 5) and it builds main; Stable's version is Dan's and it builds the commit of the newest published Nightly. When a workflow file changed on main since that Nightly, the plan stops and asks for a Nightly first (`workflowGap` in `publish.ts`; Dan, 2026-11-11). The version goes into the build, and GitHub makes the tag `v<version>` at that commit when the release is published.
 2. electron-builder builds arm64, flips fuses, signs with Developer ID, notarizes and staples the app, and writes the DMG, the ZIP and `latest-mac.yml`.
 3. Notarize and staple the DMG, then rewrite its `size` and `sha512` in `latest-mac.yml` (section 2).
 4. Run the checks from section 2 and a hidden `--capture` start on a temporary data folder.

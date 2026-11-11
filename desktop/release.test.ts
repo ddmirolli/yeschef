@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FUSES, FUSE_WIRE, TEAM_ID, appUpdateProblems, checkApp, checkDmg, entitlementKeys, feedProblems, findPackage, fuseProblems, identities, literalPattern, machOFiles, pickIdentity, resultLine, rewriteFeed, runningFrom, runtimeFile, runtimePackages, stageDependencies, targetsFor, topLevel, writesAppUpdate } from './build/release.ts';
-import { APP_PATHS, NIGHTLY_GAP_MS, assetProblems, changelogEntry, distArgs, ghArgs, installStep, newestNightly, nightlyDue, parseArgs, pickRelease, releaseFiles, releaseNotes, releaseTitle, settle, trustedPlan } from './build/publish.ts';
+import { APP_PATHS, NIGHTLY_GAP_MS, assetProblems, changelogEntry, distArgs, ghArgs, installStep, newestNightly, nightlyDue, parseArgs, pickRelease, releaseFiles, releaseNotes, releaseTitle, settle, trustedPlan, workflowGap } from './build/publish.ts';
 import { nth } from '../client/test/expect.ts';
 
 /** x, or the test fails. */
@@ -303,6 +303,15 @@ test('a prerelease never counts as a Stable, even with a Stable-looking tag', ()
   assert.equal(pickRelease({ arg: '0.2.1', pkgVersion: '0.2.0', releases, date: NOW }).from, 'v0.2.1-nightly.20261112.1');
   // Its tag is taken all the same.
   assert.throws(() => pickRelease({ arg: '0.3.0', pkgVersion: '0.2.0', releases, date: NOW }), /v0\.3\.0 is already a release/);
+});
+
+test('a Stable stops at Plan when a workflow changed on main since its Nightly, since GitHub refuses that tag', () => {
+  assert.equal(workflowGap('v0.2.2-nightly.20261111.3', []), null);
+  assert.equal(workflowGap('v0.2.2-nightly.20261111.3', ['.github/workflows/release.yml']),
+    '.github/workflows/release.yml changed on main since v0.2.2-nightly.20261111.3, so GitHub will not let the workflow tag v0.2.2-nightly.20261111.3\'s commit. Run a Nightly first, then the Stable.');
+  // Plan feeds it the workflow files that differ between the Nightly's commit and main, before Dan is asked.
+  const source = readFileSync(fileURLToPath(new URL('./build/publish.ts', import.meta.url)), 'utf8');
+  assert.match(source, /workflowGap\(picked\.from, git\(\['diff', '--name-only', commit, 'origin\/main', '--', '\.github\/workflows'\]\)/);
 });
 
 test('the release carries the DMG, the ZIP, its blockmap and the channel\'s feed', () => {

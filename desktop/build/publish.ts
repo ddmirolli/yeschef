@@ -162,6 +162,19 @@ export function pickRelease({ arg, pkgVersion, releases, date = new Date(), dryR
 }
 
 /**
+ * Why a Stable cannot tag the commit of `from`, the newest Nightly, or null when it can. `changedWorkflows` lists the
+ * files under `.github/workflows/` that differ between that commit and main. GitHub treats a new tag on a commit whose
+ * workflows differ from the default branch as a change to the workflows, which needs the `workflows` permission, and
+ * the workflow's own token never has it. Stable 0.2.2 (2026-11-11) hit this: #43 changed release.yml after Nightly .3,
+ * and Publish got HTTP 403 "Resource not accessible by integration" three times, after Dan's approval. A Nightly from
+ * main first gives the Stable a commit whose workflows match (Dan, 2026-11-11, "2. A").
+ */
+export function workflowGap(from: string, changedWorkflows: readonly string[]): string | null {
+  if (!changedWorkflows.length) return null;
+  return `${changedWorkflows.join(', ')} changed on main since ${from}, so GitHub will not let the workflow tag ${from}'s commit. Run a Nightly first, then the Stable.`;
+}
+
+/**
  * Whether the scheduled Nightly has anything to build: `head` is main now, `last` the commit of the newest published
  * Nightly (null when there is none) and `lastPublished` its publish time, `isAncestor(a, b)` is git's answer to "is a
  * an ancestor of b?", and `changed(from, to)` whether a file in APP_PATHS differs between the two. Returns
@@ -331,7 +344,10 @@ function plan(arg: string | undefined, file: string | undefined, { ifChanged = f
   if (picked) {
     try {
       commit = picked.from ? git(['rev-parse', `refs/tags/${picked.from}^{commit}`]) : git(['rev-parse', 'HEAD']);
-      if (picked.from) check(isAncestor(commit, 'origin/main'), `${picked.from} (${commit.slice(0, 12)}) is not on main.`);
+      if (picked.from && check(isAncestor(commit, 'origin/main'), `${picked.from} (${commit.slice(0, 12)}) is not on main.`)) {
+        const gap = workflowGap(picked.from, git(['diff', '--name-only', commit, 'origin/main', '--', '.github/workflows']).split('\n').filter(Boolean));
+        check(!gap, gap ?? '');
+      }
       if (!picked.dryRun) check(spawnSync('git', ['-C', REPO_DIR, 'rev-parse', '-q', '--verify', `refs/tags/${picked.tag}`]).status !== 0, `The tag ${picked.tag} already exists.`);
     } catch (e) { problems.push(`No commit for ${picked.from || 'HEAD'}: ${(e as Error).message.split('\n')[0]}`); }
   }
