@@ -435,6 +435,7 @@ test('a welcome the relay did not take goes again on the lead\'s next connect', 
   await until(() => lead.link === 'waiting');
   await timers.advance(lead.retryMs!);
   await until(() => dev.state.key && dev.me?.name === 'D', 'the late welcome');
+  await until(() => lead.state.welcomes?.length === 0, 'the lead to drop the welcome it sent');
   assert.deepEqual(lead.state.welcomes, []);
   lead.stop(); dev.stop();
 });
@@ -499,6 +500,8 @@ test('a roster the relay took but whose answer was lost still owes the welcome',
   await until(() => lead.link === 'waiting');
   await timers.advance(lead.retryMs!);
   await until(() => dev.state.key && dev.me?.name === 'D', 'the welcome after the reconnect');
+  // The lead drops a welcome when the relay answers its send, and the dev can read the welcome before that answer lands.
+  await until(() => lead.state.welcomes?.length === 0, 'the lead to drop the welcome it sent');
   assert.deepEqual(lead.state.welcomes, []);
   // A roster the relay refused owes nothing: the next connect drops it.
   lead.state.welcomes = ['AAAAAAAAAAAAAAAAAAAAAA'];
@@ -723,6 +726,7 @@ test('a dev whose welcome expired unread asks the lead for another, at most once
   dev.start();
   await until(() => dev.state.key && dev.me?.name === 'D', 'a new welcome');
   assert.equal(dev.state.keyAskAt, relay.now());
+  await until(() => lead.state.welcomes?.length === 0, 'the lead to drop the welcome it sent');
   assert.deepEqual(lead.state.welcomes, []);
   // A second ask within the day sends nothing.
   dev.state.key = null;
