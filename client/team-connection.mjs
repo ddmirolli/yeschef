@@ -258,7 +258,11 @@ export const connection = {
     this.flushFails = 0;
     // The relay kept our last summary. A Viewer, or a dev who shares nothing now, has it dropped. A project dropped
     // before a restart, its replacement never taken: rebuild it from the board, or drop it until the board is read.
-    const held = (msg.summaries || []).some((s) => s.m === this.meId);
+    const own = (msg.summaries || []).find((s) => s.m === this.meId);
+    const held = !!own;
+    // Kept from before a restart, with its health as it was then: replaced at once, its health unknown until this Mac
+    // reads its board, so it never reads as live on the old read.
+    if (held && this.healthOk == null) { await this.takeHeld(own.blob); if (gone()) return; }
     if (held && (!(this.me && shares(this.me.role)) || !this.state.shared?.length)) this.unshare();
     else if (held && this.state.dropped && !this.next) this.shareNow(new Set([null]));
     // A board read or failure reported before the roster loaded goes now: it was held until this Mac knew its role.
