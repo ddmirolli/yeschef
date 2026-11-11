@@ -52,7 +52,7 @@ export function createFollower<A, R extends Read>({ read, now = Date.now, concur
           if (stopped) return;
           // A read too old to show (get() said "not checked"), read again the same, is news: it is current again
           // (PR-Agent r1 on #3).
-          const before = s.result ? sig(s.result) : null, wasStale = !!s.result && now() - (s.result.at ?? 0) > maxAge;
+          const before = s.result ? sig(s.result) : null, wasStale = !!s.result && now() - (s.result.at ?? NaN) > maxAge;
           s.result = result; s.stamp = stamp; s.readAt = started;
           if (sources.get(key) === s && (before !== sig(result) || wasStale)) {
             const ids = [...owners].filter(([, k]) => k === key).map(([id]) => id);
@@ -90,7 +90,8 @@ export function createFollower<A, R extends Read>({ read, now = Date.now, concur
       if (typeof o !== 'string') return { state: 'not-checked', why: o.why };
       const r = sources.get(o)?.result;
       if (!r) return { state: 'not-checked', why: 'not read yet' };
-      const at = r.at ?? 0;
+      // A read with no time compares as NaN, so it is never "too old": it shows as read.
+      const at = r.at ?? NaN;
       if (now() - at > maxAge) return { state: 'not-checked', why: `last read ${Math.round((now() - at) / 1000)} s ago`, at };
       return r;
     },
@@ -101,7 +102,7 @@ export function createFollower<A, R extends Read>({ read, now = Date.now, concur
   };
 }
 
-/** An error's message, or the thrown value as text. */
+/** An error's message, or the thrown value as text when it has none. */
 function errText(ex: unknown): string {
-  return ex instanceof Error ? ex.message : String((ex as { message?: unknown } | null)?.message ?? ex);
+  return String((ex as { message?: unknown } | null | undefined)?.message || ex);
 }

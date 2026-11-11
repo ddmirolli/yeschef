@@ -8,6 +8,8 @@ import { join } from 'node:path';
 import { parseDiff, rangesOf, readChanges, createChanges, execGit, gitWhy, LOCKFILE, LIMITS, remoteRepo, branchOk } from './changes.ts';
 import type { ChangesRead, GitRunner, ReadChangesOptions } from './changes.ts';
 import { checked, nth, whyOf } from './test/expect.ts';
+import { createFollower } from './follow.ts';
+import type { Read } from './follow.ts';
 
 // `git diff-index -p -U0` output as git writes it: several hunks, a pure deletion and a pure addition, content that
 // looks like headers, an added, a deleted, a binary and a mode-only file, and quoted and spaced paths.
@@ -411,6 +413,19 @@ test('following: a read too old to show, read again the same, is news', async ()
   await new Promise((r) => setImmediate(r));
   assert.equal(heard.length, 2);
   c.stop();
+});
+
+test('following: a read with no time shows as read, and an error with no message logs its name (as before the port)', async () => {
+  let t = 0;
+  const lines: string[] = [];
+  const f = createFollower<null, Read>({ read: () => ({ state: 'checked' }), now: () => t, every: 60000, maxAge: 180000, log: (l) => lines.push(l) });
+  f.subscribe(() => { throw new Error(''); });
+  f.want([{ id: 'a', key: 'k', args: null }]);
+  await new Promise((r) => setImmediate(r));
+  t = 400000;
+  assert.equal(f.get('a').state, 'checked');
+  assert.deepEqual(lines, ['a read listener failed: Error']);
+  f.stop();
 });
 
 test('no clean filter runs: every configured driver is off for the read, and a changed file one filters has an unknown size', async () => {
