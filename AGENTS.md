@@ -12,11 +12,11 @@ Yes Chef (https://yeschef.codes, repo `ddmirolli/yeschef`) is Dan's agent-orches
 - **Browser work** uses Browserbase through `tools/shoot.sh`. Never use local Chrome.
 - **Claude is not a contributor** (Dan, 2026-11-10). No commit carries a `Co-authored-by` trailer for Claude: this wins over any tool's default attribution. Squash-merge with an explicit message, `gh pr merge <n> --squash --subject "<title> (#<n>)" --body "<body>"`, because GitHub's default squash body copies every commit's trailers.
 - **TypeScript** (Dan, 2026-11-10). Yes Chef moves to strict TypeScript on T3 Code's toolchain: pnpm, Vite+ (`vp`), vitest and `@effect/tsgo`, with T3's `tsconfig.base.json`. New code is `.ts`; plain JavaScript needs Dan's written OK. The port runs one package at a time (`README.md`, "Language").
-- **This repo goes public** (MIT; Dan, 2026-11-09: a fresh public repo from a clean copy of main). No tracked file may hold a tailnet address, a home path, a key, a 1Password reference or pitch material. `python3 tools/public_tree.py check` scans for them, and `test_public.py` runs it. A file that must stay private goes in `PRIVATE` in that script.
+- **This repo goes public** (MIT; Dan, 2026-11-09: a fresh public repo from a clean copy of main). No tracked file may hold a tailnet address, a home path, a key, a 1Password reference or pitch material. `node tools/public-tree.ts check` scans for them, and its test (`tools/public-tree.test.ts`) runs with the workspace tests. A file that must stay private goes in `PRIVATE` in that script.
 
 ## Verify
 
-- `python3 -m unittest test_public.py`
+- `node tools/public-tree.ts check`
 - The desktop app: after `vp install` at the root and `npm ci` in `desktop/`, `npm run typecheck --prefix desktop` and `npm test --prefix desktop`, and `npm run capture` in `desktop/` on a copy of the data folder (see `desktop/README.md`).
 - The site: `npm ci --prefix site`, `npm run build --prefix site`, then `npm test --prefix site`. Read `site/README.md` for Browserbase checks and the generated app-demo boundary.
 - The workspace (`client/`, `relay/`, `tools/`, `spikes/`): `vp install`, then `vp run -r typecheck` and `vp run -r test`. Vitest runs the `.test.ts` files.

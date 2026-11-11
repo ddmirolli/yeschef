@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "vp test run --config ../vite.config.ts --dir .",
     "typecheck": "effect-tsgo tsrs --noEmit"
   },
   "dependencies": {

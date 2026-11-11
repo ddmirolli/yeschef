@@ -39,4 +39,4 @@ jobs:
       - name: Test downloads, demo isolation, and built pages
         run: npm test --prefix site
       - name: Check public files
-        run: python3 -m unittest test_public.py
+        run: node tools/public-tree.ts check

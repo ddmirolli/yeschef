@@ -18,7 +18,7 @@ Build before running the tests, which also inspect the generated HTML:
 ```sh
 npm run build --prefix site
 npm test --prefix site
-python3 -m unittest test_public.py
+node tools/public-tree.ts check
 ```
 
 The build runs strict TypeScript and Astro checks before it writes `site/dist/`. `.github/workflows/site.yml` runs the same checks on site pull requests. To check Cloudflare's redirects and static routing locally:

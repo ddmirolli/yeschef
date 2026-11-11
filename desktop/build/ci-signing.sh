@@ -221,7 +221,7 @@ load() {
   # The two IDs go into $GITHUB_ENV, so they must be exactly what Apple issues: a newline there would add variables.
   [[ "$KEY_ID" =~ ^[A-Z0-9]{10}$ ]] || die "APPLE_API_KEY_ID is not a 10-character key ID."
   [[ "$ISSUER" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || die "APPLE_API_ISSUER is not an issuer ID (a UUID)."
-  # The PEM header, written as a pattern so the public tree scan (tools/public_tree.py) does not read it as a key.
+  # The PEM header, written as a pattern so the public tree scan (tools/public-tree.ts) does not read it as a key.
   grep -qE -- '^-{5}BEGIN PRIVATE KEY-{5}' "$DIR/AuthKey.p8" || die "the .p8 is not a private key."
   install_identity "$DIR/cert.p12" "$P12_PASSWORD"
   unset P12_PASSWORD
