@@ -400,7 +400,8 @@ export function summarize(board, shared, max = 65536, readers = {}) {
     const t = {
       thread: k.thread.threadId, title: clean(k.thread.title, 160), project: clean(k.project, 80), place: k.place,
       atPass: !!k.atPass, working: k.working || 0, asks: k.asks.length, call: !!k.call,
-      prs: k.prs.slice(0, 5).map((p) => withOver(summaryPr(p, p.state === 'open' || p.state === 'merged' ? get(readers.pr, { host: p.host || 'github.com', repo: p.repository, number: p.number }) : null), p.host)),
+      // Every PR keeps its Too big age, also past the 5 the summary carries (PR-Agent r3 on #28).
+      prs: k.prs.map((p) => withOver(summaryPr(p, p.state === 'open' || p.state === 'merged' ? get(readers.pr, { host: p.host || 'github.com', repo: p.repository, number: p.number }) : null), p.host)).slice(0, 5),
       updatedAt: k.updatedAt || null, startedAt: time(k.thread.createdAt), last: firstLine(k.lastWords, 160), ask: summaryAsk(k),
     };
     const c = summaryChanges(get(readers.changes, k.thread.threadId));

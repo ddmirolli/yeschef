@@ -65,6 +65,10 @@ test('a commit is read once its checks settle; pending is read again; a second p
   assert.equal(done.paths.length, 6);
   // Only the named checks count: a red lint that is not required leaves the commit green.
   assert.equal(await commitResult(done, 'github.com', 'acme/app', c, { memo, names: ['ci'] }), 'passing');
+  // A check named '*' is its own selector, never "all checks": the cached all-checks result is not reused (PR-Agent r3 on #28).
+  const star = fake({ runs: { [h(6)]: [ok('*'), bad('lint')] } });
+  assert.equal(await commitResult(star, 'github.com', 'acme/app', h(6), { memo, now }), 'failing');
+  assert.equal(await commitResult(star, 'github.com', 'acme/app', h(6), { memo, now, names: ['*'] }), 'passing');
   // A named check that has not reported is pending, never green (PR-Agent r1 on #28).
   assert.equal(await commitResult(done, 'github.com', 'acme/app', c, { memo, names: ['ci', 'e2e'] }), 'pending');
   // A head with no checks yet is asked again: its CI may not have started. Behind the head, none is final.

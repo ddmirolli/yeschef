@@ -64,7 +64,8 @@ type CommitOpts = { names?: string[] | null; memo?: Memo; head?: boolean; now?: 
  *  running again (PR-Agent r1 and r2 on #28). */
 export async function commitChecks(get: Get, host: string, repo: string, commit: string,
   { names = null, memo = runMemo, head = false, now = Date.now }: CommitOpts = {}): Promise<CommitChecks | null> {
-  const key = `${host}/${repo}@${commit}:${names ? names.join('\u0000') : '*'}`;
+  // The selector is tagged, so no check's name can stand for "all checks" (PR-Agent r3 on #28).
+  const key = `${host}/${repo}@${commit}:${names ? `names:${JSON.stringify(names)}` : 'all'}`;
   const kept = head ? null : memo.get(key);
   if (kept && now() - kept.at < RERUN_MS) return { result: kept.result, done: kept.done };
   const runs = obj(await get(`repos/${repo}/commits/${commit}/check-runs?per_page=100`, { host }));

@@ -1991,3 +1991,16 @@ test('summary fields for 4b: PR runs and ready time, merge commit, Too big since
   assert.equal(summaryChanges({ state: 'checked', at: AT, headAt: AT - 5000, files: [] }).headAt, AT - 5000);
   assert.equal(summaryChanges({ state: 'checked', at: AT, files: [] }).headAt, null);
 });
+
+test("Too big's age is kept for every PR on a ticket, also past the 5 the summary carries (PR-Agent r3 on #28)", () => {
+  const now = Date.UTC(2026, 10, 11, 12);
+  const link = (n) => ({ repository: 'acme/app', number: n, state: 'open', url: `https://github.com/acme/app/pull/${n}`, base: 'main', draft: false });
+  const board = { tickets: [{ thread: { threadId: 'th-many', projectId: P, title: 'Many PRs', createdAt: null }, project: 'App', place: 'In progress',
+    atPass: 0, working: 1, asks: [], call: null, prs: [1, 2, 3, 4, 5, 6].map(link), updatedAt: new Date(now).toISOString(), lastWords: '' }] };
+  const big = () => ({ state: 'checked', at: now, draft: false, base: 'main', size: { files: 40, added: 900, removed: 10 } });
+  const kept = [];
+  const s = summarize(board, [P], 65536, { pr: big, now, over: { 'github.com/acme/app#6': now - 3600000 }, keepOver: (m) => kept.push(m) });
+  assert.equal(s.tickets[0].prs.length, 5);
+  assert.equal(kept.at(-1)['github.com/acme/app#6'], now - 3600000, 'the sixth PR keeps its first time over');
+  assert.equal(Object.keys(kept.at(-1)).length, 6);
+});
