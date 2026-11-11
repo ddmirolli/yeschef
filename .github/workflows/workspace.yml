@@ -1,7 +1,7 @@
 name: Workspace
 
-# The pnpm workspace (client/, desktop/, relay/, tools/ and spikes/): strict TypeScript and the tests, set up as T3 Code's
-# CI does it.
+# The pnpm workspace (client/, desktop/, relay/, site/, tools/ and spikes/): strict TypeScript and the tests, set up as
+# T3 Code's CI does it. site/ builds before its tests; site.yml runs it on its own for site changes.
 on:
   pull_request:
     paths:

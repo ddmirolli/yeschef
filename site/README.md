@@ -9,19 +9,18 @@ Dan chose Astro and TypeScript on 2026-11-10 and asked to preserve the existing 
 Run from the repository root:
 
 ```sh
-npm ci --prefix site
+vp install
 npm run dev --prefix site -- --port 8615
 ```
 
-Build before running the tests, which also inspect the generated HTML:
+`site/` is in the pnpm workspace, so `vp install` at the root installs it with the rest. The tests inspect the generated HTML, so `npm test` builds first:
 
 ```sh
-npm run build --prefix site
 npm test --prefix site
 node tools/public-tree.ts check
 ```
 
-The build runs strict TypeScript and Astro checks before it writes `site/dist/`. `.github/workflows/site.yml` runs the same checks on site pull requests. To check Cloudflare's redirects and static routing locally:
+The build runs strict TypeScript and Astro checks before it writes `site/dist/`. `.github/workflows/site.yml` runs the same checks on site pull requests, and `vp run -r test` at the root includes them. To check Cloudflare's redirects and static routing locally:
 
 ```sh
 site/node_modules/.bin/wrangler dev --config deploy/yeschef/wrangler.jsonc --ip 127.0.0.1 --port 8615 --local

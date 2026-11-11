@@ -1,16 +1,21 @@
 # The workspace, as T3 Code sets it up (Dan, 2026-11-10, "1. C": T3's TypeScript and tools).
-# site/ keeps its own npm install for the Cloudflare build.
 packages:
   - client
   - desktop
   - relay
+  - site
   - spikes
   - tools
 
-# Build scripts pnpm may run, as in T3 Code. electron-winstaller is electron-builder's Windows installer, which Yes Chef
-# never builds. Electron 45 has no install script: it downloads its binary on first start (npm start or capture).
+# Build scripts pnpm may run, with T3 Code's answers. electron-winstaller is electron-builder's Windows installer, which
+# Yes Chef never builds. Electron 45 has no install script: it downloads its binary on first start (npm start or
+# capture). esbuild and sharp (the site's build) run theirs; workerd (Wrangler's local runtime) ships its binary as an
+# optional dependency.
 allowBuilds:
   electron-winstaller: false
+  esbuild: true
+  sharp: true
+  workerd: false
 
 catalog:
   "@cloudflare/workers-types": 4.20260702.1
@@ -31,3 +36,12 @@ peerDependencyRules:
     - vite
   allowedVersions:
     vite: "*"
+
+# pnpm holds back versions newer than its minimum release age. These are the exact versions the site already shipped
+# with npm before it joined the workspace (Astro 7.4.10, 2026-11-10). T3 Code lists its exact exceptions the same way.
+minimumReleaseAgeExclude:
+  - "@astrojs/internal-helpers@0.13.2"
+  - "@astrojs/markdown-satteri@0.4.8"
+  - "@astrojs/runtime@0.1.0"
+  - "@astrojs/vite-plugin-astro@0.1.1"
+  - astro@7.4.10
