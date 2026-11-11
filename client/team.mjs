@@ -756,6 +756,10 @@ export class Team {
     if (wait > 0) { this.summaryTimer = this.timers.setTimeout(() => { this.summaryTimer = null; this.flush(); }, wait); return; }
     const next = this.next;
     if (!next.forget && next.json === this.sentJson && !this.state.dropped && !this.due(next.at)) { this.next = null; return; }
+    // Its board was read at a time ahead of this Mac's clock: the clock went back, and how old the read is is not
+    // known. It does not go with a made-up time; the next board read sends one with a true time (PR-Agent r23 on
+    // public #7).
+    if (!next.forget && !(next.at <= this.now())) { this.next = null; return; }
     this.flushing = true;
     try {
       let blob = null;
@@ -804,7 +808,8 @@ export class Team {
     const me = await this.member();
     const key = await this.teamKey();
     const now = this.now();
-    const read = Math.min(Number.isFinite(at) ? at : now, now);
+    if (!(at <= now)) throw new Error('The board was read at a time ahead of this Mac\'s clock, so its age is not known.');
+    const read = at;
     // The order is a revision, apart from the time shown: kept on disk and only going up, even when the clock goes
     // back, so a replacement built from the same board (a dropped project) is always newer and the relay cannot hand
     // back the one it replaced (PR-Agent r11 and r13 on public #7).
@@ -928,7 +933,11 @@ export class Team {
     // so a refused roster owes nothing (PR-Agent r1 on #79).
     this.state.welcomes = [...new Set([...(this.state.welcomes || []), m])];
     this.save();
-    const r = await this.pushRoster(people);
+    // While its roster is on the way, a welcome pass from elsewhere keeps this welcome: the dev is not on the roster
+    // yet, not removed (PR-Agent r23 on public #7).
+    (this.approving ||= new Map()).set(m, (this.approving.get(m) || 0) + 1);
+    let r;
+    try { r = await this.pushRoster(people); } finally { const n = this.approving.get(m) - 1; if (n > 0) this.approving.set(m, n); else this.approving.delete(m); }
     if (r.t !== 'ok') return r;
     this.pending.delete(m);
     const left = await this.sendWelcomes();
@@ -942,7 +951,7 @@ export class Team {
     const done = new Set();
     for (const m of this.state.welcomes || []) {
       const p = this.people.get(m);
-      if (!p) { done.add(m); continue; } // removed since: nothing owed
+      if (!p) { if (!this.approving?.has(m)) done.add(m); continue; } // removed since, or never let in: nothing owed
       const blob = await sealTo(me, p.dh, { teamKey: this.state.key, teamName: this.state.teamName }, aad.welcome(this.state.team, me.id, m));
       if ((await this.say({ t: 'send', to: m, blob, ttl: 7 * 86400000 })).t === 'ok') done.add(m);
     }
