@@ -1560,8 +1560,7 @@ test('an id dated ahead by a clock set right again does not keep expired ids fro
   setBoard({ board: boardNow(relay.now()), ok: true, at: relay.now() });
   dev.seen.clear();
   dev.seen.set('x:ahead', { at: relay.now() + 86400000, status: 409, text: '' });
-  dev.state.clockHigh = relay.now() + 86400000;
-  for (let i = 0; i < 499; i++) dev.seen.set(`x:${i}`, { at: relay.now() - 20 * MIN, status: 200, text: '' });
+  for (let i = 0; i < 499; i++) dev.seen.set(`x:${i}`, { at: relay.now() - 25 * MIN, status: 200, text: '' });
   const out = lead.act(dev.meId, { kind: 'reply', thread: 'th-parser', note: 'x' });
   await settle(); await settle(); await settle(); await settle();
   await timers.advance(30000);
@@ -1740,4 +1739,22 @@ test('a board failure reported before the roster loads still goes out once the t
   assert.equal(p.live, false);
   assert.equal(p.notCheckedSince, failedAt);
   lead.stop(); again.stop();
+});
+
+test('after a clock is set right, fresh actions keep running: a saved high time does not expire their ids', async () => {
+  const { relay, lead, dev, ran, setBoard } = await crew();
+  const me = await lead.member();
+  const key = await teamKey(lead.state.key);
+  const seal1 = (nonce, at) => sealSigned(key, me, { k: 'act', nonce, at, action: { kind: 'reply', thread: 'th-parser', note: 'n' } }, aad.send(lead.state.team, me.id, dev.meId));
+  dev.state.clockHigh = relay.now() + 86400000; // from a clock that ran a day fast, now set right
+  setBoard({ board: boardNow(relay.now()), ok: true, at: relay.now() });
+  await dev.take({ item: 'c1', from: me.id, blob: await seal1('CCCCCCCCCCCCCCCCCCCCC1', relay.now()) });
+  relay.tick(1000);
+  setBoard({ board: boardNow(relay.now()), ok: true, at: relay.now() });
+  await dev.take({ item: 'c2', from: me.id, blob: await seal1('CCCCCCCCCCCCCCCCCCCCC2', relay.now()) });
+  relay.tick(1000);
+  setBoard({ board: boardNow(relay.now()), ok: true, at: relay.now() });
+  await dev.take({ item: 'c3', from: me.id, blob: await seal1('CCCCCCCCCCCCCCCCCCCCC3', relay.now()) });
+  assert.equal(ran.length, 3);
+  lead.stop(); dev.stop();
 });
