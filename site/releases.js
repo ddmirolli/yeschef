@@ -90,7 +90,7 @@
   var page = doc.getElementById("download-page");
   if (!page) return;
   var label = doc.querySelector("[data-dl-version]");
-  var card = doc.querySelector("[data-dl-card]");
+  var card = doc.querySelector("[data-dl-card]"); // the page's Download for Mac button
   var notes = { stable: "No release yet.", nightly: "No Nightly yet." };
 
   function channelOf(search) { return new URLSearchParams(search).get("channel") === "nightly" ? "nightly" : "stable"; }
