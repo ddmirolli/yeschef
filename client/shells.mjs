@@ -41,6 +41,11 @@ export function threadRow(shell, { now = Date.now(), link = () => null } = {}) {
     linkedPullRequest: shell.linkedPullRequest ?? null,
     pullRequests: (shell.pullRequests || []).filter((l) => l.source !== 'stack-dismissed').map((l) => ({
       host: hostOf(l), repository: l.repository, number: l.number, url: l.url, source: l.source, state: l.snapshot?.state ?? null,
+      // T3's PR snapshot (ThreadPullRequestSnapshot): the target branch, draft, and when it merged. The team summary
+      // sends them (3b PR 4); a value T3 leaves out stays null.
+      base: typeof l.snapshot?.baseBranch === 'string' ? l.snapshot.baseBranch : null,
+      draft: typeof l.snapshot?.isDraft === 'boolean' ? l.snapshot.isDraft : null,
+      mergedAt: typeof l.snapshot?.mergedAt === 'string' ? l.snapshot.mergedAt : null,
     })),
     settled,
     settledAt: settled && shell.settledAt != null ? shell.settledAt : null,

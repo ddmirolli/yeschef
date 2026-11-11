@@ -14,7 +14,7 @@ import { signIn, connect } from './t3mcp.mjs';
 import { createKeys, createLive } from './t3live.mjs';
 import { boardThreads, changeTargets, githubTargets } from './shells.mjs';
 import { createChanges } from './changes.mjs';
-import { createBaseChecks, createPrSizes } from './github.mjs';
+import { createBaseChecks, createPrSizes, prKey } from './github.mjs';
 import { buildBoard, renderApp, kitchenPane, pickedFrom } from './board.mjs';
 import { readRuns, dayStart, trackWaits, mayRunToday } from './you.mjs';
 import { normalize as normalRules, change as changeRule } from './kitchen.mjs';
@@ -311,8 +311,12 @@ function tick() {
   for (const res of clients) res.write(`event: tick\ndata: ${data}\n\n`);
   if (DESKTOP) pipe.send({ type: 'tick', data });
   // The team's summary follows each board read, and a failed read is news too: it publishes only on change.
-  if (status.ok) team.board(board); else team.health(false);
+  if (status.ok) team.board(board, teamReaders); else team.health(false);
 }
+// What the team summary reads beside the board (3b PR 4): each thread's changed files, its base branch's checks, and
+// each open PR's size. A reader's news republishes the summary, only when it changed.
+const teamReaders = { changes: (id) => changes.get(id), base: (id) => baseChecks.get(id), pr: (x) => prSizes.get(prKey(x)) };
+for (const r of [changes, baseChecks, prSizes]) r.subscribe(() => team?.readersMoved?.());
 
 // Never two refreshes at once: a change during one queues one more. A burst of changes is gathered for 150 ms.
 let refreshing = null, again = false, soonTimer = null;

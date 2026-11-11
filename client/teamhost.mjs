@@ -145,8 +145,10 @@ export function teamHost({ store, run, boardOf, projectsOf = () => [], t3Ok = ()
 
   return {
     start, route, act,
-    /** The Pass read a board: the team's summary follows it. */
-    board(b) { if (team && b) team.board(b); },
+    /** The Pass read a board: the team's summary follows it, with what the board server reads beside it (3b PR 4). */
+    board(b, readers) { if (team && b) team.board(b, readers); },
+    /** A reader beside the board has news: the summary follows, only when it changed. */
+    readersMoved() { team?.readersMoved(); },
     /** A board read failed: teammates read this Mac as not checked since then. */
     health(ok) { team?.health(ok); },
     wake() { team?.wake(); },
