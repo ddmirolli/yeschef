@@ -1,8 +1,12 @@
 // GitHub, read only: the checks on a base branch and the size of a pull request. Yes Chef holds no GitHub key. It
 // asks through the GitHub CLI (`gh`) when this Mac already has it signed in, and every call is a GET. Without gh, or
-// with gh signed out, everything here is "not checked", with the reason.
+// with gh signed out, everything here is "not checked", with the reason. Every reply is read through a Schema
+// (client/github-rest.ts): a reply GitHub would never send is "not checked" too, never a guess made from it.
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import * as Option from 'effect/Option';
+import { Branch, CheckRunsPage, GitHubReadError, PrFiles, PullRequest, Rules, StatusesPage, fromJson, must, read } from './github-rest.ts';
+import type { CheckRun, GitCommit, Rule, Status } from './github-rest.ts';
 import { createFollower } from './follow.ts';
 import type { FollowerOptions } from './follow.ts';
 import { LOCKFILE } from './changes.ts';
@@ -12,19 +16,6 @@ import type { PrRuns, BaseRed } from './pr-runs.ts';
 
 /** One GET to GitHub's REST API, as JSON: ghGet, or a stand-in in tests. */
 export type GhGet = (path: string, opts: { host: string }) => Promise<unknown>;
-// GitHub's REST shapes, as far as the reads below use them. GitHub's data is read, not trusted: every field may be
-// missing.
-interface RawCheckRun { id?: number; name?: string; status?: string; conclusion?: string | null; app?: { id?: number } | null; html_url?: string | null; details_url?: string | null; completed_at?: string | null; started_at?: string | null }
-interface RawStatus { context?: string; state?: string; target_url?: string | null; updated_at?: string | null }
-interface RawRule { type?: string; parameters?: { required_status_checks?: { context: string; integration_id?: number | null }[] } }
-interface RawCommit { message?: string; committer?: { date?: string }; author?: { date?: string } }
-interface RawBranch {
-  commit?: { sha?: string; commit?: RawCommit }; protected?: boolean;
-  protection?: { required_status_checks?: { contexts?: string[]; checks?: { context: string; app_id?: number | null }[] } };
-}
-interface RawPr { html_url?: string; merged?: boolean; state?: string; draft?: boolean; head?: { sha?: string }; base?: { ref?: string; sha?: string }; additions?: number; deletions?: number; changed_files?: number }
-interface RawPrFile { filename: string; additions?: number; deletions?: number }
-
 export const GH_PATHS = ['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh'];
 // Only paths under repos/ with plain characters reach gh, so nothing from T3 Code's data becomes a flag or a method.
 const SAFE_PATH = /^repos\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+(\/[A-Za-z0-9._%-]+)*(\?[A-Za-z0-9._=&%-]+)?$/;
@@ -49,7 +40,9 @@ export function ghGet(path: string, { host = 'github.com', gh = process.env.YESC
   return new Promise<unknown>((done, fail) => {
     execFile(gh, args, { env, timeout, maxBuffer: 16 * 1024 * 1024 }, (err, out, errOut) => {
       if (err) { (err as GitError).stderr = String(errOut || '').trim(); return fail(err); }
-      try { done(JSON.parse(out)); } catch { fail(new Error('GitHub sent something that is not JSON')); }
+      const json = fromJson(out);
+      if (Option.isNone(json)) return fail(new GitHubReadError({ reason: 'GitHub sent something that is not JSON' }));
+      done(json.value);
     });
   });
 }
@@ -71,13 +64,13 @@ export function ghWhy(err: unknown): string {
 // as GitHub counts them for a required check.
 export type CheckState = 'pending' | 'passing' | 'neutral' | 'failing';
 export type Overall = 'none' | 'failing' | 'pending' | 'passing';
-export function runState(run: Pick<RawCheckRun, 'status' | 'conclusion'>): CheckState {
+export function runState(run: Pick<CheckRun, 'status' | 'conclusion'>): CheckState {
   if (run.status !== 'completed') return 'pending';
   if (run.conclusion === 'success') return 'passing';
   if (run.conclusion === 'neutral' || run.conclusion === 'skipped') return 'neutral';
   return 'failing';
 }
-const statusState = (s: RawStatus): CheckState => (s.state === 'success' ? 'passing' : s.state === 'pending' ? 'pending' : 'failing');
+const statusState = (s: Status): CheckState => (s.state === 'success' ? 'passing' : s.state === 'pending' ? 'pending' : 'failing');
 /** Many checks as one: failing beats pending beats passing; none at all is 'none'. */
 export function overall(states: readonly string[]): Overall {
   if (!states.length) return 'none';
@@ -92,8 +85,8 @@ export const segment = (name: string): string => encodeURIComponent(name).replac
 
 // What a read can reuse, so an unchanged branch or PR costs one call: GitHub's rate limit is the account's, shared
 // with every other gh use on this Mac. Kept small: the oldest entries go first.
-type Paged<K extends string, T> = { total_count: number; truncated: boolean } & { [P in K]: T[] };
-type BaseReads = [Paged<'check_runs', RawCheckRun>, Paged<'statuses', RawStatus>, RawRule[] | null];
+type Paged<K extends string, T> = { total_count: number; truncated: boolean } & { readonly [P in K]: readonly T[] };
+type BaseReads = [Paged<'check_runs', CheckRun>, Paged<'statuses', Status>, readonly Rule[] | null];
 /** What readBaseChecks keeps of a settled read: the time and the three reads. */
 export interface BaseMemo { at: number; reads: BaseReads }
 /** A PR's size without lockfiles. */
@@ -106,32 +99,34 @@ const baseMemo = new Map<string, BaseMemo>(), sizeMemo = new Map<string, SizeMem
 // is the path as given; `truncated` says the list is not known whole (PR-Agent r1 on #4). Pages are offsets, so a
 // check added or moved while they are read shifts them: one entry shows twice and another not at all. So every page
 // must give the same total, an entry seen twice (by `idOf`) counts once, and either one leaves the list not whole
-// (PR-Agent r3 on #4).
-async function allPages<K extends string, T>(get: GhGet, host: string, path: string, key: K, idOf: (r: T) => string, pages = 10): Promise<Paged<K, T>> {
-  type Page = (Partial<Record<K, T[]>> & { total_count?: number }) | null | undefined;
-  const first = (await get(path, { host })) as Page;
-  const total = first?.total_count || 0, seen = new Set<string>(), items: T[] = [];
+// (PR-Agent r3 on #4). `read` reads each page; a page GitHub would never send throws, so nothing is judged from it.
+type Page<K extends string, T> = { readonly total_count: number } & { readonly [P in K]: readonly T[] };
+async function allPages<K extends string, T>(get: GhGet, host: string, path: string, key: K, read: (reply: unknown) => Page<K, T>, idOf: (r: T) => string, pages = 10): Promise<Paged<K, T>> {
+  const first = read(await get(path, { host }));
+  const total = first.total_count, seen = new Set<string>(), items: T[] = [];
   let moved = false;
-  const add = (rows: T[]) => { for (const r of rows) { const id = idOf(r); if (seen.has(id)) moved = true; else { seen.add(id); items.push(r); } } };
-  add(first?.[key] || []);
+  const add = (rows: readonly T[]) => { for (const r of rows) { const id = idOf(r); if (seen.has(id)) moved = true; else { seen.add(id); items.push(r); } } };
+  add(first[key]);
   for (let page = 2; page <= pages && items.length < total && !moved; page++) {
-    const got = (await get(`${path}&page=${page}`, { host })) as Page;
-    if ((got?.total_count || 0) !== total) moved = true;
-    const rows = got?.[key] || [];
+    const got = read(await get(`${path}&page=${page}`, { host }));
+    if (got.total_count !== total) moved = true;
+    const rows = got[key];
     if (!rows.length) break;
     add(rows);
   }
-  return { ...first, total_count: total, [key]: items, truncated: moved || items.length !== total } as Paged<K, T>;
+  return { total_count: total, [key]: items, truncated: moved || items.length !== total } as Paged<K, T>;
 }
 // Every page of a branch's rules, 100 a page (GitHub sends 30 unless asked), up to `pages` pages. The list carries no
-// total: a short page is the last. More than the pages read is null, as unknown as a failed read (PR-Agent r2 on #4).
-async function allRules(get: GhGet, host: string, path: string, pages = 10): Promise<RawRule[] | null> {
-  const out: RawRule[] = [];
+// total: a short page is the last. More than the pages read is null, as unknown as a failed read (PR-Agent r2 on #4),
+// and so is a page that is not GitHub's list of rules.
+const readRules = read(Rules);
+async function allRules(get: GhGet, host: string, path: string, pages = 10): Promise<readonly Rule[] | null> {
+  const out: Rule[] = [];
   for (let page = 1; page <= pages; page++) {
-    const rows = await get(`${path}?per_page=100${page > 1 ? `&page=${page}` : ''}`, { host });
-    if (!Array.isArray(rows)) return null;
-    out.push(...rows);
-    if (rows.length < 100) return out;
+    const rows = readRules(await get(`${path}?per_page=100${page > 1 ? `&page=${page}` : ''}`, { host }));
+    if (Option.isNone(rows)) return null;
+    out.push(...rows.value);
+    if (rows.value.length < 100) return out;
   }
   return null;
 }
@@ -168,17 +163,17 @@ export async function readBaseChecks({ host = 'github.com', repo, branch }: Base
   const at = now();
   try {
     const ref = segment(branch);
-    const b = (await get(`repos/${repo}/branches/${ref}`, { host })) as RawBranch | null | undefined;
-    const sha = b?.commit?.sha;
-    if (!b || !sha) return { state: 'not-checked', why: `GitHub gave no commit for ${branch}`, at };
+    const b = must(Branch, 'a branch')(await get(`repos/${repo}/branches/${ref}`, { host }));
+    const sha = b.commit?.sha;
+    if (!sha) return { state: 'not-checked', why: `GitHub gave no commit for ${branch}`, at };
     const memoKey = `${host}/${repo}@${ref}:${sha}`;
     const kept = memo.get(memoKey);
     const reuse = kept && at - kept.at < REUSE_MS;
     const [runs, status, rules]: BaseReads = reuse ? kept.reads : await Promise.all([
-      allPages(get, host, `repos/${repo}/commits/${sha}/check-runs?per_page=100`, 'check_runs', (r: RawCheckRun) => `id ${r?.id ?? JSON.stringify(r)}`),
+      allPages(get, host, `repos/${repo}/commits/${sha}/check-runs?per_page=100`, 'check_runs', must(CheckRunsPage, 'check runs'), (r: CheckRun) => `id ${r.id ?? JSON.stringify(r)}`),
       // The combined status has one entry per context, and a context is case-insensitive: a context seen twice moved
       // between pages.
-      allPages(get, host, `repos/${repo}/commits/${sha}/status?per_page=100`, 'statuses', (s: RawStatus) => `context ${String(s?.context).toLowerCase()}`),
+      allPages(get, host, `repos/${repo}/commits/${sha}/status?per_page=100`, 'statuses', must(StatusesPage, 'commit statuses'), (s: Status) => `context ${String(s.context).toLowerCase()}`),
       allRules(get, host, `repos/${repo}/rules/branches/${ref}`).catch(() => null),
     ]);
     // Required checks: classic protection and rulesets together. Known only when both were read; one alone could
@@ -193,12 +188,12 @@ export async function readBaseChecks({ host = 'github.com', repo, branch }: Base
     const req = (context: string, app: number | null | undefined): Req => ({ context, app: app == null || app === -1 ? null : app });
     const rsc = b.protection?.required_status_checks;
     const fromProtection = rsc ? [...(rsc.contexts || []).filter((c) => !(rsc.checks || []).some((k) => k.context === c)).map((c) => req(c, null)), ...(rsc.checks || []).map((c) => req(c.context, c.app_id))] : [];
-    const fromRules = Array.isArray(rules) ? rules.filter((r) => r.type === 'required_status_checks').flatMap((r) => (r.parameters?.required_status_checks || []).map((c) => req(c.context, c.integration_id))) : [];
-    const known = (b.protection !== undefined || b.protected === false) && Array.isArray(rules);
+    const fromRules = rules ? rules.filter((r) => r.type === 'required_status_checks').flatMap((r) => (r.parameters?.required_status_checks || []).map((c) => req(c.context, c.integration_id))) : [];
+    const known = (b.protection !== undefined || b.protected === false) && rules !== null;
     const required: Req[] | null = known ? [...fromProtection, ...fromRules] : null;
     type Seen = Omit<BaseCheck, 'required'>;
-    const fromRuns = (runs?.check_runs || []).map((r): Seen => ({ name: r.name, app: r.app?.id ?? null, state: runState(r), url: r.html_url || r.details_url || null, at: r.completed_at || r.started_at || null }));
-    const fromStatuses = (status?.statuses || []).map((s): Seen => ({ name: s.context, app: null, state: statusState(s), url: s.target_url || null, at: s.updated_at || null }));
+    const fromRuns = runs.check_runs.map((r): Seen => ({ name: r.name, app: r.app?.id ?? null, state: runState(r), url: r.html_url || r.details_url || null, at: r.completed_at || r.started_at || null }));
+    const fromStatuses = status.statuses.map((s): Seen => ({ name: s.context, app: null, state: statusState(s), url: s.target_url || null, at: s.updated_at || null }));
     // true, false, or null when it cannot be told.
     const named = (c: Seen, q: Req, isStatus: boolean) => (isStatus ? String(c.name).toLowerCase() === String(q.context).toLowerCase() : c.name === q.context);
     const meets = (c: Seen, q: Req, isStatus: boolean): boolean | null => (!named(c, q, isStatus) ? false : q.app === null ? true : isStatus ? null : c.app === q.app);
@@ -209,14 +204,14 @@ export async function readBaseChecks({ host = 'github.com', repo, branch }: Base
     const unsure = !!required && (checks.some((c) => c.required === null) || required.some((q) => reported(q) === null));
     // More checks than the pages read: the list shows what was read, and nothing is judged from it, since the check
     // that decides could be on a page not read.
-    const truncated = !!(runs?.truncated || status?.truncated);
+    const truncated = runs.truncated || status.truncated;
     // Only a settled set is reused: whole, none pending, at least one reported (CI may not have started on a new
     // commit), and the rules read.
-    const settled = !truncated && checks.length > 0 && !checks.some((c) => c.state === 'pending') && Array.isArray(rules);
+    const settled = !truncated && checks.length > 0 && !checks.some((c) => c.state === 'pending') && rules !== null;
     if (settled && !reuse) remember(memo, memoKey, { at, reads: [runs, status, rules] });
     else if (!settled) memo.delete(memoKey);
     const readAt = reuse ? kept.at : at;
-    const commit: RawCommit = b.commit?.commit || {};
+    const commit: GitCommit = b.commit?.commit ?? {};
     return {
       state: 'checked', at: readAt, host, repo, branch, sha,
       title: String(commit.message || '').split('\n')[0]!.slice(0, 200), committedAt: commit.committer?.date || commit.author?.date || null,
@@ -240,11 +235,12 @@ export type PrSizeRead = { state: 'not-checked'; why: string; at: number } | {
 /** The pull request a size read looks at. */
 export interface PrArgs { host?: string; repo: string; number: number }
 
+const readFiles = read(PrFiles), readPr = read(PullRequest);
 export async function readPrSize({ host = 'github.com', repo, number }: PrArgs, { get = ghGet, now = Date.now, pages = 10, memo = sizeMemo }: ReadOptions<SizeMemo> & { pages?: number } = {}): Promise<PrSizeRead> {
   const at = now();
   try {
-    // A body that is not an object throws below, and the read is "not checked".
-    const pr = (await get(`repos/${repo}/pulls/${number}`, { host })) as RawPr;
+    // A reply that is not GitHub's pull request throws, and the read is "not checked".
+    const pr = must(PullRequest, 'a pull request')(await get(`repos/${repo}/pulls/${number}`, { host }));
     const out: PrSizeRead & { state: 'checked' } = {
       state: 'checked', at, host, repo, number, url: pr.html_url || null, prState: pr.merged ? 'merged' : pr.state, draft: !!pr.draft,
       head: pr.head?.sha || null, base: pr.base?.ref || null,
@@ -258,17 +254,18 @@ export async function readPrSize({ host = 'github.com', repo, number }: PrArgs, 
     if (kept) Object.assign(out, kept);
     else if (pr.changed_files !== undefined && pr.changed_files <= pages * 100) {
       const total = pr.changed_files;
-      const files: RawPrFile[] = [];
+      const files: (typeof PrFiles.Type)[number][] = [];
       for (let page = 1; page <= pages && files.length < total; page++) {
-        const got = await get(`repos/${repo}/pulls/${number}/files?per_page=100&page=${page}`, { host });
-        if (!Array.isArray(got) || !got.length) break;
-        files.push(...got);
+        // A page that is not GitHub's list of files ends the list short, so the size stays unknown.
+        const got = readFiles(await get(`repos/${repo}/pulls/${number}/files?per_page=100&page=${page}`, { host }));
+        if (Option.isNone(got) || !got.value.length) break;
+        files.push(...got.value);
       }
       // A push while the pages were read could make a partial list look whole: the PR is read again, and a list
       // from another head, base or total is not used (PR-Agent r1 on #81).
-      const same = (x: RawPr | null | undefined) => x?.head?.sha === pr.head?.sha && x?.base?.ref === pr.base?.ref && x?.base?.sha === pr.base?.sha
+      const same = (x: PullRequest | null) => x?.head?.sha === pr.head?.sha && x?.base?.ref === pr.base?.ref && x?.base?.sha === pr.base?.sha
         && x?.additions === pr.additions && x?.deletions === pr.deletions && x?.changed_files === pr.changed_files;
-      if (files.length >= total && same((await get(`repos/${repo}/pulls/${number}`, { host })) as RawPr | null)) {
+      if (files.length >= total && same(Option.getOrNull(readPr(await get(`repos/${repo}/pulls/${number}`, { host }))))) {
         const locks = files.filter((f) => LOCKFILE.test(f.filename));
         const counted = files.filter((f) => !LOCKFILE.test(f.filename));
         out.lockfiles = locks.map((f) => f.filename);
