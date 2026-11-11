@@ -142,7 +142,8 @@ export class Team {
 
   /** What the screens show. Health and freshness are apart: a summary carries its own time, and nobody reads as
    *  online, nor any summary as live, while this Mac's socket is not. A teammate who is offline has a cached summary,
-   *  not a live one (PR-Agent r15 on public #7), and so is one whose board was read too long ago (PR-Agent r20). */
+   *  not a live one (PR-Agent r15 on public #7), and so is one whose board was read too long ago (PR-Agent r20) or
+   *  that is dated ahead of this Mac's clock by more than the skew allowed: the clock went back (PR-Agent r22). */
   view() {
     const live = this.link === 'online';
     return {
@@ -152,7 +153,7 @@ export class Team {
       people: [...this.people.values()].map((p) => {
         const s = this.summaries.get(p.id);
         return { id: p.id, name: p.name, role: p.role, perms: p.perms, online: live && this.online.has(p.id),
-          summary: s?.body || null, at: s?.at || null, live: live && !!s && this.online.has(p.id) && this.now() - s.at <= SUMMARY_LIVE_MS };
+          summary: s?.body || null, at: s?.at || null, live: live && !!s && this.online.has(p.id) && this.now() - s.at <= SUMMARY_LIVE_MS && s.at - this.now() <= AUTH_SKEW_MS };
       }),
       pending: [...this.pending.values()],
       invites: [...this.invites.values()].map(({ id, until, by }) => ({ id, until, by })),
@@ -938,14 +939,18 @@ export class Team {
   /** Send each welcome still owed. Returns the members still waiting for one. */
   async sendWelcomes() {
     const me = await this.member();
-    const left = [];
+    const done = new Set();
     for (const m of this.state.welcomes || []) {
       const p = this.people.get(m);
-      if (!p) continue; // removed since: nothing owed
+      if (!p) { done.add(m); continue; } // removed since: nothing owed
       const blob = await sealTo(me, p.dh, { teamKey: this.state.key, teamName: this.state.teamName }, aad.welcome(this.state.team, me.id, m));
-      if ((await this.say({ t: 'send', to: m, blob, ttl: 7 * 86400000 })).t !== 'ok') left.push(m);
+      if ((await this.say({ t: 'send', to: m, blob, ttl: 7 * 86400000 })).t === 'ok') done.add(m);
     }
-    if (left.length !== (this.state.welcomes || []).length) { this.state.welcomes = left; this.save(); }
+    // Read again after the sends: an approval while they waited added a welcome this pass did not send, and it stays
+    // owed (PR-Agent r22 on public #7).
+    const now = this.state.welcomes || [];
+    const left = now.filter((m) => !done.has(m));
+    if (left.length !== now.length) { this.state.welcomes = left; this.save(); }
     return left;
   }
 
