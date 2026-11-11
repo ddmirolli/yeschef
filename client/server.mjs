@@ -3,7 +3,7 @@
 // client, and pushes each change to the page. It stores nothing: the keys live in this process, and every fact
 // comes from T3.
 // Run: BRIGADE_PASS_ORIGIN=<this page's https address> BRIGADE_ALLOW=<allow-list file> node client/server.mjs <t3-origin> [port]
-// The desktop app (desktop/main.mjs) starts it with the T3 origin only: it opens no port and takes actions over its pipe.
+// The desktop app (desktop/main.ts) starts it with the T3 origin only: it opens no port and takes actions over its pipe.
 import { createServer } from 'node:http';
 import { onScale } from './scale.ts';
 import { mkdtempSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
@@ -2590,7 +2590,7 @@ ${BAR_HTML}
     return true;
   }
   // Reload and a project switch never leave the page (council 3). Quit, closing the window and Force Reload wait for
-  // __ycBusy to turn false (desktop/main.mjs): each send keeps its full Undo, goes, and T3 answers before the page goes
+  // __ycBusy to turn false (desktop/main.ts): each send keeps its full Undo, goes, and T3 answers before the page goes
   // (hill climb 2 r1, Sol). Only a page that leaves without asking (a crash, a browser tab) sends what was waiting
   // on its way out, rather than dropping it.
   // Busy while any send waits out its Undo, or one sent less than 10 s ago has no answer yet. The app asks again and
@@ -3439,7 +3439,7 @@ const answered = new Map();
 const audit = (line) => { try { appendFileSync(join(OUT, 'actions.jsonl'), JSON.stringify(line) + '\n', { mode: 0o600 }); } catch { /* the log never blocks an action's result */ } };
 
 // The team (step 3b, client/teamhost.mjs). Its state holds private keys: the desktop app seals it with the Keychain-held
-// key (desktop/main.mjs, team-please and team-save); the web prototype keeps it in memory only.
+// key (desktop/main.ts, team-please and team-save); the web prototype keeps it in memory only.
 let teamMem = null;
 let teamSaves = 0;
 const teamStore = DESKTOP ? {
@@ -3533,7 +3533,7 @@ async function runAct(input, line) {
   return out;
 }
 
-// The desktop app's door (desktop/main.mjs): actions arrive over the IPC pipe that only the app that started
+// The desktop app's door (desktop/main.ts): actions arrive over the IPC pipe that only the app that started
 // this process holds. No other process on this Mac can write to it, so the tailnet checks do not apply here.
 // The HTTP /act route above keeps refusing every local caller.
 if (DESKTOP) {
@@ -3622,11 +3622,11 @@ const web = createServer(async (req, res) => {
   res.writeHead(out.status, out.headers).end(out.body);
 });
 // The desktop app opens no port (Dan, 2026-11-08): its window reads the pages over the IPC pipe instead
-// (desktop/main.mjs, the yeschef:// scheme). The web prototype keeps its local address.
+// (desktop/main.ts, the yeschef:// scheme). The web prototype keeps its local address.
 if (!DESKTOP) web.listen(PORT, '127.0.0.1', () => console.log(`The Pass prototype on http://127.0.0.1:${PORT} (T3: ${ORIGIN})`));
 
 // Stop: end the stream and revoke its key, so no read-only key outlives Yes Chef. The app asks over the pipe before
-// it quits (desktop/main.mjs); Ctrl-C or a kill does the same here. A run that dies without it leaves a key that the
+// it quits (desktop/main.ts); Ctrl-C or a kill does the same here. A run that dies without it leaves a key that the
 // next start revokes (keys.sweep).
 let stopping = null;
 function stopLive() {
@@ -3651,7 +3651,7 @@ keys.sweep().then((n) => { if (n) console.log(`Revoked ${n} read-only stream key
   .catch((ex) => console.log(`Could not look for old stream keys: ${String(ex.message).slice(0, 120)}`))
   .finally(() => { if (!stopping) live.start(); });
 
-// The desktop app keeps a sign-in in the macOS Keychain (desktop/main.mjs) and hands it over this pipe on request.
+// The desktop app keeps a sign-in in the macOS Keychain (desktop/main.ts) and hands it over this pipe on request.
 // The request goes out after the listener is set, so the answer cannot arrive before anything hears it.
 // Two minutes: after an update macOS may ask Dan to let Yes Chef use its Keychain key before main can answer.
 function savedSignIn() {
@@ -3678,7 +3678,7 @@ if (saved) {
 }
 if (auth) console.log(`Signed in. Scope: ${auth.scope} (saved sign-in)`);
 else {
-  // The desktop app (desktop/main.mjs) names itself with its version. The callback takes any free port unless
+  // The desktop app (desktop/main.ts) names itself with its version. The callback takes any free port unless
   // YESCHEF_CALLBACK_PORT names one.
   const name = process.env.YESCHEF_CLIENT_NAME || 'The Pass (web prototype)';
   console.log(`Signing in to T3 Code at ${ORIGIN} as "${name}".`);

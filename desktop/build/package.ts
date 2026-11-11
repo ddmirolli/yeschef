@@ -9,12 +9,12 @@
 //                                (the GitHub runner's dry run) they are signed ad hoc, and the checks only a
 //                                certificate build can pass print as skip.
 //   --version <version>          build that version instead of package.json's: 0.2.0 for Stable, or
-//                                0.2.1-nightly.20261110.1 for Nightly (desktop/channels.mjs). `npm run release` passes it.
+//                                0.2.1-nightly.20261110.1 for Nightly (desktop/channels.ts). `npm run release` passes it.
 //
 // The version picks the channel. A Nightly build is its own app, "Yes Chef (Nightly)", with its own bundle ID, icon
 // (build/icon-nightly.png) and feed file (nightly-mac.yml), so it never shares Stable's data, Keychain item or updates.
 //
-// Every build flips the fuses (build/release.mjs), then signs every helper, framework and the app, inside out, with the
+// Every build flips the fuses (build/release.ts), then signs every helper, framework and the app, inside out, with the
 // hardened runtime and build/entitlements.mac.plist. `app` signs with Developer ID if this Mac has it, else Apple
 // Development, both from team 8J2K26SZNK, so the Keychain keeps trusting Yes Chef; with neither it signs ad hoc and warns.
 // YESCHEF_SIGN_IDENTITY narrows the choice by hash or name.
@@ -28,10 +28,10 @@
 // passes Gatekeeper before it is opened, rewrites the DMG's size and sha512 in latest-mac.yml (stapling changes its
 // bytes), and runs the section 2 checks on the app inside the ZIP and on the DMG.
 //
-// The app is one asar: desktop/ (main.mjs, t3.mjs, preload.cjs, updates.mjs, channels.mjs, keybindings.mjs, the Dock icon), client/
-// without its tests (its .mjs and .ts files, which Electron's Node runs with the types stripped, and pass.css, the board's
-// base stylesheet) and electron-updater with its dependencies, in the repo's own
-// layout, so main.mjs finds the board server at ../client as in the repo. The asar integrity and "only load the app
+// The app is one asar: desktop/ (main.ts, t3.ts, updates.ts, channels.ts, keybindings.ts, preload.cjs built from
+// preload.cts by build/preload.ts, the Dock icon), client/ without its tests (its .mjs and .ts files, and pass.css, the
+// board's base stylesheet) and electron-updater with its dependencies, in the repo's own layout, so main.ts finds the
+// board server at ../client as in the repo. Electron's Node runs every .ts file with its types stripped. The asar integrity and "only load the app
 // from asar" fuses then cover the board server and the updater too. Last, a hidden --capture start of the built app
 // on an empty temporary data folder proves it starts and loads all its code (release plan, section 7, step 4).
 import builder from 'electron-builder';
@@ -40,8 +40,10 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CHANNELS, FEED, channelOf, isReleaseVersion } from '../channels.mjs';
-import { ARCH, FUSES, MIN_MACOS, TEAM_ID, checkApp, checkBuild, checkDmg, checkFeed, pickIdentity, report, rewriteFeed, runningFrom, sha512, targetsFor, teamOf } from './release.mjs';
+import { CHANNELS, FEED, channelOf, isReleaseVersion } from '../channels.ts';
+import { buildPreload } from './preload.ts';
+import { ARCH, FUSES, MIN_MACOS, TEAM_ID, checkApp, checkBuild, checkDmg, checkFeed, pickIdentity, report, rewriteFeed, runningFrom, sha512, targetsFor, teamOf } from './release.ts';
+import type { Expected, Result } from './release.ts';
 
 const { build, Platform, Arch } = builder;
 const DESKTOP = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -53,19 +55,19 @@ const DRY = DIST && process.argv.includes('--dry-run');
 const RELEASE = DIST && !DRY;
 const INSTALL = process.argv.includes('--install');
 const ENTITLEMENTS = join(DESKTOP, 'build', 'entitlements.mac.plist');
-const run = (cmd, args) => execFileSync(cmd, args, { stdio: ['ignore', 'pipe', 'inherit'] });
-const fail = (text) => { console.error(text); process.exit(1); };
+const run = (cmd: string, args: string[]) => execFileSync(cmd, args, { stdio: ['ignore', 'pipe', 'inherit'] });
+const fail: (text: string) => never = (text) => { console.error(text); process.exit(1); };
 
 if (process.platform !== 'darwin' || process.arch !== ARCH) fail('Yes Chef builds on an Apple silicon Mac only.');
-const pkg = JSON.parse(readFileSync(join(DESKTOP, 'package.json'), 'utf8'));
+const pkg: { version: string; description: string; dependencies: Record<string, string> } = JSON.parse(readFileSync(join(DESKTOP, 'package.json'), 'utf8'));
 const at = process.argv.indexOf('--version');
 const VERSION = at < 0 ? pkg.version : String(process.argv[at + 1] || '');
 if (!isReleaseVersion(VERSION)) fail(`Not a version Yes Chef builds: "${VERSION}". Use 1.2.3, or 1.2.4-nightly.20261110.1 for Nightly.`);
 const CHANNEL = channelOf(VERSION);
 const C = CHANNELS[CHANNEL];
 console.log(`Building ${C.name} ${VERSION} (${C.label}).`);
-const expected = { appId: C.appId, name: C.name, version: VERSION, channel: CHANNEL, pkg: C.pkg, feed: FEED, dmg: `Yes-Chef-${VERSION}-${ARCH}.dmg`, zip: `Yes-Chef-${VERSION}-${ARCH}.zip` };
-const electronVersion = JSON.parse(readFileSync(join(DESKTOP, 'node_modules', 'electron', 'package.json'), 'utf8')).version;
+const expected: Expected = { appId: C.appId, name: C.name, version: VERSION, channel: CHANNEL, pkg: C.pkg, feed: FEED, dmg: `Yes-Chef-${VERSION}-${ARCH}.dmg`, zip: `Yes-Chef-${VERSION}-${ARCH}.zip` };
+const electronVersion: string = JSON.parse(readFileSync(join(DESKTOP, 'node_modules', 'electron', 'package.json'), 'utf8')).version;
 
 // The signing identity. A release takes only Developer ID Application from TEAM_ID.
 const found = execFileSync('/usr/bin/security', ['find-identity', '-v', '-p', 'codesigning'], { encoding: 'utf8' });
@@ -92,7 +94,8 @@ run('/usr/bin/iconutil', ['-c', 'icns', set, '-o', icns]);
 
 // What ships, in the repo's layout. No tests (section 3), and nothing else from the repo.
 rmSync(STAGE, { recursive: true, force: true });
-for (const f of ['main.mjs', 't3.mjs', 'preload.cjs', 'updates.mjs', 'channels.mjs', 'keybindings.mjs']) cpSync(join(DESKTOP, f), join(STAGE, 'desktop', f));
+for (const f of ['main.ts', 't3.ts', 'updates.ts', 'channels.ts', 'keybindings.ts']) cpSync(join(DESKTOP, f), join(STAGE, 'desktop', f));
+buildPreload(join(STAGE, 'desktop', 'preload.cjs'));
 cpSync(join(DESKTOP, 'build', C.icon), join(STAGE, 'desktop', 'build', C.icon));
 for (const f of readdirSync(join(REPO, 'client'))) {
   const code = (f.endsWith('.mjs') && !f.endsWith('.test.mjs')) || (f.endsWith('.ts') && !f.endsWith('.test.ts'));
@@ -112,7 +115,7 @@ for (const p of runtime) {
 // The bundle's name, version and feed come from here: electron-builder names the updater's cache after `name`.
 writeFileSync(join(STAGE, 'package.json'), JSON.stringify({
   name: C.pkg, productName: C.name, version: VERSION, description: pkg.description,
-  author: 'Daniel Mirolli', license: 'MIT', type: 'module', main: 'desktop/main.mjs',
+  author: 'Daniel Mirolli', license: 'MIT', type: 'module', main: 'desktop/main.ts',
   dependencies: pkg.dependencies,
 }, null, 2) + '\n');
 
@@ -152,13 +155,13 @@ await build({
     dmg: { sign: true, title: `${C.name} \${version}` },
     // The update feed: GitHub Releases on the public source repo, as T3 Code's (section 6). The app reads it from
     // app-update.yml; its channel names the feed file, latest-mac.yml or nightly-mac.yml. Builds never publish;
-    // the release script does (build/publish.mjs).
+    // the release script does (build/publish.ts).
     publish: [{ ...FEED, channel: CHANNEL, releaseType: CHANNEL === 'nightly' ? 'prerelease' : 'release' }],
   },
 });
 rmSync(work, { recursive: true, force: true });
 
-const appIn = (dir) => join(dir, `${C.name}.app`);
+const appIn = (dir: string) => join(dir, `${C.name}.app`);
 if (!DIST) {
   const bundle = appIn(join(OUT, `mac-${ARCH}`));
   // An ad hoc build has no team and no hardened runtime, so only a certificate build must pass.
@@ -203,9 +206,9 @@ if (DRY) {
 }
 
 // Notarize and staple the DMG.
-const notary = notaryArgs();
+const notary = notaryArgs()!;
 const submit = spawnSync('/usr/bin/xcrun', ['notarytool', 'submit', dmg, ...notary, '--wait', '--output-format', 'json'], { encoding: 'utf8' });
-let result = {};
+let result: { status?: string; message?: string; id?: string } = {};
 try { result = JSON.parse(submit.stdout); } catch { result = {}; }
 if (result.status !== 'Accepted') {
   console.error(`Notarizing the DMG: ${result.status || 'no answer'} ${result.message || submit.stderr || ''}`.trim());
@@ -232,7 +235,7 @@ console.log(`Release files in ${OUT}: ${basename(dmg)}, ${basename(zip)}, ${base
  * before signing in (no-sign-in.png), or finds no T3 Code (no-t3.png); either way the app started and loaded its code.
  * The notarization credentials stay out of its environment.
  */
-function smoke(bundle) {
+function smoke(bundle: string): Result[] {
   const tmp = mkdtempSync(join(tmpdir(), 'yeschef-smoke-'));
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('APPLE_') && !k.startsWith('YESCHEF_')));
   const r = spawnSync(join(bundle, 'Contents', 'MacOS', C.name), ['--capture'],
@@ -254,7 +257,7 @@ function smoke(bundle) {
  * For the password route, save it once with `xcrun notarytool store-credentials yeschef-notary --apple-id <email>
  * --team-id 8J2K26SZNK` (it asks for the password at a hidden prompt), then set APPLE_KEYCHAIN_PROFILE=yeschef-notary.
  */
-function notaryArgs() {
+function notaryArgs(): string[] | null {
   const e = process.env;
   if (e.APPLE_ID || e.APPLE_APP_SPECIFIC_PASSWORD) return null;
   if (e.APPLE_API_KEY || e.APPLE_API_KEY_ID || e.APPLE_API_ISSUER) {

@@ -6,7 +6,7 @@ The Pass in its own window, signed in to the T3 Code on this Mac.
 
 - Yes Chef reads the address from the file T3 Code writes when it starts, `~/.t3/userdata/server-runtime.json`. Without that file it tries `http://127.0.0.1:3773`, T3 Code's default. `YESCHEF_T3_ORIGIN` overrides both.
 - When T3 Code does not answer, the window says "T3 Code is not running on this Mac" and links to t3.codes. Yes Chef looks again every three seconds, so opening T3 Code is enough.
-- Yes Chef 0.1.0 was tested with T3 Code 0.1.7 (`TESTED_T3` in `t3.mjs`). An older T3 Code gets a note, never a refusal.
+- Yes Chef 0.1.0 was tested with T3 Code 0.1.7 (`TESTED_T3` in `t3.ts`). An older T3 Code gets a note, never a refusal.
 - The saved sign-in belongs to one T3 Code address. If T3 Code moves to another port, Yes Chef asks for a new sign-in.
 
 ## Install or update
@@ -24,7 +24,7 @@ Every build is built the way a release is (`docs/desktop-release-plan-v0_1.md`, 
 - The app is one `app.asar`: `desktop/` without its tests and build scripts, and `client/` without its tests (its `pass.css` is the board's base stylesheet).
 - The fuses are flipped before signing: no `ELECTRON_RUN_AS_NODE`, no `NODE_OPTIONS`, no `--inspect`, cookies encrypted, and the app loads only from its asar, which is checked against the hash in `Info.plist`.
 - Every helper, framework and the app are signed inside out with the hardened runtime. The only entitlement is `allow-jit`, for V8 (`build/entitlements.mac.plist`).
-- The build then runs the checks in `build/release.mjs` and stops if one fails.
+- The build then runs the checks in `build/release.ts` and stops if one fails.
 
 The build signs with a Developer ID Application certificate from team 8J2K26SZNK if this Mac has one, else with an Apple Development certificate from that team (`YESCHEF_SIGN_IDENTITY` narrows the choice by hash or name). The Keychain ties Yes Chef's key to that Team ID, so it keeps trusting Yes Chef after an update. A self-signed certificate does not work: it has no Team ID, so macOS asks again after every build. Without a certificate the build signs ad hoc, without the hardened runtime, and warns.
 
@@ -46,7 +46,7 @@ npm run check -- <app or dmg> [--release]
 
 ## Updates
 
-The way T3 Code does them (`docs/desktop-release-plan-v0_1.md`, section 6; `updates.mjs`):
+The way T3 Code does them (`docs/desktop-release-plan-v0_1.md`, section 6; `updates.ts`):
 
 - The first check runs 15 seconds after the app starts, then one every 4 minutes. A check that fails in the background stays quiet and tries again. While an update is offered, downloading or waiting for its restart, the checks wait.
 - Nothing downloads on its own. A card at the bottom right of the window says "Yes Chef 0.2.1 is available": Download, or Later. Yes Chef → Check for Updates… checks at once and says what it found.
@@ -54,7 +54,7 @@ The way T3 Code does them (`docs/desktop-release-plan-v0_1.md`, section 6; `upda
 - The feed is GitHub Releases on `ddmirolli/yeschef` (`app-update.yml` in the app). The check is the only call the app makes to us, and it sends no per-install ID.
 - Squirrel.Mac installs only a bundle signed by the same team with the same bundle ID, so an update can never cross from one channel to the other.
 - It cannot replace a copy on a disk image or a translocated copy. On the first start outside Applications, the card offers to move the app there (`app.moveToApplicationsFolder()`). An answer either way is kept in the data folder (`move-offered`); after that, an update card still offers the move.
-- No port: electron-updater 6.8.9 hands the downloaded ZIP to Squirrel.Mac through an HTTP server on `127.0.0.1`. Yes Chef replaces that one step (`fileHandoff` in `updates.mjs`): it writes a feed file next to the checked ZIP and points Squirrel.Mac at it with a `file://` URL. A test fails if an electron-updater upgrade renames that step; without it, updates turn off rather than open a port.
+- No port: electron-updater 6.8.9 hands the downloaded ZIP to Squirrel.Mac through an HTTP server on `127.0.0.1`. Yes Chef replaces that one step (`fileHandoff` in `updates.ts`): it writes a feed file next to the checked ZIP and points Squirrel.Mac at it with a `file://` URL. A test fails if an electron-updater upgrade renames that step; without it, updates turn off rather than open a port.
 
 ## Stable and Nightly
 
@@ -92,7 +92,7 @@ npm run release -- nightly    # a Nightly from main as it is now
 npm run release -- 0.2.0      # a Stable, from the commit of the newest Nightly
 ```
 
-For a day when Actions cannot run. It runs the same plan, build and publish on Dan's Mac. Dan runs it, from a clean main that matches GitHub, in a new Terminal window opened only for it. Agents never do: `build/release.zsh` refuses to run without a terminal, and so do the build and publish steps of `build/publish.mjs`.
+For a day when Actions cannot run. It runs the same plan, build and publish on Dan's Mac. Dan runs it, from a clean main that matches GitHub, in a new Terminal window opened only for it. Agents never do: `build/release.zsh` refuses to run without a terminal, and so do the build and publish steps of `build/publish.ts`.
 
 1. Checks and the plan, with no key: main, the repo is public, gh is signed in, the Developer ID certificate is here, and the version and commit. Answer y to go on.
 2. One Touch ID approval: 1Password gives the App Store Connect key from the "Yes Chef Release" vault, signed in as Dan. The `.p8` goes to a private temp folder (`mktemp -d`) that is deleted on exit, as `APPLE_API_KEY`, with `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`.
@@ -124,7 +124,8 @@ Answer, Merge, Request changes, Reply, Hold and Settle travel from the board win
 ## Development
 
 - `npm start` runs the app from the repo (closing its Terminal quits it).
-- `npm test` runs the desktop tests: `t3.mjs`; `build/release.mjs` (the certificate choice, the fuses, the feed rewrite, the update settings); `build/publish.mjs` (the release's version, commit, notes and files); and `updates.mjs` with `channels.mjs` (the schedule, the cards and menu, the channels and versions, the file handoff). `feed.test.mjs` runs electron-updater's own GitHub provider, set up as the app sets it up, against a stubbed github.com: Nightly takes only Nightly releases, even when a Stable release is newer, and Stable takes only the release GitHub marks latest. It needs `npm install` first. The client's tests are `node --test client/*.test.mjs` from the repo root; the build leaves every `*.test.mjs` out of the app.
+- The desktop code is strict TypeScript (`tsconfig.json`, on the repo's `tsconfig.base.json`). Electron's Node runs the `.ts` files with the types stripped, as Node 24 does, so the app's own code has no build step. The one exception is the window's preload: a sandboxed preload must be one CommonJS file, so `build/preload.ts` strips the types from `preload.cts` into `preload.cjs` (not tracked). `npm start`, `npm run capture` and every build make it first.
+- `npm run typecheck` checks the types with `@effect/tsgo`, and `npm test` runs the desktop tests with vitest. Both use the workspace's tools, so run `vp install` at the repo root first, and `npm install` here. The tests: `t3.ts`; `build/release.ts` (the certificate choice, the fuses, the feed rewrite, the update settings); `build/publish.ts` (the release's version, commit, notes and files); `updates.ts` with `channels.ts` (the schedule, the cards and menu, the channels and versions, the file handoff); `keybindings.ts`; and the preload. `feed.test.ts` runs electron-updater's own GitHub provider, set up as the app sets it up, against a stubbed github.com: Nightly takes only Nightly releases, even when a Stable release is newer, and Stable takes only the release GitHub marks latest. The client's tests run from the repo root (`AGENTS.md`, "Verify"); the build leaves every test file out of the app.
 - `npm run capture` runs a hidden window, saves `out/board.png`, checks the action path with a ticket that cannot exist, and quits. It never reads or saves a sign-in unless `YESCHEF_USER_DATA` points it at another data folder, and it never starts one: with no saved sign-in it saves `out/no-sign-in.png` and quits. With T3 Code not running, it saves `out/no-t3.png` instead and quits. Updates are off in a capture.
 
 ### The update drill

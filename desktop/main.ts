@@ -1,5 +1,5 @@
 // Yes Chef desktop: The Pass in a window, signed in to the T3 Code that runs on this machine.
-// It finds T3 Code (desktop/t3.mjs), starts the same board server as the web prototype (client/server.mjs) in an
+// It finds T3 Code (desktop/t3.ts), starts the same board server as the web prototype (client/server.mjs) in an
 // Electron utility process, opens T3 Code's own sign-in page in the browser for approval, and shows the board.
 // Dan's 1a (2026-11-07): the sign-in stays across restarts. Main keeps it in userData, encrypted with
 // safeStorage (its key lives in the macOS Keychain), and hands it to the board server over the IPC pipe.
@@ -14,7 +14,7 @@
 //   npm start                 open the app
 //   npm run capture           hidden window; saves out/board.png once the board loads, checks the action
 //                             path with a ticket that cannot exist, then quits
-//   npm run app               build Yes Chef.app (build/package.mjs); `npm run app -- --install` puts it in /Applications
+//   npm run app               build Yes Chef.app (build/package.ts); `npm run app -- --install` puts it in /Applications
 //
 // T3 Code's address comes from the file T3 Code writes when it starts (~/.t3/userdata/server-runtime.json).
 // YESCHEF_T3_ORIGIN overrides it; http://127.0.0.1:3773 is the fallback.
@@ -23,39 +23,56 @@
 // unless it is set, so a test run cannot replace Dan's. Nor does it ever start a sign-in: without a saved one it
 // saves out/no-sign-in.png and quits, so a test never registers a client with T3 Code.
 //
-// Updates (updates.mjs): checked 15 s after start, then every 4 minutes, against GitHub Releases. The user starts the
+// Updates (updates.ts): checked 15 s after start, then every 4 minutes, against GitHub Releases. The user starts the
 // download and the restart from a card in the window or the Yes Chef menu. YESCHEF_UPDATE_FEED points the check at a
 // feed served on 127.0.0.1, to test an update without GitHub; with --capture and YESCHEF_UPDATE_DRILL=restart, quit or
 // quit-now, the hidden window clicks through the update itself (see drill below).
 import { app, BrowserWindow, Menu, autoUpdater as squirrel, dialog, ipcMain, nativeTheme, net, powerMonitor, protocol, safeStorage, shell, utilityProcess } from 'electron';
+import type { IpcMainInvokeEvent, MenuItemConstructorOptions, NativeImage, UtilityProcess } from 'electron';
 import electronUpdater from 'electron-updater';
 import { createInterface } from 'node:readline';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CHANNELS, channelOf } from './channels.mjs';
-import { TESTED_T3, findT3, older, t3Answers } from './t3.mjs';
-import { canUpdateInPlace, createUpdates, feedOverride, menuFor, moveCard, visibleCard } from './updates.mjs';
-import { ensureKeybindings, readKeybindings, syncKeybindings, writeKeybindings } from './keybindings.mjs';
+import { CHANNELS, channelOf } from './channels.ts';
+import { TESTED_T3, findT3, older, t3Answers } from './t3.ts';
+import type { FoundT3 } from './t3.ts';
+import { canUpdateInPlace, createUpdates, feedOverride, menuFor, moveCard, visibleCard } from './updates.ts';
+import type { Card, UpdateState, UpdateStatus, Updates } from './updates.ts';
+import { ensureKeybindings, readKeybindings, syncKeybindings, writeKeybindings } from './keybindings.ts';
+import type { SignedIn } from '../client/t3mcp.ts';
+
+/** The sign-in main keeps: T3 Code's address, the sign-in the board server got, and when it lapses (ms). */
+interface SavedSignIn { origin: string | null; auth: SignedIn; expiresAt: number }
+/** What the board server sends main over its IPC pipe (client/server.mjs). */
+type ServerMessage =
+  | { type: 'auth-please' } | { type: 'team-please' } | { type: 'team-save'; id: unknown; state?: unknown }
+  | { type: 'auth-new'; auth: SignedIn | null } | { type: 'auth-lost' } | { type: 'tick'; data: string }
+  | { type: 'got'; id: number; status: number; headers: Record<string, string>; body: string }
+  | { type: 'acted'; id: number; status: number; text: string } | { type: 'stopped' };
+/** A page the board server sent back for a yeschef://board request. */
+type Got = { status: number; headers: Record<string, string>; body: string };
+/** An action's answer: the HTTP-style status and the text the page shows. */
+type Answer = [number, string];
 
 const STARTED = Date.now();
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CAPTURE = process.argv.includes('--capture');
 // One version, from package.json: the About panel, the menu and the name T3 Code lists under Sharing & access.
-// A Nightly version (0.2.1-nightly.20261110.1) makes this copy "Yes Chef (Nightly)", with its own icon (channels.mjs).
+// A Nightly version (0.2.1-nightly.20261110.1) makes this copy "Yes Chef (Nightly)", with its own icon (channels.ts).
 const VERSION = app.getVersion();
 const CHANNEL = channelOf(VERSION);
 const NAME = CHANNELS[CHANNEL].name;
 const CLIENT_NAME = `${NAME} ${VERSION}`;
 const FEED = feedOverride(process.env.YESCHEF_UPDATE_FEED);
 if (process.env.YESCHEF_UPDATE_FEED && !FEED) console.error('YESCHEF_UPDATE_FEED ignored: it must be http on 127.0.0.1 or localhost.');
-const DRILL = CAPTURE && FEED && ['restart', 'quit', 'quit-now'].includes(process.env.YESCHEF_UPDATE_DRILL) ? process.env.YESCHEF_UPDATE_DRILL : '';
+const DRILL = CAPTURE && FEED && (['restart', 'quit', 'quit-now'] as (string | undefined)[]).includes(process.env.YESCHEF_UPDATE_DRILL) ? process.env.YESCHEF_UPDATE_DRILL : '';
 // T3 Code's address, set once T3 Code answers there (waitForT3). The saved sign-in is tied to it.
-let T3 = null;
+let T3: string | null = null;
 
-let server = null;
+let server: UtilityProcess | null = null;
 let serverUp = false;
-let win = null;
+let win: BrowserWindow | null = null;
 let boardShown = false;
 
 // The product is Yes Chef; The Pass is its main panel. Set before the app is ready so the
@@ -69,20 +86,20 @@ const KEEP = !CAPTURE || !!process.env.YESCHEF_USER_DATA;
 // and localStorage as it had on http://127.0.0.1:8632. It must be registered before the app is ready.
 protocol.registerSchemesAsPrivileged([{ scheme: 'yeschef', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
 const BOARD = 'yeschef://board';
-const isBoard = (url) => { try { const u = new URL(url); return u.protocol === 'yeschef:' && u.host === 'board'; } catch { return false; } };
+const isBoard = (url: string) => { try { const u = new URL(url); return u.protocol === 'yeschef:' && u.host === 'board'; } catch { return false; } };
 
 // The saved sign-in: one file, encrypted with the Keychain-held key, for this T3 Code address only.
 const savedFile = () => join(app.getPath('userData'), 't3-sign-in.bin');
 // Keychain reads and writes in flight. macOS may hold one on a prompt ("Yes Chef wants to use your
 // confidential information") until Dan answers it; quitting then hangs, so quit ends the app at once (see below).
 let keychainBusy = 0;
-async function keychain(work) {
+async function keychain<T>(work: () => Promise<T>): Promise<T> {
   keychainBusy++;
   // After three seconds on a prompt, the window says what macOS is waiting for.
   const hint = setTimeout(() => { if (win && !win.isDestroyed() && !boardShown) win.loadURL(waitingPage('keychain')).catch(() => {}); }, 3000);
   try { return await work(); } finally { clearTimeout(hint); keychainBusy--; }
 }
-async function loadSignIn() {
+async function loadSignIn(): Promise<SignedIn | null> {
   try {
     // No saved file, no Keychain: a first start goes straight to T3 Code's approval page.
     if (!KEEP || !existsSync(savedFile())) return null;
@@ -90,34 +107,34 @@ async function loadSignIn() {
       if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error('no Keychain');
       return safeStorage.decryptStringAsync(readFileSync(savedFile()));
     });
-    const d = JSON.parse(result);
+    const d: SavedSignIn = JSON.parse(result);
     // A minute of margin: a sign-in about to lapse is not handed over.
     if (!(d.origin === T3 && d.auth?.token && d.expiresAt > Date.now() + 60000)) return null;
     if (shouldReEncrypt) await writeSignIn(d);
     return d.auth;
   } catch { return null; }
 }
-async function writeSignIn(d) {
+async function writeSignIn(d: SavedSignIn) {
   mkdirSync(app.getPath('userData'), { recursive: true });
   writeFileSync(savedFile(), await keychain(() => safeStorage.encryptStringAsync(JSON.stringify(d))), { mode: 0o600 });
 }
-async function saveSignIn(auth) {
+async function saveSignIn(auth: SignedIn | null) {
   try {
     if (!KEEP || !auth?.token || !(await keychain(() => safeStorage.isAsyncEncryptionAvailable()))) return;
     await writeSignIn({ origin: T3, auth, expiresAt: Date.now() + Math.max(0, Number(auth.expiresIn) || 0) * 1000 });
-  } catch (e) { console.error('Could not save the sign-in:', e.message); }
+  } catch (e) { console.error('Could not save the sign-in:', (e as Error).message); }
 }
 /** Delete the saved sign-in. Returns the error if the file is still there (force: true covers "already gone"). */
-function forgetSignIn() {
+function forgetSignIn(): NodeJS.ErrnoException | null {
   if (!KEEP) return null;
   try { rmSync(savedFile(), { force: true }); return null; }
-  catch (e) { console.error('Could not delete the saved sign-in:', e.message); return e; }
+  catch (e) { console.error('Could not delete the saved sign-in:', (e as Error).message); return e as NodeJS.ErrnoException; }
 }
 
 // The team (step 3b): its state holds this Mac's team keys, so it is sealed with the same Keychain-held key as the
 // sign-in, written to a new file and renamed, never left half written. A capture without its own data folder keeps none.
 const teamFile = () => join(app.getPath('userData'), 'team.bin');
-async function loadTeam() {
+async function loadTeam(): Promise<{ state: unknown; error?: string }> {
   if (!KEEP || !existsSync(teamFile())) return { state: null };
   try {
     const { result } = await keychain(async () => {
@@ -125,12 +142,12 @@ async function loadTeam() {
       return safeStorage.decryptStringAsync(readFileSync(teamFile()));
     });
     return { state: JSON.parse(result) };
-  } catch (e) { return { state: null, error: String(e.message || e).slice(0, 120) }; }
+  } catch (e) { return { state: null, error: String((e as Error).message || e).slice(0, 120) }; }
 }
-let teamWrites = Promise.resolve();
+let teamWrites: Promise<string | null | undefined> = Promise.resolve(undefined);
 /** Seal and write the team state, one write at a time. Resolves to null when it is on disk, or the reason it is not:
  *  the team client runs a teammate's action only once its id is saved (PR-Agent r3 on public #7). */
-function saveTeam(state) {
+function saveTeam(state: unknown): Promise<string | null | undefined> {
   if (!KEEP) return Promise.resolve(null);
   const done = teamWrites.then(async () => {
     if (!state) { rmSync(teamFile(), { force: true }); return; }
@@ -139,16 +156,16 @@ function saveTeam(state) {
     writeFileSync(tmp, await keychain(() => safeStorage.encryptStringAsync(JSON.stringify(state))), { mode: 0o600 });
     renameSync(tmp, teamFile());
     return null;
-  }).catch((e) => { console.error('Could not save the team:', e.message); return String(e.message || e).slice(0, 120); });
+  }).catch((e: Error) => { console.error('Could not save the team:', e.message); return String(e.message || e).slice(0, 120); });
   teamWrites = done;
   return done;
 }
 
 // Invite links: the site's /join page hands the invite to the app as yeschef://join#<invite>. The invite stays in the
 // fragment and goes only to the board server's Join page. Before the board shows, it waits.
-let joinLink = null;
-const joinPath = (frag) => `${BOARD}/team?join=${encodeURIComponent(frag)}`;
-function openJoin(url) {
+let joinLink: string | null = null;
+const joinPath = (frag: string) => `${BOARD}/team?join=${encodeURIComponent(frag)}`;
+function openJoin(url: string) {
   let frag = '';
   try { const u = new URL(url); if (u.protocol === 'yeschef:' && u.host === 'join') frag = u.hash.slice(1); } catch { frag = ''; }
   if (!frag || frag.length > 4096) return;
@@ -160,10 +177,10 @@ if (!CAPTURE) {
   app.setAsDefaultProtocolClient('yeschef');
 }
 
-function startServer() {
+function startServer(): Promise<'signed-in' | 'no-sign-in'> {
   // An Electron utility process runs the board server with the app's own Node: no separate Node install, and no
   // ELECTRON_RUN_AS_NODE, which the release build turns off (release plan, section 3). Messages go over its port.
-  server = utilityProcess.fork(join(HERE, '..', 'client', 'server.mjs'), [T3], {
+  server = utilityProcess.fork(join(HERE, '..', 'client', 'server.mjs'), [T3!], {
     serviceName: 'Yes Chef board',
     stdio: 'pipe',
     env: { ...process.env, YESCHEF_CLIENT_NAME: CLIENT_NAME, YESCHEF_DESKTOP: '1',
@@ -173,25 +190,26 @@ function startServer() {
       ...(KEEP ? { YESCHEF_RULES_FILE: join(app.getPath('userData'), 'kitchen-rules.json') } : {}) },
   });
   serverUp = true;
-  let noSignIn = null;
-  server.on('message', (m) => {
+  let noSignIn: (() => void) | null = null;
+  server.on('message', (m: ServerMessage | null) => {
     if (!m) return;
     if (m.type === 'auth-please') {
       loadSignIn().then((auth) => {
         // A capture never starts a sign-in: the board server would register a client with T3 Code. It stops here,
         // before its two-minute wait for an answer runs out and it signs in anyway.
         if (!auth && CAPTURE) { noSignIn?.(); stopServer(); return; }
-        if (serverUp) server.postMessage({ type: 'auth', auth });
+        if (serverUp) server!.postMessage({ type: 'auth', auth });
       });
       return;
     }
-    if (m.type === 'team-please') { loadTeam().then((t) => { if (serverUp) server.postMessage({ type: 'team', ...t }); }); return; }
-    if (m.type === 'team-save') { saveTeam(m.state || null).then((error) => { if (serverUp) server.postMessage({ type: 'team-saved', id: m.id, error }); }); return; }
+    if (m.type === 'team-please') { loadTeam().then((t) => { if (serverUp) server!.postMessage({ type: 'team', ...t }); }); return; }
+    if (m.type === 'team-save') { saveTeam(m.state || null).then((error) => { if (serverUp) server!.postMessage({ type: 'team-saved', id: m.id, error }); }); return; }
     if (m.type === 'auth-new') { saveSignIn(m.auth); return; }
     if (m.type === 'auth-lost') { forgetSignIn(); return; }
     if (m.type === 'tick') { tick(m.data); return; }
     if (m.type === 'got') { const got = pages.get(m.id); if (got) { pages.delete(m.id); got(m); } return; }
-    const done = m.type === 'acted' && pending.get(m.id);
+    if (m.type !== 'acted') return;
+    const done = pending.get(m.id);
     if (done) { pending.delete(m.id); done([m.status, m.text]); }
   });
   server.on('exit', () => {
@@ -205,23 +223,23 @@ function startServer() {
     streams.clear();
   });
   // Resolves 'signed-in', or 'no-sign-in' for a capture with no saved sign-in.
-  return new Promise((resolve, reject) => {
+  return new Promise<'signed-in' | 'no-sign-in'>((resolve, reject) => {
     let opened = false;
     noSignIn = () => resolve('no-sign-in');
     // Whole lines only: a sign-in link split across two chunks must never open half a URL.
-    createInterface({ input: server.stdout }).on('line', (text) => {
+    createInterface({ input: server!.stdout! }).on('line', (text) => {
       console.log(text);
       const link = /Sign in to T3: (\S+)/.exec(text);
-      if (link && !opened) { opened = true; if (!CAPTURE) { openOutside(link[1]); win?.loadURL(waitingPage(true)).catch(() => {}); } }
+      if (link && !opened) { opened = true; if (!CAPTURE) { openOutside(link[1]!); win?.loadURL(waitingPage(true)).catch(() => {}); } }
       if (/^Signed in\./.test(text)) resolve('signed-in');
     });
-    server.stderr.on('data', (c) => process.stderr.write(c));
-    server.on('exit', (code) => reject(new Error(`board server exited (${code})`)));
+    server!.stderr!.on('data', (c: Buffer) => process.stderr.write(c));
+    server!.on('exit', (code) => reject(new Error(`board server exited (${code})`)));
   });
 }
 
 /** Only web links leave the app, and only to the browser: no other URL scheme reaches the system. */
-function openOutside(url) {
+function openOutside(url: string) {
   try {
     const u = new URL(url);
     if (u.protocol === 'http:' || u.protocol === 'https:') shell.openExternal(u.toString());
@@ -230,34 +248,34 @@ function openOutside(url) {
 
 // The pages: yeschef://board/<path> -> the board server over its IPC pipe -> the page. Only GET; actions go below.
 // The event stream (/events) lives here in main: each poll's tick comes over the pipe and goes to every open stream.
-const pages = new Map();
-const streams = new Set();
+const pages = new Map<number, (m: Got) => void>();
+const streams = new Set<ReadableStreamDefaultController<Uint8Array>>();
 const enc = new TextEncoder();
 let nextPage = 0;
 let ticks = 0;
-function tick(data) {
+function tick(data: string) {
   ticks++;
   for (const c of streams) { try { c.enqueue(enc.encode(`event: tick\ndata: ${data}\n\n`)); } catch { streams.delete(c); } }
 }
-function boardPage(req) {
+function boardPage(req: Request): Response | Promise<Response> {
   const u = new URL(req.url);
   if (u.host !== 'board' || req.method !== 'GET') return new Response('', { status: 404 });
   // An empty page at the board's address, for moving the old settings in before the board loads.
   if (u.pathname === '/blank') return new Response('<!doctype html><meta name="color-scheme" content="dark light"><body style="background:#0a0b0d">', { headers: { 'content-type': 'text/html; charset=utf-8' } });
   if (!serverUp) return new Response('The board server is not running. Quit and start Yes Chef again.', { status: 503 });
   if (u.pathname === '/events') {
-    let ctl;
-    const body = new ReadableStream({
+    let ctl: ReadableStreamDefaultController<Uint8Array>;
+    const body = new ReadableStream<Uint8Array>({
       start(c) { ctl = c; streams.add(c); c.enqueue(enc.encode('retry: 3000\n\n')); },
-      cancel() { streams.delete(ctl); },
+      cancel() { streams.delete(ctl!); },
     });
     return new Response(body, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store' } });
   }
   const id = ++nextPage;
-  return new Promise((resolve) => {
+  return new Promise<Response>((resolve) => {
     const timer = setTimeout(() => { if (pages.delete(id)) resolve(new Response('', { status: 504 })); }, 30000);
     pages.set(id, (m) => { clearTimeout(timer); resolve(new Response(m.body ? Buffer.from(m.body, 'base64') : null, { status: m.status, headers: m.headers })); });
-    server.postMessage({ type: 'get', id, path: u.pathname + u.search });
+    server!.postMessage({ type: 'get', id, path: u.pathname + u.search });
   });
 }
 
@@ -266,7 +284,7 @@ function boardPage(req) {
 // moment it takes, in a hidden window, so no port opens. A marker file keeps it to one run.
 const OLD_BOARD = 'http://127.0.0.1:8632';
 const movedFile = () => join(app.getPath('userData'), 'settings-moved');
-async function readOldSettings() {
+async function readOldSettings(): Promise<[string, string][] | null> {
   if (!KEEP || existsSync(movedFile())) return null;
   const w = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false } });
   protocol.handle('http', (req) => (new URL(req.url).origin === OLD_BOARD
@@ -276,31 +294,31 @@ async function readOldSettings() {
     await w.loadURL(`${OLD_BOARD}/`);
     const json = await w.webContents.executeJavaScript(
       'JSON.stringify(Object.keys(localStorage).filter(function(k){ return k.indexOf("yc.") === 0; }).map(function(k){ return [k, localStorage.getItem(k)]; }))');
-    const list = JSON.parse(json);
-    return Array.isArray(list) ? list.filter((e) => Array.isArray(e) && typeof e[0] === 'string' && typeof e[1] === 'string') : [];
-  } catch (e) { console.error('Could not read the old board settings; trying again next start:', e.message); return null; }
+    const list: unknown = JSON.parse(json);
+    return Array.isArray(list) ? list.filter((e): e is [string, string] => Array.isArray(e) && typeof e[0] === 'string' && typeof e[1] === 'string') : [];
+  } catch (e) { console.error('Could not read the old board settings; trying again next start:', (e as Error).message); return null; }
   finally { protocol.unhandle('http'); if (!w.isDestroyed()) w.destroy(); }
 }
 // Written into the new address before the board first loads there, so the board starts with them.
-async function moveOldSettings(list) {
+async function moveOldSettings(list: [string, string][] | null) {
   if (!KEEP || !list || existsSync(movedFile())) return;
   try {
     if (list.length) {
-      await win.loadURL(`${BOARD}/blank`);
+      await win!.loadURL(`${BOARD}/blank`);
       // Settings already saved at the new address win: they are newer.
-      const n = await win.webContents.executeJavaScript(`(function(l){ var n = 0; l.forEach(function(e){ if (localStorage.getItem(e[0]) === null) { localStorage.setItem(e[0], e[1]); n++; } }); return n; })(${JSON.stringify(list)})`);
+      const n = await win!.webContents.executeJavaScript(`(function(l){ var n = 0; l.forEach(function(e){ if (localStorage.getItem(e[0]) === null) { localStorage.setItem(e[0], e[1]); n++; } }); return n; })(${JSON.stringify(list)})`);
       console.log(`Moved ${n} board settings to the new address.`);
     }
     mkdirSync(app.getPath('userData'), { recursive: true });
     writeFileSync(movedFile(), new Date().toISOString() + '\n');
-  } catch (e) { console.error('Could not move the old board settings:', e.message); }
+  } catch (e) { console.error('Could not move the old board settings:', (e as Error).message); }
 }
 
 // Actions: the board window -> preload bridge -> here -> the board server over its IPC pipe.
 // Only the board page in this app's own window may act; any other sender is refused.
-const pending = new Map();
+const pending = new Map<number, (r: Answer) => void>();
 let nextId = 0;
-ipcMain.handle('yeschef:act', (event, body) => {
+ipcMain.handle('yeschef:act', (event, body: unknown): Answer | Promise<Answer> => {
   const frame = event.senderFrame;
   let fromBoard = false;
   try { fromBoard = !!win && event.sender === win.webContents && !!frame && frame.parent === null && isBoard(frame.url); } catch { fromBoard = false; }
@@ -308,35 +326,35 @@ ipcMain.handle('yeschef:act', (event, body) => {
   if (typeof body !== 'string') return [400, 'The Pass could not read that request.'];
   if (!serverUp) return [503, 'The board server is not running. Quit and start Yes Chef again.'];
   const id = ++nextId;
-  return new Promise((resolve) => {
+  return new Promise<Answer>((resolve) => {
     // T3 Code may still take a slow send: after a minute the answer is "not confirmed", never "failed".
     const timer = setTimeout(() => { if (pending.delete(id)) resolve([504, 'Not confirmed: no answer within a minute. Check the thread in T3 Code before you send again.']); }, 60000);
     pending.set(id, (r) => { clearTimeout(timer); resolve(r); });
-    server.postMessage({ type: 'act', id, body });
+    server!.postMessage({ type: 'act', id, body });
   });
 });
 
-// Updates and the app's own card (updates.mjs draws the words, preload.cjs the card). The card shows over whatever page
+// Updates and the app's own card (updates.ts draws the words, preload.cts the card). The card shows over whatever page
 // the window shows: an update, or the one-time offer to move to Applications.
 // IN_PLACE: Squirrel.Mac can replace this copy where it runs (not on a disk image, not a translocated copy).
 const IN_PLACE = canUpdateInPlace(process.execPath);
 // electron-updater's autoUpdater, made only where it runs: a built app, outside a capture unless it is the drill.
 const updater = app.isPackaged && (!CAPTURE || DRILL) ? electronUpdater.autoUpdater : null;
-let updates = null;
+let updates: Updates | null = null;
 let offerMove = false;
-const updateWatchers = new Set();
-function currentCard() {
+const updateWatchers = new Set<(state: UpdateState) => void>();
+function currentCard(): Card | null {
   if (offerMove) return moveCard(NAME);
   return updates ? visibleCard(updates.state, { name: NAME, current: VERSION, inPlace: IN_PLACE }) : null;
 }
 function showCard() { if (win && !win.isDestroyed()) win.webContents.send('yeschef:card', currentCard()); }
-function updateChanged(state) {
+function updateChanged(state: UpdateState) {
   showCard();
   buildMenu();
   for (const watch of [...updateWatchers]) watch(state);
 }
 // Only the main frame of this app's own window, on the board or a waiting page, reads the card or clicks it.
-function fromWindow(event) {
+function fromWindow(event: IpcMainInvokeEvent) {
   try {
     const frame = event.senderFrame;
     return !!win && event.sender === win.webContents && !!frame && frame.parent === null && (isBoard(frame.url) || frame.url.startsWith('data:text/html'));
@@ -344,29 +362,29 @@ function fromWindow(event) {
 }
 // Appearance: the board's choice (Settings, the action bar, Option-Shift-Cmd-A), so the title bar, menus and the card
 // follow it too. Only the board page in this window sets it, and only to one of the three; anything else is Match system.
-ipcMain.handle('yeschef:theme', (event, t) => {
+ipcMain.handle('yeschef:theme', (event, t: unknown) => {
   let fromBoard = false;
   try { const frame = event.senderFrame; fromBoard = !!win && event.sender === win.webContents && !!frame && frame.parent === null && isBoard(frame.url); } catch { fromBoard = false; }
   if (!fromBoard) return false;
   nativeTheme.themeSource = t === 'light' || t === 'dark' ? t : 'system';
   return true;
 });
-// Settings → Shortcuts (desktop/keybindings.mjs): the board reads and writes keybindings.json in the data folder, and
+// Settings → Shortcuts (desktop/keybindings.ts): the board reads and writes keybindings.json in the data folder, and
 // asks to open it. Only the board page in this window, as for Appearance. A capture run without its own data folder
 // keeps the file in a temp folder, so a test never changes Dan's, as for the rules.
-let keysDir = null;
+let keysDir: string | null = null;
 function keysFile() {
   if (KEEP) return join(app.getPath('userData'), 'keybindings.json');
   keysDir ??= mkdtempSync(join(app.getPath('temp'), 'yeschef-keys-'));
   return join(keysDir, 'keybindings.json');
 }
-ipcMain.handle('yeschef:keys', async (event, req) => {
+ipcMain.handle('yeschef:keys', async (event, req: unknown) => {
   let fromBoard = false;
   try { const frame = event.senderFrame; fromBoard = !!win && event.sender === win.webContents && !!frame && frame.parent === null && isBoard(frame.url); } catch { fromBoard = false; }
   if (!fromBoard) return { error: 'Shortcuts are saved only from the Yes Chef board window.' };
-  const ask = req && typeof req === 'object' ? req.op : null;
+  const ask = req && typeof req === 'object' ? (req as { op?: unknown }).op : null;
   if (ask === 'read') return readKeybindings(keysFile());
-  if (ask === 'write') return writeKeybindings(keysFile(), req.list);
+  if (ask === 'write') return writeKeybindings(keysFile(), (req as { list?: unknown }).list);
   if (ask === 'open') {
     const made = ensureKeybindings(keysFile());
     if (made.error) return made;
@@ -376,7 +394,8 @@ ipcMain.handle('yeschef:keys', async (event, req) => {
   return { error: 'Yes Chef does not know that request.' };
 });
 // null asks for the card showing now; { card, button } is a click, which counts only on a button of that card.
-ipcMain.handle('yeschef:card', (event, click) => {
+ipcMain.handle('yeschef:card', (event, sent: unknown) => {
+  const click = sent as { card?: unknown; button?: unknown } | null | undefined;
   if (!fromWindow(event)) return null;
   const card = currentCard();
   if (click == null) return card;
@@ -389,7 +408,7 @@ ipcMain.handle('yeschef:card', (event, click) => {
     showCard();
     if (click.button === 'move' && !moveToApplications()) { offerMove = true; showCard(); }
   } else if (click.button === 'move') moveToApplications();
-  else updates?.act(click.button);
+  else updates?.act(click.button as string);
   return null;
 });
 
@@ -398,28 +417,28 @@ ipcMain.handle('yeschef:card', (event, click) => {
 const moveFile = () => join(app.getPath('userData'), 'move-offered');
 function markMoveOffered() {
   try { mkdirSync(app.getPath('userData'), { recursive: true }); writeFileSync(moveFile(), new Date().toISOString() + '\n'); }
-  catch (e) { console.error('Could not save the answer to the move offer:', e.message); }
+  catch (e) { console.error('Could not save the answer to the move offer:', (e as Error).message); }
 }
 /** Move this copy into /Applications. On success Electron quits it and opens the moved copy; false if it did not move. */
-function moveToApplications() {
+function moveToApplications(): boolean {
   try {
     return app.moveToApplicationsFolder({
       conflictHandler: (kind) => {
         // Electron's default would bring the running copy forward and quit this one, newer or not.
         if (kind === 'existsAndRunning') {
-          dialog.showMessageBoxSync(win, { type: 'info', message: `${NAME} is open from Applications`, detail: `Quit it, then choose Move again.` });
+          dialog.showMessageBoxSync(win!, { type: 'info', message: `${NAME} is open from Applications`, detail: `Quit it, then choose Move again.` });
           return false;
         }
-        return dialog.showMessageBoxSync(win, { type: 'question', message: `Replace the ${NAME} in Applications?`,
+        return dialog.showMessageBoxSync(win!, { type: 'question', message: `Replace the ${NAME} in Applications?`,
           detail: `The copy in Applications goes to the Trash and this one, ${VERSION}, takes its place.`, buttons: ['Replace', 'Cancel'], defaultId: 0, cancelId: 1 }) === 0;
       },
     });
-  } catch (e) { dialog.showErrorBox(`${NAME} could not move to Applications`, e.message); return false; }
+  } catch (e) { dialog.showErrorBox(`${NAME} could not move to Applications`, (e as Error).message); return false; }
 }
-function updateItems() {
-  const state = updates ? updates.state : { status: 'off', message: CAPTURE ? 'Updates are off in a capture.' : 'Updates work only in a built Yes Chef.' };
+function updateItems(): MenuItemConstructorOptions[] {
+  const state: UpdateState = updates ? updates.state : { status: 'off', message: CAPTURE ? 'Updates are off in a capture.' : 'Updates work only in a built Yes Chef.' };
   return menuFor(state, { name: NAME, inPlace: IN_PLACE })
-    .map(({ id, ...item }) => (id ? { ...item, click: () => (id === 'move' ? moveToApplications() : updates?.act(id)) } : item));
+    .map(({ id, ...item }) => (id ? { ...item, click: () => (id === 'move' ? moveToApplications() : updates?.act(id)) } : item) as MenuItemConstructorOptions);
 }
 
 // The standard Mac menus, plus Sign Out of T3 Code: it deletes the saved sign-in and quits, so the
@@ -444,8 +463,8 @@ function buildMenu() {
     // Reload refreshes the board in place, so a send waiting out its Undo and a half-written note stay (council 3).
     // Force Reload reloads the page once every waiting send has had its full Undo and gone (hill climb 2 r1).
     { label: 'View', submenu: [
-      { label: 'Reload', accelerator: 'CmdOrCtrl+R', click: (item, win) => { if (win) win.webContents.executeJavaScript('window.__ycSoftReload ? window.__ycSoftReload() : location.reload()').catch(() => {}); } },
-      { label: 'Force Reload', accelerator: 'Shift+CmdOrCtrl+R', click: (item, win) => { if (win) drain(win).then(() => { if (!win.isDestroyed()) win.webContents.reloadIgnoringCache(); }); } },
+      { label: 'Reload', accelerator: 'CmdOrCtrl+R', click: (_item, win) => { if (win) (win as BrowserWindow).webContents.executeJavaScript('window.__ycSoftReload ? window.__ycSoftReload() : location.reload()').catch(() => {}); } },
+      { label: 'Force Reload', accelerator: 'Shift+CmdOrCtrl+R', click: (_item, win) => { if (win) drain(win as BrowserWindow).then(() => { if (!win.isDestroyed()) (win as BrowserWindow).webContents.reloadIgnoringCache(); }); } },
       { role: 'toggleDevTools' }, { type: 'separator' },
       { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { type: 'separator' }, { role: 'togglefullscreen' },
     ] },
@@ -453,17 +472,17 @@ function buildMenu() {
   ]));
 }
 
-function stopServer() { if (serverUp) server.kill(); }
+function stopServer() { if (serverUp) server!.kill(); }
 // The board server revokes its read-only stream key before it goes (client/server.mjs, stopLive). Quit waits for that,
 // up to 3 s; a key it could not revoke is revoked at the next start.
 function stopStream() {
   if (!serverUp) return Promise.resolve();
-  return new Promise((resolve) => {
-    const done = () => { clearTimeout(timer); server.off('message', hear); resolve(); };
+  return new Promise<void>((resolve) => {
+    const done = () => { clearTimeout(timer); server!.off('message', hear); resolve(); };
     const timer = setTimeout(done, 3000);
-    function hear(m) { if (m && m.type === 'stopped') done(); }
-    server.on('message', hear);
-    server.postMessage({ type: 'stop' });
+    function hear(m: ServerMessage | null) { if (m && m.type === 'stopped') done(); }
+    server!.on('message', hear);
+    server!.postMessage({ type: 'stop' });
   });
 }
 
@@ -471,12 +490,12 @@ function stopStream() {
 // while the page sends it (or you undo it) and T3 answers, then goes on (hill climb 2 r1, Sol). It asks the page every
 // 150 ms, so a send queued meanwhile also gets its full Undo; there is no overall limit (r2, Astra). A page that does
 // not answer within 2 s is hung and never holds the app open.
-async function drain(w) {
+async function drain(w: BrowserWindow | null) {
   for (;;) {
     if (!w || w.isDestroyed()) return;
     const busy = await Promise.race([
       w.webContents.executeJavaScript('window.__ycBusy ? window.__ycBusy() : false').catch(() => false),
-      new Promise((r) => setTimeout(() => r(false), 2000)),
+      new Promise<boolean>((r) => setTimeout(() => r(false), 2000)),
     ]);
     if (!busy) return;
     await new Promise((r) => setTimeout(r, 150));
@@ -486,8 +505,8 @@ let drained = false;
 
 /** The window before the board: "Connecting" while a saved sign-in is checked, the approval note when T3 Code asks,
  *  and what to do when T3 Code is not running. */
-function waitingPage(approve, where = '') {
-  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+function waitingPage(approve: boolean | 'no-t3' | 'keychain', where = ''): string {
+  const esc = (t: unknown) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as Record<string, string>)[c]!);
   const body = approve === 'no-t3'
     ? '<p style="color:#f2f3f5">T3 Code is not running on this Mac.</p>' +
       '<p>Yes Chef shows the threads of the T3 Code on this Mac. Open T3 Code and Yes Chef connects on its own.</p>' +
@@ -508,7 +527,7 @@ function waitingPage(approve, where = '') {
 // T3 Code must answer before the board server starts: without it the server stops at sign-in and the app with it.
 // Until it answers, the window says so, and the app looks again every three seconds, so starting T3 Code is enough.
 // T3 Code may come back on another port, so its own file is read again each time.
-async function waitForT3() {
+async function waitForT3(): Promise<FoundT3 | null> {
   for (let told = false; ;) {
     const found = findT3();
     if (await t3Answers(found.origin)) return found;
@@ -525,17 +544,17 @@ async function waitForT3() {
 }
 
 // Capture mode saves what the hidden window shows.
-async function capture(name) {
+async function capture(name: string) {
   await new Promise((r) => setTimeout(r, 500));
   // On GitHub's macOS runners, which have no GPU, capturePage sometimes rejects with UnknownVizError while the page
   // itself is fine (2 of 4 pull request dry runs, 2026-11-10). It is tried three times; each failure is logged.
-  let image;
+  let image: NativeImage | undefined;
   for (let tries = 1; !image; tries++) {
     try {
-      image = await win.webContents.capturePage();
+      image = await win!.webContents.capturePage();
     } catch (e) {
       if (tries === 3) throw e;
-      console.log(`capturePage failed (${e.message}); trying again.`);
+      console.log(`capturePage failed (${(e as Error).message}); trying again.`);
       await new Promise((r) => setTimeout(r, 1000));
     }
   }
@@ -547,7 +566,7 @@ async function capture(name) {
 
 async function main() {
   await app.whenReady();
-  // T3 Code's start-up sync for keybindings.json (desktop/keybindings.mjs): every default into a new file, and the
+  // T3 Code's start-up sync for keybindings.json (desktop/keybindings.ts): every default into a new file, and the
   // defaults of a command the file does not name.
   const keys = syncKeybindings(keysFile());
   if (keys.error) console.error(keys.error);
@@ -562,7 +581,7 @@ async function main() {
   win.on('close', (event) => {
     if (drained) return;
     event.preventDefault();
-    drain(win).then(() => { drained = true; if (!win.isDestroyed()) win.close(); });
+    drain(win).then(() => { drained = true; if (!win!.isDestroyed()) win!.close(); });
   });
   // The page asks before a browser tab leaves mid-Undo; here the drain above has already run, so leaving goes ahead.
   win.webContents.on('will-prevent-unload', (event) => event.preventDefault());
@@ -574,7 +593,7 @@ async function main() {
   });
   // Updates: off in a capture, unless it is the update drill. The first check runs 15 s after start, T3 Code or not.
   if (!CAPTURE || DRILL) {
-    updates = createUpdates({ updater, squirrel, app, version: VERSION, feed: FEED, inPlace: IN_PLACE, onChange: updateChanged });
+    updates = createUpdates({ updater: updater!, squirrel, app, version: VERSION, feed: FEED, inPlace: IN_PLACE, onChange: updateChanged });
     buildMenu();
   }
   offerMove = app.isPackaged && !CAPTURE && !app.isInApplicationsFolder() && !existsSync(moveFile());
@@ -627,9 +646,9 @@ async function main() {
 // must wait for Squirrel.Mac (whenStaged). Each way, once the app has quit, the new version stands where this copy was.
 async function drill() {
   const since = () => `${((Date.now() - STARTED) / 1000).toFixed(1)} s after start`;
-  const menu = () => JSON.stringify(Menu.getApplicationMenu().items[0].submenu.items.filter((i) => i.label).map((i) => (i.enabled ? i.label : `(${i.label})`)));
-  const until = (status, ms) => new Promise((resolve, reject) => {
-    const watch = (s) => {
+  const menu = () => JSON.stringify(Menu.getApplicationMenu()!.items[0]!.submenu!.items.filter((i) => i.label).map((i) => (i.enabled ? i.label : `(${i.label})`)));
+  const until = (status: UpdateStatus, ms: number) => new Promise<UpdateState>((resolve, reject) => {
+    const watch = (s: UpdateState) => {
       const done = s.status === status;
       if (!done && s.status !== 'error' && s.status !== 'off') return;
       clearTimeout(timer);
@@ -638,9 +657,9 @@ async function drill() {
     };
     const timer = setTimeout(() => { updateWatchers.delete(watch); reject(new Error(`no "${status}" within ${ms / 1000} s`)); }, ms);
     updateWatchers.add(watch);
-    watch(updates.state);
+    watch(updates!.state);
   });
-  const press = (button) => win.webContents.executeJavaScript(`(function () {
+  const press = (button: string) => win!.webContents.executeJavaScript(`(function () {
     var host = document.querySelector('yeschef-card');
     var b = host && host.shadowRoot && host.shadowRoot.querySelector('[data-button=${JSON.stringify(button)}]');
     if (!b) return false;
@@ -656,7 +675,7 @@ async function drill() {
     console.log(`Drill: ${ready.version} downloaded and checked ${since()}. Menu: ${menu()}`);
     await capture('update-ready.png');
     if (DRILL === 'restart') {
-      updater.autoRunAppAfterInstall = false;
+      updater!.autoRunAppAfterInstall = false;
       if (!(await press('restart'))) throw new Error('no Restart button on the card');
       console.log('Drill: Restart clicked. Squirrel.Mac installs as the app quits.');
     } else if (DRILL === 'quit-now') {
@@ -665,22 +684,22 @@ async function drill() {
       squirrel.once('update-downloaded', () => console.log(`Drill: Squirrel.Mac has the update ${since()}; the quit waited for it.`));
       app.quit();
     } else {
-      const taken = new Promise((resolve) => squirrel.once('update-downloaded', resolve));
+      const taken = new Promise<void>((resolve) => squirrel.once('update-downloaded', () => resolve()));
       if (!(await press('on-quit'))) throw new Error('no When I Quit button on the card');
-      await Promise.race([taken, new Promise((resolve, reject) => setTimeout(() => reject(new Error('Squirrel.Mac did not take the update within 60 s')), 60000))]);
+      await Promise.race([taken, new Promise<void>((_resolve, reject) => setTimeout(() => reject(new Error('Squirrel.Mac did not take the update within 60 s')), 60000))]);
       console.log(`Drill: When I Quit clicked; Squirrel.Mac has the update ${since()}. Menu: ${menu()}`);
       await capture('update-on-quit.png');
       app.quit();
     }
     // An install that never quits the app fails the drill.
     setTimeout(() => { console.error('Drill failed: the app did not quit within 60 s.'); stopServer(); app.exit(1); }, 60000);
-  } catch (e) { console.error(`Drill failed: ${e.message}`); stopServer(); app.exit(1); }
+  } catch (e) { console.error(`Drill failed: ${(e as Error).message}`); stopServer(); app.exit(1); }
 }
 
 app.on('window-all-closed', () => app.quit());
 // After sleep or a screen unlock the live stream checks its socket at once (T3 Code's probe on wake).
 app.whenReady().then(() => {
-  for (const ev of ['resume', 'unlock-screen']) powerMonitor.on(ev, () => { if (serverUp) server.postMessage({ type: 'wake' }); });
+  for (const ev of ['resume', 'unlock-screen'] as const) powerMonitor.on(ev as 'resume', () => { if (serverUp) server!.postMessage({ type: 'wake' }); });
 });
 app.on('before-quit', (event) => {
   if (drained) return;

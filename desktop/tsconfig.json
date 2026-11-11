@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": ["node"]
+  },
+  // The desktop app, its build scripts and their tests. Electron's types come from desktop/node_modules (npm ci).
+  "include": ["*.ts", "*.cts", "build/*.ts"],
+  "exclude": ["node_modules", "out"]
+}

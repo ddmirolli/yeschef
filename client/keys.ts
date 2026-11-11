@@ -6,7 +6,7 @@
 // The list follows T3 Code's rules too. A command the list names has only the list's keys; one it does not name keeps
 // its defaults. The defaults come first and the list after them, and of the rules for a key whose whens hold, the last
 // runs. A key Settings records goes at the end. The Mac app writes every default into a new file and adds those of a
-// new command at start, as T3 Code does (desktop/keybindings.mjs). An entry Yes Chef cannot use, or for a command it
+// new command at start, as T3 Code does (desktop/keybindings.ts). An entry Yes Chef cannot use, or for a command it
 // does not have, stays where it is and does nothing.
 // keysCore is inlined into the page script by its source text (client/server.mjs), so it is ES5 once Node strips its
 // types, holds only types Node can strip, and holds no closing script tag. Its types live out here.

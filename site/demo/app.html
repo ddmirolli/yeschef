@@ -3080,7 +3080,7 @@ button.sf:hover .s{text-decoration:underline}
     return true;
   }
   // Reload and a project switch never leave the page (council 3). Quit, closing the window and Force Reload wait for
-  // __ycBusy to turn false (desktop/main.mjs): each send keeps its full Undo, goes, and T3 answers before the page goes
+  // __ycBusy to turn false (desktop/main.ts): each send keeps its full Undo, goes, and T3 answers before the page goes
   // (hill climb 2 r1, Sol). Only a page that leaves without asking (a crash, a browser tab) sends what was waiting
   // on its way out, rather than dropping it.
   // Busy while any send waits out its Undo, or one sent less than 10 s ago has no answer yet. The app asks again and

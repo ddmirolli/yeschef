@@ -8,14 +8,14 @@
 # key is deleted (his rule, 2026-11-09: the Touch ID approval serves only this release, and nothing in ReviewWheel
 # can use it). Agents never run it: it refuses to run without a terminal.
 #
-# 1. Checks and the plan, with no key (build/publish.mjs plan): main is clean and pushed, the repo is public, the
+# 1. Checks and the plan, with no key (build/publish.ts plan): main is clean and pushed, the repo is public, the
 #    Developer ID certificate is here, and the version and commit to build. Dan says yes before Touch ID.
 # 2. One Touch ID approval: the App Store Connect key from the "Yes Chef Release" vault, written to a private temp
 #    folder (mktemp -d) and deleted on exit. Nothing prints a secret.
-# 3. The build (publish.mjs build): a clean copy of the commit, npm ci, then build/package.mjs --dist, which notarizes
+# 3. The build (publish.ts build): a clean copy of the commit, npm ci, then its npm run dist, which notarizes
 #    and staples the app and the DMG, rewrites the feed and runs the checks and a hidden start.
 # 4. The key is deleted. Lock 1Password then: publishing needs no key.
-# 5. The release (publish.mjs publish): a draft, every file attached and checked, then published, then the feed read
+# 5. The release (publish.ts publish): a draft, every file attached and checked, then published, then the feed read
 #    back the way the app reads it.
 #
 # macOS 27: Terminal first needs System Settings, Privacy & Security, Files & Folders, Terminal, "Data shared by
@@ -47,7 +47,7 @@ KEYDIR=$(mktemp -d)
 trap 'rm -rf "$KEYDIR"' EXIT
 cd "$DESKTOP"
 
-node build/publish.mjs plan "$1" "$RUN/plan.json"
+node build/publish.ts plan "$1" "$RUN/plan.json"
 if ! read -q "?Build, notarize and publish it? Touch ID comes next. [y/N] "; then
   print "\nStopped. Nothing was built or published."
   exit 1
@@ -86,12 +86,12 @@ export APPLE_API_KEY="$KEYDIR/AuthKey.p8" APPLE_API_KEY_ID="$key_id" APPLE_API_I
 unset key_id issuer
 
 print "Key read. Building and notarizing the app and the DMG. Apple usually answers in minutes, sometimes longer."
-node build/publish.mjs build "$RUN/plan.json" 2>&1 | tee "$RUN/build.log"
+node build/publish.ts build "$RUN/plan.json" 2>&1 | tee "$RUN/build.log"
 
 unset APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER
 rm -rf "$KEYDIR"
 print "\nThe key is deleted. Lock 1Password now (Lock in its menu bar icon): publishing needs no key.\n"
 
-node build/publish.mjs publish "$RUN/plan.json"
+node build/publish.ts publish "$RUN/plan.json"
 print "\nDone. Plan and build log: $RUN"
 print "If 1Password is still unlocked, lock it now."

@@ -9,12 +9,17 @@ export const DEFAULT_T3 = 'http://127.0.0.1:3773';
 // The T3 Code version this Yes Chef was last tested with. An older T3 Code gets a note, never a refusal.
 export const TESTED_T3 = '0.1.7';
 
+/** Where T3 Code was found, and from what. */
+export interface FoundT3 { origin: string; version: string | null; from: 'YESCHEF_T3_ORIGIN' | 'server-runtime.json' | 'default' }
+
 /** { origin, version, from }: version is T3 Code's serverVersion when its own file named this origin, else null. */
-export function findT3({ env = process.env, home = homedir(), read = (file) => readFileSync(file, 'utf8') } = {}) {
+export function findT3({ env = process.env, home = homedir(), read = (file: string) => readFileSync(file, 'utf8') }: {
+  env?: NodeJS.ProcessEnv; home?: string; read?: (file: string) => string;
+} = {}): FoundT3 {
   if (env.YESCHEF_T3_ORIGIN) return { origin: env.YESCHEF_T3_ORIGIN.replace(/\/+$/, ''), version: null, from: 'YESCHEF_T3_ORIGIN' };
   try {
-    const d = JSON.parse(read(join(home, '.t3', 'userdata', 'server-runtime.json')));
-    const u = new URL(d.origin);
+    const d = JSON.parse(read(join(home, '.t3', 'userdata', 'server-runtime.json'))) as { origin?: unknown; serverVersion?: unknown };
+    const u = new URL(String(d.origin));
     // Only a plain web address: no login in it, no path, nothing after it.
     if ((u.protocol === 'http:' || u.protocol === 'https:') && !u.username && !u.password && u.pathname === '/' && !u.search && !u.hash) {
       return { origin: u.origin, version: typeof d.serverVersion === 'string' ? d.serverVersion : null, from: 'server-runtime.json' };
@@ -24,16 +29,16 @@ export function findT3({ env = process.env, home = homedir(), read = (file) => r
 }
 
 /** True when version a is older than b. Only the leading x.y.z counts; a version that has none is never older. */
-export function older(a, b) {
-  const parts = (v) => (/^v?(\d+)\.(\d+)\.(\d+)/.exec(String(v ?? '')) || []).slice(1).map(Number);
+export function older(a: unknown, b: unknown): boolean {
+  const parts = (v: unknown) => (/^v?(\d+)\.(\d+)\.(\d+)/.exec(String(v ?? '')) || []).slice(1).map(Number);
   const x = parts(a), y = parts(b);
   if (x.length !== 3 || y.length !== 3) return false;
-  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] < y[i];
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i]! < y[i]!;
   return false;
 }
 
 /** Whether T3 Code answers at origin: its sign-in metadata, within two seconds. */
-export async function t3Answers(origin, { fetch: get = fetch, timeoutMs = 2000 } = {}) {
+export async function t3Answers(origin: string, { fetch: get = fetch, timeoutMs = 2000 }: { fetch?: typeof fetch; timeoutMs?: number } = {}): Promise<boolean> {
   try {
     const r = await get(`${origin}/.well-known/oauth-authorization-server`, { signal: AbortSignal.timeout(timeoutMs) });
     return r.ok;
