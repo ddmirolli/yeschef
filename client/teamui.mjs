@@ -391,12 +391,12 @@ export function teamBody({ lost = '', view = null, join = null, links = [], proj
     return `<div class="wait"><span class="logo">${use('person-plus', 36, 36)}</span><h1>Your team: not checked</h1><p class="lede">Yes Chef could not read the team saved on this Mac (${e(lost)}). It is still there, untouched. Quit Yes Chef and start it again; macOS may ask to let Yes Chef use its Keychain key.</p></div>`;
   }
   if (!view) return join ? joinPage(join, projects, t3, now) : startPage({ relay, name });
-  if (view.status === 'pending') return waitingPage(view, projects);
-  if (view.status !== 'member') return endedPage(view);
   // The team's last change did not reach the disk: after a restart this Mac could read an older team (PR-Agent r4 on
-  // public #7). Said above the page, in plain words.
+  // public #7). Said above the page, in plain words, on the waiting screen too (PR-Agent r3 on #8).
   // Never "restart": the only copy of a new team's keys may be in memory (PR-Agent r2 on #8).
   const warn = view.unsaved ? `<p class="unsaved" role="alert">Not saved: Yes Chef could not save the team's latest change on this Mac. It is in use now. Keep Yes Chef open, check the disk and the Keychain, then save again. <button type="button" class="btn sm" data-op="saveAgain">Save again</button></p>` : '';
+  if (view.status === 'pending') return warn + waitingPage(view, projects);
+  if (view.status !== 'member') return endedPage(view);
   if (view.lead || (view.me.perms || []).includes('invite')) return warn + leadPage(view, links, now, ownSharing(view, projects, shared));
   return warn + joinedPage(view, projects, shared);
 }
@@ -416,7 +416,7 @@ function pageScript() {
   function next() { var q = queued; queued = null; return q ? act(q) : null; }
   function act(fields) {
     if (busy) { if (fields.op === 'share') queued = fields; return Promise.resolve(); }
-    busy = true; say('');
+    busy = true; seq++; say('');
     var q = new URLSearchParams({ kind: 'team' });
     Object.keys(fields).forEach(function (k) { if (fields[k] != null) q.append(k, Array.isArray(fields[k]) ? fields[k].join(',') : String(fields[k])); });
     return post(q.toString()).then(function (r) {
@@ -425,12 +425,19 @@ function pageScript() {
       return next() || refresh(true);
     }, function () { busy = false; say('Not done: Yes Chef did not answer.'); return next() || false; });
   }
-  function refresh(force) {
-    // A read-only field (the invite link, focused to copy it) is not an edit: the asks keep coming (PR-Agent r2 on #8).
+  // A read-only field (the invite link, focused to copy it) is not an edit: the asks keep coming (PR-Agent r2 on #8).
+  function editing() {
     var ed = document.activeElement;
-    if (!force && (busy || dragging || (dlg && dlg.open) || ed && /INPUT|SELECT/.test(ed.tagName) && !ed.readOnly || $('details[open]'))) return Promise.resolve();
+    return busy || dragging || (dlg && dlg.open) || ed && /INPUT|SELECT/.test(ed.tagName) && !ed.readOnly || !!$('details[open]');
+  }
+  // Each refresh and action takes a number: a page fetched before a newer one, or before an edit began, is dropped
+  // when it arrives (PR-Agent r3 on #8).
+  var seq = 0;
+  function refresh(force) {
+    if (!force && editing()) return Promise.resolve();
+    var mine = ++seq;
     return fetch('/team' + location.search, { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : null; }).then(function (h) {
-      if (!h) return;
+      if (!h || mine !== seq || (!force && editing())) return;
       var doc = new DOMParser().parseFromString(h, 'text/html');
       var next = doc.getElementById('yc-team'), d = doc.getElementById('yc-team-data');
       if (next) document.getElementById('yc-team').replaceWith(next);

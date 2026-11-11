@@ -24,7 +24,7 @@ export function relayUrl(text) {
 /** store: { load() -> state or null, save(state or null) }. run(input, prefix, extra): an action on this dev's board.
  *  boardOf(): { board, ok, at }. projectsOf(): T3 Code's projects. t3Ok(): whether the board reads T3 Code now. */
 export function teamHost({ store, run, boardOf, projectsOf = () => [], t3Ok = () => false, net = webNet, now = Date.now, timers = globalThis, site = SITE }) {
-  let team = null, state = null, ready = null, busy = Promise.resolve(), lost = '';
+  let team = null, state = null, ready = null, busy = Promise.resolve(), lost = '', gen = 0;
   // The store's answer goes back to the team client: a save it awaits (an action's id) fails when the store did.
   const save = (s) => {
     state = s;
@@ -37,7 +37,11 @@ export function teamHost({ store, run, boardOf, projectsOf = () => [], t3Ok = ()
     team?.stop();
     team = null; state = s;
     if (!s) return;
-    team = new Team({ state: s, save, net, now, timers, run, board: boardOf });
+    // Each client saves only while it is the live one: a save queued by a team this Mac left never lands after the
+    // deletion (PR-Agent r3 on #8).
+    const mine = ++gen;
+    const own = (x) => (mine === gen ? save(x) : Promise.reject(new Error('This team was left on this Mac.')));
+    team = new Team({ state: s, save: own, net, now, timers, run, board: boardOf });
     team.start();
   }
 
@@ -108,9 +112,12 @@ export function teamHost({ store, run, boardOf, projectsOf = () => [], t3Ok = ()
     if (!team) return no('This Mac is not on a team.', 409);
     if (op === 'leave') {
       // Forgotten only once the saved team is gone from disk: else a restart would bring the ask back (PR-Agent r2 on #8).
-      const was = state;
-      try { await save(null); } catch { state = was; return no('Not done: Yes Chef could not forget the team on this Mac. It is still saved; try again.', 503); }
-      live(null);
+      // Stop the client and let its queued saves finish first, so the deletion is the last write (PR-Agent r3 on #8).
+      const was = state, t = team;
+      t.stop(); gen++; team = null;
+      await t.writes?.catch(() => {});
+      try { await save(null); } catch { live(was); return no('Not done: Yes Chef could not forget the team on this Mac. It is still saved; try again.', 503); }
+      state = null;
       return ok('Left.');
     }
     if (op === 'saveAgain') {

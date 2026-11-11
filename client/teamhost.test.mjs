@@ -268,3 +268,36 @@ test('a focused read-only field does not stop the refresh (PR-Agent r2 on #8)', 
   const src = teamPage({}).match(/<script>\(([\s\S]*?)\)\(\);<\/script>/)[1];
   assert.match(src, /\/INPUT\|SELECT\/\.test\(ed\.tagName\) && !ed\.readOnly/);
 });
+
+test('Forget this ask: a save the client queued never lands after the deletion (PR-Agent r3 on #8)', async () => {
+  const relay = fakeRelay();
+  const writes = [];
+  let slow = null;
+  const store = { load: () => null, save(s) { writes.push(s && s.teamName); if (s && slow) return slow; } };
+  const { h } = host(relay, fakeNet(relay), store);
+  await h.act({ op: 'create', teamName: 'Fernpay', name: 'Sam', relay: 'https://relay.test' });
+  const t = h._team();
+  let release;
+  slow = new Promise((r) => { release = r; });
+  t.write();                 // a save in flight
+  const left = h.act({ op: 'leave' });
+  await new Promise((r) => setTimeout(r, 10));
+  t.write();                 // the old client tries once more
+  release(); slow = null;
+  assert.equal((await left).status, 200);
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(writes.at(-1), null, 'the deletion is the last write');
+  assert.equal(h.view(), null);
+});
+
+test('a join that did not save shows Not saved and Save again on the waiting screen (PR-Agent r3 on #8)', () => {
+  const view = { status: 'pending', unsaved: true, link: 'online', teamName: 'Fernpay', leadName: 'Sam', code: '123 456', asked: [], me: { id: 'D', name: 'Ada', role: null, perms: [] }, areas: [], people: [], pending: [], invites: [] };
+  const html = body(teamPage({ view }));
+  assert.match(html, /class="unsaved"[\s\S]*Save again[\s\S]*Asked to join Fernpay/);
+});
+
+test('the page drops a refresh that a newer one or an edit overtook (PR-Agent r3 on #8)', () => {
+  const src = teamPage({}).match(/<script>\(([\s\S]*?)\)\(\);<\/script>/)[1];
+  assert.match(src, /if \(!h \|\| mine !== seq \|\| \(!force && editing\(\)\)\) return;/);
+  assert.match(src, /busy = true; seq\+\+;/);
+});
