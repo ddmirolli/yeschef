@@ -5,7 +5,7 @@
   "name": "yeschef-site",
   "compatibility_date": "2026-11-01",
   "assets": {
-    "directory": "../../site"
+    "directory": "../../site/dist"
   },
   "routes": [
     { "pattern": "yeschef.codes", "custom_domain": true }

@@ -1,8 +1,8 @@
 /* Yes Chef marketing site. Static, no build. Dark first; light follows the system. */
 
-@font-face { font-family: "Fraunces"; font-style: normal; font-weight: 100 900; font-display: swap; src: url("fonts/fraunces-latin-var.woff2") format("woff2"); }
-@font-face { font-family: "Fraunces"; font-style: italic; font-weight: 100 900; font-display: swap; src: url("fonts/fraunces-latin-var-italic.woff2") format("woff2"); }
-@font-face { font-family: "Figtree"; font-style: normal; font-weight: 300 900; font-display: swap; src: url("fonts/figtree-latin-var.woff2") format("woff2"); }
+@font-face { font-family: "Fraunces"; font-style: normal; font-weight: 100 900; font-display: swap; src: url("/fonts/fraunces-latin-var.woff2") format("woff2"); }
+@font-face { font-family: "Fraunces"; font-style: italic; font-weight: 100 900; font-display: swap; src: url("/fonts/fraunces-latin-var-italic.woff2") format("woff2"); }
+@font-face { font-family: "Figtree"; font-style: normal; font-weight: 300 900; font-display: swap; src: url("/fonts/figtree-latin-var.woff2") format("woff2"); }
 
 :root {
   color-scheme: dark;

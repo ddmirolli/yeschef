@@ -1,6 +1,6 @@
 // Browser stand-in for node:crypto, for the site demo only. The app's modules use createHash('sha1') for
 // short ids and colours, and randomUUID for form ids. SHA-1 here is a plain implementation over UTF-8.
-function sha1(text) {
+function sha1(text: string) {
   const bytes = new TextEncoder().encode(String(text));
   const words = new Uint32Array((((bytes.length + 8) >> 6) + 1) * 16);
   for (let i = 0; i < bytes.length; i++) words[i >> 2] |= bytes[i] << (24 - (i % 4) * 8);
@@ -8,7 +8,7 @@ function sha1(text) {
   words[words.length - 1] = bytes.length * 8;
   let h0 = 0x67452301, h1 = 0xefcdab89, h2 = 0x98badcfe, h3 = 0x10325476, h4 = 0xc3d2e1f0;
   const w = new Uint32Array(80);
-  const rol = (x, n) => (x << n) | (x >>> (32 - n));
+  const rol = (x: number, n: number) => (x << n) | (x >>> (32 - n));
   for (let b = 0; b < words.length; b += 16) {
     for (let i = 0; i < 16; i++) w[i] = words[b + i];
     for (let i = 16; i < 80; i++) w[i] = rol(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
@@ -24,10 +24,10 @@ function sha1(text) {
   return [h0, h1, h2, h3, h4].map((x) => x.toString(16).padStart(8, '0')).join('');
 }
 
-export function createHash(algo) {
+export function createHash(algo: string) {
   if (algo !== 'sha1') throw new Error('demo: only sha1');
   let text = '';
-  const h = { update(s) { text += String(s); return h; }, digest() { return sha1(text); } };
+  const h = { update(s: unknown) { text += String(s); return h; }, digest() { return sha1(text); } };
   return h;
 }
 export const randomUUID = () => (globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + String(Math.random()).slice(2));
