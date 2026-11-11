@@ -106,6 +106,14 @@ try {
 
   L.ws.send('ping');
   step('a ping gets its pong without the room', (await L.wait((m) => m.t === 'pong')).t === 'pong');
+
+  D.ws.close(1000, 'Smoke: the dev goes.');
+  const off = await L.wait((m) => m.t === 'presence' && m.m === dev.id && m.on === false);
+  step('the lead hears the dev go, with the relay\'s time', Number.isFinite(off.at));
+  const L2 = await socket(lead);
+  const again = await L2.wait((m) => m.t === 'hello');
+  step('a new hello lists when the relay last saw the dev', again.seen?.[dev.id] === off.at);
+  L2.ws.close(1000, 'Smoke done.');
 } finally {
   const path = `/v1/teams/${team}`;
   const tok = await authToken(lead, { team, method: 'DELETE', path });

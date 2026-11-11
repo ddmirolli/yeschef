@@ -323,7 +323,30 @@ test('presence: others hear a member come online and go offline', async () => {
   t.relay.close(a);
   assert.equal(lws.last('presence'), null, 'a second socket is still open');
   t.relay.close(b);
-  assert.deepEqual(lws.last('presence'), { t: 'presence', m: dev.id, on: false });
+  assert.deepEqual(lws.last('presence'), { t: 'presence', m: dev.id, on: false, at: t.relay.now() });
+});
+
+test('last seen: the relay keeps when a member\'s last socket closed and lists it in the next hello', async () => {
+  const t = await team();
+  const lws = await t.ws(t.lead);
+  const { dev } = await t.join(await t.invite(lws));
+  await t.approve(lws, dev);
+  const a = await t.ws(dev);
+  t.relay.close(a);
+  const gone = t.relay.now();
+  t.relay.tick(60000);
+  t.relay.close(lws);
+  const l2 = await t.ws(t.lead);
+  assert.deepEqual(l2.last('hello').seen, { [dev.id]: gone });
+  // Online again: left out of the hello's times.
+  const b = await t.ws(dev);
+  const l3 = await t.ws(t.lead);
+  assert.deepEqual(l3.last('hello').seen, {});
+  t.relay.close(b);
+  // Removed: the time goes with them.
+  t.people.delete(dev.id);
+  assert.equal((await t.push(l3)).t, 'ok');
+  assert.equal(t.relay.sql.exec('SELECT COUNT(*) AS n FROM seen WHERE m = ?', dev.id).toArray()[0].n, 0);
 });
 
 test('a fifth socket for one member closes the oldest', async () => {
