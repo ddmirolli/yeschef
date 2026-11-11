@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- The Yes Chef mark: a cloche with a square-cut dome, a large knob resting on top and a bevelled plate (pass.py ICONS["cloche"]) on its header tile.
+  <!-- The Yes Chef mark: a cloche with a square-cut dome, a large knob resting on top and a bevelled plate on its header tile.
        The cloche spans 70% of the tile's width, centred, as on the app icon (desktop/build/icon.svg; Dan, 2026-11-07). -->
   <defs>
     <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">

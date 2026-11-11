@@ -51,4 +51,4 @@ under the SIL Open Font License 1.1; the licences are in `site/fonts/OFL-Fraunce
 
 ## Yes Chef mark
 
-`site/assets/yeschef-icon.svg` is the Yes Chef cloche, from this repo (`pass.py`, `ICONS["cloche"]`).
+`site/assets/yeschef-icon.svg` is the Yes Chef cloche, drawn for this repo (the app's cloche icon, as in `assets/icon.svg`).

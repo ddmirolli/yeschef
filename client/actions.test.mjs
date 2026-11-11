@@ -26,7 +26,7 @@ test('only Dan, through the tailnet, from an allowed device, on the Pass page, m
   assert.match(await refuse({ headers: ok, peerPort: 1, serverPort: 2, origin: ORIGIN, allowPath: join(dir, 'none'), peerCheck: remote }), /allowed device/);
 });
 
-// Rows in the shape of `netstat -anv -p tcp` on macOS (from pass.py's tests).
+// Rows in the shape of `netstat -anv -p tcp` on macOS (from the old Python pass's tests).
 const NETSTAT = [
   'tcp4       0      0  127.0.0.1.54140        127.0.0.1.8620         ESTABLISHED            0          585  408300  146988 io.tailscale.ipn:96714  00182 00000008 0000000003aa6fc7 00000080 04000900      2      0 000000',
   'tcp4       0      0  127.0.0.1.54150        127.0.0.1.8620         ESTABLISHED            0          585  408300  146988 Google Chrome He:1349  00102 00000008 0000000003aa6fc7 00000080 04000900      2      0 000000',

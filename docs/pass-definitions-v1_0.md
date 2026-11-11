@@ -78,7 +78,7 @@ In the header, right of the logo: **Active** (tickets in a stage), **Verified to
 - **Settings:** Density for the lists, Rules, and Shortcuts. There is no Ticket layout choice: the Side panel layout is gone, and every ticket uses the action bar (Dan, 2026-11-10).
 - **Pills:** one pill, blue, and it means a decision waits on the lead. It names how many: "1 question", "3 questions". Every ticket at the pass waits on the lead, so the pill never says "Asks you" (Dan, 2026-11-08). A hand-back has no pill: its stage already says what it wants.
 - **Kitchen and phones:** no stage list, so the Live light, the project menu and Settings sit at the right of the header.
-- **Live light:** "Live", or "Not checked" when a source fails. Its tooltip names the T3 Code server and when it was last checked. The app has no footer; `?` and Settings open the shortcuts. The Pass web page (`pass.py`) keeps its footer.
+- **Live light:** "Live", or "Not checked" when a source fails. Its tooltip names the T3 Code server and when it was last checked. The app has no footer; `?` and Settings open the shortcuts.
 - **Light and dark:** in the app, light mirrors dark. A white page, grey panels, white cards inside them.
 - **Lost connection:** the lists and counts hide and say "Not checked", with a red strip under the panels and at the top of an open ticket. Nothing else on the page changes (Dan, 2026-11-08).
 - **Live:** the screen never needs a refresh. Changes slide in as they happen, and an open plate is never reloaded.

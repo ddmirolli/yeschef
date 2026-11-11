@@ -56,8 +56,8 @@ if (missing.length) {
   process.exit(2);
 }
 const HERE = dirname(fileURLToPath(import.meta.url));
-// One stylesheet for the live pass and the prototype while both exist.
-const CSS = readFileSync(join(HERE, '..', 'pass.py'), 'utf8').match(/CSS = r"""([\s\S]*?)"""/)[1];
+// The Pass's base stylesheet (client/pass.css); the app's own rules follow it (APP_CSS).
+const CSS = readFileSync(join(HERE, 'pass.css'), 'utf8');
 const OUT = mkdtempSync(join(tmpdir(), 'the-pass-'));
 // Rules (client/kitchen.mjs), set in Settings. The desktop app keeps them in its data folder
 // (YESCHEF_RULES_FILE); the web prototype keeps them in this run's temp folder.
@@ -320,7 +320,7 @@ function kick() {
 }
 function refreshSoon() { if (!soonTimer) soonTimer = setTimeout(() => { soonTimer = null; kick(); }, 150); }
 
-// The prototype's own rules, after the shared pass.py ones.
+// The prototype's own rules, after the base sheet (client/pass.css).
 const APP_CSS = `
 .pm.pimg{object-fit:contain;background:transparent;border-radius:4px}
 .call-tile .ct-top .chip{margin-left:2px}
