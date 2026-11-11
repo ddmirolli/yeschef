@@ -37,7 +37,8 @@ export function fakeRelay({ env = {}, start = Date.UTC(2026, 10, 10, 12), regist
     // fail before anything goes; unregister(team, created) is the registry call.
     onDelete: async (team, created) => {
       if (wipe) await wipe(team);
-      for (const t of ['team', 'summary', 'invite', 'pending', 'inbox', 'usage']) sql.exec(`DROP TABLE IF EXISTS ${t}`);
+      // Every table, as the Worker's storage.deleteAll() does: a table added later is never left behind.
+      for (const { name } of sql.exec("SELECT name FROM sqlite_master WHERE type = 'table'").toArray()) sql.exec(`DROP TABLE IF EXISTS ${name}`);
       deleted.push(team);
       if (unregister) await unregister(team, created);
     },

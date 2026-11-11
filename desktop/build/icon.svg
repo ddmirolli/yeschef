@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <!-- The Yes Chef Dock icon: the cloche (pass.py ICONS["cloche"]) on the macOS icon grid (824 tile in a 1024 canvas).
+  <!-- The Yes Chef Dock icon: the cloche on the macOS icon grid (824 tile in a 1024 canvas).
        Dan, 2026-11-07: the cloche spans 70% of the tile's width (it was 50%). -->
   <defs>
     <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">

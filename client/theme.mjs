@@ -1,9 +1,9 @@
 // Appearance (PR 3 of the ⌘K bar, docs/command-bar-v1_0.md): System, Light or Dark, T3 Code's names.
-// The page's dark and light rules are @media (prefers-color-scheme:…) blocks: pass.py's tokens, the prototype's own
+// The page's dark and light rules are @media (prefers-color-scheme:…) blocks: the base sheet's tokens (pass.css), the prototype's own
 // rules and the bar's. onTheme() writes each block twice. Once for System: still inside its media query, under a
 // root with no data-theme. Once for the theme you chose: under :root[data-theme=…], with no media query. The guard sits
 // in :where(), so every selector keeps its specificity and its place in the sheet: with no choice made, the cascade is
-// the one the page had before. pass.py's own page (the live pass) is not changed.
+// the one the page had before.
 
 export const THEMES = ['system', 'light', 'dark'];
 export const themeOf = (v) => (v === 'light' || v === 'dark' ? v : 'system');
@@ -92,7 +92,7 @@ export function onTheme(css) {
 // The pictures in Settings → Appearance (Dan, 2026-11-10: "renders ... what the actual home view would look like", as
 // T3 Code's appearance tiles do). Each one is drawn in a fixed theme, whatever the page's, so it takes the page's own
 // light and dark tokens: every plain :root block in the sheet, in cascade order. A top-level block counts for both
-// themes; one in a color-scheme query for its theme; one in any other query (a width) for neither. That covers pass.py's
+// themes; one in a color-scheme query for its theme; one in any other query (a width) for neither. That covers pass.css's
 // tokens, the app's "light mirrors dark" block and its stage colors. var() references resolve within the theme. The
 // tokens are copied by name into --m-* properties on .mt-light and .mt-dark. A token the page drops fails the build
 // instead of drawing a wrong picture.

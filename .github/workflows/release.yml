@@ -39,7 +39,6 @@ on:
     paths:
       - "desktop/**"
       - "client/**"
-      - "pass.py"
       - ".github/workflows/release.yml"
 
 # One release at a time, in order. queue: max keeps every waiting run; GitHub's default keeps one waiting run per

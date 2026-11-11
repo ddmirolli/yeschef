@@ -356,23 +356,23 @@ section { position: relative; padding: 88px 0; border-top: 1px solid var(--borde
    280 ms, inside the UI rubric's 300 ms (X6). */
 .persona { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: -10px auto 30px; }
 .persona-label { font-size: 15px; line-height: 1.2; color: var(--fg-muted); letter-spacing: -0.01em; }
-.persona-seg {
+.persona-seg, .dl-seg {
   --track: rgba(118, 118, 128, 0.24); --thumb: #636366;
   --thumb-shadow: 0 3px 8px rgba(0, 0, 0, 0.28), 0 1px 1px rgba(0, 0, 0, 0.16);
   position: relative; display: grid; grid-template-columns: 1fr 1fr; padding: 2px; border-radius: 999px;
   background: var(--track); isolation: isolate; touch-action: manipulation;
 }
 @media (prefers-color-scheme: light) {
-  .persona-seg { --track: rgba(118, 118, 128, 0.12); --thumb: #ffffff; --thumb-shadow: 0 3px 8px rgba(0, 0, 0, 0.12), 0 3px 1px rgba(0, 0, 0, 0.04); }
+  .persona-seg, .dl-seg { --track: rgba(118, 118, 128, 0.12); --thumb: #ffffff; --thumb-shadow: 0 3px 8px rgba(0, 0, 0, 0.12), 0 3px 1px rgba(0, 0, 0, 0.04); }
 }
-.persona-thumb {
+.persona-thumb, .dl-seg-thumb {
   position: absolute; z-index: -1; top: 2px; bottom: 2px; left: 2px; width: calc(50% - 2px); border-radius: 999px;
   background: var(--thumb); box-shadow: var(--thumb-shadow);
   transition: transform 280ms cubic-bezier(0.32, 0.72, 0, 1), scale 160ms ease-out;
 }
 html[data-view="team"] .persona-thumb { transform: translateX(100%); }
-.persona-seg:active .persona-thumb { scale: 0.97; }
-.persona-seg button {
+.persona-seg:active .persona-thumb, .dl-seg:active .dl-seg-thumb { scale: 0.97; }
+.persona-seg button, .dl-seg button {
   appearance: none; border: 0; background: transparent; color: var(--fg-muted); font: inherit; font-size: 15px; font-weight: 500;
   line-height: 1.2; letter-spacing: -0.01em; min-width: 92px; padding: 8px 20px; border-radius: 999px; cursor: pointer;
   transition: font-weight 200ms ease-out, opacity 120ms ease-out;
@@ -380,8 +380,8 @@ html[data-view="team"] .persona-thumb { transform: translateX(100%); }
 /* The pick follows html[data-view], which the head script sets before the first paint, so a returning
    visitor's pick shows without a transition. aria-pressed carries it for assistive tech. */
 html[data-view="solo"] .persona-seg button[data-view="solo"], html[data-view="team"] .persona-seg button[data-view="team"] { color: var(--fg); font-weight: 600; }
-.persona-seg button:active { opacity: 0.6; }
-.persona-seg button:focus-visible { outline: 2px solid var(--pass); outline-offset: 2px; }
+.persona-seg button:active, .dl-seg button:active { opacity: 0.6; }
+.persona-seg button:focus-visible, .dl-seg button:focus-visible { outline: 2px solid var(--pass); outline-offset: 2px; }
 
 /* The pick cross-fades with a light blur: out in 160 ms, in from 60 ms to 300 ms. */
 .swap, .hero-title .swap { display: grid; }
@@ -602,9 +602,11 @@ kbd { display: inline-grid; place-items: center; min-width: 24px; height: 24px; 
 .dl-page[data-channel="nightly"] .dl-mark-stable { opacity: 0; }
 .dl-page[data-channel="nightly"] .dl-mark-nightly { opacity: 1; }
 .dl-title { font-size: clamp(40px, 5vw, 64px); margin-bottom: 32px; }
-.dl-seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--bg-well); border: 1px solid var(--border); margin-bottom: 28px; }
-.dl-seg button { padding: 7px 16px; border-radius: 7px; font-size: 14px; font-weight: 500; color: var(--fg-muted); transition: color .18s, background .18s; }
-.dl-seg button[aria-pressed="true"] { background: var(--bg-elev); color: var(--fg); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25), inset 0 0 0 1px var(--border); }
+/* The channel toggle is the "I run" toggle (it shares those rules above): the old dark pick was #0a0a0a on #070707
+   and could not be seen (Dan, 2026-11-10). The thumb slides under the pick, as on t3.codes/download. */
+.dl-seg { margin-bottom: 28px; }
+.dl-page[data-channel="nightly"] .dl-seg-thumb { transform: translateX(100%); }
+.dl-seg button[aria-pressed="true"] { color: var(--fg); font-weight: 600; }
 /* Only says something when there is no link to give: no version, size or requirements on the site (Dan, 2026-11-10). */
 .dl-version { color: var(--fg-muted); font-size: 14px; margin: -8px 0 20px; }
 /* One download, so one button: the hero's (Dan, 2026-11-10, call 1a). T3's list-row card fits its eight. */
@@ -612,4 +614,4 @@ kbd { display: inline-grid; place-items: center; min-width: 24px; height: 24px; 
 .dl-notes { max-width: 520px; margin-top: 28px; color: var(--fg-muted); font-size: 14px; line-height: 1.55; display: grid; gap: 10px; }
 .dl-notes a { color: var(--fg); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
 @media (max-width: 820px) { .dl-page { padding: 64px 0 80px; } .dl-mark { width: 80px; height: 80px; } .dl-mark img { border-radius: 20px; } }
-@media (prefers-reduced-motion: reduce) { .dl-seg button, .dl-mark img { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .dl-seg-thumb, .dl-seg button, .dl-mark img { transition: none; } .dl-seg:active .dl-seg-thumb { scale: none; } }

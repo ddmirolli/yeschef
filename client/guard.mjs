@@ -1,5 +1,5 @@
 // Who may act at the Pass: Dan, through the tailnet, from an allowed device, on the Pass's own page.
-// The same checks as pass.py's answer() (brigade spec, section 8): an agent on this Mac must never act as Dan.
+// The checks of the old Python pass's answer() (brigade spec, section 8): an agent on this Mac must never act as Dan.
 import { execFile } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { promisify } from 'node:util';
