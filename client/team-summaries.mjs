@@ -8,6 +8,7 @@ import { sealSigned, openSigned, aad } from './seal.ts';
 import { shares } from './roles.mjs';
 import { clean } from './team-common.mjs';
 import { RETRY } from './team-connection.mjs';
+import { rangesOf } from './changes.mjs';
 
 const SUMMARY_TICKETS = 100;
 
@@ -98,9 +99,11 @@ export const summaries = {
   },
 
   // ---- this dev's summary ----
-  /** The Pass read this dev's board. Its summary follows, only when it changed. */
-  board(board) {
+  /** The Pass read this dev's board. Its summary follows, only when it changed. readers: what the board server reads
+   *  beside the board, as getters (summarize's `readers`); the last ones given stay until new ones come. */
+  board(board, readers) {
     this.lastBoard = board;
+    if (readers) this.readers = readers;
     this.lastBoardAt = this.now();
     this.health(true);
   },
@@ -108,6 +111,19 @@ export const summaries = {
   /** The Pass's last board read worked (true) or failed (false). A flip is news and goes out like any change. */
   health(ok) {
     if (this.healthOk !== ok) { this.healthOk = ok; this.healthSince = this.now(); }
+    this.publish();
+  },
+
+  /** One of the readers beside the board (changed files, base checks, PR sizes) has news: the summary follows it, only
+   *  when it changed. A board that failed its last read sends nothing new. */
+  readersMoved() { if (this.lastBoard && this.healthOk) this.publish(); },
+
+  /** The dev opened a call on their own Pass: its id (client/open-kitchen.mjs callId) goes in their summary's `seen` (kept as state.seenCalls: state.seen is the actions already run), so
+   *  the lead's Mac stops the call reaching them. Kept on disk for a day. */
+  markSeen(callId) {
+    if (typeof callId !== 'string' || !callId || callId.length > 300) return;
+    this.state.seenCalls = keepSeen({ ...(this.state.seenCalls || {}), [callId]: this.now() }, this.now());
+    this.save();
     this.publish();
   },
 
@@ -134,7 +150,8 @@ export const summaries = {
       const held = this.heldBody;
       return { v: 1, tickets: Array.isArray(held?.tickets) ? held.tickets : [], more: Number(held?.more) || 0, health };
     }
-    return { ...summarize(this.lastBoard, this.state.shared, this.limits.summaryMax), at: this.lastBoardAt, health };
+    const readers = { ...(this.readers || {}), seen: this.state.seenCalls, now: this.now() };
+    return { ...summarize(this.lastBoard, this.state.shared, this.limits.summaryMax, readers), at: this.lastBoardAt, health };
   },
 
   async flush() {
@@ -237,23 +254,145 @@ export const summaries = {
   },
 };
 
+// ---- the summary's fields (3b PR 4, agreed with step 4: client/open-kitchen.mjs cleanTicket and cleanBase read them) ----
+const FILES_MAX = 150, RANGES_MAX = 24, BASES_MAX = 10, SEEN_MAX = 100, SEEN_MS = 24 * 3600000, SEEN_BYTES = 8192;
+// A time as epoch ms, or null. T3 and GitHub give ISO strings; the summary sends numbers.
+const time = (v) => { const t = typeof v === 'number' ? v : typeof v === 'string' ? Date.parse(v) : NaN; return Number.isFinite(t) ? t : null; };
+const sha = (v) => (typeof v === 'string' && /^[0-9a-f]{7,64}$/i.test(v) ? v.toLowerCase() : null);
+const count = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
+const name = (v, n) => (typeof v === 'string' && v.trim() ? clean(v, n) : null);
+const firstLine = (v, n) => name(String(v || '').split('\n').map((l) => l.trim()).find(Boolean), n);
+
+/** At most n line ranges for a file: the two neighbours with the smallest gap between them merge, until n are left.
+ *  Every changed line stays inside a range. */
+export function fewerRanges(list, n = RANGES_MAX) {
+  const r = list.map(([a, b]) => [a, b]).sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+  while (r.length > n) {
+    let best = 0;
+    for (let i = 1; i < r.length - 1; i++) if (r[i + 1][0] - r[i][1] < r[best + 1][0] - r[best][1]) best = i;
+    r.splice(best, 2, [r[best][0], Math.max(r[best][1], r[best + 1][1])]);
+  }
+  return r;
+}
+
+/** A thread's changed files (client/changes.mjs readChanges) as the summary sends them. Ranges are on the base side,
+ *  the one coordinate two devs share. Unknown stays null, never 0 or []. At most 150 files, the most lines changed
+ *  first (a file of unknown size counts as large); `more` counts the files left out, plus one when git's own list was
+ *  cut. Lockfiles and generated files carry `x: 1` and stay out of `size`. */
+export function summaryChanges(r) {
+  if (!r || typeof r !== 'object') return null;
+  if (r.state !== 'checked') return { state: 'not-checked', why: name(r.why, 200) || 'Not read yet.', at: time(r.at) };
+  const lines = (f) => (count(f.added) === null || count(f.removed) === null ? Infinity : f.added + f.removed);
+  const all = (Array.isArray(r.files) ? r.files : []).filter((f) => f && typeof f.path === 'string');
+  const files = [...all].sort((a, b) => lines(b) - lines(a) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)).slice(0, FILES_MAX).map((f) => {
+    const out = { p: clean(f.path, 300), r: Array.isArray(f.hunks) && f.hunks.length ? fewerRanges(rangesOf(f, 'old')) : null, a: count(f.added), d: count(f.removed) };
+    if (f.lock || f.generated) out.x = 1;
+    return out;
+  });
+  return {
+    state: 'checked', at: time(r.at), repo: name(r.remote?.repo, 100), base: name(r.base?.branch, 100), mergeBase: sha(r.base?.commit), head: sha(r.head),
+    files, more: all.length - files.length + (r.truncated ? 1 : 0),
+    size: { files: count(r.size?.files), added: count(r.size?.added), removed: count(r.size?.removed) },
+  };
+}
+
+/** A PR as the summary sends it: T3's link (state, target branch, draft, merge time), and the size GitHub gave when
+ *  the board server read it (client/github.mjs readPrSize). `size` is null when GitHub's file list was partial. */
+export function summaryPr(p, read) {
+  const out = { repo: clean(p.repository, 100), n: p.number, state: p.state, url: typeof p.url === 'string' && /^https:\/\//.test(p.url) ? p.url.slice(0, 300) : null,
+    base: name(p.base, 100), draft: typeof p.draft === 'boolean' ? p.draft : null, mergedAt: time(p.mergedAt) };
+  // Draft unknown stays null, never "not a draft" (PR-Agent r1 on #27).
+  if (read?.state === 'checked') {
+    if (typeof read.draft === 'boolean') out.draft = read.draft;
+    if (name(read.base, 100)) out.base = name(read.base, 100);
+    out.size = read.size ? { files: count(read.size.files), added: count(read.size.added), removed: count(read.size.removed), at: time(read.at) } : null;
+  }
+  return out;
+}
+
+/** The first open question on a ticket: a T3 question, else a call in the agent's hand-back (client/calls.mjs). `at`
+ *  is when the thread stopped to ask; `n` how many are open. */
+export function summaryAsk(k) {
+  const qs = (k.asks || []).flatMap((a) => (a.items || []).map((it) => ({ it, at: a.thread?.updatedAt })));
+  if (qs.length) {
+    const { it, at } = qs[0];
+    return { at: time(at), q: name(it.question, 200) || 'A question', rec: null, n: qs.length,
+      options: (Array.isArray(it.options) ? it.options : []).slice(0, 6).map((o) => ({ k: name(o?.label, 40), t: name(o?.description || o?.label, 120) })) };
+  }
+  const calls = k.call?.calls || [];
+  if (!calls.length) return null;
+  const c = calls[0];
+  return { at: time(k.thread?.updatedAt), q: name(c.question, 200) || 'Your call', rec: name(c.recommend, 4), n: calls.length,
+    options: (Array.isArray(c.options) ? c.options : []).slice(0, 6).map((o) => ({ k: name(o?.letter, 4), t: name(o?.text, 120) })) };
+}
+
+/** One base branch's checks as the summary sends it (client/github.mjs readBaseChecks). `failing`: up to 5 names. */
+export function summaryBase(b) {
+  return { repo: name(b.repo, 100), branch: name(b.branch, 100), sha: sha(b.sha), title: name(b.title, 120), committedAt: time(b.committedAt),
+    result: name(b.result, 20), requiredResult: name(b.requiredResult, 20),
+    failing: (Array.isArray(b.checks) ? b.checks : []).filter((c) => c?.state === 'failing').map((c) => name(c.name, 80)).filter(Boolean).slice(0, 5),
+    at: time(b.at) };
+}
+
+/** The calls this dev opened on their own Pass in the last day, at most 100 and 8 KiB as UTF-8, the newest kept: the
+ *  summary's other fields keep their room under the relay's limit (PR-Agent r2 on #27). */
+export function keepSeen(seen, now) {
+  const list = Object.entries(seen && typeof seen === 'object' ? seen : {})
+    .filter(([id, at]) => typeof id === 'string' && id.length <= 300 && Number.isFinite(at) && at <= now + 60000 && now - at < SEEN_MS)
+    .sort((a, b) => b[1] - a[1]).slice(0, SEEN_MAX);
+  const out = [];
+  let used = 2;
+  for (const [id, at] of list) {
+    used += new TextEncoder().encode(JSON.stringify(id)).length + String(at).length + 2;
+    if (used > SEEN_BYTES) break;
+    out.push([id, at]);
+  }
+  return Object.fromEntries(out);
+}
+
 /** This dev's summary for the team: the tickets in the projects they share, newest first, the ones waiting on a person
- *  first. Only what a teammate's board needs: no messages, no code. It fits the relay's limit with room for the seal. */
-export function summarize(board, shared, max = 65536) {
+ *  first. What a teammate's calls need (docs/team-relay-v0_1.md): the first line of the agent's last message, the open
+ *  question, the changed files with their line ranges, the PRs and the base checks. No code and no whole messages.
+ *  readers, from the board server, all optional: changes(threadId), pr({ host, repo, number }), base(threadId), each
+ *  giving that reader's last result; seen (callId -> time); now. A reader left out reads "Not checked" on the lead's
+ *  screen, never a guess. It fits the relay's limit with room for the seal: the changed files of the least recent
+ *  tickets go first, then whole tickets. */
+export function summarize(board, shared, max = 65536, readers = {}) {
   const keep = new Set(shared || []);
-  const tickets = (board?.tickets || [])
+  const get = (f, ...a) => { try { return typeof f === 'function' ? f(...a) : null; } catch { return null; } };
+  const picked = (board?.tickets || [])
     .filter((k) => keep.has(k.thread.projectId) && k.place !== 'Coordinators')
-    .sort((a, b) => (b.atPass - a.atPass) || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))
-    .map((k) => ({
+    .sort((a, b) => (b.atPass - a.atPass) || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+  const tickets = picked.map((k) => {
+    const t = {
       thread: k.thread.threadId, title: clean(k.thread.title, 160), project: clean(k.project, 80), place: k.place,
       atPass: !!k.atPass, working: k.working || 0, asks: k.asks.length, call: !!k.call,
-      prs: k.prs.slice(0, 5).map((p) => ({ repo: clean(p.repository, 100), n: p.number, state: p.state, url: typeof p.url === 'string' && /^https:\/\//.test(p.url) ? p.url.slice(0, 300) : null })),
-      updatedAt: k.updatedAt || null,
-    }));
+      prs: k.prs.slice(0, 5).map((p) => summaryPr(p, p.state === 'open' ? get(readers.pr, { host: p.host || 'github.com', repo: p.repository, number: p.number }) : null)),
+      updatedAt: k.updatedAt || null, startedAt: time(k.thread.createdAt), last: firstLine(k.lastWords, 160), ask: summaryAsk(k),
+    };
+    const c = summaryChanges(get(readers.changes, k.thread.threadId));
+    if (c) t.changes = c;
+    return t;
+  });
+  const bases = new Map();
+  for (const k of picked) {
+    const b = get(readers.base, k.thread.threadId);
+    if (b?.state !== 'checked' || bases.size >= BASES_MAX) continue;
+    const key = `${String(b.host || 'github.com').toLowerCase()}/${String(b.repo).toLowerCase()}@${b.branch}`;
+    if (!bases.has(key)) bases.set(key, summaryBase(b));
+  }
+  const top = { bases: [...bases.values()], seen: keepSeen(readers.seen, Number.isFinite(readers.now) ? readers.now : Date.now()) };
   let n = Math.min(tickets.length, SUMMARY_TICKETS);
-  // A sealed summary is about 4/3 of its JSON's UTF-8 bytes plus the signature. Halve the list until it fits. Sealing
-  // checks the real size again (sealSummary).
+  // A sealed summary is about 4/3 of its JSON's UTF-8 bytes plus the signature. Shed the changed files of the least
+  // recent tickets first (a ticket without them reads "Not checked"), then halve the list until it fits. Sealing checks
+  // the real size again (sealSummary).
   const bytes = (x) => new TextEncoder().encode(JSON.stringify(x)).length;
-  while (n > 0 && (bytes(tickets.slice(0, n)) * 4) / 3 + 600 > max) n = Math.floor(n / 2);
-  return { v: 1, tickets: tickets.slice(0, n), more: tickets.length - n };
+  const fits = () => (bytes({ ...top, tickets: tickets.slice(0, n) }) * 4) / 3 + 600 <= max;
+  const byAge = tickets.slice(0, n).map((t, i) => i).filter((i) => tickets[i].changes)
+    .sort((a, b) => String(tickets[a].updatedAt || '').localeCompare(String(tickets[b].updatedAt || '')) || b - a);
+  for (const i of byAge) { if (fits()) break; delete tickets[i].changes; }
+  while (n > 0 && !fits()) n = Math.floor(n / 2);
+  // Last, and only for a limit far below the relay's: the base branches go too, so the summary always fits.
+  while (top.bases.length && !fits()) top.bases.pop();
+  return { v: 1, tickets: tickets.slice(0, n), more: tickets.length - n, ...top };
 }

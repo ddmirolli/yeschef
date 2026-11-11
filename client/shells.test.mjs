@@ -19,7 +19,7 @@ test('a row: the fields t3_thread_list returns, from the shell', () => {
   const r = threadRow(shell('a', {
     activityRunStatus: 'running', status: 'completed',
     pullRequests: [
-      { host: 'GitHub.com', repository: 'o/r', number: 7, url: 'https://github.com/o/r/pull/7', source: 'created', snapshot: { state: 'open' } },
+      { host: 'GitHub.com', repository: 'o/r', number: 7, url: 'https://github.com/o/r/pull/7', source: 'created', snapshot: { state: 'open', baseBranch: 'main', isDraft: true, mergedAt: null } },
       { repository: 'o/r', number: 8, url: 'https://github.com/o/r/pull/8', source: 'stack-dismissed', snapshot: { state: 'open' } },
       { repository: 'o/r', number: 9, url: 'https://github.com/o/r/pull/9', source: 'agent', snapshot: null },
     ],
@@ -30,8 +30,8 @@ test('a row: the fields t3_thread_list returns, from the shell', () => {
   assert.equal(r.link, 'https://app.example/env/a');
   assert.equal(r.model, 'claude-opus-5-5');
   assert.deepEqual(r.pullRequests, [
-    { host: 'github.com', repository: 'o/r', number: 7, url: 'https://github.com/o/r/pull/7', source: 'created', state: 'open' },
-    { host: 'github.com', repository: 'o/r', number: 9, url: 'https://github.com/o/r/pull/9', source: 'agent', state: null },
+    { host: 'github.com', repository: 'o/r', number: 7, url: 'https://github.com/o/r/pull/7', source: 'created', state: 'open', base: 'main', draft: true, mergedAt: null },
+    { host: 'github.com', repository: 'o/r', number: 9, url: 'https://github.com/o/r/pull/9', source: 'agent', state: null, base: null, draft: null, mergedAt: null },
   ]);
   assert.equal(r.settled, false);
   assert.equal(r.parentThreadId, null);

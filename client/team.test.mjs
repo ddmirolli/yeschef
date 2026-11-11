@@ -5,6 +5,8 @@ import { Team, createTeam, joinTeam, summarize, identity, notCheckedSince, chart
 import { grant, allows, refusal, signature, DEFAULTS, PERMS, shares } from './roles.mjs';
 import { buildBoard } from './board.mjs';
 import { act } from './actions.mjs';
+import { summaryChanges, summaryPr, summaryAsk, summaryBase, fewerRanges, keepSeen } from './team-summaries.mjs';
+import { openKitchen } from './open-kitchen.mjs';
 import { sealSigned, sealTo, aad, teamKey, newMember, signRoster } from './seal.ts';
 
 const MIN = 60000;
@@ -107,7 +109,7 @@ test('summarize keeps only shared projects, no coordinators, waiting tickets fir
   const s = summarize(boardNow(now), [P]);
   assert.deepEqual(s.tickets.map((k) => k.thread), ['th-parser', 'th-docs']);
   assert.equal(s.tickets[0].atPass, true);
-  assert.deepEqual(s.tickets[0].prs, [{ repo: 'acme/app', n: 12, state: 'open', url: 'https://github.com/acme/app/pull/12' }]);
+  assert.deepEqual(s.tickets[0].prs, [{ repo: 'acme/app', n: 12, state: 'open', url: 'https://github.com/acme/app/pull/12', base: null, draft: null, mergedAt: null }]);
   assert.doesNotMatch(JSON.stringify(s), /Private work|ATC/);
   assert.equal(summarize(boardNow(now), []).tickets.length, 0);
   const many = { tickets: Array.from({ length: 300 }, (_, i) => ({ thread: { threadId: `t${i}`, projectId: P, title: 'x'.repeat(150) }, project: 'app', place: 'In review', atPass: false, working: 0, asks: [], call: null, prs: [], updatedAt: '' })) };
@@ -1778,4 +1780,158 @@ test('after a restart, the summary the relay kept is not live until this Mac rea
   await timers.advance(10000);
   await until(() => lead.view().people.find((x) => x.id === dev.meId).live === true, 'live after the first read');
   lead.stop(); again.stop();
+});
+
+// ---- 3b PR 4: the summary fields step 4 reads (client/open-kitchen.mjs cleanTicket, cleanBase) ----
+const AT = Date.UTC(2026, 10, 11, 9);
+const read = (files, extra = {}) => ({ state: 'checked', at: AT, folder: '/w', head: 'A'.repeat(40), remote: { host: 'github.com', repo: 'acme/app' },
+  base: { ref: 'origin/main', branch: 'main', from: 'upstream', commit: 'b'.repeat(40) }, files,
+  size: { files: files.filter((f) => !f.lock).length, added: 10, removed: 2 }, truncated: false, ...extra });
+
+test('changed files go on the base side, unknown stays null, and lockfiles are marked and kept (3b PR 4)', () => {
+  const c = summaryChanges(read([
+    { path: 'src/a.ts', kind: 'modified', added: 3, removed: 1, hunks: [[10, 2, 10, 4], [40, 0, 43, 1]] },
+    { path: 'pnpm-lock.yaml', kind: 'modified', added: 400, removed: 300, hunks: [[1, 300, 1, 400]], lock: true },
+    { path: 'bin/x', kind: 'modified', added: null, removed: null, hunks: [], filtered: true },
+  ]));
+  assert.equal(c.state, 'checked');
+  assert.equal(c.at, AT);
+  assert.equal(c.repo, 'acme/app');
+  assert.equal(c.base, 'main');
+  assert.equal(c.mergeBase, 'b'.repeat(40));
+  assert.equal(c.head, 'a'.repeat(40));
+  assert.deepEqual(c.files.map((f) => f.p), ['bin/x', 'pnpm-lock.yaml', 'src/a.ts'], 'unknown size first, then the most lines');
+  assert.deepEqual(c.files[2], { p: 'src/a.ts', r: [[10, 11], [41, 40]], a: 3, d: 1 }, 'base-side ranges; a pure insertion is [n + 1, n]');
+  assert.equal(c.files[1].x, 1);
+  assert.deepEqual(c.files[0], { p: 'bin/x', r: null, a: null, d: null }, 'no hunks read: ranges and counts not checked');
+  assert.equal(c.more, 0);
+  assert.deepEqual(summaryChanges({ state: 'not-checked', why: 'no git', at: AT }), { state: 'not-checked', why: 'no git', at: AT });
+  assert.equal(summaryChanges(null), null);
+});
+
+test('at most 150 files and 24 ranges per file: more counts what was cut, and every changed line stays covered (3b PR 4)', () => {
+  const files = Array.from({ length: 160 }, (_, i) => ({ path: `f${String(i).padStart(3, '0')}`, kind: 'modified', added: i, removed: 0, hunks: [[i + 1, 0, i + 1, i]] }));
+  const c = summaryChanges(read(files, { truncated: true }));
+  assert.equal(c.files.length, 150);
+  assert.equal(c.files[0].p, 'f159');
+  assert.equal(c.more, 11, '10 files cut here, plus one for the list git cut');
+  const many = Array.from({ length: 40 }, (_, i) => [i * 10 + 1, i * 10 + 3]);
+  const few = fewerRanges(many);
+  assert.equal(few.length, 24);
+  for (const [a, b] of many) assert.ok(few.some(([x, y]) => x <= a && b <= y), `${a}-${b} covered`);
+});
+
+test('a PR carries T3\'s target branch, draft and merge time, and GitHub\'s size when it read one (3b PR 4)', () => {
+  const link = { repository: 'acme/app', number: 12, state: 'open', url: 'https://github.com/acme/app/pull/12', base: 'main', draft: true, mergedAt: null };
+  assert.deepEqual(summaryPr(link, null), { repo: 'acme/app', n: 12, state: 'open', url: 'https://github.com/acme/app/pull/12', base: 'main', draft: true, mergedAt: null });
+  const sized = summaryPr(link, { state: 'checked', at: AT, draft: false, base: 'release', size: { files: 4, added: 900, removed: 10 } });
+  assert.deepEqual([sized.draft, sized.base, sized.size], [false, 'release', { files: 4, added: 900, removed: 10, at: AT }]);
+  assert.equal(summaryPr(link, { state: 'checked', at: AT, draft: false, base: 'main', size: null }).size, null, 'a partial file list: size not checked');
+  assert.equal(summaryPr({ ...link, state: 'merged', mergedAt: '2026-11-11T08:00:00Z' }, null).mergedAt, Date.UTC(2026, 10, 11, 8));
+  // Draft unknown stays unknown: T3 gave none and GitHub was not read, or GitHub's answer had none (PR-Agent r1 on #27).
+  assert.equal(summaryPr({ ...link, draft: null }, null).draft, null);
+  assert.equal(summaryPr({ ...link, draft: null }, { state: 'not-checked', why: 'no gh', at: AT }).draft, null);
+  assert.equal(summaryPr({ ...link, draft: true }, { state: 'checked', at: AT, base: 'main', size: null }).draft, true);
+});
+
+test('the open question: a T3 question first, else the hand-back\'s call, cut to size (3b PR 4)', () => {
+  const k = { thread: { updatedAt: '2026-11-11T09:00:00Z' }, call: null,
+    asks: [{ thread: { updatedAt: '2026-11-11T08:30:00Z' }, items: [{ question: 'Which DB?', options: [{ label: 'Postgres', description: 'the default' }, { label: 'SQLite' }] }, { question: 'Name?' }] }] };
+  assert.deepEqual(summaryAsk(k), { at: Date.UTC(2026, 10, 11, 8, 30), q: 'Which DB?', rec: null, n: 2, options: [{ k: 'Postgres', t: 'the default' }, { k: 'SQLite', t: 'SQLite' }] });
+  const call = { thread: { updatedAt: '2026-11-11T09:00:00Z' }, asks: [],
+    call: { calls: [{ question: 'Ship it?', options: Array.from({ length: 8 }, (_, i) => ({ letter: 'abcdefgh'[i], text: 'x'.repeat(300) })), recommend: 'a' }] } };
+  const a = summaryAsk(call);
+  assert.equal(a.options.length, 6);
+  assert.equal(a.options[0].t.length <= 120, true);
+  assert.deepEqual([a.q, a.rec, a.n, a.at], ['Ship it?', 'a', 1, Date.UTC(2026, 10, 11, 9)]);
+  assert.equal(summaryAsk({ thread: {}, asks: [], call: null }), null);
+});
+
+test('summarize carries the readers: changes per ticket, each base once with its failing checks, and a day of Seen (3b PR 4)', () => {
+  const now = Date.UTC(2026, 10, 10, 12);
+  const board = boardNow(now);
+  board.tickets.find((k) => k.thread.threadId === 'th-docs').lastWords = '\n  Tests pass. Waiting on review.\nMore detail.';
+  const base = { state: 'checked', at: now, host: 'github.com', repo: 'acme/app', branch: 'main', sha: 'c'.repeat(40), title: 'Merge #11', committedAt: '2026-11-10T11:00:00Z',
+    result: 'failing', requiredResult: 'failing', checks: [{ name: 'test', state: 'failing' }, { name: 'lint', state: 'passing' }] };
+  const asked = [];
+  const s = summarize(board, [P], 65536, {
+    changes: (id) => (id === 'th-docs' ? read([{ path: 'docs/a.md', kind: 'modified', added: 1, removed: 0, hunks: [[3, 0, 4, 1]] }]) : { state: 'not-checked', why: 'not read yet', at: now }),
+    base: () => base,
+    pr: (x) => { asked.push(x); return { state: 'checked', at: now, draft: false, base: 'main', size: { files: 2, added: 30, removed: 1 } }; },
+    seen: { 'stuck:th-x:1': now - 3600000, 'old:th-y:1': now - 25 * 3600000 }, now,
+  });
+  const docs = s.tickets.find((k) => k.thread === 'th-docs');
+  assert.equal(docs.changes.files[0].p, 'docs/a.md');
+  assert.equal(docs.last, 'Tests pass. Waiting on review.');
+  assert.equal(docs.startedAt, null, 'the fixture thread has no createdAt: not checked');
+  assert.equal(s.tickets.find((k) => k.thread === 'th-parser').changes.state, 'not-checked');
+  assert.deepEqual(asked, [{ host: 'github.com', repo: 'acme/app', number: 12 }]);
+  assert.deepEqual(s.tickets.find((k) => k.thread === 'th-parser').prs[0].size, { files: 2, added: 30, removed: 1, at: now });
+  assert.equal(s.bases.length, 1, 'two threads on one base: sent once');
+  assert.deepEqual(s.bases[0], { repo: 'acme/app', branch: 'main', sha: 'c'.repeat(40), title: 'Merge #11', committedAt: Date.UTC(2026, 10, 10, 11), result: 'failing', requiredResult: 'failing', failing: ['test'], at: now });
+  assert.deepEqual(s.seen, { 'stuck:th-x:1': now - 3600000 }, 'a call seen over a day ago is dropped');
+  assert.doesNotMatch(JSON.stringify(s), /Private work/);
+  // A reader that throws reads as not checked; the summary still goes.
+  const bad = summarize(board, [P], 65536, { changes: () => { throw new Error('boom'); } });
+  assert.equal(bad.tickets.every((k) => !('changes' in k)), true);
+  assert.deepEqual(keepSeen({ a: now + 3600000, b: 'x', c: now }, now), { c: now }, 'no time from the future, no odd values');
+});
+
+test('over the cap, the least recent tickets lose their changed files first, before any ticket is cut (3b PR 4)', () => {
+  const now = Date.UTC(2026, 10, 10, 12);
+  const tickets = Array.from({ length: 6 }, (_, i) => ({ thread: { threadId: `t${i}`, projectId: P, title: `T${i}` }, project: 'app', place: 'In progress', atPass: false, working: 1, asks: [], call: null, prs: [],
+    updatedAt: new Date(now - i * 60000).toISOString() }));
+  const big = Array.from({ length: 150 }, (_, j) => ({ path: `src/${'d'.repeat(40)}/${j}.ts`, kind: 'modified', added: 5, removed: 5, hunks: [[j + 1, 5, j + 1, 5]] }));
+  const s = summarize({ tickets }, [P], 65536, { changes: () => read(big) });
+  assert.equal(s.tickets.length, 6, 'no ticket cut');
+  assert.equal(s.more, 0);
+  const kept = s.tickets.map((k) => !!k.changes);
+  assert.ok(kept.includes(false) && kept[0], 'the newest kept its files');
+  assert.deepEqual(kept, [...kept].sort((a, b) => b - a), 'files dropped from the oldest end');
+  assert.ok((JSON.stringify(s).length * 4) / 3 + 600 <= 65536);
+});
+
+test('a summary from summarize is one step 4 reads: two devs on the same lines raise Overlap on the lead\'s Pass (3b PR 4)', () => {
+  const now = Date.UTC(2026, 10, 10, 12);
+  const mine = (thread, hunks) => summarize({ tickets: [{ thread: { threadId: thread, projectId: P, title: thread, createdAt: new Date(now - 3600000).toISOString() }, project: 'app', place: 'In progress', atPass: false, working: 1, asks: [], call: null, prs: [], updatedAt: new Date(now).toISOString() }] },
+    [P], 65536, { changes: () => read([{ path: 'src/parser.ts', kind: 'modified', added: 5, removed: 5, hunks }]), now });
+  const person = (id, summary) => ({ id, name: id, role: 'engineer', online: true, summary: { ...summary, at: now, health: { ok: true, since: now } } });
+  const view = (b) => ({ link: 'online', lead: true, me: { id: 'L' }, people: [person('kai', mine('th-kai', [[100, 10, 100, 10]])), person('jon', mine('th-jon', b))] });
+  const kinds = (v) => openKitchen(v, { now }).pass.map((c) => c.kind);
+  assert.ok(kinds(view([[105, 10, 105, 10]])).includes('overlap'), 'the same lines: Overlap');
+  assert.ok(!kinds(view([[500, 10, 500, 10]])).includes('overlap'), 'other lines: no Overlap');
+});
+
+test('a reader\'s news republishes the summary, and an opened call goes out as Seen (3b PR 4)', async () => {
+  const { relay, timers, lead, dev } = await crew();
+  let files = [];
+  const readers = { changes: () => read(files) };
+  dev.board(boardNow(relay.now()), readers);
+  await until(() => lead.summaries.size === 1, 'the first summary');
+  const got = () => lead.summaries.get(dev.meId).body;
+  assert.equal(got().tickets[0].changes.files.length, 0);
+  files = [{ path: 'src/a.ts', kind: 'modified', added: 1, removed: 0, hunks: [[1, 0, 2, 1]] }];
+  dev.readersMoved();
+  await timers.advance(10000);
+  await until(() => got().tickets[0].changes.files.length === 1, 'the new files');
+  dev.markSeen('stuck:th-docs:1');
+  await timers.advance(10000);
+  await until(() => got().seen?.['stuck:th-docs:1'], 'Seen');
+  lead.stop(); dev.stop();
+});
+
+test('Seen keeps the newest calls within 8 KiB, so even long ids leave the summary under the limit (PR-Agent r2 on #27)', () => {
+  const now = Date.UTC(2026, 10, 10, 12);
+  const seen = Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`stuck:${String(i).padStart(3, '0')}:${'é'.repeat(290)}`, now - i * 1000]));
+  const kept = keepSeen(seen, now);
+  assert.ok(new TextEncoder().encode(JSON.stringify(kept)).length <= 8192);
+  assert.ok(Object.keys(kept).length > 0 && Object.keys(kept).every((id) => id.startsWith('stuck:0')), 'the newest kept');
+  assert.ok(Object.keys(kept).includes(Object.keys(seen)[0]));
+  const s = summarize(boardNow(now), [P], 65536, { seen, now });
+  assert.equal(s.tickets.length, 2, 'no ticket cut for Seen');
+  assert.ok((new TextEncoder().encode(JSON.stringify(s)).length * 4) / 3 + 600 <= 65536);
+  // A limit far below the relay's: the base branches go last, and the summary still fits.
+  const base = { state: 'checked', at: now, repo: 'acme/app', branch: 'main', sha: 'c'.repeat(40), title: 'x'.repeat(120), checks: [] };
+  const tiny = summarize(boardNow(now), [P], 900, { base: () => base, now });
+  assert.ok((new TextEncoder().encode(JSON.stringify(tiny)).length * 4) / 3 + 600 <= 900);
 });
