@@ -1,7 +1,7 @@
 // Open kitchen, the Your team view (step 4). Run: node --test client/open-kitchen.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openKitchen, callId, below, reporting, reach, sortCalls, may, RULES } from './open-kitchen.mjs';
+import { openKitchen, kitchenBoard, callId, below, reporting, reach, sortCalls, may, RULES } from './open-kitchen.mjs';
 import { fixtureView } from './open-kitchen.fixture.mjs';
 import { renderApp } from './board.mjs';
 
@@ -13,13 +13,17 @@ const who = (v, id) => v.people.find((p) => p.id === id);
 const ticket = (v, id) => who(v, id).summary.tickets[0];
 const read = (v) => openKitchen(v, { now: NOW });
 const kinds = (calls) => calls.map((c) => `${c.kind}:${c.who.join('+')}`);
+// Today's merges count from local midnight, so a test of them anchors the made-up team at 14:03 local time, on any TZ.
+const NOWL = new Date(2026, 10, 10, 14, 3).getTime();
+const agoL = (m) => NOWL - m * MIN;
+const viewL = () => fixtureView(NOWL);
 
 test('the made-up team gives the approved mock’s Pass: red first, then amber by age', () => {
   const ok = read(view());
   assert.equal(ok.status, 'live');
   assert.deepEqual(kinds(ok.pass), ['main:ravi', 'overlap:kai+jon', 'failing:nina', 'waiting:lee', 'big:iris', 'stuck:omar']);
   assert.deepEqual(ok.pass.map((c) => c.reach.why), ['red', 'red', 'runs', 'quiet', 'unseen', 'unseen']);
-  // Ben marked his own alarm Seen, so it stays his.
+  // Ben marked their own alarm Seen, so it stays theirs.
   assert.deepEqual(kinds(ok.held), ['failing:ben']);
   const state = Object.fromEntries(ok.people.map((p) => [p.id, p.state]));
   assert.deepEqual(Object.entries(state).filter(([, s]) => s !== 'track').map(([id, s]) => `${id}:${s}`).sort(),
@@ -199,7 +203,7 @@ test('the thresholds are the brief’s defaults', () => {
 const page = (team) => renderApp({ board: { tickets: [], runsChecked: false }, link: () => 'x', status: { ok: true, at: NOW, ms: 1 }, origin: 'https://t3.example', team });
 
 test('Your team draws The Pass’s calls, the rail card, the quiet line and a reader for each', () => {
-  const html = page({ view: view(), now: NOW });
+  const html = page({ view: viewL(), now: NOWL });
   assert.equal((html.match(/class="tile call-tile mail team-tile"/g) || []).length, 6);
   assert.equal((html.match(/<article class="plate team-plate"/g) || []).length, 6);
   assert.match(html, /<div class="folder" data-folder="team">/);
@@ -414,4 +418,377 @@ test('review r6: a summary that is not an object with tickets is not checked, ne
     v = view(); for (const p of v.people) if (p.id !== 'me') p.summary = bad;
     assert.equal(read(v).status, 'not-checked');
   }
+});
+
+// ---- PR B: Your team, expanded ----
+const board = (v, want = null) => kitchenBoard(openKitchen(v, { now: NOWL }), { now: NOWL, want });
+const hmOf = (t) => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
+test('expanded: the instruments from the made-up team', () => {
+  const B = board(viewL());
+  assert.equal(B.people, 14);
+  assert.equal(B.base.state, 'red');
+  assert.equal(B.base.since, agoL(141));
+  assert.deepEqual(B.base.merges.map((m) => `${m.n}:${m.tone}`), ['425:merged', '427:merged', '429:merged', '430:merged', '431:red']);
+  // One mark per merge it counts, so the base and Merged today agree (brief, departure 1).
+  assert.equal(B.merged.count, B.base.merges.length);
+  assert.equal(B.merged.byHour.reduce((a, n) => a + n, 0), 5);
+  assert.equal(B.merged.usual, null, 'no merge history is sent, so usual by now is not checked');
+  assert.deepEqual(B.review, { count: 3, gap: { away: 1, capped: 0 }, ages: [236, 128, 44].map((m) => m * MIN) });
+  // Lee is not reporting, so their thread's agent is not counted as running now; Tom's planned thread runs none.
+  assert.deepEqual(B.agents, { count: 20, threads: 12, gap: { away: 1, capped: 0 } });
+});
+
+test('expanded: Who’s on what puts In The Pass first, links the Overlap, and hatches a quiet Mac', () => {
+  const B = board(viewL());
+  const T = B.timeline;
+  assert.deepEqual(T.rows.map((r) => r.state).filter((s, i, a) => a.indexOf(s) === i), ['pass', 'alarm', 'quiet', 'track']);
+  const lee = T.rows.find((r) => r.person === 'lee');
+  assert.equal(lee.quiet.since, agoL(122));
+  assert.equal(lee.bars[0].end, agoL(122), 'a quiet dev’s bar stops at their last report');
+  assert.equal(lee.bars[0].call.kind, 'waiting');
+  const ravi = T.rows.find((r) => r.person === 'ravi');
+  assert.deepEqual(ravi.bars.map((b) => [b.title, b.call?.kind || null, b.merged !== null]), [['Updater channel picker', 'main', true], ['Nightly icon', null, false]]);
+  assert.equal(T.rows.find((r) => r.person === 'ben').bars[0].call.mine, false, 'Ben holds their own alarm');
+  assert.deepEqual(T.links.map((l) => [l.a, l.b, l.file]), [['kai', 'jon', 'contracts/src/orchestration.ts']]);
+  assert.ok(T.rows.every((r) => r.bars.every((b) => b.start >= T.from && b.end <= T.to && b.start <= b.end)));
+});
+
+test('expanded: files two live threads change, same lines first', () => {
+  const F = board(viewL()).files;
+  assert.deepEqual(F.rows.map((f) => [f.path, f.state, f.people.join('+')]), [['contracts/src/orchestration.ts', 'same', 'kai+jon'], ['web/src/sidebar.tsx', 'different', 'kai+ada']]);
+  assert.ok(F.rows[0].call.mine);
+  assert.equal(F.at, agoL(1));
+});
+
+test('expanded: what no summary says stays not checked, never a guess', () => {
+  let v = viewL();
+  delete ticket(v, 'kai').prs[0].readyAt;
+  assert.equal(board(v).review.ages, null, 'one PR with no ready time leaves the ages not checked');
+  v = viewL();
+  who(v, 'ravi').summary.bases = [];
+  assert.equal(board(v).base.state, null);
+  v = viewL();
+  delete ticket(v, 'ada').changes.files[0].r;
+  const F = board(v).files;
+  assert.equal(F.rows.find((f) => f.path === 'web/src/sidebar.tsx').state, 'nc');
+  v = viewL();
+  delete ticket(v, 'kai').changes.at;
+  assert.equal(board(v).files.at, null);
+  // A thread with no start time is counted, not drawn; work merged before today is not drawn at all.
+  v = viewL();
+  delete ticket(v, 'tom').startedAt;
+  const tom = board(v).timeline.rows.find((r) => r.person === 'tom');
+  assert.deepEqual([tom.bars.length, tom.untimed], [0, 1]);
+  v = viewL();
+  who(v, 'maya').summary.tickets[1].prs[0].mergedAt = new Date(NOWL - 30 * 60 * MIN).toISOString();
+  assert.equal(board(v).timeline.rows.find((r) => r.person === 'maya').bars.length, 1);
+  assert.equal(kitchenBoard(openKitchen({ ...viewL(), link: 'offline' }, { now: NOWL }), { now: NOWL }), null);
+});
+
+test('expanded: a picked project narrows the board', () => {
+  const B = board(viewL(), new Set(['Quillo']));
+  assert.deepEqual(B.timeline.rows.map((r) => r.person).sort(), ['elena', 'lee', 'nina', 'tom']);
+  assert.equal(B.base.state, null, 'the red base is in another project’s repo');
+  assert.equal(B.merged.count, 0);
+  assert.equal(B.files.rows.length, 0);
+});
+
+test('expanded: the page draws the board and The Pass as a column; each opens a call that is in the page', () => {
+  const html = page({ view: viewL(), now: NOWL });
+  assert.match(html, /<section class="tboard"/);
+  assert.ok(!html.includes('class="team-wait"'), 'the board replaces the waiting panel');
+  assert.equal((html.match(/class="xc"/g) || []).length, 6);
+  const opens = [...html.matchAll(/data-team-open="([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(opens.length > 12);
+  for (const id of new Set(opens)) assert.ok(html.includes(`<article class="plate team-plate" id="${id}"`), id);
+  // Every colour carries a word: the legend says what red and amber mean.
+  for (const w of ['working', 'merged', 'red: act now', 'amber: decide soon', 'not reporting']) assert.ok(html.includes(w), w);
+  // Lee's Mac is not reporting, so Merged today may be low: it says at least, and why.
+  assert.ok(html.includes('<b>5</b><span>at least</span>'));
+  assert.ok(html.includes(`Mac quiet since ${hmOf(agoL(122))}`));
+  assert.ok(html.includes('6 need you, most urgent first.'));
+  // The suggestion button is the call's first action, and only for a role that may take it.
+  assert.match(html, /data-team-act="rollback">Roll back #431</);
+  const v = viewL(); v.me = { ...v.me, role: 'engineer', perms: ['see'] };
+  assert.ok(!page({ view: v, now: NOWL }).includes('data-team-act='), 'See only: Open, never the suggestion');
+});
+
+// ---- PR B, PR-Agent round 1 ----
+test('r1: a merge is red only in the base’s current run of red; no merge is ever called green', () => {
+  let v = viewL();
+  who(v, 'ravi').summary.bases[0].requiredResult = 'passing';
+  assert.ok(board(v).base.merges.every((m) => m.tone === 'merged'), 'a green base now says nothing about earlier merges');
+  v = viewL();
+  who(v, 'ravi').summary.bases[0].redSince = null;
+  assert.deepEqual(board(v).base.merges.map((m) => m.tone), ['merged', 'merged', 'merged', 'merged', 'red'], 'the red commit itself is still red');
+  const html = page({ view: viewL(), now: NOWL });
+  assert.ok(!html.includes('merged while green'));
+});
+
+test('r1: lines from two merge bases are not checked, never Different lines. Fine', () => {
+  const v = viewL();
+  ticket(v, 'ada').changes.mergeBase = 'b1';
+  const f = board(v).files.rows.find((r) => r.path === 'web/src/sidebar.tsx');
+  assert.deepEqual([f.state, f.near], ['nc', true]);
+  assert.ok(page({ view: v, now: NOWL }).includes('Lines not checked: two merge bases'));
+});
+
+test('r1: live threads whose files were not sent are counted, so an empty list is never an all clear', () => {
+  const v = viewL();
+  const F0 = board(v).files;
+  const before = F0.unread;
+  delete ticket(v, 'ada').changes;
+  const F = board(v).files;
+  assert.equal(F.unread, before + 1);
+  assert.equal(F.compared, F0.compared - 1);
+  assert.match(page({ view: v, now: NOWL }), new RegExp(`${F.unread} live threads? not checked`));
+});
+
+test('r1: a merged PR with no time makes the count a floor, never dropped', () => {
+  const v = viewL();
+  const n = board(v).merged.count;
+  ticket(v, 'kai').prs[0].state = 'merged';
+  ticket(v, 'kai').prs[0].mergedAt = null;
+  const M = board(v).merged;
+  assert.deepEqual([M.count, M.untimed], [n, 1]);
+  assert.ok(page({ view: v, now: NOWL }).includes('Not counted: 1 merge with no time, 1 Mac not reporting'));
+});
+
+test('r1: a call’s word is inside its bar, so a click on the word opens the call', () => {
+  const html = page({ view: viewL(), now: NOWL });
+  const tags = (html.match(/<span class="tltag /g) || []).length;
+  const inBar = /<(button|span) (?:type="button" )?class="tlb[^"]*"[^>]*>(?:<span class="tlt">[^<]*<\/span>)?<span class="tltag [^>]*>[^<]*<\/span><\/\1>/g;
+  const inButton = [...html.matchAll(inBar)].filter((m) => m[1] === 'button').length;
+  assert.ok(tags > 0);
+  assert.equal([...html.matchAll(inBar)].length, tags, 'every tag is inside its bar');
+  assert.ok(inButton > 0, 'a call in The Pass: the bar and its word are one button');
+});
+
+// ---- PR B, PR-Agent round 2 ----
+test('r2: a thread that sent only part of its files is counted, so a clear list says so', () => {
+  const v = viewL();
+  ticket(v, 'ada').changes.more = 12;
+  const F = board(v).files;
+  assert.equal(F.partial, 1);
+  assert.ok(page({ view: v, now: NOWL }).includes('1 thread sent only part of its files.'));
+  assert.equal(board(viewL()).files.partial, 0);
+});
+
+test('r2: a Mac that is not reporting makes Waiting for review and Agents running say so, never a bare 0', () => {
+  const html = page({ view: viewL(), now: NOWL });
+  assert.equal((html.match(/<span class="cap"><span>Not counted: 1 Mac not reporting<\/span><\/span>/g) || []).length, 3, 'under Merged today, Waiting for review and Agents running');
+  // With no live PR in review and a Mac out, the count is not checked.
+  const v = viewL();
+  for (const id of ['kai', 'nina', 'iris']) ticket(v, id).place = 'In progress';
+  const B = board(v);
+  assert.deepEqual([B.review.count, B.review.gap.away], [0, 1]);
+  assert.match(page({ view: v, now: NOWL }), /<b class="nc">Not checked<\/b><span>1 Mac not reporting<\/span>/);
+  // A picked project counts only the Macs out that may have work in it.
+  assert.equal(board(viewL(), new Set(['Fernpay'])).review.gap.away, 0);
+  assert.equal(board(viewL(), new Set(['Quillo'])).review.gap.away, 1);
+});
+
+test('r2: a Mac quiet since before the window draws from the window’s edge and keeps its real time', () => {
+  const v = viewL();
+  const lee = who(v, 'lee');
+  lee.lastSeen = NOWL - 20 * 60 * MIN;
+  lee.at = lee.lastSeen;
+  const T = board(v).timeline;
+  assert.ok(T.rows.find((r) => r.person === 'lee').quiet.since < T.from);
+  const html = page({ view: v, now: NOWL });
+  const band = html.match(/<span class="tlb off clip" style="[^"]*left:([0-9.]+)%[^"]*">Mac quiet since ([^<]+)</);
+  assert.ok(band, 'the band is clipped at the window');
+  assert.equal(Number(band[1]), 0);
+  assert.equal(band[2], new Date(NOWL - 20 * 60 * MIN).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }));
+});
+
+// ---- PR B, PR-Agent round 3 ----
+test('r3: a summary that left threads out makes every team count say so', () => {
+  const v = viewL();
+  who(v, 'kai').summary.more = 4;
+  const B = board(v);
+  for (const g of [B.merged.gap, B.review.gap, B.agents.gap]) assert.deepEqual(g, { away: 1, capped: 1 });
+  assert.equal((page({ view: v, now: NOWL }).match(/Not counted: 1 Mac not reporting, 1 Mac that sent part of its threads/g) || []).length, 3);
+  // Lee alone, with no capped summary and Lee back: no caption, and Merged today is a plain count.
+  const w = viewL();
+  Object.assign(who(w, 'lee'), { online: true, lastSeen: null, at: agoL(1) });
+  const html = page({ view: w, now: NOWL });
+  assert.ok(!html.includes('Not counted:'));
+  assert.ok(html.includes('usual by now: not checked'));
+});
+
+test('r3: a PR any summary reports merged never waits for review', () => {
+  const v = viewL();
+  const n = board(v).review.count;
+  // Ravi's thread also holds Kai's #412, and reports it merged; Kai's copy still says open.
+  who(v, 'ravi').summary.tickets[0].prs.push({ ...ticket(v, 'kai').prs[0], state: 'merged', mergedAt: new Date(agoL(5)).toISOString() });
+  assert.equal(board(v).review.count, n - 1);
+});
+
+// ---- PR B, PR-Agent round 4 ----
+test('r4: a Mac whose summary left threads out qualifies the shared files list too', () => {
+  const v = viewL();
+  who(v, 'kai').summary.more = 4;
+  assert.equal(board(v).files.capped, 1);
+  assert.ok(page({ view: v, now: NOWL }).includes('1 Mac sent only part of its threads.'));
+  assert.equal(board(viewL()).files.capped, 0);
+});
+
+// ---- PR B, PR-Agent round 5 ----
+test('r5: a merged thread with one PR of no merge time has no known end, so it is not drawn as merged early', () => {
+  const v = viewL();
+  const maya = who(v, 'maya').summary.tickets.find((k) => k.place === 'Merged');
+  const first = board(v).timeline.rows.find((r) => r.person === 'maya').bars.find((b) => b.thread === maya.thread);
+  assert.ok(first && first.merged !== null);
+  maya.prs.push({ ...maya.prs[0], n: 999, mergedAt: null });
+  assert.equal(board(v).timeline.rows.find((r) => r.person === 'maya').bars.find((b) => b.thread === maya.thread), undefined);
+});
+
+test('r5: checked changes with no repo are not checked, never counted as read', () => {
+  const v = viewL();
+  const B0 = board(v).files;
+  ticket(v, 'ada').changes.repo = null;
+  const F = board(v).files;
+  assert.deepEqual([F.compared, F.unread], [B0.compared - 1, B0.unread + 1]);
+  assert.ok(!F.rows.some((f) => f.path === 'web/src/sidebar.tsx'));
+});
+
+// ---- PR B, PR-Agent round 6 ----
+test('r6: in a picked project, a Mac out whose summary left threads out still counts as not counted', () => {
+  const v = viewL();
+  assert.equal(board(v, new Set(['Fernpay'])).review.gap.away, 0, 'Lee works in Quillo only');
+  who(v, 'lee').summary.more = 3;
+  assert.equal(board(v, new Set(['Fernpay'])).review.gap.away, 1);
+});
+
+test('r6: a merge with a known time in any copy is never counted as having no time', () => {
+  const v = viewL();
+  const merged = who(v, 'maya').summary.tickets.find((k) => k.place === 'Merged');
+  // Kai's thread holds a copy of Maya's PR with no time; Maya's copy has one.
+  ticket(v, 'kai').prs.push({ ...merged.prs[0], mergedAt: null });
+  assert.equal(board(v).merged.untimed, 0);
+  // Moved before today, the known copy still settles it: not today's, and not untimed.
+  merged.prs[0].mergedAt = new Date(NOWL - 30 * 60 * MIN).toISOString();
+  assert.equal(board(v).merged.untimed, 0);
+});
+
+// ---- PR B, PR-Agent round 7 ----
+test('r7: in a picked project, a merge whose time is in another project’s copy is counted with that time', () => {
+  const v = viewL();
+  const merged = who(v, 'maya').summary.tickets.find((k) => k.place === 'Merged');
+  // Tom's Quillo thread holds a copy of Maya's Fernpay PR with no time; Maya's own copy (Fernpay) has today's time.
+  who(v, 'tom').summary.tickets[0].prs = [{ ...merged.prs[0], mergedAt: null }];
+  const M = board(v, new Set(['Quillo'])).merged;
+  assert.deepEqual([M.count, M.untimed], [1, 0]);
+});
+
+// ---- PR B, PR-Agent round 8 ----
+test('r8: one repo with two base branches reads as one repo and two branches, never 2 repos', () => {
+  const v = viewL();
+  const base = who(v, 'ravi').summary.bases[0];
+  Object.assign(base, { result: 'passing', requiredResult: 'passing', redSha: null, redSince: null, failing: [] });
+  who(v, 'ravi').summary.bases.push({ ...base, branch: 'release', sha: 'r1' });
+  const html = page({ view: v, now: NOWL });
+  assert.ok(html.includes('<b class="green">Green</b><span>fernpay, 2 branches</span>'));
+  assert.ok(!html.includes('2 repos'));
+  // Both red: each named by its branch, once.
+  for (const b of who(v, 'ravi').summary.bases) Object.assign(b, { result: 'failing', requiredResult: 'failing', redSince: new Date(agoL(60)).toISOString() });
+  assert.match(page({ view: v, now: NOWL }), /<b class="red">Red<\/b><span>since [0-9:]+, fernpay main and fernpay release<\/span>/);
+});
+
+test('r8: a call’s word may shorten, and never leaves its bar', async () => {
+  const { readFileSync } = await import('node:fs');
+  const css = readFileSync(new URL('./server.mjs', import.meta.url), 'utf8');
+  assert.ok(css.includes('.tlb:has(.tltag){display:flex;padding-right:0;overflow:hidden}'));
+  assert.ok(css.includes('.tlb .tltag{position:static;flex:0 1 auto;min-width:0;'));
+});
+
+// ---- PR B, PR-Agent round 9 ----
+test('r9: in a picked project, a PR whose copy there says open is counted as merged when another copy says so', () => {
+  const v = viewL();
+  const merged = who(v, 'maya').summary.tickets.find((k) => k.place === 'Merged');
+  who(v, 'tom').summary.tickets[0].prs = [{ ...merged.prs[0], state: 'open', mergedAt: null }];
+  const M = board(v, new Set(['Quillo'])).merged;
+  assert.deepEqual([M.count, M.untimed], [1, 0]);
+});
+
+test('r9: a missing merge base is not checked, never said to be two merge bases', () => {
+  const v = viewL();
+  delete ticket(v, 'ada').changes.mergeBase;
+  const f = board(v).files.rows.find((r) => r.path === 'web/src/sidebar.tsx');
+  assert.deepEqual([f.state, f.near], ['nc', false]);
+  const html = page({ view: v, now: NOWL });
+  assert.ok(!html.includes('two merge bases'));
+  assert.ok(html.includes('Lines not checked'));
+});
+
+// ---- PR B, PR-Agent round 10 ----
+test('r10: a merge’s branch and commit come from whichever copy gives them, so the ribbon still marks the break', () => {
+  const v = viewL();
+  const ravi = who(v, 'ravi').summary.tickets.find((k) => k.prs.some((pr) => pr.n === 431));
+  const pr431 = ravi.prs.find((pr) => pr.n === 431);
+  // An earlier copy (Kai's thread, read first) says #431 is open and names no base.
+  who(v, 'kai').summary.tickets[0].prs.push({ ...pr431, state: 'open', mergedAt: null, base: null, mergeSha: null });
+  const i = v.people.findIndex((p) => p.id === 'kai');
+  v.people.splice(1, 0, ...v.people.splice(i, 1));
+  assert.equal(v.people[1].id, 'kai', 'Kai is read before Ravi');
+  const m = board(v).base.merges.find((x) => x.n === 431);
+  assert.equal(m.tone, 'red', 'the merged copy names main, so the break is marked');
+});
+
+// ---- PR B, PR-Agent round 11 ----
+test('r11: checked changes with no base branch are not checked, never counted as read', () => {
+  const v = viewL();
+  const F0 = board(v).files;
+  ticket(v, 'ada').changes.base = null;
+  const F = board(v).files;
+  assert.deepEqual([F.compared, F.unread], [F0.compared - 1, F0.unread + 1]);
+  assert.ok(!F.rows.some((f) => f.path === 'web/src/sidebar.tsx'));
+});
+
+test('the axis drops an hour label that would run into now, and keeps its grid line', () => {
+  const at = new Date(2026, 10, 10, 16, 6).getTime();
+  const html = page({ view: fixtureView(at), now: at });
+  const axis = html.match(/<div class="tlax">[^]*?<\/div><\/div>/)[0];
+  assert.ok(!axis.includes('>16:00<'), 'six minutes before now: no label');
+  assert.ok(axis.includes('>15:00<'));
+});
+
+// ---- PR B, PR-Agent round 13 ----
+test('r13: a merge is credited to the person whose copy says merged, not the first that mentions it', () => {
+  const v = viewL();
+  const pr431 = who(v, 'ravi').summary.tickets.find((k) => k.prs.some((pr) => pr.n === 431)).prs.find((pr) => pr.n === 431);
+  who(v, 'kai').summary.tickets[0].prs.push({ ...pr431, state: 'open', mergedAt: null });
+  const i = v.people.findIndex((p) => p.id === 'kai');
+  v.people.splice(1, 0, ...v.people.splice(i, 1));
+  assert.equal(board(v).base.merges.find((m) => m.n === 431).person, 'ravi');
+});
+
+// ---- PR B, PR-Agent round 14 ----
+test('r14: a lockfile two live threads change stays in the files list, not compared and with no call', () => {
+  const v = viewL();
+  const a = ticket(v, 'ada'), other = v.people.flatMap((p) => p.summary?.tickets ?? []).find((t) => t !== a && t.changes && t.changes.repo === a.changes.repo && t.changes.base === a.changes.base && t.place !== 'Merged');
+  for (const t of [a, other]) t.changes.files.push({ p: 'pnpm-lock.yaml', r: [[1, 40]], a: 30, d: 2, x: true });
+  const row = board(v).files.rows.find((f) => f.path === 'pnpm-lock.yaml');
+  assert.ok(row, 'the shared lockfile is listed');
+  assert.deepEqual([row.state, row.call], ['gen', null]);
+  assert.ok(!board(v).files.rows.slice(0, -1).some((f, i, rs) => f.state === 'gen' && rs[i + 1] && rs[i + 1].state !== 'gen'), 'generated files sort last');
+});
+
+// ---- PR B, PR-Agent round 15 ----
+test('r15: a copy that leaves out readyAt never hides another copy\'s time for the same PR', () => {
+  const v = viewL();
+  const R0 = board(v).review;
+  assert.ok(R0.ages, 'the fixture has every ready time');
+  const src = v.people.flatMap((p) => (p.summary?.tickets ?? []).map((k) => ({ p, k })))
+    .find(({ k }) => k.place === 'In review' && k.prs.some((pr) => pr.state === 'open' && !pr.draft && pr.readyAt));
+  const pr = src.k.prs.find((x) => x.state === 'open' && !x.draft && x.readyAt);
+  const other = v.people.find((p) => p !== src.p && p.online && p.summary);
+  other.summary.tickets.push({ ...src.k, thread: 'mcp:copy-1', prs: [{ ...pr, readyAt: null }] });
+  const i = v.people.indexOf(other);
+  v.people.splice(0, 0, ...v.people.splice(i, 1));
+  const R = board(v).review;
+  assert.equal(R.count, R0.count);
+  assert.deepEqual(R.ages, R0.ages);
 });
