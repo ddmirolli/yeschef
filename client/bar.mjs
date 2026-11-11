@@ -8,6 +8,7 @@
 // (client/bar.test.mjs). installBar() runs in the page. server.mjs inlines barCore and installBar by their source
 // text, so neither may use anything outside itself: no imports, no names from this module. Both are ES5, like the
 // page script.
+import { ICON } from './board.mjs';
 
 // Motion: Apple's default spring, duration 0.5 s, bounce 0. In CSS that is 735 ms with this linear() curve: the
 // critically damped spring drawn to 0.1% of the travel, as in the mock's spring5 rule (Dan, 2026-11-10).
@@ -61,6 +62,15 @@ export const BAR_CSS = `
 .cb-k{margin-left:auto;display:flex;align-items:center;gap:8px;flex:none}
 .cb-tag{padding:2px 7px;border-radius:6px;background:var(--pass-t);color:var(--pass);font-size:12px;font-weight:600}
 .cb-tag.now{background:var(--fill);color:var(--label2)}
+/* A choice found from the top shows the picture Settings shows (theme.mjs) on its right. */
+#bar .cb-mini{display:block;width:56px;flex:none}#bar .cb-mini .mini{border-radius:5px}
+/* Inside its step, each choice is its picture, as in Settings: the highlight is the fill, the current one the ring. */
+.cb-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:4px 2px 6px}
+.cb-it.cb-tile{flex-direction:column;align-items:stretch;gap:8px;min-height:0;padding:6px 6px 8px;border-radius:12px;box-shadow:inset 0 0 0 .5px var(--sep)}
+.cb-it.cb-tile.now{box-shadow:inset 0 0 0 2px var(--accent)}
+.cb-pic{display:block}.cb-pic .mini{border-radius:7px}
+.cb-tile .cb-t{align-items:center}
+.cb-tile .cb-t b{font-size:13px}
 .cb-st{display:inline-flex;align-items:center;gap:6px;color:var(--label2);font-size:12px;white-space:nowrap}
 .cb-foot{display:flex;align-items:center;gap:16px;padding:10px 16px;border-top:.5px solid var(--sep);background:var(--cb-foot);color:var(--label2);font-size:12px}
 .cb-foot span{display:inline-flex;align-items:center;gap:6px}
@@ -101,13 +111,17 @@ export const BAR_CSS = `
   .cb-compose{padding:12px}.cb-compose textarea{font-size:16px}.cb-crow{flex-wrap:wrap}.cb-crow .cb-why{flex-basis:100%}}
 `;
 
-// Icons: the mock's set, plus Request changes, Settle, Collapse and the two views.
+// Icons: the mock's set, plus Request changes, Settle and Collapse. The two views use the app's own person and toque
+// (APP_ICONS), as the footer chip does (Dan, 2026-11-10).
 const ICONS = {
   search: '<circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.4 10.4 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
   plus: '<path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>',
   note: '<path d="M3 3.5h10v7H7l-3 2.5v-2.5H3z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>',
   jump: '<path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>',
   rows: '<path d="M3 4.5h10M3 8h10M3 11.5h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
+  sun: '<circle cx="8" cy="8" r="2.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M3.6 12.4l1.1-1.1M11.3 4.7l1.1-1.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>',
+  moon: '<path d="M12.8 9.6A5.2 5.2 0 0 1 6.4 3.2a5.2 5.2 0 1 0 6.4 6.4z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>',
+  monitor: '<rect x="2" y="2.8" width="12" height="8.4" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M5.6 13.6h4.8M8 11.2v2.4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>',
   key: '<rect x="1.8" y="4" width="12.4" height="8" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M4.5 6.7h.01M7 6.7h.01M9.5 6.7h.01M12 6.7h.01M5 9.4h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>',
   gear: '<circle cx="8" cy="8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M3.6 12.4 5 11M11 5l1.4-1.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>',
   rules: '<path d="M4 2.5h8v11H4z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M6 5.5h4M6 8h4M6 10.5h2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>',
@@ -120,14 +134,16 @@ const ICONS = {
   refire: '<path d="M12.6 9.2A4.8 4.8 0 1 1 11.3 4.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M12.2 2.2v3h-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
   settle: '<circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="m5.6 8.2 1.7 1.7 3.2-3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
   cloche: '<path d="M2.8 11.6a5.2 5.2 0 0 1 10.4 0" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="4.9" r="1.2" fill="currentColor"/><path d="M1.8 12.7h12.4l-1 1H2.8z" fill="currentColor"/>',
-  you: '<circle cx="8" cy="5.5" r="2.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 13.5a5 5 0 0 1 10 0" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>',
   team: '<circle cx="6" cy="5.8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="11.2" cy="6.4" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M1.8 13.2a4.2 4.2 0 0 1 8.4 0M10.4 9.6a3.4 3.4 0 0 1 4 3.4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>',
 };
+// The app's 24-unit icons, framed to their middle 18 units so they read at the bar's 15 px as its own icons do.
+const APP_ICONS = ['person', 'toque'];
+const appSymbol = (id) => `<symbol id="cb-${id}" viewBox="3 3 18 18"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON[id]}</g></symbol>`;
 
 export const BAR_HTML = `<dialog id="bar" aria-label="Actions"><div class="cb center">
 <div class="cb-q"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#cb-search"/></svg><span class="cb-crumb" hidden></span><input id="cb-q" type="text" role="combobox" aria-expanded="false" aria-controls="cb-res" aria-autocomplete="list" aria-label="Search actions, threads and settings" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Search actions, threads and settings"><span class="cb-hint" hidden></span><kbd>esc</kbd></div>
 <div class="cb-drop"><div><div class="cb-res" id="cb-res" role="listbox" aria-label="Actions" tabindex="-1"></div><div class="cb-compose" role="group" aria-label="Send a note" hidden><div class="cb-to"></div><textarea id="cb-msg" rows="4" aria-label="Your note" placeholder="What should the agent know?"></textarea><p class="cb-say" role="status"></p><div class="cb-crow"><span class="cb-why">Goes to the agent as your message, queued like T3 Code's own queue.</span><span class="cb-sp"></span><button type="button" data-cb-back>Back</button><button type="button" class="fill" data-cb-send>Send <kbd>⌘</kbd><kbd>↵</kbd></button></div></div><div class="cb-foot"></div></div></div>
-</div><svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>${Object.entries(ICONS).map(([id, d]) => `<symbol id="cb-${id}" viewBox="0 0 16 16">${d}</symbol>`).join('')}</defs></svg></dialog>`;
+</div><svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>${Object.entries(ICONS).map(([id, d]) => `<symbol id="cb-${id}" viewBox="0 0 16 16">${d}</symbol>`).join('')}${APP_ICONS.map(appSymbol).join('')}</defs></svg></dialog>`;
 
 /** The bar's pure parts: matching, history and the view rows. Tested in client/bar.test.mjs. */
 export function barCore() {
@@ -190,7 +206,7 @@ export function barCore() {
     var next = i < 0 ? rest[0] : ids.slice(i + 1)[0] || rest[0];
     return next === undefined ? null : next;
   }
-  // View: You and View: Your team (Dan, 2026-11-10, views mock v4). Only a user with reports gets them, and only once
+  // View: You and View: Team (Dan, 2026-11-10, views mock v4; "Team" from the view menu). Only a user with reports gets them, and only once
   // the app can switch views. views: { hasReports, current: 'you' | 'team', team: { name, below } }. Nothing is guessed:
   // a missing team name or count reads "not checked".
   var VIEW_KW = 'switch team me mine solo lead reports scope';
@@ -200,10 +216,13 @@ export function barCore() {
     var name = typeof team.name === 'string' && team.name ? team.name : 'Team name not checked';
     var count = below === null ? 'people below you not checked' : below + (below === 1 ? ' person' : ' people') + ' below you';
     return [
-      { id: 'view:you', scope: 'you', g: 'View', t: 'View: You', d: 'Your own agents, and only their calls in The Pass', kw: VIEW_KW, icon: 'you', now: views.current === 'you' },
-      { id: 'view:team', scope: 'team', g: 'View', t: 'View: Your team', d: name + ', ' + count, kw: VIEW_KW, icon: 'team', now: views.current === 'team' },
+      { id: 'view:you', scope: 'you', g: 'View', t: 'View: You', d: 'Your own agents, and only their calls in The Pass', kw: VIEW_KW, icon: 'person', now: views.current === 'you' },
+      { id: 'view:team', scope: 'team', g: 'View', t: 'View: Team', d: name + ', ' + count, kw: VIEW_KW, icon: 'toque', now: views.current === 'team' },
     ];
   }
+  // A step's choice joins the typed search, as "Change appearance: Dark", only when a word you type starts its name: "dark"
+  // finds it, and "appearance" finds just the row that opens the step (T3 Code's palette lists a submenu's options so).
+  function nestedHit(q, hay, name) { var n = norm(name), ws = words(q); return ws.length > 0 && match(q, hay) && ws.some(function (w) { return atStart(n, w); }); }
   // Send a note: every thread, the ones that take a note first. why(id) says why one takes none now, else ''.
   function notePick(all, why) {
     var rows = all.map(function (k) { return { k: k, why: why(k.id) || '' }; });
@@ -214,7 +233,7 @@ export function barCore() {
   function tkId(pid, sig, fi, kind) { return 'tk:' + pid + ':' + encodeURIComponent(sig || '-') + ':' + fi + ':' + kind; }
   // When the last of n popping rows has landed: the lead, the stagger and one spring (BAR_CSS).
   function popEnd(n) { return 150 + Math.max(0, n - 1) * 40 + 735; }
-  return { MAX: MAX, SINK_MS: 250, COUNT_MS: 5000, match: match, score: score, filter: filter, fp: fp, readRecent: readRecent, pushRecent: pushRecent, readNoted: readNoted, ago: ago, after: after, viewRows: viewRows, tkId: tkId, popEnd: popEnd, notePick: notePick };
+  return { MAX: MAX, SINK_MS: 250, COUNT_MS: 5000, match: match, score: score, filter: filter, fp: fp, readRecent: readRecent, pushRecent: pushRecent, readNoted: readNoted, ago: ago, after: after, viewRows: viewRows, nestedHit: nestedHit, tkId: tkId, popEnd: popEnd, notePick: notePick };
 }
 
 /** The bar in the page. app: the page script's own functions and state (client/server.mjs); core: barCore(). */
@@ -231,8 +250,12 @@ export function installBar(app, core) {
   var prev = null, ran = false;
   var RECENT = 'yc.bar.recent', NOTED = 'yc.bar.noted';
   var SUG = 'Suggested: from this screen, The Pass and your last note';
-  // The line under each of a ticket's actions: the words of Settings → Shortcuts.
+  // The line under each of a ticket's actions: the words of Settings → Shortcuts. ⌘↵ is the suggested action's key.
   var WHY = { refire: 'Say what to fix, then ⌘↵', reply: 'Write a note, then ⌘↵', hold: 'Until 8:00 tomorrow', note: 'Add a note to the next send' };
+  // A command's keys now, each as its keys (client/keys.mjs, Settings → Shortcuts), else the defaults given.
+  function kz(id, dflt) { return typeof app.keyGlyphs === 'function' ? app.keyGlyphs(id) : dflt; }
+  function k1(id, dflt) { return kz(id, dflt ? [dflt] : [])[0] || []; }
+  function why(kind) { return (WHY[kind] || '').replace('⌘↵', k1('ticket.suggested', ['⌘', '↵']).join('')); }
   var ICON = { refire: 'refire', reply: 'note', hold: 'hold', settle: 'settle', note: 'note', open: 'ext', primary: 'check', pick: 'check' };
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
@@ -309,7 +332,7 @@ export function installBar(app, core) {
       var pb = $('button.primary', f);
       if (pb && !pb.disabled) {
         var pr = primary(f, pb, sets);
-        out.push({ id: id('primary'), fi: fi, kind: 'primary', pid: pid, g: g, t: pr.t, hist: pr.t + on, d: pr.d, icon: ic(pb.value === 'settle' ? 'settle' : 'check', 'blue'), k: ['⌘', '↵'], tag: pr.ready ? 'Suggested' : '', ready: pr.ready, run: function () { app.send(f, pb); } });
+        out.push({ id: id('primary'), fi: fi, kind: 'primary', pid: pid, g: g, t: pr.t, hist: pr.t + on, d: pr.d, icon: ic(pb.value === 'settle' ? 'settle' : 'check', 'blue'), k: k1('ticket.suggested', ['⌘', '↵']), tag: pr.ready ? 'Suggested' : '', ready: pr.ready, run: function () { app.send(f, pb); } });
       }
       sets.forEach(function (fs, qi) {
         var q = txt($('legend', fs));
@@ -327,19 +350,19 @@ export function installBar(app, core) {
         // The name comes from the button's tooltip, up to ": ": Hold and Settle are icons with no word, and the tooltip
         // keeps "Request changes" where the button says "Changes" (Dan, 2026-11-10, call 1a). "8:00" has no space, so
         // "Hold until 8:00 tomorrow" stays whole, and a line the name already says is dropped. The first key there is the
-        // button's own; Cmd+Enter, when shown, comes second.
-        var kind = b.value, label = (txt($('.tn', b)) || txt($('.bl', b))).split(': ')[0], kb = $('kbd', b), key = kb && !kb.classList.contains('taken') ? txt(kb) : '';
-        var d = kind === 'go' ? (key === 'M' || /merge/i.test(label) ? 'The agent merges its pull request' : 'The agent goes ahead') : kind === 'settle' ? what(b) : WHY[kind] || '';
+        // button's own, as Settings → Shortcuts set it, and names its command; Cmd+Enter, when shown, comes second.
+        var kind = b.value, label = (txt($('.tn', b)) || txt($('.bl', b))).split(': ')[0], kb = $('kbd', b), key = kb && !kb.classList.contains('taken') && !kb.classList.contains('nokey') ? txt(kb) : '';
+        var d = kind === 'go' ? ((kb && kb.dataset.cmd === 'ticket.merge') || /merge/i.test(label) ? 'The agent merges its pull request' : 'The agent goes ahead') : kind === 'settle' ? what(b) : why(kind);
         if (d && label.toLowerCase().indexOf(d.toLowerCase()) >= 0) d = '';
         var arm = kind === 'reply' || kind === 'refire';
         out.push({ id: id(kind), pid: pid, g: g, t: label, hist: label + on, d: d, icon: ic(kind === 'go' ? (/merge/i.test(label) ? 'merge' : 'check') : ICON[kind] || 'check'), k: key ? [key] : [],
           run: arm ? function () { app.setIntent(f, kind); if (f.elements.note) f.elements.note.focus(); } : function () { app.send(f, b); } });
       });
       var nb = $('button[data-addnote]', f);
-      if (nb && !nb.disabled && f.elements.note) out.push({ id: id('note'), pid: pid, g: g, t: 'Note', hist: 'Note' + on, d: WHY.note, icon: ic('note'), k: ['N'], run: function () { app.noting(f, true); } });
+      if (nb && !nb.disabled && f.elements.note) out.push({ id: id('note'), pid: pid, g: g, t: 'Note', hist: 'Note' + on, d: why('note'), icon: ic('note'), k: k1('ticket.addNote', ['N']), run: function () { app.noting(f, true); } });
     });
     var link = $('.plate-bar a[href]', p);
-    if (link) out.push({ id: 'tk:' + pid + ':open', pid: pid, g: g, t: 'Open in T3 Code', hist: 'Open in T3 Code' + on, d: '', icon: ic('ext'), k: ['O'], run: function () { link.click(); } });
+    if (link) out.push({ id: 'tk:' + pid + ':open', pid: pid, g: g, t: 'Open in T3 Code', hist: 'Open in T3 Code' + on, d: '', icon: ic('ext'), k: k1('ticket.open', ['O']), run: function () { link.click(); } });
     return out;
   }
   // Send a note to any thread (PR 2). It uses the ticket's own Reply: the same form, draft, Undo and T3 send, queued
@@ -365,25 +388,58 @@ export function installBar(app, core) {
     return pass.filter(function (k) { return k.id === id; })[0] || null;
   }
   var NOT_CHECKED = { id: 'pass:nc', t: 'Next in The Pass: not checked', d: 'T3 did not answer, so the Pass cannot say what waits on you.', icon: ic('cloche'), off: true };
+  // The bar's steps: what the field asks, and the line in front of it.
+  var STEPS = {
+    goto: { crumb: 'Go to a thread', ask: 'Which thread? Type its name' },
+    note: { crumb: 'Send a note', ask: 'Which thread? Type its name' },
+    appearance: { crumb: 'Change appearance', ask: 'Which appearance?', kw: 'theme mode light dark system match auto color night day' },
+    density: { crumb: 'Change density', ask: 'Which density?', kw: 'list rows size dense spacing default comfortable compact' },
+  };
+  var THEMES = [['system', 'System', 'Light or dark, as your Mac is set', 'monitor'], ['light', 'Light', 'Always light', 'sun'], ['dark', 'Dark', 'Always dark', 'moon']];
+  var DENSITIES = [['default', 'Default', 'Title and the agent’s summary'], ['comfortable', 'Comfortable', 'Title and one summary line'], ['compact', 'Compact', 'Titles only, the most tickets on screen']];
+  function pic(k) { return typeof app.mini === 'function' ? app.mini(k) || '' : ''; }
+  function mini(k) { var h = pic(k); return h ? '<span class="cb-mini" aria-hidden="true">' + h + '</span>' : ''; }
+  function stepRows(step) {
+    if (step === 'appearance') return typeof app.setTheme !== 'function' ? [] : THEMES.map(function (a) {
+      return { id: 'theme:' + a[0], g: 'Appearance', t: a[1], hist: 'Appearance: ' + a[1], d: a[2], kw: 'mode theme', icon: ic(a[3]), now: app.prefs.theme === a[0], pic: pic(a[0]), right: mini(a[0]), run: function () { app.setTheme(a[0]); } };
+    });
+    if (step === 'density') return DENSITIES.map(function (d) {
+      return { id: 'density:' + d[0], g: 'Density', t: d[1], hist: 'Density: ' + d[1], d: d[2], kw: 'rows list', icon: ic('rows'), now: app.prefs.density === d[0], pic: pic(d[0]), right: mini(d[0]), run: function () { app.setDensity(d[0]); } };
+    });
+    return [];
+  }
+  // Typed at the top: a step's choices whose names you typed, under the row that opens the step.
+  function nested(q) {
+    var out = [];
+    ['appearance', 'density'].forEach(function (step) {
+      stepRows(step).forEach(function (r) {
+        var t = STEPS[step].crumb + ': ' + r.t;
+        if (core.nestedHit(q, t + ' ' + r.kw, r.t)) out.push(Object.assign({}, r, { g: 'View', t: t, hay: t + ' ' + r.kw, pic: '' }));
+      });
+    });
+    return out;
+  }
   function commands(all) {
     var out = [], m = app.mounted();
     if (m) out = out.concat(ticketActions(m));
     if (!boardOk()) out.push(Object.assign({ g: 'The Pass' }, NOT_CHECKED));
     else { var nx = nextInPass(all); if (nx) { var r = ticketRow(nx, 'The Pass', 'Next: ' + nx.t); r.d = nx.pv || r.d; out.push(r); } }
-    out.push({ id: 'new', g: 'Threads', t: 'New thread in T3 Code', d: 'Also ⌘N', kw: 'launch start create agent prompt worktree', icon: ic('plus'), k: ['⌘', 'T'], run: function () { app.openLaunch(); } });
-    out.push({ id: 'note', g: 'Threads', t: 'Send a note to a thread…', d: 'Pick any thread, write, send', kw: 'message reply tell write agent queue', icon: ic('note'), step: 'note' });
-    out.push({ id: 'goto', g: 'Threads', t: 'Go to a thread…', d: 'Any thread on the board, by name', kw: 'find open jump switch ticket search', icon: ic('jump'), step: 'goto' });
+    var nk = kz('chat.new', [['⌘', 'T'], ['⌘', 'N']]);
+    out.push({ id: 'new', g: 'Threads', t: 'New thread in T3 Code', d: nk[1] ? 'Also ' + nk[1].join('') : '', kw: 'launch start create agent prompt worktree', icon: ic('plus'), k: nk[0] || [], run: function () { app.openLaunch(); } });
+    out.push({ id: 'note', g: 'Threads', t: 'Send a note to a thread…', d: 'Pick any thread, write, send', kw: 'message reply tell write agent queue', icon: ic('note'), k: k1('thread.note'), step: 'note' });
+    out.push({ id: 'goto', g: 'Threads', t: 'Go to a thread…', d: 'Any thread on the board, by name', kw: 'find open jump switch ticket search', icon: ic('jump'), k: k1('thread.goto'), step: 'goto' });
     var kitchen = app.state.view === 'kitchen';
-    out.push({ id: 'view', g: 'View', t: kitchen ? 'Collapse the view' : 'Expand the view', d: kitchen ? 'Only The Pass and the open ticket' : 'Every stage as a column', kw: 'expand collapse board stages columns pass switch logo', icon: ic(kitchen ? 'collapse' : 'expand'), k: ['V'], run: function () { app.toggleView(); } });
+    out.push({ id: 'view', g: 'View', t: kitchen ? 'Collapse the view' : 'Expand the view', d: kitchen ? 'Only The Pass and the open ticket' : 'Every stage as a column', kw: 'expand collapse board stages columns pass switch logo', icon: ic(kitchen ? 'collapse' : 'expand'), k: k1('view.toggle', ['V']), run: function () { app.toggleView(); } });
     core.viewRows(app.views(), typeof app.setScope === 'function').forEach(function (v) {
-      out.push({ id: v.id, g: v.g, t: v.t, d: v.d, kw: v.kw, icon: ic(v.icon), now: v.now, run: function () { app.setScope(v.scope); } });
+      out.push({ id: v.id, g: v.g, t: v.t, d: v.d, kw: v.kw, icon: ic(v.icon), now: v.now, k: k1('view.' + v.scope), run: function () { app.setScope(v.scope); } });
     });
-    [['default', 'Default', 'Title and the agent’s summary'], ['comfortable', 'Comfortable', 'Title and one summary line'], ['compact', 'Compact', 'Titles only, the most tickets on screen']].forEach(function (d) {
-      out.push({ id: 'density:' + d[0], g: 'View', t: 'Density: ' + d[1], d: d[2], kw: 'list rows size dense spacing', icon: ic('rows'), now: app.prefs.density === d[0], run: function () { app.setDensity(d[0]); } });
-    });
+    // Appearance and Density: one row each, opening a step with the three choices and their pictures, as T3 Code's
+    // "Change appearance" does (Dan, 2026-11-10). ⌥⇧⌘A steps through the appearances without opening anything.
+    if (typeof app.setTheme === 'function') out.push({ id: 'appearance', g: 'View', t: 'Change appearance', d: 'System, Light or Dark', kw: STEPS.appearance.kw, icon: ic('monitor'), k: k1('appearance.cycle', ['⌥', '⇧', '⌘', 'A']), step: 'appearance' });
+    out.push({ id: 'density', g: 'View', t: 'Change density', d: 'Default, Comfortable or Compact', kw: STEPS.density.kw, icon: ic('rows'), step: 'density' });
     out.push({ id: 'rules', g: 'Settings', t: 'Rules', d: 'Sent with every thread Yes Chef starts', kw: 'brief reviewer browser tracker council screenshots house notes', icon: ic('rules'), run: function () { app.openSettings('rules'); } });
-    out.push({ id: 'keys', g: 'Settings', t: 'Keyboard shortcuts', d: 'Every key in one list', kw: 'keys hotkeys keybindings', icon: ic('key'), k: ['?'], run: function () { app.openSettings('keys'); } });
-    out.push({ id: 'settings', g: 'Settings', t: 'Settings', d: 'Layout, rules and shortcuts', kw: 'preferences options layout', icon: ic('gear'), k: ['⌘', ','], run: function () { app.openSettings('layout'); } });
+    out.push({ id: 'keys', g: 'Settings', t: 'Keyboard shortcuts', d: 'See every key, and change any of them', kw: 'keys hotkeys keybindings rebind change shortcuts', icon: ic('key'), k: k1('shortcuts.open', ['?']), run: function () { app.openSettings('keys'); } });
+    out.push({ id: 'settings', g: 'Settings', t: 'Settings', d: 'Layout, rules and shortcuts', kw: 'preferences options layout', icon: ic('gear'), k: k1('settings.open', ['⌘', ',']), run: function () { app.openSettings('layout'); } });
     return out;
   }
   function iconFor(id) {
@@ -391,7 +447,8 @@ export function installBar(app, core) {
     if (p[0] === 'tk') return ic(p[2] === 'open' ? 'ext' : ICON[p[4]] || 'check');
     if (p[0] === 'go') return ic('jump');
     if (p[0] === 'note') return ic('note');
-    return ic({ 'new': 'plus', view: p[1] === 'you' || p[1] === 'team' ? p[1] : 'expand', density: 'rows', rules: 'rules', keys: 'key', settings: 'gear' }[p[0]] || 'check');
+    if (p[0] === 'theme') return ic({ light: 'sun', dark: 'moon' }[p[1]] || 'monitor');
+    return ic({ 'new': 'plus', view: { you: 'person', team: 'toque' }[p[1]] || 'expand', density: 'rows', rules: 'rules', keys: 'key', settings: 'gear' }[p[0]] || 'check');
   }
   function histRow(r, i, n) {
     return { id: r.id, g: i === 0 ? 'Last action' : 'Earlier action: ' + (i + 1) + ' of ' + n, t: r.t, hist: r.t, f: r.f, d: core.ago(r.at, Date.now()), icon: iconFor(r.id), k: ['↵'] };
@@ -420,9 +477,10 @@ export function installBar(app, core) {
     var all = tickets();
     if (S.step === 'goto') return core.filter(all.map(function (k) { return ticketRow(k, 'Go to a thread'); }), S.q);
     if (S.step === 'note') return core.filter(core.notePick(all, noteBlock).map(function (x) { return noteRow(x.k, x.why); }), S.q, true);
+    if (STEPS[S.step] && STEPS[S.step].kw) return core.filter(stepRows(S.step), S.q, true);
     if (S.hist >= 0) { var r = recent(); return r[S.hist] ? [histRow(r[S.hist], S.hist, r.length)] : []; }
     if (!S.q.trim()) return S.sug ? suggestions(all) : [];
-    var out = core.filter(commands(all), S.q), ids = {};
+    var out = core.filter(commands(all).concat(nested(S.q)), S.q), ids = {};
     out.forEach(function (x) { ids[x.id] = 1; });
     // Threads match only once you type, after the actions.
     var th = core.filter(all.map(function (k) { return ticketRow(k, 'Threads: on the board'); }), S.q).filter(function (x) { return !ids[x.id]; });
@@ -442,6 +500,8 @@ export function installBar(app, core) {
     var all = tickets();
     if (id.indexOf('go:') === 0) { var k = all.filter(function (x) { return 'go:' + x.id === id; })[0]; return k ? ticketRow(k, '') : null; }
     if (id.indexOf('note:') === 0) { var kn = all.filter(function (x) { return 'note:' + x.id === id; })[0]; return kn ? noteRow(kn, '') : null; }
+    var p = id.split(':')[0], step = p === 'theme' ? 'appearance' : p === 'density' ? 'density' : '';
+    if (step) return stepRows(step).filter(function (x) { return x.id === id; })[0] || null;
     return commands(all).filter(function (x) { return x.id === id && !x.off && !x.step; })[0] || null;
   }
   // Open a ticket where the view shows it: in the list it is in (the open one if it is there, else The Pass, else its
@@ -465,10 +525,10 @@ export function installBar(app, core) {
   function render() {
     var r = recent(), waiting = blank() && !S.sug;
     var writing = S.step === 'compose';
-    input.placeholder = writing ? '' : S.step ? 'Which thread? Type its name' : 'Search actions, threads and settings';
+    input.placeholder = writing ? '' : S.step ? STEPS[S.step].ask : 'Search actions, threads and settings';
     input.disabled = writing;
     crumb.hidden = !S.step;
-    crumb.innerHTML = S.step === 'goto' ? 'Go to a thread' : S.step === 'note' ? 'Send a note' : writing ? 'Send a note<svg viewBox="0 0 16 16" aria-hidden="true"><use href="#cb-jump"/></svg><span class="cb-ct">' + esc(toTitle()) + '</span>' : '';
+    crumb.innerHTML = STEPS[S.step] ? esc(STEPS[S.step].crumb) : writing ? 'Send a note<svg viewBox="0 0 16 16" aria-hidden="true"><use href="#cb-jump"/></svg><span class="cb-ct">' + esc(toTitle()) + '</span>' : '';
     res.hidden = writing; compose.hidden = !writing;
     if (writing) {
       hint.hidden = true; input.setAttribute('aria-expanded', 'false'); input.removeAttribute('aria-activedescendant');
@@ -481,16 +541,26 @@ export function installBar(app, core) {
     // Empty and not suggesting: the list folds away with what it last held, so the fold has something to fold.
     if (waiting) { S.rows = []; input.removeAttribute('aria-activedescendant'); return; }
     var rows = S.rows = items();
+    if (S.toNow) { S.toNow = false; rows.some(function (x, i) { return x.pic && x.now && !x.off ? ((S.sel = i), true) : false; }); }
     S.sel = Math.max(0, Math.min(S.sel, rows.length - 1));
     if (rows[S.sel] && rows[S.sel].off) S.sel = live(S.sel, 1);
-    var html = '', g = null, n = 0;
+    var html = '', g = null, n = 0, tiles = false;
     rows.forEach(function (x, i) {
+      if (tiles && (x.g !== g || !x.pic)) { html += '</div>'; tiles = false; }
       if (x.g !== g) { g = x.g; var parts = String(g).split(': '); html += '<div class="cb-gh" role="presentation" style="--i:' + (n++) + '">' + esc(parts[0]) + (parts.length > 1 ? '<span>' + esc(parts.slice(1).join(': ')) + '</span>' : '') + '</div>'; }
+      if (x.pic) {
+        if (!tiles) { html += '<div class="cb-tiles" role="presentation">'; tiles = true; }
+        html += '<div class="cb-it cb-tile' + (i === S.sel ? ' sel' : '') + (x.off ? ' off' : '') + (x.now ? ' now' : '') + '" role="option" id="cb-o' + i + '" aria-selected="' + (i === S.sel) + '"' + (x.now ? ' aria-current="true"' : '') + (x.off ? ' aria-disabled="true"' : '') + ' data-i="' + i + '" style="--i:' + (n++) + '">'
+          + '<span class="cb-pic" aria-hidden="true">' + x.pic + '</span><span class="cb-t"><b>' + esc(x.t) + '</b></span></div>';
+        return;
+      }
       html += '<div class="cb-it' + (i === S.sel ? ' sel' : '') + (x.off ? ' off' : '') + '" role="option" id="cb-o' + i + '" aria-selected="' + (i === S.sel) + '"' + (x.off ? ' aria-disabled="true"' : '') + ' data-i="' + i + '" style="--i:' + (n++) + '">'
         + x.icon + '<span class="cb-t"><b>' + esc(x.t) + '</b>' + (x.d ? '<small>' + esc(x.d) + '</small>' : '') + '</span>'
         + '<span class="cb-k">' + (x.tag ? '<span class="cb-tag">' + esc(x.tag) + '</span>' : '') + (x.now ? '<span class="cb-tag now">Now</span>' : '') + (x.right || '') + keys(x.k) + '</span></div>';
     });
+    if (tiles) html += '</div>';
     var empty = S.sug && !S.q ? 'Nothing to suggest yet. Type to search every action.'
+      : STEPS[S.step] && STEPS[S.step].kw ? 'Nothing matches “' + esc(S.q.trim()) + '”.'
       : S.step && !S.q.trim() ? 'No thread on the board yet.'
       : S.step ? 'No thread on the board matches “' + esc(S.q.trim()) + '”.'
       : 'Nothing matches “' + esc(S.q.trim()) + '”. Try a thread’s name, an action or a setting.';
@@ -504,7 +574,7 @@ export function installBar(app, core) {
     var f;
     if (S.hist >= 0) f = '<span>' + keys(['↑']) + 'Earlier</span><span>' + keys(['↓']) + 'Later</span><span>' + keys(['↵']) + 'Run again</span><span class="r cb-note">Like ↑ in a terminal</span>';
     else if (S.sug && !S.q && !S.step) f = '<span class="cb-move">' + keys(['↑', '↓']) + 'Move</span><span>' + keys(['↵']) + 'Run</span>' + (r.length || noted() ? '<span class="r"><button type="button" data-cb-clear>Clear recent actions</button></span>' : '');
-    else f = '<span class="cb-move">' + keys(['↑', '↓']) + 'Move</span><span>' + keys(['↵']) + 'Run</span>' + (S.step ? '<span>' + keys(['⌫']) + 'Back</span>' : '<span class="r cb-note">Each action shows its key on the right</span>');
+    else f = '<span class="cb-move">' + keys(rows.some(function (x) { return x.pic; }) ? ['←', '→'] : ['↑', '↓']) + 'Move</span><span>' + keys(['↵']) + 'Run</span>' + (S.step ? '<span>' + keys(['⌫']) + 'Back</span>' : '<span class="r cb-note">Each action shows its key on the right</span>');
     foot.innerHTML = f;
     mark(false);
   }
@@ -549,7 +619,8 @@ export function installBar(app, core) {
   function showSug() { clearTimeout(sinkT); stopCount(); S.sug = true; S.sel = 0; S.pop = true; render(); place(true); }
   // After the field changes. Text: up now. Empty: wait a beat so a quick retype does not bounce it, then down and count.
   function changed() {
-    S.sel = 0; clearTimeout(sinkT);
+    // A step of pictures opens on the current one, as a picker does. Typing in it goes back to the best match.
+    S.sel = 0; S.toNow = !!S.step && !S.q; clearTimeout(sinkT);
     if (!blank()) { stopCount(); S.sug = false; render(); place(true); return; }
     S.sug = false; render();
     sinkT = setTimeout(function () { if (dlg.open && blank() && !S.sug) { place(false); startCount(); } }, core.SINK_MS);
@@ -651,6 +722,11 @@ export function installBar(app, core) {
     if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); escape(); return; }
     // Everything else belongs to the field. Tab moves between the field and the footer's button, as anywhere else.
     if (ev.target !== input) return;
+    // Tiles sit side by side, so ← and → move along them too. The field is empty, so the caret has nowhere to go.
+    if ((ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') && !input.value && n && S.rows[S.sel] && S.rows[S.sel].pic) {
+      ev.preventDefault(); ev.stopPropagation();
+      var dir = ev.key === 'ArrowLeft' ? -1 : 1; S.sel = live(S.sel + dir, dir); mark(); return;
+    }
     if (ev.key === 'ArrowUp') {
       ev.preventDefault(); ev.stopPropagation();
       if (S.hist >= 0) { if (S.hist < recent().length - 1) recall(S.hist + 1); return; }
@@ -691,6 +767,8 @@ export function installBar(app, core) {
 
   return {
     open: open, close: close, toggle: function () { if (dlg.open) close(); else open(); },
+    // Open at a step ("note", "goto"): what a key from Settings → Shortcuts runs for a command with no key of its own.
+    openAt: function (step) { open(); if (dlg.open && step) { S.step = step; S.q = ''; input.value = ''; S.hist = -1; changed(); } },
     isOpen: function () { return dlg.open; },
     // A note reached a thread: it becomes the "your last note" suggestion.
     noted: function (pid) { if (pid) app.store(NOTED, JSON.stringify({ id: pid, at: Date.now() })); },

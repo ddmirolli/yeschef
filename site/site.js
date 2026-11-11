@@ -99,7 +99,8 @@
   /*
    * The "I run" toggle (Dan, 2026-11-09): solo or team (the default), the same words as ?view=. The script in the
    * page head sets html[data-view] before the first paint. This keeps both controls (the hero's and the one
-   * docked in the nav) and the tab title in step, and remembers each pick in localStorage and in ?view=.
+   * docked in the nav) and the tab title in step, and puts each pick in ?view=, so a shared link opens on it. A
+   * visit with no ?view= opens on team (Dan, 2026-11-10), so nothing remembers the last pick.
    * Both views have the same sections in the same order, so a flip moves nothing on the page.
    */
   var root = document.documentElement;
@@ -138,7 +139,6 @@
   }
   function choose(view) {
     pick(view);
-    try { localStorage.setItem("yc.view", view); } catch (e) {}
     var url = new URL(location.href);
     url.searchParams.set("view", view);
     history.replaceState(null, "", url);

@@ -1,6 +1,7 @@
 // The Pass web prototype (docs/pass-product-brief-v1_0.md, Dan's 1a and 2a, 2026-11-06).
-// Read-only. It signs in to one T3 environment as an outside MCP client, polls it, and pushes each change
-// to the page. It stores nothing: the token lives in this process, and every fact comes from T3.
+// Read-only. It follows one T3 environment's live stream (client/t3live.mjs) and reads the rest as an outside MCP
+// client, and pushes each change to the page. It stores nothing: the keys live in this process, and every fact
+// comes from T3.
 // Run: BRIGADE_PASS_ORIGIN=<this page's https address> BRIGADE_ALLOW=<allow-list file> node client/server.mjs <t3-origin> [port]
 // The desktop app (desktop/main.mjs) starts it with the T3 origin only: it opens no port and takes actions over its pipe.
 import { createServer } from 'node:http';
@@ -10,13 +11,19 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, extname, isAbsolute, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { signIn, connect } from './t3mcp.mjs';
-import { buildBoard, renderApp, kitchenPane } from './board.mjs';
+import { createKeys, createLive } from './t3live.mjs';
+import { boardThreads, changeTargets, githubTargets } from './shells.mjs';
+import { createChanges } from './changes.mjs';
+import { createBaseChecks, createPrSizes } from './github.mjs';
+import { buildBoard, renderApp, kitchenPane, pickedFrom } from './board.mjs';
 import { readRuns, dayStart, trackWaits, mayRunToday } from './you.mjs';
 import { normalize as normalRules, change as changeRule } from './kitchen.mjs';
 import { parseCalls, callKey, imagesIn, imageId, shotPath, isShot, SHOT_TYPES } from './calls.mjs';
 import { act } from './actions.mjs';
 import { refuse } from './guard.mjs';
-import { BAR_CSS, BAR_HTML, barCore, installBar } from './bar.mjs';
+import { BAR_CSS, BAR_HTML, SPRING, barCore, installBar } from './bar.mjs';
+import { onTheme, miniCss, minis, MINI_CSS } from './theme.mjs';
+import { keysCore } from './keys.mjs';
 import { appendFileSync } from 'node:fs';
 
 // The desktop app's pipe. In the app this runs in an Electron utility process and talks over process.parentPort;
@@ -36,7 +43,9 @@ const pipe = process.env.YESCHEF_DESKTOP === '1' ? appPipe() : null;
 const DESKTOP = !!pipe;
 const ORIGIN = (process.argv[2] || '').replace(/\/$/, '');
 const PORT = Number(process.argv[3] || 8620);
-const POLL_MS = 3000;
+// The page hears from the board at least this often, live or not: each beat rebuilds the board from what the
+// stream holds (no T3 call unless a thread changed) and says whether that data is live.
+const BEAT_MS = 5000;
 // Actions on the web prototype: only through the tailnet, from an allowed device, on this page (client/guard.mjs).
 // The page's address and the allow list come from the environment: the code carries nobody's address or files.
 const PAGE_ORIGIN = process.env.BRIGADE_PASS_ORIGIN || '';
@@ -144,27 +153,46 @@ const SHOT_ROOTS = [homedir(), '/tmp', tmpdir()].map(real).filter(Boolean);
 let status = { ok: false, error: 'signing in to T3', at: Date.now(), ms: 0 };
 const clients = new Set();
 
+// The thread address T3 gives this sign-in (its hosted link), without the thread id, which T3 URL-encodes in it.
+// Read once at start.
+let linkBase = null;
 const link = (t) => (t.link && t.link.startsWith('http') ? t.link : `${ORIGIN}/${envId}/${t.threadId}`);
+const linkFor = (id) => (linkBase ? linkBase + encodeURIComponent(id) : null);
 
-// Newest first. `since` stops paging once a page reaches threads older than it.
-async function allThreads(args, since = 0) {
-  const out = [];
-  for (let cursor = 0, i = 0; i < 50; i++) {
-    const page = await t3.call('t3_thread_list', { allProjects: true, includeSubagents: true, limit: 100, cursor, ...args });
-    const rows = page.threads || [];
-    out.push(...rows);
-    if (page.nextCursor == null || (since && rows.length && Date.parse(rows[rows.length - 1].updatedAt) < since)) break;
-    cursor = page.nextCursor;
-  }
-  return out;
-}
+// The live stream: a read-only key of its own, T3 Code's /ws, and the shell it keeps current (client/t3live.mjs).
+const keys = createKeys({ origin: ORIGIN, ...(process.env.YESCHEF_T3_BIN ? { bin: process.env.YESCHEF_T3_BIN } : {}) });
+// Reads the stream does not carry, kept until what they depend on changes: a parent the stream does not have
+// (until the next snapshot, or until the stream names it), and a thread's waiting questions (until its pending
+// request or its update time moves).
+const parentCache = new Map();
+// How often the stream has named each thread: a parent read that the stream named while it was on its way is used
+// once, never cached (PR-Agent r2 on #76).
+const parentMoves = new Map();
+const live = createLive({ origin: ORIGIN, keys, log: (m) => console.log(m), onChange: (change) => {
+  // A parent the stream names again has moved (restored, edited, archived), so its cached read is old (PR-Agent r1 on #76).
+  for (const id of change.ids) { parentCache.delete(id); parentMoves.set(id, (parentMoves.get(id) || 0) + 1); }
+  // The board stops being current the moment the stream does, even while a refresh is still reading.
+  if (!change.live && status.ok) { status = { ok: false, at: Date.now(), ms: 0, error: String(live.why()).slice(0, 200) }; tick(); }
+  refreshSoon();
+} });
+let parentGeneration = -1, projectsRev = -1;
+const questionCache = new Map();
+// Changed files and line ranges per thread: a read-only git diff in each thread's folder (client/changes.mjs).
+// Nothing on the board shows them yet; the team summary and the Overlap and Too big calls read them with
+// changes.get(threadId) and changes.subscribe(fn).
+const changes = createChanges({ log: (m) => console.log(m) });
+// The checks on each followed thread's base branch, and the size of each open PR, from GitHub through the gh CLI
+// this Mac is signed in to, read only (client/github.mjs). No gh, no answer: "not checked". Nothing shows them yet;
+// readers use baseChecks.get(threadId) and prSizes.get(prKey({ host, repo, number })), and subscribe(fn) on each.
+const baseChecks = createBaseChecks({ log: (m) => console.log(m) });
+const prSizes = createPrSizes({ log: (m) => console.log(m) });
 
 // Run times for the You view (Dan, 2026-11-10): each thread that ran today, read once per run state. t3_thread_read
 // lists a thread's recent runs with their start and end times (runLimit, read on 2026-11-10). A read that fails, or
-// more threads than one poll reads, leaves run times "not checked" for this poll; the board itself stays good, and
-// the next poll carries on from what it already has.
+// more threads than one update reads, leaves run times "not checked" for this update; the board itself stays good,
+// and the next update carries on from what it already has.
 const runCache = new Map();
-// Today's waits on questions, seen poll by poll: T3's run times hold them (client/you.mjs trackWaits).
+// Today's waits on questions, seen update by update: T3's run times hold them (client/you.mjs trackWaits).
 const waitLog = new Map();
 const RUN_READS = 40;
 async function runTimes(threads, now) {
@@ -193,45 +221,81 @@ async function runTimes(threads, now) {
   return short ? null : out;
 }
 
-async function poll() {
+async function refresh() {
   const t0 = Date.now();
   try {
-    if (t0 - projectsAt > 60000) { projects = withIcons((await t3.call('t3_project_list', { limit: 100 })).projects || []); projectsAt = t0; }
-    const open = await allThreads({ settled: false });
-    // Settled threads from the last two weeks: today's Verified, and settled tickets that still have open work.
-    const settled = await allThreads({ settled: true }, t0 - 14 * 86400000);
-    const byId = new Map([...open, ...settled].map((t) => [t.threadId, t]));
-    // A running or waiting station needs its ticket even when that ticket settled long ago. Read every
-    // missing ancestor; if any stays unresolved, the poll is incomplete and the page says "not checked".
+    // A cache is never shown as live: without a live, synchronized stream the board says "Not checked".
+    if (!live.live()) throw new Error(live.why());
+    if (live.projectsRev() !== projectsRev) {
+      const rev = live.projectsRev();
+      projects = withIcons((await t3.call('t3_project_list', { limit: 100 })).projects || []);
+      projectsRev = rev;
+    }
+    // The board is built from one snapshot generation. If the stream resynchronizes while the reads below wait,
+    // this board is from the old one and is not published (PR-Agent r2 on #76).
+    const generation = live.generation();
+    if (generation !== parentGeneration) { parentCache.clear(); parentMoves.clear(); parentGeneration = generation; }
+    const shells = new Map(live.threads().map((s) => [s.id, s]));
+    const picked = boardThreads([...shells.values()], { now: t0, link: linkFor });
+    const byId = new Map(picked.threads.map((t) => [t.threadId, t]));
+    const followed = changeTargets(picked.threads, shells, live.project);
+    changes.want(followed);
+    const github = githubTargets(followed, shells, changes.get);
+    baseChecks.want(github.base);
+    prSizes.want(github.prs);
+    // A running or waiting station needs its ticket even when that ticket settled long ago. The stream carries
+    // every active thread; a parent it lacks is read over MCP, as before. If any stays unresolved, the board
+    // is incomplete and the page says "not checked".
     for (let reads = 0; ; ) {
       const missing = [...new Set([...byId.values()].map((t) => t.parentThreadId).filter((id) => id && !byId.has(id)))];
       if (!missing.length) break;
       if (reads + missing.length > 200) throw new Error(`${missing.length} parent threads still unread after ${reads} reads`);
       for (const threadId of missing) {
-        const read = await t3.call('t3_thread_read', { threadId, limit: 1, maxCharsPerItem: 1 });
-        reads++;
-        if (!read?.thread) throw new Error(`parent thread ${threadId} could not be read`);
-        byId.set(threadId, read.thread);
+        let row = parentCache.get(threadId);
+        if (!row) {
+          const moves = parentMoves.get(threadId) || 0;
+          const read = await t3.call('t3_thread_read', { threadId, limit: 1, maxCharsPerItem: 1 });
+          reads++;
+          if (!read?.thread) throw new Error(`parent thread ${threadId} could not be read`);
+          row = read.thread;
+          if ((parentMoves.get(threadId) || 0) === moves) parentCache.set(threadId, row);
+        }
+        byId.set(threadId, row);
       }
     }
     const threads = [...byId.values()];
     // Pending questions: T3 lists them per thread, and a thread that waits on one still reads "running".
-    // Ask for every top-level thread that is not settled and has a run going, plus any marked waiting.
+    // Ask for every top-level thread that is not settled and has a run going, plus any marked waiting, but only
+    // when its shell says a request is pending, and only again when that request or the thread changes.
     const questions = new Map();
     for (const t of threads.filter((x) => x.status === 'waiting' || (!x.parentThreadId && !x.settled && ['running', 'starting', 'queued', 'preparing'].includes(x.status)))) {
-      const ids = (await t3.call('t3_pending_request', { action: 'list', threadId: t.threadId })).requestIds || [];
-      const items = [];
-      for (const requestId of ids.slice(0, 3)) items.push(...((await t3.call('t3_pending_request', { action: 'read', threadId: t.threadId, requestId })).questions || []).map((q) => ({ ...q, requestId })));
-      if (items.length) questions.set(t.threadId, items);
+      const shell = shells.get(t.threadId);
+      if (shell && !shell.pendingRuntimeRequest) { questionCache.delete(t.threadId); continue; }
+      const key = shell ? `${shell.pendingRuntimeRequest.id}|${shell.updatedAt}` : null;
+      let hit = key && questionCache.get(t.threadId);
+      if (!hit || hit.key !== key) {
+        const ids = (await t3.call('t3_pending_request', { action: 'list', threadId: t.threadId })).requestIds || [];
+        const items = [];
+        for (const requestId of ids.slice(0, 3)) items.push(...((await t3.call('t3_pending_request', { action: 'read', threadId: t.threadId, requestId })).questions || []).map((q) => ({ ...q, requestId })));
+        hit = { key, items };
+        if (key) questionCache.set(t.threadId, hit);
+      }
+      if (hit.items.length) questions.set(t.threadId, hit.items);
     }
+    for (const id of questionCache.keys()) if (!shells.has(id)) questionCache.delete(id);
     const words = new Map();
     // A ticket waiting on Dan's answer to a T3 question also gets its last message, so the question has its
     // context (hill climb r4, Opus and Fable). The walk stops at the last user message, as for hand-backs.
     for (const t of threads.filter((x) => !x.parentThreadId && !x.settled && !x.snoozed && x.latestRunId && (['completed', 'interrupted', 'idle'].includes(x.status) || questions.has(x.threadId)))) {
       words.set(t.threadId, await handback(t));
     }
+    const runs = await runTimes(threads, t0);
+    // The stream may have dropped, or dropped and come back with a new snapshot, while the reads above waited:
+    // then this board is not current either. The refresh that change queued builds the next one.
+    if (!live.live()) throw new Error(live.why());
+    if (live.generation() !== generation) throw new Error('T3 Code sent a new snapshot during this update; reading it again');
     const waits = trackWaits(waitLog, threads, questions, t0);
-    board = buildBoard({ projects, threads, questions, lastWords: words, runs: await runTimes(threads, t0), waits });
+    board = buildBoard({ projects, threads, questions, lastWords: words, runs, waits });
     shotFiles = new Map(board.tickets.flatMap((k) => [k.lastWords, k.call?.text]).filter(Boolean)
       .flatMap((text) => imagesIn(text)).filter((im) => !/^https:/i.test(im.src)).map((im) => [imageId(im.src), im.src]));
     status = { ok: true, at: Date.now(), ms: Date.now() - t0 };
@@ -239,10 +303,22 @@ async function poll() {
     status = { ok: false, at: Date.now(), ms: Date.now() - t0, error: String(ex.message).slice(0, 200) };
     if (ex.auth && DESKTOP && !authLost) { authLost = true; pipe.send({ type: 'auth-lost' }); }
   }
-  const tick = JSON.stringify({ ok: status.ok, at: status.at, error: status.error || null });
-  for (const res of clients) res.write(`event: tick\ndata: ${tick}\n\n`);
-  if (DESKTOP) pipe.send({ type: 'tick', data: tick });
+  tick();
 }
+function tick() {
+  const data = JSON.stringify({ ok: status.ok, at: status.at, error: status.error || null });
+  for (const res of clients) res.write(`event: tick\ndata: ${data}\n\n`);
+  if (DESKTOP) pipe.send({ type: 'tick', data });
+}
+
+// Never two refreshes at once: a change during one queues one more. A burst of changes is gathered for 150 ms.
+let refreshing = null, again = false, soonTimer = null;
+function kick() {
+  if (!t3) return;  // still signing in: the first refresh runs once the MCP sign-in is ready
+  if (refreshing) { again = true; return; }
+  refreshing = refresh().finally(() => { refreshing = null; if (again) { again = false; kick(); } });
+}
+function refreshSoon() { if (!soonTimer) soonTimer = setTimeout(() => { soonTimer = null; kick(); }, 150); }
 
 // The prototype's own rules, after the shared pass.py ones.
 const APP_CSS = `
@@ -432,12 +508,14 @@ body>.netstrip{position:sticky;top:0;z-index:8;margin:0 24px}
 .retry .result{margin:0;font-size:13px}
 /* The Retry button is as wide as its words, like the send it repeats, not the whole dock (r15, Fable). */
 .retry>[data-retry]{align-self:flex-start}
-.is-stale .head-b>.folder,.is-stale .rail .tray-b,.is-stale .segbar,.is-stale .you .held,.is-stale .you .inst,.is-stale .you .split,.is-stale .you-sub,.is-stale .you .ph>span{visibility:hidden}
+.is-stale .head-b>.folder,.is-stale .rail .tray-b,.is-stale .segbar{visibility:hidden}
 .is-stale .stats b,.is-stale .nf .n,.is-stale .tray-h .n,.is-stale .head .badge,.is-stale .pmenu-l .n{visibility:hidden}
 /* The hidden list says why it is empty. */
 .is-stale .head-b::before{content:"Not checked. The list returns with the next update.";display:block;padding:24px 12px;text-align:center;font-size:13px;color:var(--label2)}
 .tile.sel,.call-tile.sel{box-shadow:inset 0 0 0 2px var(--accent)}
 .tile.gone{display:none}
+/* A list a refresh just redrew (the page script's prime()): its cards take their hover at once, with no fade. */
+.fresh .tile{transition:none}
 /* The open ticket over the kitchen, and on phones. */
 dialog.sheet{width:min(1120px,calc(100vw - 48px));height:min(920px,calc(100dvh - 48px));max-width:none;max-height:none;padding:0;border:0;border-radius:22px;background:var(--card);color:var(--label);box-shadow:var(--sh4);overflow:hidden}
 dialog.sheet[open]{display:flex;flex-direction:column;animation:rise .28s cubic-bezier(.2,.8,.2,1)}
@@ -472,14 +550,6 @@ dialog.sheet::backdrop{background:rgba(0,0,0,.36);-webkit-backdrop-filter:blur(5
 #settings h2{margin:0 0 14px;font-size:17px}
 #settings fieldset{margin:0 0 18px;padding:0;border:0}
 #settings legend{margin-bottom:8px;font-size:13px;font-weight:600;color:var(--label2)}
-.set-o{display:flex;align-items:center;gap:12px;padding:8px 10px;border-radius:10px;cursor:pointer;font-size:15px}
-.set-o:hover{background:var(--fill)}
-.set-o input{width:18px;height:18px;margin:0;accent-color:var(--accent)}
-.set-o span{flex:1}
-.set-o small{display:block;font-size:12px;color:var(--label2)}
-.pv{flex:none;display:flex;flex-direction:column;gap:3px;width:92px;height:46px;padding:5px;border-radius:7px;background:var(--fill);box-sizing:border-box}
-.pv i{display:block;border-radius:3px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--sep)}
-.pv-default i{height:16px}.pv-comfortable i{height:10px}.pv-compact i{height:5px}
 #settings .set-done{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12px;color:var(--label2)}
 /* Density: Comfortable shows one summary line; Compact shows the title alone. */
 html.d-comfortable .call-tile{gap:6px;padding:11px 14px 10px}
@@ -725,11 +795,28 @@ dialog.sheet{height:fit-content;max-height:min(920px,calc(100dvh - 48px))}
   .v-kitchen .rail>.tray.empty .tray-h .g{min-width:0;overflow:hidden;white-space:nowrap}
   .v-kitchen .rail>.tray.empty .tray-h .hint{display:none}
   /* A stage with tickets keeps room for its titles; on a narrow window the rail scrolls sideways (hill climb 2 r1). */
-  .v-kitchen .rail>.tray:not(.empty){min-width:max(120px,var(--floor,140px),var(--name,0px),calc(var(--text,0px) + 45px));flex:var(--need,1) 1 0}
+  .v-kitchen .rail>.tray:not(.empty){min-width:max(120px,var(--floor,140px),var(--name,0px),calc(var(--text,0px) + 45px),min(var(--word,0px),200px));flex:var(--need,1) 1 0}
   .v-kitchen .rail.fade-right{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 40px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 40px),transparent)}
 }
 /* Over 1366 px a narrower pass panel and 8 px stage gaps give the titles 4 lines when the whole rail fits (.four), else 5 (r14, Opus); the stage arrow takes the 1280 size for the gap (r13, Opus and Fable). */
-@media (min-width:1367px){ .v-kitchen .rail{gap:8px} .v-kitchen .rail.four>.tray:not(.empty){min-width:max(120px,var(--floor,140px),var(--name,0px),calc(var(--text4,var(--text,0px)) + 45px))} .v-kitchen .rail>.tray:not(:last-child)::after{right:-6.5px;width:3.5px;height:3.5px} .v-kitchen .board{grid-template-columns:208px minmax(0,1fr) clamp(280px,19.5vw,360px)} }
+@media (min-width:1367px){ .v-kitchen .rail{gap:8px} .v-kitchen .rail.four>.tray:not(.empty){min-width:max(120px,var(--floor,140px),var(--name,0px),calc(var(--text4,var(--text,0px)) + 45px),min(var(--word,0px),200px))} .v-kitchen .rail>.tray:not(:last-child)::after{right:-6.5px;width:3.5px;height:3.5px} .v-kitchen .board{grid-template-columns:208px minmax(0,1fr) clamp(280px,19.5vw,360px)} }
+/* Still too wide (the page script's fitRail() sets .tight): a stage keeps only its name and count on one line, so all
+   six stages stay in the window (Dan, 2026-11-10). Every floor holds the stage's longest word (--word), so a title
+   word is never split; only a word that would make its stage wider than 200 px (a pasted link) breaks (PR-Agent on
+   #14). */
+@media (min-width:761px){
+  .v-kitchen .rail.tight>.tray:not(.empty){min-width:max(88px,var(--name,0px),min(var(--word,0px),200px))}
+  .v-kitchen .rail.tight .tile .t{overflow-wrap:break-word}
+  /* .tighter: a stage's name may wrap after its dot, with its count at the right, down to its longest word (--word).
+     Narrower still, the stages scroll sideways. */
+  .v-kitchen .rail.tight.tighter>.tray.empty,.v-kitchen .rail.tight.tighter>.tray:not(.empty){min-width:max(88px,min(var(--word,0px),200px))}
+  .v-kitchen .rail.tight.tighter>.tray .tray-h{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;column-gap:6px}
+  .v-kitchen .rail.tight.tighter>.tray .tray-h .g{min-width:0;overflow:visible;white-space:normal;align-items:flex-start}
+  .v-kitchen .rail.tight.tighter>.tray .tray-h .g .gd{flex:none;margin-top:5px}
+  .v-kitchen .rail.tight.tighter>.tray .tray-h .hint{grid-column:1/-1}
+}
+/* A card's model shows whole or not at all: a column too narrow for it drew "O." (Dan's screenshot, 2026-11-10). */
+@container (max-width:150px){ .tile .tile-top .mdl{display:none} }
 .status-why{margin:-6px 0 14px;font-size:14px;color:var(--label2)}
 .btn.armed.fill{box-shadow:none}
 .dock .btn.quiet.fill,.btn.quiet.fill{background:var(--accent);color:#fff}
@@ -777,17 +864,18 @@ dialog.sheet{height:fit-content;max-height:min(920px,calc(100dvh - 48px))}
 .head-h h2 .ic{width:16px;height:16px;color:var(--pass)}
 .head .badge{min-width:20px;height:20px;padding:0 6px;border-radius:999px;font-size:12px}
 /* No full-width lines: the Verified fold and the Settings foot stand apart by space. */
-#settings[open]{display:grid;grid-template-columns:168px minmax(0,1fr);grid-template-rows:auto auto}
+/* Settings sits in the middle of the window, as T3 Code's dialogs do (16 px clear on every side), and never runs past
+   its edge (Dan, 2026-11-10). It keeps one height for every tab, so switching never moves it; the tab scrolls inside,
+   with a fade at its foot while more waits below. */
+#settings[open]{display:grid;grid-template-columns:168px minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto;height:min(720px,calc(100dvh - 32px));max-height:calc(100dvh - 32px);margin:auto}
 #settings .set-wrap{display:contents}
 #settings .set-nav{grid-row:1/3;border-radius:16px 0 0 16px}
-#settings .set-panes{grid-column:2;max-height:min(720px,82vh);padding:20px 24px 8px}
-/* Settings fits each tab, with its top edge pinned, so the tabs never move when you switch. */
-#settings[open]{margin:min(12vh,120px) auto auto}
+#settings .set-panes{grid-column:2;min-height:0;max-height:none;padding:20px 24px 8px}
 #settings .set-done{grid-column:2;padding:8px 24px 20px;border-top:0}
 /* Native controls, styled: round options, no resize grips, one chevron for every fold. */
-label.opt input[type=radio],.set-o input[type=radio],.lf-ws input[type=radio]{-webkit-appearance:none;appearance:none;flex:none;width:18px;height:18px;margin:0;border-radius:50%;background:var(--card);box-shadow:inset 0 0 0 1.5px var(--label2);cursor:pointer;transition:box-shadow .15s}
-label.opt input[type=radio]:checked,.set-o input[type=radio]:checked,.lf-ws input[type=radio]:checked{background:#fff;box-shadow:inset 0 0 0 5px var(--accent)}
-label.opt input[type=radio]:focus-visible,.set-o input[type=radio]:focus-visible,.lf-ws input[type=radio]:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+label.opt input[type=radio],.lf-ws input[type=radio]{-webkit-appearance:none;appearance:none;flex:none;width:18px;height:18px;margin:0;border-radius:50%;background:var(--card);box-shadow:inset 0 0 0 1.5px var(--label2);cursor:pointer;transition:box-shadow .15s}
+label.opt input[type=radio]:checked,.lf-ws input[type=radio]:checked{background:#fff;box-shadow:inset 0 0 0 5px var(--accent)}
+label.opt input[type=radio]:focus-visible,.lf-ws input[type=radio]:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .more>summary,.more-st>summary{display:flex;align-items:center;gap:6px;list-style:none}
 .more>summary::-webkit-details-marker,.more-st>summary::-webkit-details-marker{display:none}
 .more>summary::before,.more-st>summary::before{content:"";flex:none;width:12px;height:12px;background:currentColor;-webkit-mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='m9 6 6 6-6 6'/></svg>") center/contain no-repeat;mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='m9 6 6 6-6 6'/></svg>") center/contain no-repeat;transition:transform .2s}
@@ -889,7 +977,7 @@ html .plate .dock{margin:0;padding:12px 28px 16px;border:0;border-radius:0;backg
 /* At 1280 all six kitchen columns fit: a narrower pass panel and 140px stages. */
 @media (min-width:761px) and (max-width:1366px){
   .v-kitchen .board{grid-template-columns:208px minmax(0,1fr) 280px}
-  .v-kitchen .rail>.tray:not(.empty){min-width:max(104px,var(--floor,120px),var(--name,0px),calc(var(--text,0px) + 35px))}
+  .v-kitchen .rail>.tray:not(.empty){min-width:max(104px,var(--floor,120px),var(--name,0px),calc(var(--text,0px) + 35px),min(var(--word,0px),200px))}
   /* Narrower gutters give the titles room at 1280 (hill climb 2 r5, Opus). Stages with tickets share the width by their longest title, as above 1366, over a floor that holds the stage's hint on one line (at least 104 px), so no title takes more than 5 lines (hill climb 2 r10 and r11). */
   .v-kitchen .rail{gap:8px}
   .v-kitchen .rail .tile{padding:10px 6px}
@@ -1052,13 +1140,44 @@ html .plate .plate-scroll.fade-end~.dock{box-shadow:0 -.5px 0 var(--sep)}
 #settings .kr-notes{grid-template-columns:1fr}
 #settings .kr-notes textarea{width:100%;box-sizing:border-box;min-height:72px;padding:8px 10px;border:0;border-radius:8px;background:var(--card);color:var(--label);font:13px/1.45 var(--sans);box-shadow:inset 0 0 0 .5px var(--sep);resize:vertical}
 #settings .set-done span.bad{color:var(--red)}
+/* ===== Shortcuts (⌘K bar PR 4, mock v3): Rules' rows, with the keys and Change on the right. Recording and a clash
+   show in the row itself; the keys are keycaps, never a form field. ===== */
+#settings .kx-top{margin:0 0 18px}
+#settings .kx-q{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border-radius:9px;background:var(--bg);box-shadow:inset 0 0 0 .5px var(--sep);color:var(--label2);cursor:text}
+#settings .kx-q svg{flex:none;width:14px;height:14px}
+#settings .kx-q input{flex:1;min-width:0;height:100%;padding:0;border:0;background:none;color:var(--label);font:13px/1.3 var(--sans);outline:none;-webkit-appearance:none;appearance:none}
+#settings .kx-q input::-webkit-search-cancel-button{-webkit-appearance:none}
+#settings .kx-q:focus-within{box-shadow:inset 0 0 0 .5px var(--sep),0 0 0 3px var(--focus)}
+#settings .kx-group{overflow:hidden}
+#settings .kx-row{transition:background .15s}
+#settings .kx-c{display:flex;align-items:center;justify-content:flex-end;gap:6px;min-height:28px}
+#settings .kx-k{display:inline-flex;gap:3px}
+#settings .kx-c kbd{display:inline-block;box-sizing:border-box;min-width:22px;height:22px;padding:0 6px;border-radius:6px;background:var(--fill);box-shadow:inset 0 -.5px 0 var(--sep);font:600 12px/22px var(--sans);text-align:center;color:var(--label)}
+#settings .kx-or,#settings .kx-no{font-size:12px;color:var(--label2)}
+#settings .kx-ed{margin-left:4px;padding:4px 8px;border:0;border-radius:6px;background:none;color:var(--accent);font:600 12.5px/1.2 var(--sans);cursor:pointer}
+#settings .kx-ed:hover{background:var(--fill)}
+#settings .kx-row.kx-rec{background:var(--blue-t);outline:none}
+#settings .kx-row.kx-rec .kr-l p{color:var(--accent)}
+#settings .recbox{display:inline-flex;align-items:center;height:28px;padding:0 10px;border-radius:7px;border:1.5px dashed var(--accent);color:var(--accent);font:600 12.5px/1 var(--sans);white-space:nowrap}
+#settings .kx-row.kx-clash{background:var(--orange-t)}
+#settings .kx-msg{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;font-size:13px;color:var(--label2)}
+#settings .kx-msg b{color:var(--orange);font-weight:700}
+#settings .kx-hint{grid-column:1/-1;margin:0;font-size:12px;color:var(--orange)}
+#settings .kx-b{min-height:28px;height:28px;padding:0 12px;border-radius:7px;font-size:12.5px;font-weight:600;color:var(--label)}
+#settings .kx-b:disabled{opacity:.45;cursor:default}
+#settings .kx-foot{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin:0 0 18px;font-size:12px;line-height:1.45;color:var(--label2)}
+#settings .kx-foot .kx-file{flex:1 1 260px;margin:0}
+#settings .kx-btns{display:flex;gap:8px}
+#settings .kx-note{flex-basis:100%;margin:0;color:var(--orange)}
+#settings .kx-none{margin:28px 0;text-align:center;font-size:13px;color:var(--label2)}
+#settings .kx-live{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 /* A phone: the sections sit in a row on top, and each rule's control goes under its words. */
 @media (max-width:600px){
-  #settings[open]{grid-template-columns:minmax(0,1fr);margin:16px auto auto}
+  #settings[open]{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;height:calc(100dvh - 32px)}
   #settings .set-nav{grid-row:auto;flex-direction:row;flex-wrap:wrap;gap:4px;padding:14px 12px 8px;border-radius:16px 16px 0 0}
   #settings .set-nav h2{flex-basis:100%;margin:0 4px 6px}
   #settings .set-panes,#settings .set-done{grid-column:1}
-  #settings .set-panes{max-height:calc(100dvh - 200px);padding:16px}
+  #settings .set-panes{padding:16px}
   #settings .set-done{padding:8px 16px 16px}
   #settings .kr-row{grid-template-columns:minmax(0,1fr)}
   #settings .kr-c{justify-self:start}
@@ -1141,7 +1260,9 @@ html .plate .dock-plain{overflow:visible}
 .abar>:first-child:hover .tip,.abar>:first-child:focus-visible .tip{transform:none}
 .abar .more-b.on .tip{opacity:0}
 /* A key that goes elsewhere right now is not shown: Cmd+Enter while R or F is armed, a letter an option takes. */
-.abar .tip kbd:is(.yield,.taken,[hidden]),.abar .tip kbd:is(.yield,.taken,[hidden])+.or,.abar .tip .or:has(+kbd:is(.yield,.taken,[hidden])){display:none}
+.abar .tip kbd:is(.yield,.taken,.nokey,[hidden]),.abar .tip kbd:is(.yield,.taken,.nokey,[hidden])+.or,.abar .tip .or:has(+kbd:is(.yield,.taken,.nokey,[hidden])){display:none}
+/* A command left with no key in Settings → Shortcuts shows none. */
+kbd.nokey{display:none!important}
 @media (hover:none){.abar .tip{display:none}}
 /* More: a floating card above its button, each row an icon, a word and its key. It sits in the top layer, so the
    dock's scroll never clips it; the page script places it. */
@@ -1212,68 +1333,16 @@ html .plate .dock .q-set{max-width:640px}
 .segbar i{flex:1 1 0;min-width:2px;border-radius:2px}
 .segbar i.c-backlog{background:var(--st-backlog)}.segbar i.c-planned{background:var(--st-planned)}.segbar i.c-prog{background:var(--st-prog)}
 .segbar i.c-open{background:var(--st-review)}.segbar i.c-blue{background:var(--st-ready)}.segbar i.c-merged{background:var(--st-merged)}
-/* You, expanded: a header, four instruments, the stages, two panels, then what is verified or on hold. */
+/* You, expanded (Dan, 2026-11-10): the stage columns alone. They start at the top of the window and end level with
+   The Pass and the stage list, and each column scrolls inside itself. */
 .you,.team-wait{display:none}
-.you-h{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 14px;padding:6px 2px 14px}
-.you-h h2{margin:0;font-size:20px;font-weight:700;letter-spacing:-.01em}
-/* One line: the projects shorten first, so no dot ever starts a line. */
-.you-sub{flex:1 1 auto;display:flex;gap:8px;min-width:0;margin:0;font-size:14px;white-space:nowrap;color:var(--label2)}
-.you-sub>*{flex:none}
-.you-sub>:first-child{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.you-sub>*+*::before{content:"·";margin-right:8px}
-/* A grid sized inside a flex column takes its widest text as its minimum: min-width 0 keeps each block to the column. */
-.you-b{display:flex;flex-direction:column;gap:12px;container-type:inline-size}
-.you-b>*{min-width:0}
-.inst{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
-.ins{min-width:0;padding:12px 14px;border-radius:16px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--sep)}
-.ins .l{margin:0;font-size:12px;font-weight:600;color:var(--label2)}
-.ins .v{display:flex;align-items:baseline;flex-wrap:wrap;gap:0 6px;margin:4px 0 0}
-.ins .v b{font-size:24px;font-weight:700;line-height:1.2;font-variant-numeric:tabular-nums}
-.ins .v span{font-size:12px;color:var(--label2)}
-.ins .v .nc{display:block;width:100%;font-size:16px;font-weight:600;line-height:1.75;color:var(--label2)}
-.ins svg{display:block;width:100%;height:28px;margin-top:8px}
-.spark .area{fill:var(--pass-t);stroke:none}
-.spark .line{fill:none;stroke:var(--pass);stroke-width:1.5;vector-effect:non-scaling-stroke}
-.vbars rect{fill:var(--pass);opacity:.6}
-.ins .cap{display:flex;justify-content:space-between;margin-top:4px;font-size:12px;color:var(--label2)}
-.pnl{min-width:0;padding:12px 14px 14px;border-radius:16px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--sep)}
-.ph{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px;margin:0 0 10px;font-size:12px;color:var(--label2)}
-.ph h3{margin:0;font-size:14px;font-weight:600;color:var(--label)}
-.ph .lg{display:inline-flex;align-items:center;gap:6px;margin-left:auto}
-.ph .lg .ic{width:14px;height:14px;color:var(--pass)}
-/* The stage columns sit on the page, as the kitchen's always did: each column is its own card. */
-.pnl-stages{padding:0;background:none;box-shadow:none}
-.pnl-stages .ph{padding:0 2px}
-.you .rail-wrap{height:auto}
-.you .tray{max-height:none}
-.you .tray-b{flex:none;overflow:visible}
-.nc-l{margin:0;font-size:14px;line-height:1.45;color:var(--label2)}
-.nc-l b{font-weight:600;color:var(--label)}
-.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
-.ah{padding:4px 0 8px}
-.ah .row{display:flex;align-items:center;gap:8px;margin:0;font-size:14px}
-.ah .row .pn{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ah .row .v{margin-left:auto;font-size:12px;color:var(--label2);font-variant-numeric:tabular-nums;white-space:nowrap}
-.ah .track{position:relative;height:4px;margin-top:6px;border-radius:2px;background:var(--fill)}
-.ah .track>b{position:absolute;inset:0 auto 0 0;border-radius:2px;background:var(--green)}
-.held{display:flex;flex-wrap:wrap;gap:8px}
-.held>.muted{margin:0;font-size:14px}
-.hc{display:inline-flex;align-items:center;gap:8px;max-width:100%;min-height:34px;padding:6px 12px;border:0;border-radius:10px;background:var(--bg);box-shadow:inset 0 0 0 .5px var(--sep);font:inherit;font-size:14px;color:var(--label);text-align:left;cursor:pointer}
-.hc:hover{box-shadow:inset 0 0 0 .5px var(--sep),var(--sh1)}
-.hc.sel{box-shadow:inset 0 0 0 1.5px var(--accent)}
-.hc .w{font-weight:600;white-space:nowrap}
-.hc .proj{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--label2);white-space:nowrap}
-.hc .t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.hc .ic{flex:none;width:14px;height:14px}
-.hc .at-ic{color:var(--pass)}
-.hc .gd{margin:0}
-/* By the middle column's own width: four instruments need about 185 px each, the two panels about 260. */
-@container (max-width:760px){ .inst{grid-template-columns:repeat(2,minmax(0,1fr))} }
-@container (max-width:540px){ .split{grid-template-columns:minmax(0,1fr)} }
 @media (min-width:761px){
-  .v-kitchen .you{display:flex;flex-direction:column}
-  .v-kitchen .you-b{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 2px 12px}
+  .v-kitchen .you,.v-kitchen .you-b,.v-kitchen .you .rail-wrap{display:flex;flex-direction:column;min-height:0}
+  .v-kitchen .you-b,.v-kitchen .you .rail-wrap{flex:1;height:auto}
+  .v-kitchen .you .tray{max-height:none}
   .v-kitchen .team-wait{align-self:start}
+  /* The tile's cloche needed the key that sat over the columns; The Pass on the right lists the same threads. */
+  .v-kitchen .rail .at-ic{display:none}
 }
 @media (max-width:760px){
   /* The phone's stage list is one row of pills: the person and the bar stay on the desktop rail. */
@@ -1282,37 +1351,256 @@ html .plate .dock .q-set{max-width:640px}
   .v-kitchen .you{display:block;grid-area:you;min-width:0}
   .v-kitchen .team-wait{grid-area:you}
   .v-kitchen .head{grid-area:head}
-  .inst{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .split{grid-template-columns:minmax(0,1fr)}
+  /* A phone's stages grow with their threads and the page scrolls. */
+  .you .rail-wrap{height:auto}
+  .you .tray{max-height:none}
+  .you .tray-b{flex:none;overflow:visible}
 }
-/* The view switch: only a user with reports has it (#yc-team). */
-.vmenu summary .ic.who{width:20px;height:20px}
+/* The footer chip and its menu (Dan, 2026-11-10, view menu mock a). The chip: the person and You, or the toque and
+   Team, then All projects or the picked projects' icons fanned like cards. The menu: check boxes, then the toggle. */
+.vmenu{--cbon:#007AFF;--cboff:#FFFFFF;--cbline:rgba(0,0,0,.26);--segon:var(--card)}
+@media (prefers-color-scheme:dark){.vmenu{--cbon:#0A84FF;--cboff:rgba(255,255,255,.07);--cbline:rgba(255,255,255,.32);--segon:#636366}}
+.vmenu summary .ic.who{width:24px;height:24px}
 .vmenu .vl-team,html.s-team .vmenu .vl-you,.vmenu .vi-team,html.s-team .vmenu .vi-you{display:none}
 html.s-team .vmenu .vl-team{display:inline}
 html.s-team .vmenu .vi-team{display:block}
+.vmenu summary .vl,:is(.v-pass,.v-kitchen) .nav-foot .vmenu summary>span.vl{flex:none}
+.vmenu summary .vdot{flex:none;margin:0 -3px;color:var(--label2)}
+.vmenu summary .vp{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* The fan: each card steps right and turns a little more, and both shrink as the count grows, so ten still fit.
+   When the chip is short of room ("Team" is wider than "You"), the fan gives way and its cards step by the width it
+   has (100cqw), so the dot and the chevron keep their places. */
+.vmenu .fan{--adv:min(12px,calc(40px / max(var(--n) - 1,1)));--step:min(8deg,calc(34deg / max(var(--n) - 1,1)));--mid:calc((var(--n) - 1) / 2);
+  container-type:inline-size;position:relative;flex:0 1 auto;min-width:0;margin-right:auto;width:calc(40px + (var(--n) - 1) * var(--adv));height:26px}
+.vmenu .fan .card{position:absolute;left:calc(10px + var(--i) * max(0px,min(var(--adv),(100cqw - 40px) / max(var(--n) - 1,1))));top:3px;width:20px;height:20px;border-radius:6px;background:var(--card);
+  box-shadow:0 0 0 1.5px var(--card),0 1px 3px rgba(0,0,0,.28);transform:rotate(calc((var(--i) - var(--mid)) * var(--step)));transform-origin:50% 170%;
+  transition:transform .35s cubic-bezier(.32,1.25,.5,1)}
+.vmenu .fan .card .pm{display:grid;width:20px;height:20px;border-radius:6px;font-size:11px}
+.vmenu summary:hover .fan .card{transform:rotate(calc((var(--i) - var(--mid)) * var(--step) * 1.25))}
 .vmenu .pmenu-l{width:300px}
-.vmenu .pmenu-l .mh{margin:0;padding:8px 10px 4px;font-size:12px;font-weight:600;color:var(--label2)}
-.vmenu .pmenu-l hr{margin:6px 4px;border:0;border-top:.5px solid var(--sep)}
+.vmenu .pmenu-l hr{flex:none;margin:6px 4px;border:0;border-top:.5px solid var(--sep)}
 .vmenu .pmenu-l button{display:flex;align-items:center;gap:10px;width:100%;padding:8px 10px;border:0;border-radius:6px;background:none;font:inherit;font-size:14px;color:var(--label);text-align:left;cursor:pointer}
 .vmenu .pmenu-l button:hover{background:var(--fill)}
-.vmenu .pmenu-l a.sub{padding-left:34px}
-.vmenu .pmenu-l .n{flex:none;margin-left:auto;white-space:nowrap}
-.vmenu .mi{display:flex;flex-direction:column;min-width:0}
-.vmenu .mi b{font-weight:600}
-.vmenu .mi small{font-size:12px;color:var(--label2)}
-.vmenu .tk{flex:none;width:14px;height:14px}
-html:not(.s-team) .vmenu a[data-scope=you]:not(.sub)[aria-current] .tk::before,html.s-team .vmenu button[data-scope=team] .tk::before{content:"";display:block;width:5px;height:9px;margin:1px 0 0 4px;border:solid var(--pass);border-width:0 2px 2px 0;transform:rotate(45deg)}
+.vmenu .pmenu-l .pk{flex:none;gap:12px;min-height:40px;font-weight:400}
+.vmenu .pmenu-l .pk.all{font-weight:600}
+.vmenu .pk .vn{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vmenu .pk-nc{margin:2px 10px 4px;font-size:12px;color:var(--label2)}
+/* A check box: 18 px, rounded, a tick drawn in (or a dash for some) on system blue, as on a Mac. */
+.vmenu .cb{flex:none;position:relative;width:18px;height:18px;border-radius:5px;background:var(--cboff);box-shadow:inset 0 0 0 1px var(--cbline),0 .5px 1px rgba(0,0,0,.06);transition:background-color .15s,box-shadow .15s,transform .1s}
+.vmenu .cb svg{position:absolute;inset:0;width:18px;height:18px;fill:none;stroke:#FFFFFF;stroke-width:2.25;stroke-linecap:round;stroke-linejoin:round}
+.vmenu .cb .tick{stroke-dasharray:13;stroke-dashoffset:13;transition:stroke-dashoffset .2s ease-out .03s}
+.vmenu .cb .dash{opacity:0;transition:opacity .12s}
+.vmenu [aria-checked=true]>.cb,.vmenu [aria-checked=mixed]>.cb{background:var(--cbon) linear-gradient(rgba(255,255,255,.16),rgba(255,255,255,0));box-shadow:inset 0 0 0 .5px rgba(0,0,0,.14),0 .5px 1.5px rgba(0,0,0,.14)}
+.vmenu [aria-checked=true]>.cb .tick{stroke-dashoffset:0}
+.vmenu [aria-checked=mixed]>.cb .dash{opacity:1}
+.vmenu .pk:hover[aria-checked=false]>.cb{box-shadow:inset 0 0 0 1.5px var(--cbon)}
+.vmenu .pk:active>.cb{transform:scale(.9)}
+/* The last ticked box cannot be unticked: it shakes. */
+.vmenu .pk.no>.cb{animation:yc-no .32s}
+@keyframes yc-no{20%,60%{transform:translateX(-3px)}40%,80%{transform:translateX(3px)}}
+/* The toggle, one line at the bottom: You | Team, a thumb that slides with the app's 0.5 s spring. */
+.vmenu .pmenu-l .seg{position:relative;display:flex;flex:none;padding:3px;border-radius:11px;background:var(--fill)}
+.vmenu .pmenu-l .seg::before{content:"";position:absolute;top:3px;bottom:3px;left:3px;width:calc(50% - 3px);border-radius:8px;background:var(--segon);box-shadow:0 1px 3px rgba(0,0,0,.16),0 0 0 .5px var(--sep);transition:transform 735ms ${SPRING}}
+html.s-team .vmenu .pmenu-l .seg::before{transform:translateX(100%)}
+.vmenu .pmenu-l .seg button{position:relative;z-index:1;flex:1 1 0;justify-content:center;gap:8px;width:auto;min-height:0;height:40px;padding:0 8px;border-radius:8px;background:none;font-size:15px;font-weight:600;color:var(--label2);transition:color .25s}
+.vmenu .pmenu-l .seg button:hover{background:none;color:var(--label)}
+.vmenu .pmenu-l .seg [aria-checked=true]{color:var(--label)}
+.vmenu .pmenu-l .seg .ic{flex:none;width:24px;height:24px}
+@media (prefers-reduced-motion:reduce){.vmenu .pmenu-l .seg::before,.vmenu .cb .tick,.vmenu .fan .card{transition:none}}
+@media (max-width:760px){.vmenu .pmenu-l .pk{min-height:44px}.vmenu .pmenu-l{max-height:calc(100dvh - 72px);overflow-y:auto;overscroll-behavior:contain}}
 html.s-team .you{display:none}
 /* The Pass follows the view: in Your team it says what it cannot show yet, and none of your own calls. */
 .team-pass,html.s-team .head-b>.folder,html.s-team .head .badge,html.s-team .head-h>.muted{display:none}
 html.s-team .head-b>.team-pass{display:flex}
 html.s-team.v-kitchen .team-wait{display:block;padding:16px 18px;border-radius:16px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--sep)}
+/* Your team, Open kitchen (step 4; mock v2, round 2, Dan 2026-11-10). The team's card replaces yours in the rail, and
+   The Pass holds the team's calls with a quiet line under them. Phones show The Pass only (Dan's 1a). */
+.team-card,.tpn{display:none}
+html.s-team .stagenav:has(.team-card) .nav-card:not(.team-card){display:none}
+html.s-team .team-card{display:flex}
+html.s-team .stagenav>.nf[data-folder=pass]:has(.tpn) .n:not(.tpn){display:none}
+html.s-team .stagenav>.nf[data-folder=pass] .tpn{display:block}
+.team-card .tst{margin:0;cursor:default}
+.gd.c-red{background:var(--red)}.gd.c-nc{background:none;box-shadow:inset 0 0 0 1.5px var(--gray)}
+.segbar i.c-amber{background:var(--orange)}.segbar i.c-gray{background:var(--gray)}.segbar i.c-green{background:var(--green)}.segbar i.c-nc{background:var(--fill2)}
+html.s-team .head-b>.team-pass.tp-live{display:block;padding:0;text-align:left}
+.tp-live .lb.tsg{color:var(--label2)}.tp-live .lb.tsg b{font-weight:600;color:var(--label)}
+.tcalm{display:flex;gap:9px;align-items:flex-start;margin:14px 12px 4px 4px;font-size:13px;line-height:1.45;color:var(--label2)}
+.tcalm .ic{flex:none;width:18px;height:18px;color:var(--green)}
+html.s-team .bar .stats{display:none}
+@media (max-width:760px){html.s-team .team-card{display:none}.tcalm{margin:12px 4px 4px}}
+/* The reader: Seen, the evidence, then Suggested. */
+.tv{font-size:14px}
+.tv .tvis{position:relative;margin-top:14px;padding:14px 16px;border-radius:12px;background:var(--card)}
+.tv .vl{display:flex;align-items:baseline;gap:10px;margin-bottom:10px;font-size:12px;font-weight:600;color:var(--label2)}
+.tv .vl>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* A long path keeps its file name: it cuts from the start. */
+.tv .vl>span:has(>.mono){direction:rtl;text-align:left}
+.tv .vl b{margin-left:auto;font-size:12.5px;color:var(--label);font-weight:600;white-space:nowrap}
+.tv .vl b.red{color:var(--red)}
+.tv .mono{font:500 12px var(--mono);color:var(--label2)}
+.tv .kvs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 20px}
+.tv .kv span{display:block;font-size:11.5px;color:var(--label2)}
+.tv .kv b{display:block;font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tv .kv b.mono{font-size:12px;color:var(--label)}
+.tv .tsug{display:flex;gap:12px;align-items:flex-start;margin-top:16px;padding:12px 14px;border-radius:12px;background:var(--pass-t);font-size:13.5px;line-height:1.45}
+.tv .tsug b{flex:none;color:var(--pass);font-size:12px;font-weight:700;padding-top:1px}
+.tv .tseen{margin:0;font-size:13px;color:var(--label2)}
+.tv .tseen b{margin-right:4px;font-weight:600}.tv .tseen .ok{color:var(--green)}.tv .tseen .no{color:var(--red)}
+.tv .tquiet{display:flex;gap:10px;align-items:flex-start;margin:0 0 12px;padding:10px 12px;border-radius:10px;background:var(--fill);font-size:13px;line-height:1.45;color:var(--label2)}
+.tv .tquiet b{color:var(--label);font-weight:600}
+.tv .hz{flex:none;display:inline-block;width:22px;height:12px;margin-top:2px;border-radius:3px;background:repeating-linear-gradient(135deg,var(--fill2) 0 2px,transparent 2px 5px);box-shadow:inset 0 0 0 1px var(--fill2)}
+.tv .raxis{display:flex;justify-content:space-between;margin-top:6px;font-size:11.5px;color:var(--label2);font-variant-numeric:tabular-nums}
+.tv .wlg{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:8px;font-size:11.5px;color:var(--label2)}
+.tv .wlg span{display:inline-flex;align-items:center;gap:6px}
+.tv .wlg i{display:inline-block;width:14px;height:8px;border-radius:2px;background:var(--green)}
+.tv .wlg i.r{background:var(--red)}.tv .wlg i.a{background:none;box-shadow:inset 0 0 0 1.5px var(--red)}
+.tv .tmore{margin:10px 0 0;font-size:12.5px;color:var(--label2)}
+/* Main broken: the team's merges today, red at the break, then the PRs that wait. */
+.tv .ribbon{display:flex;flex-wrap:wrap;gap:3px;align-items:flex-end}
+.tv .ribbon i{width:14px;height:22px;border-radius:3px;background:var(--green);opacity:.85}
+.tv .ribbon i.r{background:var(--red);opacity:1;height:30px}
+.tv .ribbon i.a{background:none;box-shadow:inset 0 0 0 1.5px var(--red);opacity:1}
+.tv .tprs{display:flex;flex-wrap:wrap;gap:6px}
+.tv .tpr{display:inline-flex;align-items:center;gap:6px;padding:3px 9px 3px 4px;border-radius:999px;background:var(--bg);box-shadow:inset 0 0 0 .5px var(--sep);font-size:12.5px;font-weight:600}
+/* Overlap: the two threads, then the file's line map with the shared lines boxed. */
+.tv .duo{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.tv .tcard{padding:12px 14px;border-radius:12px;background:var(--card)}
+.tv .tcard .h{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600}
+.tv .tcard .h .lb{margin-left:auto;display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;color:var(--label2)}
+.tv .tcard .t{margin-top:6px;font-size:14px;font-weight:600}
+.tv .tcard .m{margin-top:2px;font-size:12.5px;color:var(--label2)}
+.tv .fmap{position:relative;margin-top:4px}
+.tv .fmap .tr{display:grid;grid-template-columns:52px 1fr;align-items:center;gap:10px;height:26px;font-size:12.5px;font-weight:600}
+.tv .fmap .tr>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tv .fmap .lane{position:relative;height:12px;border-radius:3px;background:var(--fill)}
+.tv .fmap .lane i{position:absolute;top:0;bottom:0;min-width:2px;border-radius:3px;background:var(--label2)}
+.tv .fmap .band{position:absolute;top:-3px;height:58px;min-width:3px;border-radius:5px;background:var(--red-t);box-shadow:inset 0 0 0 1.5px var(--red)}
+.tv .fmap .ticks{display:grid;grid-template-columns:52px 1fr;gap:10px;margin-top:4px;font-size:11px;color:var(--label2)}
+.tv .fmap .ticks div{display:flex;justify-content:space-between;font-variant-numeric:tabular-nums}
+@media (max-width:560px){.tv .kvs,.tv .duo{grid-template-columns:minmax(0,1fr)}}
+/* Faces: initials on a colour from the name. */
+.av{display:inline-grid;place-items:center;flex:none;width:22px;height:22px;border-radius:50%;background:hsl(var(--h) 52% 46%);font:700 9.5px/1 var(--sans);color:#fff;letter-spacing:.02em}
+.av.sm{width:18px;height:18px;font-size:8px}
+/* Your team's instruments and panels. You, expanded no longer draws them (#14), so they live here, scoped to the team
+   board: a bare .ph would also style the action bar's phone rows (.mi.ph). */
+.tboard .you-h{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 14px;padding:6px 2px 14px}
+.tboard .you-h h2{margin:0;font-size:20px;font-weight:700;letter-spacing:-.01em}
+/* One line: the projects shorten first, so no dot ever starts a line. */
+.tboard .you-sub{flex:1 1 auto;display:flex;gap:8px;min-width:0;margin:0;font-size:14px;white-space:nowrap;color:var(--label2)}
+.tboard .you-sub>*{flex:none}
+.tboard .you-sub>:first-child{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.tboard .you-sub>*+*::before{content:"·";margin-right:8px}
+.tboard .you-b{display:flex;flex-direction:column;gap:12px;container-type:inline-size}
+.tboard .you-b>*{min-width:0}
+.tboard .inst{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.tboard .ins{min-width:0;padding:12px 14px;border-radius:16px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--sep)}
+.tboard .ins .l{margin:0;font-size:12px;font-weight:600;color:var(--label2)}
+.tboard .ins .v{display:flex;align-items:baseline;flex-wrap:wrap;gap:0 6px;margin:4px 0 0}
+.tboard .ins .v b{font-size:24px;font-weight:700;line-height:1.2;font-variant-numeric:tabular-nums}
+.tboard .ins .v span{font-size:12px;color:var(--label2)}
+.tboard .ins .v .nc{display:block;width:100%;font-size:16px;font-weight:600;line-height:1.75;color:var(--label2)}
+.tboard .ins svg{display:block;width:100%;height:28px;margin-top:8px}
+.tboard .vbars rect{fill:var(--pass);opacity:.6}
+.tboard .ins .cap{display:flex;justify-content:space-between;margin-top:4px;font-size:12px;color:var(--label2)}
+.tboard .pnl{min-width:0;padding:12px 14px 14px;border-radius:16px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--sep)}
+.tboard .ph{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px;margin:0 0 10px;font-size:12px;color:var(--label2)}
+.tboard .ph h3{margin:0;font-size:14px;font-weight:600;color:var(--label)}
+.tboard .ph .lg{display:inline-flex;align-items:center;gap:6px;margin-left:auto}
+.tboard .nc-l{margin:0;font-size:14px;line-height:1.45;color:var(--label2)}
+.tboard .nc-l b{font-weight:600;color:var(--label)}
+@container (max-width:760px){ .tboard .inst{grid-template-columns:repeat(2,minmax(0,1fr))} }
+@media (max-width:760px){ .tboard .inst{grid-template-columns:repeat(2,minmax(0,1fr))} }
+/* Your team, expanded (step 4 PR B; mock v2, approved 2026-11-10): the board in the middle, The Pass as a column of
+   cards on the right, each with its suggestion and Open. */
+.tboard,.tcol,.head-h>.tpm{display:none}
+html.s-team.v-kitchen .head-h>.muted.tpm{display:block}
+html.s-team.v-kitchen .tboard{display:flex;flex-direction:column;grid-area:you;min-width:0;min-height:0}
+@media (min-width:761px){html.s-team.v-kitchen .tboard .you-b{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 2px 12px}}
+@media (max-width:760px){html.s-team.v-kitchen .tboard{display:block}}
+html.v-kitchen .tp-live .folder[data-folder=team]{display:none}
+html.v-kitchen .tp-live .tcol{display:flex;flex-direction:column;gap:8px}
+.xc{padding:11px 13px 12px;border-radius:14px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--sep);cursor:pointer}
+.xc:hover{box-shadow:inset 0 0 0 .5px var(--sep),var(--sh1)}
+.xk{display:flex;align-items:baseline;gap:8px;margin:0;font-size:12px;font-weight:600}
+.xk .t-red{color:var(--red)}.xk .t-amber{color:var(--orange)}.xk .t-blue{color:var(--pass)}
+.xk .age{margin-left:auto;font-weight:500;color:var(--label2);font-variant-numeric:tabular-nums}
+.xt{margin:4px 0 0;font-size:14px;font-weight:600;line-height:1.3}
+.xw{margin:2px 0 0;font-size:12.5px;color:var(--label2)}
+.xa{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.xb{display:inline-flex;align-items:center;min-height:30px;padding:0 12px;border:0;border-radius:8px;background:var(--fill);font:600 13px/1.2 var(--sans);color:var(--label);cursor:pointer}
+.xb:hover{background:var(--fill2)}
+.xb.fill{background:var(--accent);color:#fff}
+.xb.fill:hover{background:#0068D1}
+/* The instruments: the base's merges as a ribbon, merges by hour in purple. */
+.ins .v b.red{color:var(--red)}.ins .v b.green{color:var(--green)}
+.vbars.mg rect{fill:var(--merged);opacity:.75}
+.kribbon{display:flex;gap:2px;align-items:flex-end;height:28px;margin-top:8px}
+.kribbon i{flex:1 1 0;max-width:16px;height:18px;border-radius:2px;background:var(--merged);opacity:.75}
+.kribbon i.r{height:26px;background:var(--red);opacity:1}
+.ins .cap .red{font-weight:600;color:var(--red)}
+/* Who's on what: a row per person, a bar per thread along today. */
+.tl-p .ph .lg{display:flex;flex-wrap:wrap;gap:4px 12px;font-weight:500}
+.tl-p .ph .lg>span{display:inline-flex;align-items:center;gap:5px}
+.sw{display:inline-block;width:14px;height:8px;border-radius:2px;background:var(--fill2)}
+.sw.red{background:none;box-shadow:inset 0 0 0 1.5px var(--red)}.sw.amber{background:none;box-shadow:inset 0 0 0 1.5px var(--orange)}
+.sw.off{background:repeating-linear-gradient(135deg,var(--fill2) 0 2px,transparent 2px 4px);box-shadow:inset 0 0 0 .5px var(--fill2)}
+.mk{display:inline-block;width:8px;height:8px;border-radius:1px;background:var(--merged);transform:rotate(45deg)}
+.tl-s{overflow-x:auto;overscroll-behavior-x:contain}
+.tl{position:relative;min-width:560px}
+.tlax{display:grid;grid-template-columns:116px 1fr;height:16px;font-size:11px;color:var(--label2)}
+.tlax .ax{position:relative}
+.tlax .ax span{position:absolute;transform:translateX(-50%);white-space:nowrap;font-variant-numeric:tabular-nums}
+.tlr{display:grid;grid-template-columns:116px 1fr;align-items:center;height:30px;border-top:.5px solid var(--sep)}
+.tlr .who{display:flex;align-items:center;gap:7px;min-width:0;padding-right:6px}
+.tlr .who>span{min-width:0}
+.tlr .who b{display:block;overflow:hidden;font-size:12.5px;font-weight:600;line-height:1.15;text-overflow:ellipsis;white-space:nowrap}
+.tlr .who em{display:block;font-style:normal;font-size:10.5px;font-weight:600;line-height:1.2;white-space:nowrap}
+.k-pass{color:var(--pass)}.k-amber{color:var(--orange)}.k-gray{color:var(--label2)}
+.tlr .plot{position:relative;height:100%}
+.gv{position:absolute;top:0;bottom:0;width:0;border-left:.5px solid var(--sep)}
+.tlb{position:absolute;box-sizing:border-box;height:12px;margin:0;padding:0 5px;border:0;border-radius:3px;background:var(--fill2);font:500 9.5px/12px var(--sans);color:var(--label2);text-align:left;white-space:nowrap}
+.tlb .tlt{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.tlb:has(.tltag){display:flex;padding-right:0;overflow:hidden}
+.tlb:has(.tltag) .tlt{flex:1 1 0}
+.tlb .tltag{position:static;flex:0 1 auto;min-width:0;margin-left:auto;overflow:hidden;text-overflow:ellipsis}
+button.tlb{cursor:pointer}
+.tlb.red{background:var(--red-t);box-shadow:inset 0 0 0 1.5px var(--red);color:var(--label)}
+.tlb.amber{background:var(--orange-t);box-shadow:inset 0 0 0 1.5px var(--orange);color:var(--label)}
+.tlb.clip{border-top-left-radius:0;border-bottom-left-radius:0}
+.tlb.off{background:repeating-linear-gradient(135deg,var(--fill2) 0 2px,transparent 2px 5px);font-style:italic;color:var(--label2)}
+.tlm{position:absolute;width:8px;height:8px;margin:-4px 0 0 -4px;border-radius:1px;background:var(--merged);transform:rotate(45deg)}
+.tltag{position:absolute;padding:0 5px;border-radius:3px;font-size:10px;font-weight:700;line-height:12px;white-space:nowrap}
+.tltag.red{background:var(--red);color:#fff}.tltag.amber{background:var(--orange);color:#1D1D1F}
+.tlx{position:absolute;right:0;top:50%;padding-left:6px;background:var(--card);font-size:10.5px;color:var(--label2);transform:translateY(-50%)}
+.tl .now{position:absolute;bottom:0;width:0;border-left:1.5px solid var(--pass);pointer-events:none}
+.tl .now span{position:absolute;top:0;left:4px;font-size:10.5px;font-weight:700;color:var(--pass)}
+.tl .conn{position:absolute;width:0;border-left:2px solid var(--red)}
+.tl .conn button{all:unset;cursor:pointer}
+.tl .conn span{position:absolute;left:6px;top:50%;padding:1px 4px;border-radius:3px;background:var(--card);box-shadow:inset 0 0 0 1px var(--red);font:600 10.5px var(--mono);color:var(--red);white-space:nowrap;transform:translateY(-50%)}
+/* Files two live threads change: the path, the faces, a state word. */
+.sfl{display:flex;flex-direction:column}
+.sf{display:grid;grid-template-columns:minmax(0,1.4fr) 64px minmax(0,1fr);align-items:center;gap:12px;width:100%;min-height:34px;margin:0;padding:0;border:0;border-top:.5px solid var(--sep);background:none;font:inherit;font-size:13px;color:var(--label);text-align:left}
+.sf:first-child{border-top:0}
+button.sf{cursor:pointer}
+button.sf:hover .s{text-decoration:underline}
+.sf .f{overflow:hidden;font:12px var(--mono);text-overflow:ellipsis;white-space:nowrap}
+.sf .fc{display:flex}
+.sf .fc .av+.av{margin-left:-5px;box-shadow:0 0 0 1.5px var(--card)}
+.sf .s{overflow:hidden;color:var(--label2);text-overflow:ellipsis;white-space:nowrap}
+.sf .s.red{font-weight:600;color:var(--red)}
+.tboard .tmore{margin:8px 0 0;font-size:12.5px;color:var(--label2)}
+@media (max-width:760px){.sf{grid-template-columns:minmax(0,1fr) auto;row-gap:2px;padding:6px 0}.sf .s{grid-column:1 / -1}}
 `;
-const STYLE = onScale(CSS + APP_CSS + BAR_CSS);
+// Appearance (theme.mjs): every dark and light rule also answers to the html element's data-theme.
+// The pictures in Settings → Layout and the ⌘K bar's Appearance and Density steps (theme.mjs).
+const MINIS = minis();
+const tile = (name, value, label) => `<label class="look"><input type="radio" name="${name}" value="${value}" aria-label="${label}">${MINIS[value]}<span class="look-n">${label}</span></label>`;
+const STYLE = onScale(onTheme(CSS + APP_CSS + BAR_CSS + MINI_CSS) + miniCss(CSS + APP_CSS + BAR_CSS));
 
 const page = (body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark"><title>Yes Chef</title>
-<script>(function(){var c='v-pass d-default';try{var s=localStorage;c=(s.getItem('yc.view')==='kitchen'?'v-kitchen':'v-pass')+' d-'+({comfortable:1,compact:1}[s.getItem('yc.density')]?s.getItem('yc.density'):'default')}catch(e){}document.documentElement.className=c})()</script><style>${STYLE}</style></head><body class="pass-app"><main id="app">${body}</main>
+<script>(function(){var c='v-pass d-default';try{var s=localStorage;c=(s.getItem('yc.view')==='kitchen'?'v-kitchen':'v-pass')+' d-'+({comfortable:1,compact:1}[s.getItem('yc.density')]?s.getItem('yc.density'):'default');var t=s.getItem('yc.theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}document.documentElement.className=c})()</script><style>${STYLE}</style></head><body class="pass-app"><main id="app">${body}</main>
 <dialog class="sheet" id="sheet" aria-label="Ticket"></dialog>
 <dialog id="viewer" aria-label="Screenshot"><img alt=""><div class="v-bar"><button type="button" data-v="prev" aria-label="Previous screenshot">‹</button><span class="v-cap"></span><button type="button" data-v="next" aria-label="Next screenshot">›</button><span class="v-end"><span class="v-keys"><span class="v-arrows"><kbd>←</kbd> <kbd>→</kbd> move&nbsp;&nbsp;</span><kbd>esc</kbd> close</span><button type="button" data-v="close" aria-label="Close">✕</button></span></div></dialog>
 <div id="toast" popover="manual" role="status"><span class="t-msg"></span><span class="t-acts"></span></div>
@@ -1323,37 +1611,17 @@ const page = (body) => `<!doctype html><html lang="en"><head><meta charset="utf-
 <button type="button" class="set-tab" data-tab="keys">Shortcuts</button></nav>
 <div class="set-panes">
 <section class="set-pane" data-pane="layout">
-<fieldset><legend>Density</legend>
-<label class="set-o"><input type="radio" name="density" value="default"><span>Default<small>Title and the agent's summary</small></span><i class="pv pv-default"><i></i><i></i></i></label>
-<label class="set-o"><input type="radio" name="density" value="comfortable"><span>Comfortable<small>Title and one summary line</small></span><i class="pv pv-comfortable"><i></i><i></i><i></i></i></label>
-<label class="set-o"><input type="radio" name="density" value="compact"><span>Compact<small>Titles only, the most tickets on screen</small></span><i class="pv pv-compact"><i></i><i></i><i></i><i></i><i></i></i></label>
+<fieldset class="looks"><legend>Appearance</legend>
+${tile('theme', 'system', 'System')}${tile('theme', 'light', 'Light')}${tile('theme', 'dark', 'Dark')}
+</fieldset>
+<fieldset class="looks"><legend>Density</legend>
+${tile('density', 'default', 'Default')}${tile('density', 'comfortable', 'Comfortable')}${tile('density', 'compact', 'Compact')}
 </fieldset>
 </section>
 ${kitchenPane({ rules, projects, error: rulesError })}
-<section class="set-pane" data-pane="keys" hidden><h3 class="kgroup">Move</h3><dl class="keylist">
-<dt><kbd>J</kbd> <kbd>K</kbd></dt><dd>Next and previous ticket</dd>
-<dt><kbd>Space</kbd></dt><dd>Page down the message (<kbd>⇧</kbd> <kbd>Space</kbd> pages up)</dd>
-<dt><kbd>O</kbd></dt><dd>Open in T3 Code</dd>
-<dt><kbd>V</kbd></dt><dd>The pass or the full kitchen</dd>
-<dt><kbd>Esc</kbd></dt><dd>Leave the note, close a ticket or a dialog</dd></dl>
-<h3 class="kgroup">Act</h3><dl class="keylist">
-<dt><kbd>⌘</kbd> <kbd>↵</kbd></dt><dd>The blue action: Merge, Approve, or the recommended answer in the question you are in. What R or F armed, while armed. Retry, while the ticket or a toast offers it</dd>
-<dt><kbd>A</kbd> <kbd>B</kbd> <kbd>C</kbd>…</dt><dd>Pick an option while a question waits. With several questions, the next one comes forward</dd>
-<dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Previous and next question, when there are several</dd>
-<dt><kbd>M</kbd></dt><dd>Merge: the agent merges its pull request</dd>
-<dt><kbd>A</kbd></dt><dd>Approve: on a ticket with no pull request, the agent goes ahead</dd>
-<dt><kbd>R</kbd></dt><dd>Reply: write a note, then <kbd>⌘</kbd> <kbd>↵</kbd></dd>
-<dt><kbd>F</kbd></dt><dd>Request changes: say what to fix, then <kbd>⌘</kbd> <kbd>↵</kbd></dd>
-<dt><kbd>N</kbd></dt><dd>Add a note to the next send</dd>
-<dt><kbd>.</kbd></dt><dd>More: the actions that are not in the row</dd>
-<dt><kbd>H</kbd></dt><dd>Hold until 8:00 tomorrow</dd>
-<dt><kbd>E</kbd></dt><dd>Settle: done, it leaves the pass</dd>
-<dt><kbd>Z</kbd></dt><dd>Undo the send (4 seconds)</dd></dl>
-<h3 class="kgroup">App</h3><dl class="keylist">
-<dt><kbd>⌘</kbd> <kbd>K</kbd></dt><dd>Actions: search every action, thread and setting. <kbd>↑</kbd> brings back your last action</dd>
-<dt><kbd>⌘</kbd> <kbd>T</kbd></dt><dd>New thread in T3 Code (also <kbd>⌘</kbd> <kbd>N</kbd>)</dd>
-<dt><kbd>⌘</kbd> <kbd>,</kbd></dt><dd>Settings. <kbd>?</kbd> opens Shortcuts</dd>
-<dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Previous and next screenshot in the viewer</dd></dl></section>
+<section class="set-pane" data-pane="keys" hidden><div class="kx-top"><label class="kx-q"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><input type="search" id="kx-q" placeholder="Search shortcuts" aria-label="Search shortcuts" autocomplete="off" spellcheck="false"></label></div>
+<div id="kx-list"></div><p class="kx-live" role="status" aria-live="polite"></p>
+<div class="kx-foot"><p class="kx-file">Your shortcuts, in the shape of T3 Code’s keybindings.json and with its rules: a key, a command, and when it applies.</p><span class="kx-btns"><button type="button" class="btn kx-b" data-kx-file hidden>Open the file</button><button type="button" class="btn kx-b" data-kx-resetall>Reset all</button></span><p class="kx-note" role="status" hidden></p></div></section>
 </div></div>
 <p class="set-done"><span role="status">Saved on this Mac.</span><button type="button" class="btn fill" data-settings-done><span class="bl">Done</span><kbd>esc</kbd></button></p></dialog>
 <dialog id="launch" aria-labelledby="launch-t"><form class="act launch" method="post" action="/act">
@@ -1384,6 +1652,17 @@ ${BAR_HTML}
   var actedLatest = {}; // plate id -> the hand-back it had when sent: a newer hand-back brings it back at once (Opus)
   var mounted = null; // the ticket element now open in the reader or the sheet
   var bar = null; // the Cmd+K action bar, once installed at the end
+  var MINI = ${JSON.stringify(MINIS)}; // the Settings pictures, for the bar's Appearance and Density steps
+  // Shortcuts (client/keys.mjs, ⌘K bar PR 4): the keys in use, as Settings → Shortcuts set them. The browser keeps the
+  // list under yc.keys; the Mac app keeps it in keybindings.json in its data folder and reads it at start and on focus.
+  ${keysCore}
+  var K = keysCore(/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || ''));
+  var KFILE = window.yeschef && window.yeschef.keys && typeof window.yeschef.keys.read === 'function' ? window.yeschef.keys : null;
+  var KST = K.build(readKeys()), kxSeen = null, kxFileNote = '';
+  function readKeys(){ var t = store('yc.keys'); if (!t) return []; try { return JSON.parse(t); } catch (x) { return []; } }
+  // A command's first key as one label ("⌘↵"), or '' with none. SK is the suggested action's: the board's send key.
+  function keyLabel(id){ var k = K.keysOf(KST, id)[0]; return k ? K.label(k) : ''; }
+  function SK(){ return keyLabel('ticket.suggested'); }
   function $(sel, el){ return (el || document).querySelector(sel); }
   function $$(sel, el){ return Array.prototype.slice.call((el || document).querySelectorAll(sel)); }
   function wide(){ return wideQ.matches; }
@@ -1441,22 +1720,37 @@ ${BAR_HTML}
   // has it, so the scope stays You. viewsNow and setScope are what the Cmd+K bar's View actions read and call.
   function teamNow(){ var j = $('#yc-team'); if (!j) return null; try { return JSON.parse(j.textContent); } catch (x) { return null; } }
   var scope = store('yc.scope') === 'team' ? 'team' : 'you';
-  function applyScope(){ if (!teamNow()) scope = 'you'; root.classList.toggle('s-team', scope === 'team'); }
+  function applyScope(){
+    if (!teamNow()) scope = 'you'; root.classList.toggle('s-team', scope === 'team');
+    $$('.vmenu .seg [data-scope]').forEach(function(b){ b.setAttribute('aria-checked', String(b.dataset.scope === scope)); });
+  }
   function viewsNow(){ var t = teamNow(); return { hasReports: !!t, current: scope, team: t }; }
   function setScope(next){
     if ((next !== 'you' && next !== 'team') || (next === 'team' && !teamNow())) return;
     var was = scope; scope = next; store('yc.scope', next); applyScope();
     // Your team shows none of your own tickets, so the one open in the reader closes, and the one the Pass kept for
-    // its return is forgotten too, even when none is open now (PR-Agent r6 on #74).
-    if (next === 'team' && was !== 'team') { state.passSel = null; if (state.sel) { state.sel = null; place(); } }
+    // its return is forgotten too, even when none is open now (PR-Agent r6 on #74). The reader is cleared even when
+    // nothing is selected: a project pick in the same open menu drops the selection before the reader redraws.
+    // Coming back to You does the same for a team call (step 4): neither view opens the other's.
+    if (next !== was) { state.passSel = null; state.sel = null; place(); }
+  }
+
+  // Your team, expanded: a card in The Pass column, a bar in Who's on what or a file row goes back to The Pass with
+  // that call open. The card's suggestion also puts focus on its action there: nothing sends from Your team yet.
+  function openTeamCall(id, act){
+    if (scope !== 'team' || !id || !plateNode(id)) return;
+    state.passFolder = 'pass'; state.passSel = id;
+    if (focusView()) select(id); else toggleView();
+    if (act) setTimeout(function(){ var p = plateNode(id), b = p && $('form.act button[name=kind][value="' + act + '"]', p); if (b) b.focus(); }, reduce.matches ? 0 : MOTION_MS + 60);
   }
 
   // ----- Folders (the stage list) and selection -----
-  function folderEl(){ return $('.head-b .folder[data-folder="' + state.folder + '"]') || $('.head-b .folder[data-folder="pass"]'); }
+  // In Your team the list is the team's calls (folder "team"), never one of your own folders.
+  function folderEl(){ if (scope === 'team') return $('.head-b .folder[data-folder="team"]'); return $('.head-b .folder[data-folder="' + state.folder + '"]') || $('.head-b .folder[data-folder="pass"]'); }
   function setFolder(name){
-    if (!$('.head-b .folder[data-folder="' + name + '"]')) name = 'pass';
+    if (name === 'team' || !$('.head-b .folder[data-folder="' + name + '"]')) name = 'pass';
     state.folder = name;
-    $$('.head-b .folder').forEach(function(d){ d.hidden = d.dataset.folder !== name; });
+    $$('.head-b .folder:not([data-folder="team"])').forEach(function(d){ d.hidden = d.dataset.folder !== name; });
     // The stage list marks the open list in the pass view only: You, expanded shows every stage at once.
     $$('.stagenav .nf').forEach(function(b){ if (b.dataset.folder === name && focusView()) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current'); });
     var label = name === 'pass' ? 'The Pass' : name, h = $('.head-name'); if (h && focusView()) h.textContent = label; else if (h) h.textContent = 'The Pass';
@@ -1506,15 +1800,14 @@ ${BAR_HTML}
     if (headRO && sc !== headWatched) { headRO.disconnect(); headWatched = sc || null; if (sc) { headRO.observe(sc); if (h) headRO.observe(h); } }
     fitHead();
   }
-  // J/K move within the list the open ticket came from (a stage column, Verified and on hold, or the pass list),
-  // not always the pass (hill climb r1, Sol). The list is named, not held, so a refresh keeps it.
+  // J/K move within the list the open ticket came from (a stage column or the pass list), not always the pass
+  // (hill climb r1, Sol). The list is named, not held, so a refresh keeps it.
   function listKeyOf(t){
-    var tray = t.closest('.tray'), still = t.closest('.held'), folder = t.closest('.folder');
-    return still ? 'held' : tray ? 'tray:' + tray.dataset.stage : folder ? 'folder:' + folder.dataset.folder : null;
+    var tray = t.closest('.tray'), folder = t.closest('.folder');
+    return tray ? 'tray:' + tray.dataset.stage : folder ? 'folder:' + folder.dataset.folder : null;
   }
   function listFor(key){
     if (!key) return null;
-    if (key === 'held') return $('.you .held');
     if (key.indexOf('tray:') === 0) return $('.tray[data-stage="' + key.slice(5) + '"] .tray-b');
     return null;
   }
@@ -1530,7 +1823,9 @@ ${BAR_HTML}
   }
   // After a send from the pass, the next ticket at the pass opens. With none left, the pass shows all clear.
   function advance(fromId){
-    var list = $$('.head-b .folder[data-folder="' + (focusView() ? state.folder : 'pass') + '"] [data-plate]').filter(function(t){ return !t.classList.contains('gone') || t.dataset.plate === fromId; });
+    // In Your team the next one is the team's next call, never one of your own tickets.
+    var box = $('.head-b .folder[data-folder="' + (scope === 'team' ? 'team' : focusView() ? state.folder : 'pass') + '"]');
+    var list = (box ? $$('[data-plate]', box) : []).filter(function(t){ return !t.classList.contains('gone') || t.dataset.plate === fromId; });
     var i = list.findIndex(function(t){ return t.dataset.plate === fromId; });
     var rest = list.filter(function(t){ return t.dataset.plate !== fromId && !t.classList.contains('gone'); });
     var nextT = i < 0 ? rest[0] : (list.slice(i + 1).filter(function(t){ return !t.classList.contains('gone'); })[0] || rest[rest.length - 1]);
@@ -1571,8 +1866,13 @@ ${BAR_HTML}
       // stage's 8 px sides, and 2 px to spare.
       var g = $('.tray-h .g', tr), c = $('.tray-h .n', tr);
       if (g) tr.style.setProperty('--name', Math.ceil(wide(g) + (c ? wide(c) : 0) + 49) + 'px'); else tr.style.removeProperty('--name');
+      // --word is the narrowest the stage can be with no word broken: its name's longest word beside the count, and
+      // (below) its cards' longest word and top row. .tighter holds it, so a narrow window wraps words, never splits them.
+      var word = 0, cw = c ? wide(c) : 0;
+      if (g) { wide(g); (g.textContent || '').trim().split(' ').forEach(function(w){ word = Math.max(word, cv.measureText(w).width + cw + 49); }); }
+      var setWord = function(){ if (word) tr.style.setProperty('--word', Math.ceil(word) + 'px'); else tr.style.removeProperty('--word'); };
       var ts = $$('.tile .t', tr);
-      if (!ts.length) { ['--need', '--floor', '--text', '--text4'].forEach(function(p){ tr.style.removeProperty(p); }); return; }
+      if (!ts.length) { ['--need', '--floor', '--text', '--text4'].forEach(function(p){ tr.style.removeProperty(p); }); setWord(); return; }
       // A stage's share grows with its longest title as drawn, so the titles take about the same lines everywhere.
       var m = ts.reduce(function(a, t){ return Math.max(a, wide(t)); }, 0);
       tr.style.setProperty('--need', (Math.min(Math.max(m, 160), 560) / 266).toFixed(2));
@@ -1580,11 +1880,11 @@ ${BAR_HTML}
       // card starts on one line (hill climb 2 r11, Astra).
       var h = $('.tray-h .hint', tr);
       if (h) tr.style.setProperty('--floor', Math.ceil(wide(h) + 28) + 'px'); else tr.style.removeProperty('--floor');
-      // --text is the width a card's content needs: its top row whole (the avatar, the age and the cloche with their
-      // gaps), so no stage clips the avatar, and each title in 5 lines or fewer, wrapped at spaces and after hyphens
-      // as the page wraps it. The CSS adds the stage and card sides (hill climb 2 r10 and r11). --text4 is the same
-      // with titles in 4 lines, for a window over 1366 px (r13, Opus and Fable).
-      var need = $$('.tile .tile-top', tr).reduce(function(a, tt){ var ag = $('.age', tt); return ag ? Math.max(a, wide(ag) + ($('.at-ic', tt) ? 49 : 21)) : a; }, 0), need4 = need;
+      // --text is the width a card's content needs: its top row whole (the avatar and the age with their gaps; the
+      // rail hides the cloche), so no stage clips the avatar, and each title in 5 lines or fewer, wrapped at spaces
+      // and after hyphens as the page wraps it. The CSS adds the stage and card sides (hill climb 2 r10 and r11).
+      // --text4 is the same with titles in 4 lines, for a window over 1366 px (r13, Opus and Fable).
+      var need = $$('.tile .tile-top', tr).reduce(function(a, tt){ var ag = $('.age', tt); return ag ? Math.max(a, wide(ag) + 21) : a; }, 0), need4 = need;
       ts.forEach(function(t){
         wide(t);
         var sp = cv.measureText(' ').width, words = [];
@@ -1594,19 +1894,28 @@ ${BAR_HTML}
         var lines = function(at){ var n = 1, x = 0; words.forEach(function(d){ var gap = x && d.sp ? sp : 0; if (x && x + gap + d.w > at) { n++; x = d.w; } else x += gap + d.w; }); return n; };
         var fit = function(most){ var lo = 40, hi = 220; if (lines(hi) > most) return hi; while (hi - lo > 1) { var mid = (lo + hi) >> 1; if (lines(mid) > most) lo = mid; else hi = mid; } return hi + 2; };
         need4 = Math.max(need4, fit(4)); need = Math.max(need, fit(5));
+        words.forEach(function(d){ word = Math.max(word, d.w + 45); });
       });
       tr.style.setProperty('--text', Math.ceil(need) + 'px'); tr.style.setProperty('--text4', Math.ceil(need4) + 'px');
+      // The top row: the project's mark and the age (the model hides in a narrow stage).
+      word = Math.max(word, $$('.tile .tile-top .age', tr).reduce(function(a, ag){ return Math.max(a, wide(ag) + 21 + 45); }, 0));
+      setWord();
     });
     fitRail();
   }
   // The 4-line floor (.four) holds only while the whole rail fits: it is tried, and dropped if the rail would scroll,
-  // so a window from 1367 to about 1435 px keeps 5 lines and every title whole (r14, Opus). Run on draw, resize and
-  // view change; a hidden rail keeps its state.
+  // so a window from 1367 to about 1435 px keeps 5 lines and every title whole (r14, Opus). If the rail still runs
+  // past its edge, .tight drops the floors and the titles wrap more, so Merged is never cut off (Dan, 2026-11-10).
+  // Run on draw, resize and view change; a hidden rail keeps its state.
   function fitRail(){
     $$('.rail').forEach(function(rail){
       if (!rail.clientWidth) return;
-      rail.classList.add('four');
-      if (rail.scrollWidth > rail.clientWidth + 1) rail.classList.remove('four');
+      var over = function(){ return rail.scrollWidth > rail.clientWidth + 1; };
+      rail.classList.remove('tight', 'tighter'); rail.classList.add('four');
+      if (over()) rail.classList.remove('four');
+      if (over()) rail.classList.add('tight');
+      // A window near 1280 px: the stage names wrap too.
+      if (over()) rail.classList.add('tighter');
     });
     fades();
   }
@@ -1644,11 +1953,13 @@ ${BAR_HTML}
   });
 
   // ----- Refresh: swap each region; never the ticket you are working on -----
-  var last = Date.now(), pendingHtml = null;
+  // pendingFor: the address pendingHtml was read for. A project pick or Back changes the address while the menu is
+  // open, so a page read before it is not replayed when the menu closes (PR-Agent r1 on the view menu).
+  var last = Date.now(), pendingHtml = null, pendingFor = null;
   // Missing data renders "not checked": the lists, counts and "Live" go; only a ticket you are writing in stays.
   function lost(why){
     var msg = why + ' at ' + new Date().toLocaleTimeString() + '. The board returns with the next update.';
-    net(false, msg); app.classList.add('is-stale');
+    net(false, msg); app.classList.add('is-stale'); drawn = {};
     // The red strip says why; each Live dot (the stage list's and the top bar's) turns to "Not checked".
     $$('.lamps li', app).forEach(function(l){ l.className = 'bad'; l.textContent = ''; l.appendChild(document.createElement('i')); l.appendChild(document.createTextNode('Not checked')); });
   }
@@ -1686,22 +1997,56 @@ ${BAR_HTML}
     if (openMenu(p)) return true;
     return $$('textarea, input[type=text]', p).some(function(x){ return x.value.trim(); });
   }
+  // The app blinked every 5 s (Dan, 2026-11-10): each refresh put in a new copy of every list, and the open ticket's
+  // card drew without its blue bar for a moment, then faded it back in. Now a list whose HTML has not changed since the
+  // last refresh stays as it is. drawn holds that HTML; lost() and a project pick clear it, since both change a list
+  // in place. The Live lamp's tooltip names the time of each read, so it is left out of the compare.
+  var drawn = {};
+  // Each ticket's HTML as the refresh that brought it drew it, before the page marked it up (sync() compares it),
+  // without what every draw makes up anew: each form's one-time send id and the More menu's id.
+  var plateSrc = new WeakMap();
+  function plateKey(html){ return html.replace(/(name="nonce" value=")[^"]*"/g, '$1"').replace(/(id|popovertarget)="m-[^"]*"/g, '$1="m-"'); }
+  function plain(html){ return html.replace(/(<li class="ok") title="[^"]*"/g, '$1'); }
+  // A list that did change comes in with the open ticket's mark already on it, so no card animates to it, and its
+  // cards skip their hover shadow's fade while the pointer finds them again.
+  function prime(el){
+    if (state.sel) $$('[data-plate="' + CSS.escape(state.sel) + '"]', el).forEach(function(t){ if (t.tagName !== 'FORM') t.classList.add('sel'); });
+    $$('.head-b .tile[data-plate]', el).forEach(function(t){ if (acted[t.dataset.plate]) t.classList.add('gone'); });
+    el.classList.add('fresh'); setTimeout(function(){ el.classList.remove('fresh'); }, 300);
+  }
   function swap(sel, fresh, keepScroll){
     var old = $(sel, app), nu = fresh.querySelector(sel);
     if (!old || !nu) return;
+    var html = plain(nu.outerHTML);
+    if (drawn[sel] === html) {
+      var tips = $$('.lamps li', nu); $$('.lamps li', old).forEach(function(l, i){ if (tips[i]) l.title = tips[i].title; });
+      return;
+    }
+    drawn[sel] = html;
+    prime(nu);
     var st = keepScroll ? $$(keepScroll, old).map(function(x){ return x.scrollTop; }) : [];
     old.replaceWith(nu);
     if (keepScroll) $$(keepScroll, nu).forEach(function(x, i){ x.scrollTop = st[i] || 0; });
   }
   // A part only one side has: #yc-team and Your team's panel come and go with the team connection.
-  function swapAny(sel, fresh, before){
+  function swapAny(sel, fresh, before, keepScroll){
     var old = $(sel, app), nu = fresh.querySelector(sel);
-    if (old && nu) old.replaceWith(nu);
-    else if (old) old.remove();
+    // keepScroll: the selectors whose scroll, down and across, survives the swap (each matched by its own order).
+    if (old && nu) {
+      // Unchanged since the last draw: kept as it is, so nothing blinks (as swap does, #14).
+      var html = plain(nu.outerHTML);
+      if (drawn[sel] === html) return;
+      drawn[sel] = html;
+      prime(nu);
+      var keep = keepScroll ? keepScroll.split(',').map(function(s){ s = s.trim(); return [s, $$(s, old).map(function(x){ return [x.scrollTop, x.scrollLeft]; })]; }) : [];
+      old.replaceWith(nu);
+      keep.forEach(function(k){ $$(k[0], nu).forEach(function(x, i){ var p = k[1][i] || [0, 0]; x.scrollTop = p[0]; x.scrollLeft = p[1]; }); });
+    }
+    else if (old) { old.remove(); delete drawn[sel]; }
     else if (nu) { var b = $(before, app); if (b) b.before(nu); }
   }
   function sync(html){
-    if ($('details.pmenu[open]')) { pendingHtml = html; return; }
+    if ($('details.pmenu[open]')) { pendingHtml = html; pendingFor = location.search; return; }
     pendingHtml = null;
     // Keep keyboard focus on the same card or stage across the refresh (hill climb r5, Sol).
     var ae = document.activeElement, focusSel = null;
@@ -1718,9 +2063,12 @@ ${BAR_HTML}
     }
     var t = document.createElement('template'); t.innerHTML = html; var fresh = t.content;
     swap('.stats', fresh); swap('.pmenu', fresh); swap('.bar .lamps', fresh); swap('.stagenav', fresh, '.nav-scroll');
-    // You, expanded: its numbers, columns and chips all come fresh; where you scrolled stays.
-    swap('.you', fresh, '.you-b, .tray-b'); swapAny('.team-wait', fresh, '.head'); swap('.head', fresh, '.head-b');
+    // You, expanded: its columns come fresh when they change, and each keeps where you scrolled.
+    swap('.you', fresh, '.you-b, .tray-b'); swapAny('.team-wait', fresh, '.head'); swapAny('.tboard', fresh, '.head', '.you-b, .tl-s'); swap('.head', fresh, '.head-b');
     swap('#yc-projects', fresh); swapAny('#yc-team', fresh, '#plates'); swap('#yc-rules-now', fresh); if (typeof krLive === 'function') krLive();
+    // A card's "Not confirmed" line is the page's own. A list kept from the last refresh still has it, so it goes here,
+    // and decorate() and markSent() put back the ones still true, as they did on a new copy.
+    $$('.tile > .th.nc', app).forEach(function(m){ m.remove(); });
     $$('.strip:not(.netstrip)', app).forEach(function(s){ s.remove(); });
     var strip = fresh.querySelector('.strip'); if (strip) $('.bar', app).after(strip);
     // Tickets: every one is replaced, except the open one while you pick, type or send in it.
@@ -1730,6 +2078,17 @@ ${BAR_HTML}
     $$('.plate', nuStore).forEach(function(p){
       if (mounted && p.id === mounted.id) {
         if (keep) return;
+        // The open ticket stays as it is while the refresh draws it the same: a new copy dropped the focus and the
+        // text you had selected in it every 5 s (Dan, 2026-11-10). Only while nothing is being sent from it: a send in
+        // flight or not confirmed is replaced as before, so its one-time id follows the rules it always did. A kept
+        // ticket takes the new copy's one-time ids, as the new copy would have brought them.
+        var was = plateSrc.get(mounted), now = plateKey(p.outerHTML);
+        var sending = $('form.act[data-busy], form.act[data-touched], form[data-sent-sig]', mounted) || unconfirmed[mounted.id];
+        if (was === now && !sending) {
+          var ids = $$('input[name=nonce]', p); $$('input[name=nonce]', mounted).forEach(function(x, i){ if (ids[i]) x.value = ids[i].value; });
+          return;
+        }
+        plateSrc.set(p, now);
         var s = $('.plate-scroll', mounted), d = $('.dock', mounted), top = s ? s.scrollTop : 0, dtop = d ? d.scrollTop : 0;
         $$('details.more', mounted).forEach(function(x, i){ var y = $$('details.more', p)[i]; if (y) y.open = x.open; });
         // The question card you were reading stays in front through a refresh.
@@ -1742,10 +2101,10 @@ ${BAR_HTML}
     var held = {};
     // So does a ticket you left mid-draft (a pick or a note): it waits for you, untouched (council 1b).
     $$('.plate', store_).forEach(function(p){ if (p.querySelector('form.act[data-busy], form.act[data-touched]') || unconfirmed[p.id] || $$('textarea', p).some(function(x){ return x.value.trim(); })) held[p.id] = true; else p.remove(); });
-    $$('.plate', nuStore).forEach(function(p){ if ((!mounted || p.id !== mounted.id) && !held[p.id]) store_.appendChild(p); });
+    $$('.plate', nuStore).forEach(function(p){ if ((!mounted || p.id !== mounted.id) && !held[p.id]) { plateSrc.set(p, plateKey(p.outerHTML)); store_.appendChild(p); } });
     // A ticket sent from the pass comes back as soon as the agent hands it back again, not after 90 s.
     Object.keys(acted).forEach(function(aid){ var np = nuStore.querySelector('#' + CSS.escape(aid)) || document.getElementById(aid); if (np && actedLatest[aid] !== undefined && (np.dataset.latest || '') !== actedLatest[aid]) { delete acted[aid]; delete actedLatest[aid]; } });
-    hideActed(); setFolder(state.folder); applyScope(); sizeRail(); restoreDrafts(app); restoreDrafts($('#plates'));
+    hideActed(); setFolder(state.folder); applyScope(); normalizePicked(); sizeRail(); if (KST.changed || !K.mac) relabel(document); restoreDrafts(app); restoreDrafts($('#plates'));
     if (focusSel && document.activeElement !== null && (document.activeElement === document.body || !document.activeElement.isConnected)) { var back = $(focusSel); if (back) back.focus({ preventScroll: true }); }
     // The open ticket left the board on its own: show the next one, unless you are working in it.
     if (gone && !keep) { var id = mounted.id; mounted.remove(); mounted = null; if (acted[id]) { state.sel = null; place(); } else advance(id); return; }
@@ -1756,7 +2115,12 @@ ${BAR_HTML}
     }
     place();
   }
-  document.addEventListener('toggle', function(ev){ if (pendingHtml && ev.target.matches && ev.target.matches('details.pmenu') && !ev.target.open) sync(pendingHtml); }, true);
+  function replayPending(){
+    if (!pendingHtml) return;
+    if (pendingFor !== location.search) { pendingHtml = null; return; }
+    sync(pendingHtml);
+  }
+  document.addEventListener('toggle', function(ev){ if (ev.target.matches && ev.target.matches('details.pmenu') && !ev.target.open) replayPending(); }, true);
   var es = new EventSource('/events');
   function net(ok, msg){
     $$('.netstrip').forEach(function(n){ n.remove(); });
@@ -1782,6 +2146,7 @@ ${BAR_HTML}
   }
   function uuid(){ return window.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + String(Math.random()).slice(2); }
   var toastTimer = null;
+  // acts: [label, run, command]. A button with a command shows that command's key now (relabel follows a change).
   function toast(msg, acts, ms, bad, forId){
     clearTimeout(toastTimer); toastEl.classList.remove('counting');
     // Over an open ticket sheet the toast lives inside it, so its buttons stay clickable above the modal.
@@ -1789,7 +2154,7 @@ ${BAR_HTML}
     if (toastEl.parentNode !== host) { try { toastEl.hidePopover(); } catch (x) {} host.appendChild(toastEl); }
     $('.t-msg', toastEl).textContent = msg; toastEl.classList.toggle('bad', !!bad);
     var box = $('.t-acts', toastEl); box.textContent = ''; toastKey = null;
-    (acts || []).forEach(function(a){ var b = document.createElement('button'); b.type = 'button'; b.textContent = a[0]; if (a[2]) { var kb = document.createElement('kbd'); kb.textContent = a[2]; b.appendChild(kb); } b.onclick = function(){ hideToast(); a[1](); }; if (a[2] === '⌘↵') toastKey = b.onclick; box.appendChild(b); }); yieldKey();
+    (acts || []).forEach(function(a){ var b = document.createElement('button'); b.type = 'button'; b.textContent = a[0]; if (a[2]) { var kb = document.createElement('kbd'); kb.dataset.cmd = a[2]; kb.textContent = keyLabel(a[2]); kb.classList.toggle('nokey', !kb.textContent); b.appendChild(kb); } b.onclick = function(){ hideToast(); a[1](); }; if (a[2] === 'ticket.suggested') toastKey = b.onclick; box.appendChild(b); }); yieldKey();
     try { if (toastEl.matches(':popover-open')) toastEl.hidePopover(); toastEl.showPopover(); } catch (x) {}
     if (ms) toastTimer = setTimeout(hideToast, ms);
     toastFor = forId || null; yieldKey();
@@ -1814,6 +2179,34 @@ ${BAR_HTML}
   function ownRetry(){ return !!(mounted && unconfirmed[mounted.id] && $('.retry', mounted)); }
   // The open ticket's form the keys go to: the free form you are in, else the free form you last picked in, else the
   // first free one. A pick in question 2 makes Cmd+Enter send question 2 (r14, Sol and Astra).
+  // What an option letter does from target, as onKey does it, and as the router asks before it routes the letter:
+  // { radio }, the option it picks; { held }, a question waiting on its Retry that has that letter; or null.
+  function letterAt(target, k){
+    if (!mounted) return null;
+    var here = target && target.closest ? target.closest('form.act') : null, form = keyForm(here);
+    if (!form) return null;
+    // Letters go to the form Cmd+Enter sends (keyForm), the one that shows the keys (r15, Opus). In it: the question
+    // you are in, else the first unanswered, else the last one you picked in.
+    // Only a question whose form can send takes a letter: a form waiting on its send or Retry keeps what it sent
+    // (hill climb 2 r11, Astra).
+    var free = function(fs){ var ff = fs && fs.closest('form.act'); return !!fs && !fs.disabled && !(ff && ff.dataset.busy); };
+    var inSet = target && target.closest ? target.closest('fieldset.q-set') : null; if (!free(inSet)) inSet = null;
+    // The last question you picked in is waiting on its Retry: a letter meant for it does not spill into another
+    // question; the held form says why (hill climb 2 r12, Opus). Only the form that holds the Retry: one waiting out
+    // its Undo lets the letter go to the next free question, as before (r13, Opus).
+    // Focus anywhere in a free form (its Send button too) means the letter is for that form (r16, Astra).
+    var uc = unconfirmed[mounted.id];
+    var held = !inSet && form !== here && uc && mounted._lastSet && mounted.contains(mounted._lastSet) && !free(mounted._lastSet) && mounted._lastSet.closest('form.act') === uc.form ? mounted._lastSet : null;
+    if (held && $('input[type=radio][data-key="' + k + '"]', held)) return { held: held };
+    var lastSet = mounted._lastSet && form.contains(mounted._lastSet) && free(mounted._lastSet) ? mounted._lastSet : null;
+    if (inSet && !form.contains(inSet)) inSet = null;
+    var sets = $$('fieldset.q-set', form).filter(free);
+    // With the questions as cards, a letter answers the card in front (Dan, 2026-11-08).
+    var shown = sets.filter(function(fs){ return fs.classList.contains('q-on'); })[0];
+    var open = inSet || shown || sets.filter(function(fs){ return !$('input[type=radio]:checked', fs); })[0] || lastSet || sets[0];
+    var r = open && $('input[type=radio][data-key="' + k + '"]', open);
+    return r && !r.disabled ? { radio: r } : null;
+  }
   function keyForm(here){
     if (!mounted) return null;
     var ok = function(f){ return !!f && mounted.contains(f) && !f.dataset.busy; };
@@ -1827,7 +2220,7 @@ ${BAR_HTML}
     // the hint shows on the one the key sends, as the key handler decides (r13, Astra and Sol).
     var own = ownRetry(), af = own && a && a.closest && a.closest('form.act'), ff = af && mounted.contains(af) && !af.dataset.busy ? af : null;
     $$('.plate kbd').forEach(function(kb){
-      if (kb.textContent !== '⌘↵') return;
+      if (kb.textContent !== SK()) return;
       var rt = kb.closest('[data-retry]');
       if (own && mounted.contains(kb)) kb.classList.toggle('yield', rt ? !!ff : !(ff && kb.closest('form.act') === ff));
       else if (!rt) kb.classList.toggle('yield', !!toastKey && !(wf && kb.closest('form.act') === wf));
@@ -1948,20 +2341,41 @@ ${BAR_HTML}
   }
   // Settings (Gmail-style): density for the lists. Saved on this Mac only. Every ticket's actions sit in one bar at
   // its foot (Dan, 2026-11-10): the Side panel layout is gone, and a stored yc.layout2 is no longer read.
-  var prefs = { density: store('yc.density') || 'default' };
+  var prefs = { density: store('yc.density') || 'default', theme: store('yc.theme') };
   function applyPrefs(){
     if (!/^(default|comfortable|compact)$/.test(prefs.density)) prefs.density = 'default';
     ['default', 'comfortable', 'compact'].forEach(function(d){ root.classList.toggle('d-' + d, prefs.density === d); });
     $$('#settings input[name=density]').forEach(function(r){ r.checked = r.value === prefs.density; });
+    applyTheme();
     fades();
   }
+  // Appearance (PR 3 of the action bar): System, Light or Dark, saved on this Mac. System stores nothing.
+  // In the desktop app the window's own parts (title bar, menus, the update card) follow too, through the preload bridge.
+  var THEME_NAME = { system: 'System', light: 'Light', dark: 'Dark' };
+  function applyTheme(){
+    if (!/^(light|dark)$/.test(prefs.theme)) prefs.theme = 'system';
+    if (prefs.theme === 'system') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', prefs.theme);
+    $$('#settings input[name=theme]').forEach(function(r){ r.checked = r.value === prefs.theme; });
+    try { if (window.yeschef && typeof window.yeschef.theme === 'function') window.yeschef.theme(prefs.theme); } catch (x) {}
+  }
+  function setTheme(t){
+    prefs.theme = t; if (t === 'light' || t === 'dark') store('yc.theme', t); else forget('yc.theme');
+    applyTheme();
+  }
+  // The order of T3 Code's appearance.cycle: System, Light, Dark.
+  function cycleTheme(){ setTheme({ system: 'light', light: 'dark', dark: 'system' }[prefs.theme] || 'system'); toast('Appearance: ' + THEME_NAME[prefs.theme], null, 2000); }
   // Settings has sections (Dan, 2026-11-07): Layout and Shortcuts. Cmd+, opens Layout; ? opens Shortcuts.
   function openSettings(tab){
     applyPrefs(); if (typeof krRender === 'function') { krProjects(); krLive(); krRender(); krSay(krErr, !!krErr); }
     tab = tab || 'layout';
+    // Each tab opens at its top.
+    var was = $('#settings .set-tab[aria-current]'), panes = $('#settings .set-panes');
+    if (panes && (!setDlg.open || !was || was.dataset.tab !== tab)) panes.scrollTop = 0;
     $$('#settings .set-tab').forEach(function(b){ if (b.dataset.tab === tab) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current'); });
     $$('#settings .set-pane').forEach(function(p){ p.hidden = p.dataset.pane !== tab; });
-    if (!setDlg.open) { setDlg.showModal(); liftToast(); yieldKey(); }
+    if (tab === 'keys') kxRender();
+    // showModal focuses the first tab, Layout; the open section's tab takes focus, so ? never rings Layout.
+    if (!setDlg.open) { setDlg.showModal(); liftToast(); yieldKey(); var curTab = $('#settings .set-tab[aria-current]'); if (curTab) curTab.focus(); }
     fades();
   }
   setDlg.addEventListener('click', function(ev){ var t = ev.target.closest && ev.target.closest('.set-tab'); if (t) openSettings(t.dataset.tab); });
@@ -2107,7 +2521,9 @@ ${BAR_HTML}
   }
   launchDlg.addEventListener('click', function(ev){ if (ev.target === launchDlg || (ev.target.closest && ev.target.closest('[data-launch-cancel]'))) launchDlg.close(); });
   setDlg.addEventListener('change', function(ev){
-    var r = ev.target; if (r.name !== 'density') return;
+    var r = ev.target;
+    if (r.name === 'theme') { setTheme(r.value); return; }
+    if (r.name !== 'density') return;
     prefs.density = r.value; store('yc.density', r.value); applyPrefs();
   });
   // The action bar's Density rows set it the way Settings does.
@@ -2128,7 +2544,7 @@ ${BAR_HTML}
       var on = !!kind && b.value === kind, lead = kind ? on : b.dataset.fill === '1';
       b.classList.toggle('armed', on);
       b.classList.toggle('fill', lead);
-      if (kb) { kb.textContent = on ? '⌘↵' : b.dataset.key; kb.hidden = !!kind && !on && b.dataset.key === '⌘↵'; }
+      if (kb) { kb.textContent = on ? SK() : b.dataset.key; kb.classList.toggle('nokey', !kb.textContent); kb.hidden = !!kind && !on && b.dataset.key === SK(); }
       // The blue action's tooltip says "M or ⌘↵": while another action is armed, Cmd+Enter is that one's.
       $$('kbd', b).slice(1).forEach(function(k2){ k2.hidden = !!kind && !on; });
     });
@@ -2150,7 +2566,7 @@ ${BAR_HTML}
     if (kb) {
       if (b.dataset.fill === undefined) { b.dataset.fill = b.classList.contains('fill') ? '1' : ''; b.dataset.key = kb.textContent; }
       var free = !f.dataset.intent && !$('button.primary', f), wrote = !!(f.elements.note && f.elements.note.value && f.elements.note.value.trim()) && !stale(f);
-      if (!f.dataset.intent) kb.textContent = free && wrote ? '⌘↵' : b.dataset.key;
+      if (!f.dataset.intent) { kb.textContent = free && wrote ? SK() : b.dataset.key; kb.classList.toggle('nokey', !kb.textContent); }
       // The button Cmd+Enter sends is the blue one, so Reply fills while it owns the key (r16, Astra).
       if (!f.dataset.intent) b.classList.toggle('fill', b.dataset.fill === '1' || (free && wrote));
     }
@@ -2162,7 +2578,7 @@ ${BAR_HTML}
     var p = pendingSends[pendingSends.length - 1]; if (!p) return false;
     var n = pendingSends.length;
     var left = Math.max(600, p.until - Date.now());
-    toast((n > 1 ? n + ' sends waiting. ' : '') + p.label, [['Undo', p.undo, 'Z']], left);
+    toast((n > 1 ? n + ' sends waiting. ' : '') + p.label, [['Undo', p.undo, 'send.undo']], left);
     toastEl.style.setProperty('--undo-ms', left + 'ms'); toastEl.classList.remove('counting'); void toastEl.offsetWidth; toastEl.classList.add('counting');
     return true;
   }
@@ -2185,6 +2601,8 @@ ${BAR_HTML}
   window.addEventListener('beforeunload', function(ev){ if (pendingSends.length) { ev.preventDefault(); ev.returnValue = ''; } });
   window.addEventListener('pagehide', function(){ pendingSends.slice().forEach(function(p){ p.fire(true); }); });
   function send(f, btn){
+    // Your team's actions wait for the team connection: nothing a teammate's agent could act on leaves this Mac yet.
+    if (f.classList.contains('team-act')) { say(f, 'Not sent: Yes Chef does not have the team connection yet.', 'bad'); return; }
     // A send waiting on its answer goes nowhere, but one that is not confirmed goes again, the same bytes.
     if (f.dataset.busy) { var uid = f.classList.contains('launch') ? 'launch' : f.dataset.plate; if (unconfirmed[uid]) retry(uid); return; }
     if ((btn.value === 'call' || btn.value === 'answer') && btn.classList.contains('primary')) recPick(f);
@@ -2298,7 +2716,7 @@ ${BAR_HTML}
         // The Retry box says it once for a held form; the form's own line stays empty (hill climb 2 r10, Opus).
         say(f, hold && id !== 'launch' ? '' : more, hold && id !== 'launch' ? '' : 'bad');
         if (id === 'launch') { openLaunch(); say(f, more, 'bad'); }
-        var keep = mine && unconfirmed[id]; toast(named(f, text), (keep ? [['Retry', function(){ retry(id); }, '⌘↵']] : []).concat([['Open', function(){ if (id === 'launch') openLaunch(); else select(id); }]]), keep ? 0 : 8000, true, keep ? id : null);
+        var keep = mine && unconfirmed[id]; toast(named(f, text), (keep ? [['Retry', function(){ retry(id); }, 'ticket.suggested']] : []).concat([['Open', function(){ if (id === 'launch') openLaunch(); else select(id); }]]), keep ? 0 : 8000, true, keep ? id : null);
         return;
       }
       // A refused Retry that the Pass says landed ends the not-confirmed state (a 409 "Already answered"), so its
@@ -2331,7 +2749,7 @@ ${BAR_HTML}
     unconfirmed[id] = { body: body, what: what, text: text, form: f };
     decorate(id);
     say(f, id === 'launch' ? text : '', id === 'launch' ? 'bad' : '');
-    toast(named(f, text), [['Retry', function(){ retry(id); }, '⌘↵'], ['Open', function(){ if (id === 'launch') openLaunch(); else select(id); }]], 0, true, id);
+    toast(named(f, text), [['Retry', function(){ retry(id); }, 'ticket.suggested'], ['Open', function(){ if (id === 'launch') openLaunch(); else select(id); }]], 0, true, id);
   }
   function settledUnconfirmed(id){
     if (unconfirmed[id] && unconfirmed[id].form) unconfirmed[id].form.classList.remove('held');
@@ -2360,7 +2778,7 @@ ${BAR_HTML}
     box.textContent = '';
     var msg = document.createElement('p'); msg.className = 'result bad'; msg.textContent = u.refused ? u.refused + ' The first send is still not confirmed: send the same again, or check the thread in T3.' : u.text + ' Check the thread in T3, or send the same again.';
     var b = document.createElement('button'); b.type = 'button'; b.className = 'btn fill'; b.setAttribute('data-retry', ''); b.textContent = 'Send ' + u.what + ' again';
-    var kb = document.createElement('kbd'); kb.textContent = '⌘↵'; b.appendChild(kb);
+    var kb = document.createElement('kbd'); kb.dataset.cmd = 'ticket.suggested'; kb.textContent = SK(); b.appendChild(kb);
     box.appendChild(msg); box.appendChild(b); yieldKey();
     // Its list card says so too: a red dot, words in the label colour (hill climb 2 r3, Opus).
     $$('.tile[data-plate="' + id + '"]').forEach(function(t){
@@ -2374,12 +2792,81 @@ ${BAR_HTML}
   // Reload and a project switch refresh the board in place (council 3): the page never unloads, so a send waiting
   // out its Undo keeps its four seconds and a half-written note stays.
   window.__ycSoftReload = function(){ wake(); };
-  function switchProject(href){
-    var m = $('details.pmenu[open]'); pendingHtml = null; if (m) m.open = false;
-    if (href === location.pathname + location.search) return;
-    history.pushState(null, '', href); state.sel = null; wake();
+  // ----- The projects the board shows (Dan, 2026-11-10, view menu mock a) -----
+  // A tick flips at once and the menu stays open. The chip follows at once, and the board when the menu closes (sync
+  // waits while a menu is open). All projects ticks every box. The last ticked box stays ticked and shakes: no project
+  // at all is not a view. The address repeats p, ?p=A&p=B; no p is All projects.
+  function pickProject(pk){
+    var nav = pk.closest('.pmenu-l'), boxes = $$('.pk[data-p]', nav), all = $('.pk.all', nav), names = null;
+    function on(b){ return b.getAttribute('aria-checked') === 'true'; }
+    if (pk === all) { if (on(all)) return; }
+    else {
+      // The last ticked box stays ticked and shakes once; the class goes when the shake ends, so reopening the menu
+      // does not shake it again.
+      if (on(pk) && boxes.filter(on).length === 1) {
+        pk.classList.remove('no'); void pk.offsetWidth; pk.classList.add('no');
+        pk.addEventListener('animationend', function(){ pk.classList.remove('no'); }, { once: true });
+        return;
+      }
+      var ticked = boxes.filter(function(b){ return b === pk ? !on(b) : on(b); });
+      names = ticked.map(function(b){ return b.dataset.p; });
+      // Every project on the board, and no pick that has no ticket now (data-gone), is All projects, as the server
+      // reads it; unless T3 did not answer: then the list is not the whole of it.
+      var gone = function(b){ return b.hasAttribute('data-gone'); };
+      if (!nav.hasAttribute('data-nc') && !ticked.some(gone) && ticked.length === boxes.filter(function(b){ return !gone(b); }).length) names = null;
+    }
+    drawPicked(names);
+    var q = names ? '?' + names.map(function(n){ return 'p=' + encodeURIComponent(n); }).join('&') : '';
+    if (q === location.search) return;
+    history.pushState(null, '', location.pathname + q); state.sel = null; wake();
   }
-  window.addEventListener('popstate', function(){ state.sel = null; wake(); });
+  // Both copies of the menu (the rail's, and the top bar's on a phone) show the same picks. names: null is All projects.
+  function drawPicked(names){
+    drawn = {};
+    $$('details.vmenu').forEach(function(d){
+      var boxes = $$('.pk[data-p]', d), all = $('.pk.all', d), sel = [];
+      // All projects is every project on the board: a pick with no ticket now (data-gone) is not one of them.
+      boxes.forEach(function(b){ var y = names ? names.indexOf(b.dataset.p) >= 0 : !b.hasAttribute('data-gone'); b.setAttribute('aria-checked', String(y)); if (y) sel.push(b); });
+      if (all) all.setAttribute('aria-checked', names ? 'mixed' : 'true');
+      var cur = $('summary .vp, summary .fan', d), nw = document.createElement('span');
+      if (!names) { nw.className = 'vp'; nw.textContent = 'All projects'; }
+      else {
+        var list = sel.map(function(b){ return b.dataset.p; }).join(', '), vh = document.createElement('span');
+        nw.className = 'fan'; nw.style.setProperty('--n', sel.length); nw.title = list;
+        sel.forEach(function(b, i){
+          var c = document.createElement('span'), m = $('.pm', b); c.className = 'card'; c.style.setProperty('--i', i);
+          if (m) { m = m.cloneNode(true); m.removeAttribute('title'); c.appendChild(m); }
+          nw.appendChild(c);
+        });
+        vh.className = 'vh'; vh.textContent = list; nw.appendChild(vh);
+      }
+      if (cur) cur.replaceWith(nw);
+    });
+  }
+  // The picks in the address, as pickedFrom reads them (client/board.mjs): repeats and empty names drop out; null is
+  // All projects. An array, not an object: a project may be called "__proto__".
+  function pickedNow(){
+    var out = [];
+    new URLSearchParams(location.search).getAll('p').forEach(function(n){ if (n && out.indexOf(n) < 0) out.push(n); });
+    return out.length ? out : null;
+  }
+  // Picks that cover every project on the board are All projects: the address drops them, so a project that turns up
+  // later shows too, and All projects stays a way out of a filter (PR-Agent r2 on #10).
+  function normalizePicked(){
+    var a = $('.vmenu .pk.all'); if (!a || a.getAttribute('aria-checked') !== 'true') return;
+    var u = new URLSearchParams(location.search); if (!u.has('p')) return;
+    u.delete('p'); var q = u.toString();
+    history.replaceState(history.state, '', location.pathname + (q ? '?' + q : ''));
+  }
+  // Back and Forward: the boxes and the chip follow the address at once, even while the board waits for the menu to
+  // close, so the next tick starts from the right picks (PR-Agent r2 on #10). A pick the menu has no box for closes
+  // the menu instead, and the refresh draws it.
+  window.addEventListener('popstate', function(){
+    var names = pickedNow(), have = $$('.vmenu .pk[data-p]').map(function(b){ return b.dataset.p; });
+    if (!names || names.every(function(n){ return have.indexOf(n) >= 0; })) drawPicked(names);
+    else { var om = $('details.vmenu[open]'); if (om) om.open = false; }
+    state.sel = null; wake();
+  });
   document.addEventListener('submit', function(ev){
     var f = ev.target; if (!f.matches || !f.matches('form.act')) return;
     ev.preventDefault();
@@ -2561,17 +3048,19 @@ ${BAR_HTML}
     var t = ev.target;
     var m = $('details.pmenu[open]'); if (m && !m.contains(t)) m.open = false;
     if (t.closest('[data-view-toggle]')) { toggleView(); return; }
-    // The view switch: Your team is a button; You's rows are project links that also set the scope.
-    var sc = t.closest('.pmenu-l [data-scope]');
-    if (sc && sc.tagName === 'BUTTON') { setScope(sc.dataset.scope); var om = sc.closest('details.pmenu'); if (om) om.open = false; return; }
-    var pa = t.closest('.pmenu-l a[href]');
-    if (pa && !(ev.metaKey || ev.ctrlKey || ev.shiftKey)) { ev.preventDefault(); if (sc) setScope(sc.dataset.scope); switchProject(pa.getAttribute('href')); return; }
+    // The view menu: a project's check box, All projects, and the You | Team toggle all keep the menu open.
+    var pk = t.closest('.vmenu .pk');
+    if (pk) { pickProject(pk); return; }
+    var sc = t.closest('.vmenu .seg [data-scope]');
+    if (sc) { setScope(sc.dataset.scope); return; }
     var nf = t.closest('.nf[data-folder]');
     // In You, expanded, a stage row opens that stage's list in the pass view, with no ticket open.
     if (nf && !focusView()) { state.passFolder = nf.dataset.folder; state.passSel = null; toggleView(); return; }
     if (nf) { setFolder(nf.dataset.folder); if (focusView() && wide()) { state.sel = null; place(); } return; }
     var shot = t.closest('a[data-shot]');
     if (shot) { ev.preventDefault(); var box = shot.closest('.plate') || document; shotsList = $$('a[data-shot]', box); showShot(shotsList.indexOf(shot)); if (!viewer.open) viewer.showModal(); yieldKey(); return; }
+    var to = t.closest('[data-team-open]');
+    if (to) { var ta = t.closest('[data-team-act]'); openTeamCall(to.dataset.teamOpen, ta ? ta.dataset.teamAct : null); return; }
     var tl = t.closest('[data-plate]:not(form)');
     if (tl && !t.closest('.plate')) { state.listKey = listKeyOf(tl); select(tl.dataset.plate); return; }
     var rt = t.closest('[data-retry]'); if (rt) { var pl = rt.closest('.plate'); if (pl) retry(pl.id); return; }
@@ -2585,8 +3074,10 @@ ${BAR_HTML}
     if (t === sheet) sheet.close();
   });
   sheet.addEventListener('close', function(){ var id = state.sel; if (!(focusView() && wide())) { unmount(); state.sel = null; mark(); } var back = id && $('[data-plate="' + id + '"]:not(form)'); if (back) back.focus({ preventScroll: true }); });
-  document.addEventListener('keydown', function(ev){
-    var m = $('details.pmenu[open]'); if (m && ev.key === 'Escape') { m.open = false; return; }
+  // The page's keys, as each command's default key reads (client/keys.mjs). The router below sends every key here.
+  function onKey(ev){
+    // Esc closes the menu and puts focus back on its chip, so the keys go on from there.
+    var m = $('details.pmenu[open]'); if (m && ev.key === 'Escape') { var back = m.contains(document.activeElement) && $('summary', m); m.open = false; if (back) back.focus(); return; }
     // More, while open: Esc or . closes it, the arrows move between its rows, and Enter or Space presses the row in
     // focus. Any other key closes it, then does what it always does (N adds a note, O opens T3, Cmd+Enter sends).
     var om = openMenu();
@@ -2603,6 +3094,8 @@ ${BAR_HTML}
     if (cmd && ck === ',') { ev.preventDefault(); if (bar) bar.close(); if (launchDlg.open) launchDlg.close(); openSettings('layout'); return; }
     if (cmd && ck === 'k' && bar) { ev.preventDefault(); if (ev.repeat) return; if (setDlg.open) setDlg.close(); if (launchDlg.open) launchDlg.close(); bar.toggle(); return; }
     if (cmd && (ck === 't' || ck === 'n')) { ev.preventDefault(); if (bar) bar.close(); if (setDlg.open) setDlg.close(); openLaunch(); return; }
+    // Option-Shift-Cmd-A: the next Appearance, as T3 Code's appearance.cycle. Option changes ev.key, so read the code.
+    if ((ev.metaKey || ev.ctrlKey) && ev.altKey && ev.shiftKey && ev.code === 'KeyA') { ev.preventDefault(); if (!ev.repeat) cycleTheme(); return; }
     if (bar && bar.isOpen()) return;
     if (setDlg.open) return;
     // The launch dialog: Cmd+Enter launches; every other key is typing.
@@ -2631,9 +3124,9 @@ ${BAR_HTML}
       if (ev.repeat) return;
       var want = form.dataset.intent, b = want ? $('button[value="' + want + '"]', form) : $('button.primary', form);
       if (!b && form.elements.note && form.elements.note.value && form.elements.note.value.trim() && !stale(form)) b = $('button[value=reply]', form);
-      if (!b && stale(form)) { say(form, 'You sent this note before the agent’s latest message, so it may have reached the agent. Send it again with Reply (R), change it, or clear it.', 'bad'); return; }
+      if (!b && stale(form)) { say(form, 'You sent this note before the agent’s latest message, so it may have reached the agent. Send it again with Reply' + (keyLabel('ticket.reply') ? ' (' + keyLabel('ticket.reply') + ')' : '') + ', change it, or clear it.', 'bad'); return; }
       var gkb = $('button[value="go"] kbd', form);
-      if (b && !b.disabled) send(form, b); else say(form, 'Nothing is recommended here. Pick an action: ' + (gkb && gkb.textContent === 'A' ? 'A Approve' : 'M Merge') + ', F Request changes, R Reply, H Hold, E Settle.', '');
+      if (b && !b.disabled) send(form, b); else say(form, 'Nothing is recommended here. Pick an action: ' + [gkb && gkb.dataset.cmd === 'ticket.approve' ? ['ticket.approve', 'Approve'] : ['ticket.merge', 'Merge'], ['ticket.requestChanges', 'Request changes'], ['ticket.reply', 'Reply'], ['ticket.hold', 'Hold'], ['ticket.settle', 'Settle']].map(function(a){ var l = keyLabel(a[0]); return l ? l + ' ' + a[1] : a[1]; }).join(', ') + '.', '');
       return;
     }
     if (typing) {
@@ -2667,42 +3160,28 @@ ${BAR_HTML}
     // Left and right move between question cards; on a focused option they stay the browser's.
     if ((k === 'ArrowLeft' || k === 'ArrowRight') && !control && qSets(form).length > 1) { ev.preventDefault(); qShow(form, qAt(form) + (k === 'ArrowRight' ? 1 : -1)); return; }
     // While a question waits, its option letters come first (an option "e" beats Settle).
-    if (/^[a-i]$/.test(k) && mounted) {
-      // Letters go to the form Cmd+Enter sends (keyForm), the one that shows the keys (r15, Opus). In it: the question
-      // you are in, else the first unanswered, else the last one you picked in.
-      // Only a question whose form can send takes a letter: a form waiting on its send or Retry keeps what it sent
-      // (hill climb 2 r11, Astra).
-      var free = function(fs){ var ff = fs && fs.closest('form.act'); return !!fs && !fs.disabled && !(ff && ff.dataset.busy); };
-      var inSet = ev.target.closest && ev.target.closest('fieldset.q-set'); if (!free(inSet)) inSet = null;
-      // The last question you picked in is waiting on its Retry: a letter meant for it does not spill into another
-      // question; the held form says why (hill climb 2 r12, Opus). Only the form that holds the Retry: one waiting out
-      // its Undo lets the letter go to the next free question, as before (r13, Opus).
-      // Focus anywhere in a free form (its Send button too) means the letter is for that form (r16, Astra).
-      var uc = unconfirmed[mounted.id];
-      var held = !inSet && form !== here && uc && mounted._lastSet && mounted.contains(mounted._lastSet) && !free(mounted._lastSet) && mounted._lastSet.closest('form.act') === uc.form ? mounted._lastSet : null;
-      if (held && $('input[type=radio][data-key="' + k + '"]', held)) { say(held.closest('form.act'), 'This answer is waiting on its Retry, so a letter does not change it.', ''); return; }
-      var lastSet = mounted._lastSet && form.contains(mounted._lastSet) && free(mounted._lastSet) ? mounted._lastSet : null;
-      if (inSet && !form.contains(inSet)) inSet = null;
-      var sets = $$('fieldset.q-set', form).filter(free);
-      // With the questions as cards, a letter answers the card in front (Dan, 2026-11-08).
-      var shown = sets.filter(function(fs){ return fs.classList.contains('q-on'); })[0];
-      var open = inSet || shown || sets.filter(function(fs){ return !$('input[type=radio]:checked', fs); })[0] || lastSet || sets[0];
-      var r = open && $('input[type=radio][data-key="' + k + '"]', open);
-      if (r && !r.disabled) { r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true })); return; }
+    // A key that stands in for a changed one (ev.synthetic) is never an option's letter.
+    if (/^[a-i]$/.test(k) && mounted && !ev.synthetic) {
+      var ls = letterAt(ev.target, k);
+      if (ls && ls.held) { say(ls.held.closest('form.act'), 'This answer is waiting on its Retry, so a letter does not change it.', ''); return; }
+      if (ls) { ls.radio.checked = true; ls.radio.dispatchEvent(new Event('change', { bubbles: true })); return; }
     }
     // A key with no button here says why instead of doing nothing (Opus).
     // A T3 question has no Reply: point to answering it, or opening it in T3 Code (Astra).
-    var orR = $('button[value=reply]', form) ? ', or R to reply.' : ', or O to open it in T3 Code.';
-    var NO = { go: 'No Merge here: answer the question' + orR, approve: 'No Approve here: answer the question' + orR, refire: 'No Request changes on a question: pick an option' + orR, reply: 'No Reply here: answer the question, or O to open it in T3 Code.', settle: 'Settle comes back once the question is answered.', hold: 'Hold comes back once the question is answered.' };
+    var kR = keyLabel('ticket.reply'), kO = keyLabel('ticket.open'), toT3 = (kO ? kO + ' to open' : 'open') + ' it in T3 Code.';
+    var orR = $('button[value=reply]', form) ? ', or ' + (kR ? kR + ' to reply.' : 'reply.') : ', or ' + toT3;
+    var NO = { go: 'No Merge here: answer the question' + orR, approve: 'No Approve here: answer the question' + orR, refire: 'No Request changes on a question: pick an option' + orR, reply: 'No Reply here: answer the question, or ' + toT3, settle: 'Settle comes back once the question is answered.', hold: 'Hold comes back once the question is answered.' };
     var press = function(kind){ var b = $('button[value="' + kind + '"]', form); if (b && !b.disabled) send(form, b); else if (NO[kind]) say(form, NO[kind], ''); };
     if (k === 'e') { press('settle'); return; }
     if (k === 'h') { press('hold'); return; }
     // M merges and A approves (Dan, 2026-11-10): one button, named by whether a pull request is open, and each key
     // presses it only under its own name. G, the old Go, still presses it, whichever it says (old habits).
     if (k === 'm' || k === 'a' || k === 'g') {
-      var gb = $('button[value="go"]', form), gk = gb && $('kbd', gb) ? $('kbd', gb).textContent : '';
+      // The button's key names its command (data-cmd), whatever key Settings → Shortcuts gave it.
+      var gb = $('button[value="go"]', form), gk = gb && $('kbd', gb) ? ({ 'ticket.merge': 'M', 'ticket.approve': 'A' })[$('kbd', gb).dataset.cmd] || '' : '';
       if (k === 'g' || !gb || gk === k.toUpperCase()) { press(gb || k !== 'a' ? 'go' : 'approve'); return; }
-      say(form, k === 'm' ? 'No Merge here: no pull request is open. A approves.' : 'No Approve here: a pull request is open. M merges it.', '');
+      var kA = keyLabel('ticket.approve'), kM = keyLabel('ticket.merge');
+      say(form, k === 'm' ? 'No Merge here: no pull request is open. ' + (kA ? kA + ' approves.' : 'Approve goes ahead.') : 'No Approve here: a pull request is open. ' + (kM ? kM + ' merges it.' : 'Merge merges it.'), '');
       return;
     }
     if (k === 'n') { if (form.elements.note) { ev.preventDefault(); noting(form, true); } return; }
@@ -2712,7 +3191,190 @@ ${BAR_HTML}
       ev.preventDefault(); setIntent(form, kind);
       if (form.elements.note) form.elements.note.focus();
     }
+  }
+  // Every key goes through the shortcuts first (client/keys.mjs). With none changed it is onKey, exactly as before.
+  // A changed key reaches onKey as the key its command had by default; a command with no default key runs here; a
+  // default key its command gave up does nothing where that command applies. A plain key keeps typing in a text field
+  // and belongs to an open dialog, as ⌘↵ does there (it sends), and an option's letter comes first while a question waits.
+  document.addEventListener('keydown', function(ev){
+    if (kxRec) return;
+    // A key an input method uses while it composes text (Japanese, Chinese) is the method's alone, as in the action bar:
+    // Esc or ⌘↵ then never leaves, or sends half a word. Safari's last key of a composition reads as keyCode 229.
+    if (ev.isComposing || ev.keyCode === 229) return;
+    if (!KST.changed) { onKey(ev); return; }
+    var c = K.comboOf(ev), t = ev.target;
+    var typing = !!(t && t.closest && t.closest('textarea, input[type=text], input[type=search], [contenteditable]'));
+    var dialog = [barDlg, setDlg, launchDlg, viewer].some(function(d){ return d && d.open; });
+    if (!c || (K.plain(c) && typing) || (dialog && K.dialogKey(c)) || (/^[a-i]$/.test(c) && letterAt(t, c))) { onKey(ev); return; }
+    var r = K.route(KST, c, { ticket: !!mounted, dialog: dialog });
+    if (!r) { onKey(ev); return; }
+    // A changed key is the shortcut's alone, so the browser never also acts on it (Hold on ⌘F opens no Find).
+    if (r.as) { ev.preventDefault(); onKey(K.synth(r.as, ev)); return; }
+    ev.preventDefault();
+    if (r.run && !ev.repeat) RUN[r.run]();
   });
+  // The commands with no default key: the router runs them, in a dialog too. The two that open the bar close the other
+  // dialogs first, as ⌘K does.
+  function barAt(step){ if (!bar) return; if (setDlg.open) setDlg.close(); if (launchDlg.open) launchDlg.close(); if (viewer.open) viewer.close(); bar.openAt(step); }
+  var RUN = {
+    'thread.note': function(){ barAt('note'); },
+    'thread.goto': function(){ barAt('goto'); },
+    'view.you': function(){ setScope('you'); },
+    'view.team': function(){ if (teamNow()) setScope('team'); else toast('View: Team needs a team first.', null, 3000); }
+  };
+  // Every key label on the board names its command (data-cmd, client/board.mjs) and shows that command's key now.
+  // A button's first key shows the send key while it is armed (setIntent, noteKey): then only its own key changes.
+  function relabel(scope){
+    $$('kbd[data-cmd]', scope || document).forEach(function(kb){
+      var g = keyLabel(kb.dataset.cmd), b = kb.closest('button');
+      if (b && b.dataset.key !== undefined && $('kbd', b) === kb) {
+        var sending = kb.textContent !== b.dataset.key;
+        b.dataset.key = g;
+        if (sending) { kb.textContent = SK(); kb.classList.remove('nokey'); return; }
+      }
+      kb.textContent = g; kb.classList.toggle('nokey', !g);
+    });
+    // A tooltip that names its key in brackets ("Settings (⌘,)") names the key now, or none.
+    $$('[data-tcmd]', scope || document).forEach(function(el){ var g = keyLabel(el.dataset.tcmd); el.title = el.title.replace(/ \\([^)]*\\)$/, '') + (g ? ' (' + g + ')' : ''); });
+  }
+
+  // ----- Settings → Shortcuts (⌘K bar PR 4, the approved mock v3) -----
+  // Each command's keys, with Change. Change records the next key pressed; Esc keeps the old one. A key another command
+  // has asks first, in the row: Swap them, or Keep. Reset gives one command its default back; Reset all, every one.
+  var kxRec = null, kxClash = null, kxHint = '', kxMods = '', kxEscAt = 0;
+  var kxList = $('#kx-list'), kxQ = $('#kx-q');
+  function escH(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function kxCaps(key){ return '<span class="kx-k">' + K.glyphs(key).map(function(g){ return '<kbd>' + escH(g) + '</kbd>'; }).join('') + '</span>'; }
+  function kxRow(c){
+    var keys = K.keysOf(KST, c.id), over = !K.isDefault(KST, c.id), rec = kxRec === c.id, cl = kxClash && kxClash.id === c.id ? kxClash : null;
+    var line = rec ? (keys.length ? 'Recording. Press the keys, or esc to keep ' + keys.map(K.label).join(' or ') : 'Recording. Press the keys, or esc to leave it without one')
+      : c.note && !over ? K.label(c.note) + ' is T3 Code’s own new-thread key' : (c.d || '');
+    var right = rec ? '<span class="recbox" aria-hidden="true">' + escH(kxMods ? kxMods + ' …' : '…') + '</span>'
+      : (cl ? kxCaps(cl.key) : keys.length ? keys.map(kxCaps).join('<span class="kx-or">or</span>') : '<span class="kx-no">No key</span>')
+        + '<button type="button" class="kx-ed" data-kx-ed="' + c.id + '" aria-label="Change the key for ' + escH(c.t) + '">Change</button>';
+    var more = '';
+    if (cl) more = '<div class="kx-msg" role="alert"><b>Taken</b><span>' + escH(cl.text) + '</span>'
+      + (cl.canTake ? '<button type="button" class="btn kx-b" data-kx-swap>' + (cl.gives && cl.gives.length ? 'Swap them' : 'Take it') + '</button>' : '')
+      + '<button type="button" class="btn kx-b" data-kx-keep>' + (keys.length ? 'Keep ' + escH(keys.map(K.label).join(' or ')) : 'Cancel') + '</button></div>';
+    else if (rec && kxHint) more = '<p class="kx-hint" role="alert">' + escH(kxHint) + '</p>';
+    return '<div class="kr-row kx-row' + (over ? ' kr-over' : '') + (rec ? ' kx-rec' : '') + (cl ? ' kx-clash' : '') + '" data-kx="' + c.id + '"' + (rec ? ' tabindex="-1"' : '') + '>'
+      + '<div class="kr-l"><div class="kr-h"><h4>' + escH(c.t) + '</h4><button type="button" class="kr-reset" data-kx-reset="' + c.id + '" title="Use the default key">Reset</button></div>'
+      + (line ? '<p>' + escH(line) + '</p>' : '') + '</div><div class="kx-c">' + right + '</div>' + more + '</div>';
+  }
+  function kxFixed(f){
+    return '<div class="kr-row kx-row kx-fix"><div class="kr-l"><div class="kr-h"><h4>' + escH(f.t) + '</h4></div>' + (f.d ? '<p>' + escH(f.d) + '</p>' : '') + '</div>'
+      + '<div class="kx-c">' + f.keys.map(kxCaps).join('') + (f.more ? '<span class="kx-or">…</span>' : '') + '</div></div>';
+  }
+  function kxRender(){
+    if (!kxList) return;
+    var raw = kxQ ? kxQ.value.trim() : '', q = raw.toLowerCase(), groups = [], rows = {};
+    var hit = function(words){ return !q || words.join(' ').toLowerCase().indexOf(q) >= 0; };
+    K.COMMANDS.forEach(function(c){
+      if (!hit([c.g, c.t, c.d || ''].concat(K.keysOf(KST, c.id).map(K.label))) && kxRec !== c.id && !(kxClash && kxClash.id === c.id)) return;
+      if (!rows[c.g]) { rows[c.g] = []; groups.push(c.g); }
+      rows[c.g].push(kxRow(c));
+    });
+    var fixed = K.FIXED.filter(function(f){ return hit(['Fixed', f.t, f.d || ''].concat(f.keys.map(K.label))); });
+    var html = groups.map(function(g){ return '<h3 class="kgroup">' + escH(g) + '</h3><div class="kr-group kx-group">' + rows[g].join('') + '</div>'; }).join('')
+      + (fixed.length ? '<h3 class="kgroup">Fixed</h3><div class="kr-group kx-group">' + fixed.map(kxFixed).join('') + '</div>' : '');
+    // A render keeps the focus where it was, on the same button in the same row: a save that ends later renders too.
+    var fa = document.activeElement, frow = fa && kxList.contains(fa) && fa.closest('[data-kx]'), fsel = null;
+    if (frow) fsel = '[data-kx="' + frow.getAttribute('data-kx') + '"]' + (['data-kx-ed', 'data-kx-reset', 'data-kx-swap', 'data-kx-keep'].filter(function(n){ return fa.hasAttribute(n); }).map(function(n){ return ' [' + n + ']'; })[0] || '');
+    kxList.innerHTML = html || '<p class="kx-none">No shortcut matches “' + escH(raw) + '”.</p>';
+    var fback = fsel && kxList.querySelector(fsel); if (fback && fback !== document.activeElement) fback.focus();
+    var ra = $('[data-kx-resetall]'); if (ra) ra.disabled = !KST.changed;
+    var fb = $('[data-kx-file]'); if (fb) fb.hidden = !KFILE;
+    var nt = $('.kx-note'), notes = (kxFileNote ? [kxFileNote] : []).concat(KST.notes || []);
+    if (nt) { nt.hidden = !notes.length; nt.textContent = notes.length ? (KFILE ? 'keybindings.json: ' : 'Saved shortcuts: ') + notes.slice(0, 3).join(' ') + (notes.length > 3 ? ' And ' + (notes.length - 3) + ' more.' : '') : ''; }
+  }
+  function kxSay(text){ var l = $('.kx-live'); if (l) l.textContent = text || ''; }
+  // What a change does to the other commands, in words, before it applies: " Hold until 8:00 tomorrow: H."
+  function kxOthers(st, id){
+    return K.COMMANDS.filter(function(c){ return c.id !== id && K.keysOf(st, c.id).join(' ') !== K.keysOf(KST, c.id).join(' '); })
+      .map(function(c){ var ks = K.keysOf(st, c.id); return ' ' + c.t + ': ' + (ks.length ? ks.map(K.label).join(' or ') : 'no key') + '.'; }).join('');
+  }
+  function kxFocus(id){ var b = $('[data-kx-ed="' + id + '"]'); if (b) b.focus(); }
+  function kxStart(id){
+    kxRec = id; kxClash = null; kxHint = ''; kxMods = ''; kxRender();
+    var r = $('.kx-row.kx-rec'); if (r) r.focus();
+    var keys = K.keysOf(KST, id);
+    kxSay('Recording a key for ' + K.CMD[id].t + '. Press the keys, or Escape to ' + (keys.length ? 'keep ' + K.label(keys[0]) : 'leave it without one') + '.');
+  }
+  function kxStop(back){ var id = kxRec; kxRec = null; kxHint = ''; kxMods = ''; kxRender(); if (back && id) kxFocus(id); }
+  // Save: the browser's copy, and on the Mac the file. Every key label on the board follows.
+  function kxApply(st, id, said){
+    KST = st; kxClash = null;
+    var list = K.toList(st), text = JSON.stringify(list);
+    if (list.length) store('yc.keys', text); else forget('yc.keys');
+    kxSeen = text;
+    if (KFILE) KFILE.write(list).then(function(r){ kxFileNote = r && r.error ? 'Could not save the file: ' + r.error : ''; kxRender(); }, function(){ kxFileNote = 'Could not save the file.'; kxRender(); });
+    relabel(document); kxRender();
+    if (id) kxFocus(id);
+    kxSay(said);
+  }
+  // Recording takes every key first, in the capture phase, so nothing else on the page acts on it. Tab still moves on.
+  window.addEventListener('keydown', function(ev){
+    if (!kxRec) return;
+    if (!setDlg.open) { kxStop(false); return; }
+    // Tab moves on from the row: its Change button has the focus first, so the browser moves on from there.
+    if (ev.key === 'Tab') { kxStop(true); return; }
+    ev.preventDefault(); ev.stopPropagation();
+    if (ev.isComposing) return;
+    if (ev.key === 'Escape') { kxEscAt = Date.now(); kxStop(true); kxSay('Kept as it was.'); return; }
+    var id = kxRec, c = K.comboOf(ev);
+    if (!c) {
+      var g = K.glyphs((ev.metaKey || ev.ctrlKey ? 'mod+' : '') + (ev.altKey ? 'alt+' : '') + (ev.shiftKey ? 'shift+' : '') + 'x'); g.pop();
+      kxMods = g.join(' '); var rb = $('.kx-row.kx-rec .recbox'); if (rb) rb.textContent = kxMods ? kxMods + ' …' : '…';
+      return;
+    }
+    var cl = K.clash(KST, id, c);
+    if (cl && (cl.reserved || cl.fixed)) { kxHint = cl.text; kxMods = ''; kxRender(); var r = $('.kx-row.kx-rec'); if (r) r.focus(); kxSay(cl.text); return; }
+    kxRec = null; kxHint = ''; kxMods = '';
+    if (cl) {
+      kxClash = { id: id, key: c, other: cl.other, text: cl.text, canTake: cl.canTake, gives: cl.gives }; kxRender();
+      var sb = $('[data-kx-swap]') || $('[data-kx-keep]'); if (sb) sb.focus();
+      return;
+    }
+    kxApply(K.set(KST, id, c), id, K.CMD[id].t + ': ' + K.label(c) + '.');
+  }, true);
+  window.addEventListener('keyup', function(ev){
+    if (!kxRec) return;
+    var g = K.glyphs((ev.metaKey || ev.ctrlKey ? 'mod+' : '') + (ev.altKey ? 'alt+' : '') + (ev.shiftKey ? 'shift+' : '') + 'x'); g.pop();
+    kxMods = g.join(' '); var rb = $('.kx-row.kx-rec .recbox'); if (rb) rb.textContent = kxMods ? kxMods + ' …' : '…';
+  }, true);
+  // Esc that stopped a recording never also closes Settings.
+  setDlg.addEventListener('cancel', function(ev){ if (kxRec || Date.now() - kxEscAt < 400) { ev.preventDefault(); if (kxRec) kxStop(true); } });
+  setDlg.addEventListener('close', function(){ kxRec = null; kxClash = null; kxHint = ''; kxMods = ''; });
+  setDlg.addEventListener('click', function(ev){
+    var t = ev.target; if (!t || !t.closest) return;
+    if (kxRec && !t.closest('.kx-row.kx-rec')) kxStop(false);
+    var ed = t.closest('[data-kx-ed]'); if (ed) { kxStart(ed.dataset.kxEd); return; }
+    var rs = t.closest('[data-kx-reset]');
+    if (rs) { var rid = rs.dataset.kxReset, dk = K.CMD[rid].keys, rst = K.reset(KST, rid); kxApply(rst, rid, K.CMD[rid].t + (dk.length ? ': ' + dk.map(K.label).join(' or ') + ' again.' : ' has no key again.') + kxOthers(rst, rid)); return; }
+    if (t.closest('[data-kx-swap]') && kxClash) { var c = kxClash, sst = K.swap(KST, c.id, c.key); if (sst) kxApply(sst, c.id, K.CMD[c.id].t + ': ' + K.label(c.key) + '.' + kxOthers(sst, c.id)); return; }
+    if (t.closest('[data-kx-keep]') && kxClash) { var kid = kxClash.id; kxClash = null; kxRender(); kxFocus(kid); kxSay('Kept as it was.'); return; }
+    if (t.closest('[data-kx-resetall]')) { kxApply(K.build(K.defaultList()), null, 'Every shortcut has its default key again.'); var q = $('#kx-q'); if (q) q.focus(); return; }
+    if (t.closest('[data-kx-file]') && KFILE) KFILE.open().then(function(r){ if (r && r.error) { kxFileNote = 'Could not open the file: ' + r.error; kxRender(); } }, function(){});
+  });
+  if (kxQ) kxQ.addEventListener('input', kxRender);
+  // On the Mac the file is the list: read at start and whenever the window comes back, so an edit there applies.
+  // With no file yet, the browser's list becomes it.
+  function kxLoad(){
+    if (!KFILE) return;
+    KFILE.read().then(function(r){
+      if (!r) return;
+      if (r.error) { kxFileNote = r.error; kxRender(); return; }
+      kxFileNote = '';
+      if (r.list == null) { var mine = K.toList(KST); if (mine.length) KFILE.write(mine); kxRender(); return; }
+      var text = JSON.stringify(r.list);
+      if (text === kxSeen) { kxRender(); return; }
+      kxSeen = text; KST = K.build(r.list); kxClash = null;
+      if (Array.isArray(r.list) && r.list.length) store('yc.keys', text); else forget('yc.keys');
+      relabel(document); kxRender();
+    }, function(){});
+  }
+  window.addEventListener('focus', kxLoad);
+  kxLoad();
   // A screenshot that loads changes the message's height: fades and the reader's join follow (hill climb 2 r2, Fable).
   document.addEventListener('load', function(ev){ if (ev.target && ev.target.tagName === 'IMG') fades(); }, true);
   // A screenshot that cannot load becomes a plain line saying so, never a broken box (hill climb r5, Opus).
@@ -2728,18 +3390,19 @@ ${BAR_HTML}
   // Typing your own answer picks it: a field inside a label does not check the label's radio by itself.
   document.addEventListener('focusin', function(ev){ var t = ev.target; if (t.matches && t.matches('label.opt .custom')) { var r = t.parentNode.querySelector('input[data-custom]'); if (r) r.checked = true; } });
 
-  applyPrefs(); applyScope(); sizeRail(); restoreDrafts(document);
+  applyPrefs(); applyScope(); normalizePicked(); sizeRail(); if (KST.changed || !K.mac) relabel(document); restoreDrafts(document);
   setView(state.view); setFolder('pass');
   fades();
-  // The Cmd+K action bar (client/bar.mjs). View: You and View: Your team read and set the same scope as the footer
+  // The Cmd+K action bar (client/bar.mjs). View: You and View: Team read and set the same scope as the footer
   // chip's switch; with no reports (#yc-team absent) views() says so and their rows stay hidden (Dan, 2026-11-10).
   ${barCore}
   ${installBar}
   bar = installBar({
     $: $, $$: $$, store: store, forget: forget, state: state, prefs: prefs, reduce: reduce,
     mounted: function(){ return mounted; }, plateNode: plateNode, keyForm: keyForm, select: select, setFolder: setFolder, listKeyOf: listKeyOf,
-    send: send, setIntent: setIntent, noting: noting, toggleView: toggleView, openLaunch: openLaunch, openSettings: openSettings, setDensity: setDensity,
-    liftToast: liftToast, yieldKey: yieldKey, grow: grow, views: viewsNow, setScope: setScope
+    send: send, setIntent: setIntent, noting: noting, toggleView: toggleView, openLaunch: openLaunch, openSettings: openSettings, setDensity: setDensity, setTheme: setTheme, mini: function(k){ return MINI[k] || ''; },
+    liftToast: liftToast, yieldKey: yieldKey, grow: grow, views: viewsNow, setScope: setScope,
+    keyGlyphs: function(id){ return K.keysOf(KST, id).map(function(k){ return K.glyphs(k); }); }
   }, barCore());
 })();
 </script></body></html>`;
@@ -2794,12 +3457,19 @@ async function runAct(input, line) {
     return { status: 200, text: JSON.stringify(rulesNow()) };
   }
   if (input.kind === 'launch' && rulesError) return { status: 409, text: `Not launched: ${rulesError} Change any rule in Settings → Rules to save them again.` };
-  if (!status.ok) return { status: 503, text: 'The board is not checked right now, so the Pass will not act. Try again after the next update.' };
+  if (!status.ok || !live.live()) return { status: 503, text: 'The board is not checked right now, so the Pass will not act. Try again after the next update.' };
   // A read-only sign-in holds no operate scope: T3 Code would refuse every action, so say why up front.
   if (!canOperate) { audit({ ...line, refused: 'read-only' }); return { status: 403, text: 'Yes Chef is signed in read only. To act, quit, start it again and approve a level that covers your threads.' }; }
   let out;
   try { out = await act({ board, t3, input, holds, answered, projects, rules }); }
   catch (ex) {
+    // T3 Code refused the sign-in itself (401) before any tool ran. The board no longer polls MCP, so this is
+    // often where a revoked sign-in shows first: the app asks for a new one, as a failed poll used to.
+    if (ex.auth) {
+      audit({ ...line, refused: 'signed-out' });
+      if (DESKTOP && !authLost) { authLost = true; pipe.send({ type: 'auth-lost' }); }
+      return { status: 401, text: 'T3 Code ended Yes Chef\'s sign-in, so nothing was sent. Sign in again, then send it.' };
+    }
     // T3 Code checks its limits before it changes anything: a typed denial means nothing happened.
     if (/capability_denied/.test(ex.message)) {
       audit({ ...line, refused: 'capability_denied' });
@@ -2832,8 +3502,9 @@ if (DESKTOP) {
 
 /** The pages and images, for both doors: the web prototype's HTTP server and the desktop app's pipe. */
 function route(url) {
-  const project = url.searchParams.get('p');
-  const app = () => renderApp({ board, project, link, status, origin: ORIGIN, answered, projects, rules: rulesNow() });
+  // ?p=A&p=B: the projects picked in the view menu; no p is All projects.
+  const picked = pickedFrom(url.searchParams);
+  const app = () => renderApp({ board, picked, link, status, origin: ORIGIN, answered, projects, rules: rulesNow() });
   const html = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' };
   if (url.pathname === '/') return { status: 200, headers: html, body: page(app()) };
   if (url.pathname === '/app') return { status: 200, headers: html, body: app() };
@@ -2903,6 +3574,32 @@ const web = createServer(async (req, res) => {
 // (desktop/main.mjs, the yeschef:// scheme). The web prototype keeps its local address.
 if (!DESKTOP) web.listen(PORT, '127.0.0.1', () => console.log(`The Pass prototype on http://127.0.0.1:${PORT} (T3: ${ORIGIN})`));
 
+// Stop: end the stream and revoke its key, so no read-only key outlives Yes Chef. The app asks over the pipe before
+// it quits (desktop/main.mjs); Ctrl-C or a kill does the same here. A run that dies without it leaves a key that the
+// next start revokes (keys.sweep).
+let stopping = null;
+function stopLive() {
+  return (stopping ??= (async () => {
+    changes.stop(); baseChecks.stop(); prSizes.stop();
+    await live.stop();
+    try { console.log(`Revoked ${await keys.revokeMine()} read-only stream key(s).`); }
+    catch (ex) { console.log(`Could not revoke the stream key: ${String(ex.message).slice(0, 120)}`); }
+  })());
+}
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.once(sig, () => { const t = setTimeout(() => process.exit(0), 5000); stopLive().finally(() => { clearTimeout(t); process.exit(0); }); });
+}
+if (DESKTOP) {
+  pipe.on((m) => {
+    if (m?.type === 'stop') stopLive().finally(() => pipe.send({ type: 'stopped' }));
+    else if (m?.type === 'wake') live.probe('woke from sleep');
+  });
+}
+// The stream starts before the MCP sign-in: it needs no approval, only T3 Code's CLI on this Mac.
+keys.sweep().then((n) => { if (n) console.log(`Revoked ${n} read-only stream key(s) left by an earlier run.`); })
+  .catch((ex) => console.log(`Could not look for old stream keys: ${String(ex.message).slice(0, 120)}`))
+  .finally(() => { if (!stopping) live.start(); });
+
 // The desktop app keeps a sign-in in the macOS Keychain (desktop/main.mjs) and hands it over this pipe on request.
 // The request goes out after the listener is set, so the answer cannot arrive before anything hears it.
 // Two minutes: after an update macOS may ask Dan to let Yes Chef use its Keychain key before main can answer.
@@ -2944,7 +3641,13 @@ else {
 canOperate = String(auth.scope || '').split(' ').includes('orchestration:operate');
 t3 = connect(auth);
 envId = (await t3.call('t3_environment_read', {})).environmentId;
-await poll();
-// Never overlap polls: the next one starts POLL_MS after the last one ends, or at once after an action.
-var wake = null;
-(async function loop() { for (;;) { await new Promise((r) => { wake = r; setTimeout(r, POLL_MS); }); wake = null; await poll(); } })();
+// The address T3 gives this sign-in for a thread, so the board links where it linked when it read threads over MCP.
+try {
+  const row = (await t3.call('t3_thread_list', { allProjects: true, includeSubagents: true, limit: 1 })).threads?.[0];
+  const tail = row ? encodeURIComponent(row.threadId) : '';
+  if (row && typeof row.link === 'string' && /^https?:/.test(row.link) && row.link.endsWith(tail)) linkBase = row.link.slice(0, -tail.length);
+} catch (ex) { console.log(`Thread links fall back to ${ORIGIN}: ${String(ex.message).slice(0, 120)}`); }
+// An action or a saved rule asks for a refresh at once; the stream brings T3's side of it.
+var wake = kick;
+kick();
+setInterval(kick, BEAT_MS);

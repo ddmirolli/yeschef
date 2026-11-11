@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fakeRelay, fakeNet } from '../relay/fake.mjs';
-import { Team, createTeam, joinTeam, summarize, RETRY, ACT_TTL, BOARD_FRESH_MS } from './team.mjs';
+import { Team, createTeam, joinTeam, summarize, identity, notCheckedSince, RETRY, ACT_TTL, BOARD_FRESH_MS } from './team.mjs';
 import { grant, allows, refusal, signature, DEFAULTS, PERMS, shares } from './roles.mjs';
 import { buildBoard } from './board.mjs';
 import { act } from './actions.mjs';
@@ -560,7 +560,7 @@ test('a summary shows the time the dev\'s Mac signed, and an older one never rep
   const newBlob = await sealSigned(key, me, { v: 1, tickets: [], more: 0, at: relay.now(), rev: relay.now() }, where);
   await lead.takeSummary(dev.meId, newBlob, relay.now());
   await lead.takeSummary(dev.meId, oldBlob, relay.now() + 5000);
-  assert.equal(lead.summaries.get(dev.meId).at, relay.now());
+  assert.equal(lead.summaries.get(dev.meId).body.at, relay.now());
   lead.stop(); dev.stop();
 });
 
@@ -1162,7 +1162,7 @@ test('a summary held through an outage carries the time its board was read', asy
   lose = false;
   await timers.advance(60000);
   await until(() => lead.summaries.size === 1, 'the summary at the lead');
-  assert.equal(lead.summaries.get(dev.meId).at, read);
+  assert.equal(lead.summaries.get(dev.meId).body.at, read);
   lead.stop(); dev.stop();
 });
 
@@ -1437,25 +1437,6 @@ test('a full list of action ids sends no "not run" and leaves the action on the 
   lead.stop(); dev.stop();
 });
 
-test('a summary whose board was read long ago is not live; a working sender refreshes it', async () => {
-  const { relay, timers, lead, dev } = await crew();
-  const b = boardNow(relay.now());
-  dev.board(b);
-  await until(() => lead.summaries.size === 1);
-  const person = () => lead.view().people.find((p) => p.id === dev.meId);
-  const first = person().at;
-  assert.equal(person().live, true);
-  await timers.advance(11 * MIN);
-  dev.board(b);
-  await settle(); await settle(); await settle();
-  await timers.advance(10000);
-  await until(() => person().at > first, 'the unchanged summary sent again');
-  assert.equal(person().live, true);
-  await timers.advance(16 * MIN);
-  assert.equal(person().live, false, 'no board read for 16 minutes');
-  lead.stop(); dev.stop();
-});
-
 test('a welcome whose key did not reach the disk stays on the relay', async () => {
   const { lead, dev } = await crew();
   const me = await lead.member();
@@ -1515,17 +1496,6 @@ test('a welcome owed by an approval while welcomes were sending stays owed', asy
   lead.stop(); dev.stop();
 });
 
-test('a summary dated ahead of this Mac\'s clock after it went back is not live', async () => {
-  const { relay, lead, dev } = await crew();
-  dev.board(boardNow(relay.now()));
-  await until(() => lead.summaries.size === 1);
-  const person = () => lead.view().people.find((p) => p.id === dev.meId);
-  assert.equal(person().live, true);
-  lead.now = () => relay.now() - 20 * MIN;
-  assert.equal(person().live, false);
-  lead.stop(); dev.stop();
-});
-
 test('a welcome pass while an approval waits on its roster keeps that welcome', async () => {
   const { relay, net, timers, lead } = await crew();
   const now = () => relay.now();
@@ -1547,17 +1517,125 @@ test('a welcome pass while an approval waits on its roster keeps that welcome', 
   lead.stop();
 });
 
-test('a summary read while the clock was ahead does not go with a made-up time', async () => {
+
+// The event-driven design (11-10): summaries go out on change, live comes from presence and health, and every inbox
+// item is committed before it is answered or acked.
+
+test('read times are not news: identity drops every key named at, and nothing else', () => {
+  const a = { v: 1, at: 1, tickets: [{ thread: 't', changes: { at: 5, files: 2 }, prs: [{ n: 1, readyAt: 9 }] }] };
+  const b = { v: 1, at: 2, tickets: [{ thread: 't', changes: { at: 6, files: 2 }, prs: [{ n: 1, readyAt: 9 }] }] };
+  assert.equal(identity(a), identity(b));
+  assert.notEqual(identity(a), identity({ ...b, tickets: [{ ...b.tickets[0], prs: [{ n: 1, readyAt: 10 }] }] }));
+});
+
+test('not checked since: failing uses health.since, offline uses lastSeen, both the earlier, none no time', () => {
+  assert.equal(notCheckedSince({ online: true, health: { ok: false, since: 100 }, lastSeen: undefined }), 100);
+  assert.equal(notCheckedSince({ online: false, health: { ok: true, since: 50 }, lastSeen: 200 }), 200);
+  assert.equal(notCheckedSince({ online: false, health: { ok: false, since: 300 }, lastSeen: 200 }), 200);
+  assert.equal(notCheckedSince({ online: false, health: { ok: false, since: 100 }, lastSeen: 200 }), 100);
+  assert.equal(notCheckedSince({ online: false, health: { ok: true, since: 50 }, lastSeen: undefined }), null);
+  assert.equal(notCheckedSince({ online: false, health: null, lastSeen: undefined }), null);
+});
+
+test('an unchanged board sends nothing however long it runs; only a change goes', async () => {
   const { relay, timers, lead, dev } = await crew();
-  dev.link = 'connecting';
-  dev.now = () => relay.now() + 30 * MIN;
-  dev.board(boardNow(relay.now()));
-  dev.now = () => relay.now();
-  dev.link = 'online';
-  dev.flush();
-  await settle(); await settle(); await settle();
+  const sent = [];
+  const say = dev.say.bind(dev);
+  dev.say = async (msg) => { if (msg.t === 'summary') sent.push(msg); return say(msg); };
+  const b = boardNow(relay.now());
+  dev.board(b);
+  await until(() => lead.summaries.size === 1);
+  for (let i = 0; i < 6; i++) { await timers.advance(10 * MIN); dev.board(b); await settle(); }
+  assert.equal(sent.length, 1, 'one summary in an hour of identical reads');
+  assert.equal(lead.view().people.find((p) => p.id === dev.meId).live, true, 'still live: online and the board reads');
+  const c = boardNow(relay.now()); c.tickets[1].place = 'Merged';
+  dev.board(c);
   await timers.advance(10000);
-  await settle();
-  assert.equal(lead.summaries.size, 0);
+  assert.equal(sent.length, 2);
+  lead.stop(); dev.stop();
+});
+
+test('a failing board read goes out once, and the teammate reads not checked since it began', async () => {
+  const { relay, timers, lead, dev } = await crew();
+  dev.board(boardNow(relay.now()));
+  await until(() => lead.summaries.size === 1);
+  const person = () => lead.view().people.find((p) => p.id === dev.meId);
+  assert.equal(person().live, true);
+  assert.equal(person().notCheckedSince, null);
+  await timers.advance(MIN);
+  const failedAt = relay.now();
+  dev.health(false);
+  dev.health(false);
+  await timers.advance(10000);
+  await until(() => person().live === false, 'the failing health at the lead');
+  assert.equal(person().notCheckedSince, failedAt);
+  assert.ok(person().summary.tickets.length, 'the last tickets stay, marked not checked');
+  dev.board(boardNow(relay.now()));
+  await timers.advance(10000);
+  await until(() => person().live === true, 'live again once a read works');
+  lead.stop(); dev.stop();
+});
+
+test('a teammate the relay saw go reads not checked since the relay\'s time, whatever the clocks say', async () => {
+  const { relay, lead, dev } = await crew();
+  dev.board(boardNow(relay.now()));
+  await until(() => lead.summaries.size === 1);
+  const person = () => lead.view().people.find((p) => p.id === dev.meId);
+  lead.now = () => relay.now() - 20 * MIN;  // the lead's clock is behind: it does not matter
+  assert.equal(person().live, true);
+  lead.takePresence({ m: dev.meId, on: false, at: 1234 });
+  assert.equal(person().live, false);
+  assert.equal(person().notCheckedSince, 1234);
+  lead.takePresence({ m: dev.meId, on: false });
+  assert.equal(person().notCheckedSince, 1234, 'a going without a time keeps the last one known');
+  lead.takePresence({ m: dev.meId, on: true });
+  assert.equal(person().notCheckedSince, null);
+  lead.takeHelloPresence({ online: [], seen: { [dev.meId]: 999 } });
+  assert.equal(person().notCheckedSince, 999);
+  lead.stop(); dev.stop();
+});
+
+test('while this Mac is offline, a teammate last seen online reads not checked since this Mac lost the relay', async () => {
+  const { relay, net, lead, dev } = await crew();
+  dev.board(boardNow(relay.now()));
+  await until(() => lead.summaries.size === 1);
+  const lostAt = relay.now();
+  net.down = true;
+  net.drop();
+  await until(() => lead.link !== 'online', 'the lead offline');
+  const p = lead.view().people.find((x) => x.id === dev.meId);
+  assert.equal(p.live, false);
+  assert.equal(p.notCheckedSince, lostAt);
+  lead.stop(); dev.stop();
+});
+
+test('a member on a roster the relay has not confirmed is still owed a welcome', async () => {
+  const { lead, dev } = await crew();
+  const ghost = 'BBBBBBBBBBBBBBBBBBBBBB';
+  const me = await lead.member();
+  lead.state.unsent = await signRoster(me, { team: lead.state.team, ver: lead.roster.ver + 1, lead: me.id, at: 0, members: [{ id: me.id, sign: me.signPub, dh: me.dhPub }, { id: ghost, sign: me.signPub, dh: me.dhPub }], detail: 'x' });
+  lead.state.welcomes = [ghost];
+  const left = await lead.sendWelcomes();
+  assert.deepEqual(left, [ghost]);
+  delete lead.state.unsent;
+  assert.deepEqual(await lead.sendWelcomes(), []);
+  lead.stop(); dev.stop();
+});
+
+test('a key ask that does not reach the disk is not acked, so the relay keeps it', async () => {
+  const { lead, dev } = await crew();
+  const me = await dev.member();
+  const leadDh = lead.people.get(lead.meId).dh;
+  const blob = await sealTo(me, leadDh, { k: 'key', at: 1 }, aad.rekey(lead.state.team, me.id, lead.meId));
+  const done = [];
+  const say = lead.say.bind(lead);
+  lead.say = async (msg) => { if (msg.t === 'done') done.push(msg.item); return say(msg); };
+  const saveFn = lead.saveFn;
+  lead.saveFn = async () => { throw new Error('disk full'); };
+  await lead.take({ item: 'k1', from: dev.meId, blob });
+  assert.deepEqual(done, []);
+  lead.saveFn = saveFn;
+  await lead.take({ item: 'k1', from: dev.meId, blob });
+  assert.deepEqual(done, ['k1']);
   lead.stop(); dev.stop();
 });

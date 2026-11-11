@@ -3,7 +3,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { imagesIn, imageUrl, withoutImages, recommendLines } from './calls.mjs';
 import { missingShots, ASK_SHOTS } from './kitchen.mjs';
-import { agentTime, runningSeries, duration, trackWaits, withoutWaits } from './you.mjs';
+import { trackWaits, withoutWaits } from './you.mjs';
+import { openKitchen, kitchenBoard, KINDS, may } from './open-kitchen.mjs';
 
 // Developer words (Dan, 2026-11-10). A stage is never stored: T3 state decides it on every poll, so no old data names one.
 export const STAGES = ['Backlog', 'Planned', 'In progress', 'In review', 'Ready to merge', 'Merged'];
@@ -117,7 +118,7 @@ const optText = (t) => e(t).replace(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pu
   return `<a href="${url}" target="_blank" rel="noopener">PR #${n}</a>${all.slice(url.length)}`;
 });
 const ago = (iso) => { const m = Math.round((Date.now() - Date.parse(iso)) / 60000); return m < 1 ? 'now' : m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h` : `${Math.floor(m / 1440)} d`; };
-const ICON = {
+export const ICON = {
   cloche: '<path d="M4.25 17.4a7.75 7.75 0 0 1 15.5 0" stroke-width="1.5" stroke-linecap="butt"/><circle cx="12" cy="7.4" r="1.75" fill="currentColor" stroke="none"/><path d="M2.75 19h18.5l-1.5 1.5H4.25z" fill="currentColor" stroke="none"/>',
   chev: '<path d="m6 9 6 6 6-6"/>', done: '<circle cx="12" cy="12" r="9"/><path d="m8 12.4 2.7 2.7L16.2 9.4"/>',
   out: '<path d="M8.5 15.5 16 8"/><path d="M9.5 8H16v6.5"/>', x: '<path d="M7 7l10 10M17 7 7 17"/>',
@@ -267,44 +268,47 @@ const VERB = { go: 'Merging {t}', refire: 'Requesting changes on {t}', reply: 'R
 // the rest. New actions go in More, not the row. Keys show only in a tooltip, on hover or keyboard focus.
 // The blue button is what Cmd+Enter sends: Merge, Approve, Send, or Settle once merged. Dan's tooltip for Merge reads
 // "M or ⌘↵", so it replaces council 1b's "Merge never takes Cmd+Enter"; the Undo still holds every send four seconds.
-// Each button keeps its form value, so the keys and sends find it. Its first key is the one the page script reads (M or
-// A tells Merge from Approve); Cmd+Enter comes second.
+// Each button keeps its form value, so the keys and sends find it. Its first key names its command (data-cmd, from
+// client/keys.mjs), which the page script reads to tell Merge from Approve and relabels when the key is changed in
+// Settings → Shortcuts; Cmd+Enter comes second.
 const ACT = {
-  go: { ic: 'merge', word: 'Merge', name: 'Merge: the agent merges it', key: 'M' },
+  go: { ic: 'merge', word: 'Merge', name: 'Merge: the agent merges it', key: 'M', cmd: 'ticket.merge' },
   // A ticket with no open pull request has nothing to merge: there the same button is Approve, with A, and the agent
   // goes ahead with what it handed back, a plan or a finding (Pass call 1a, Dan, 2026-11-10). A question's option
   // letters never meet it: a ticket with a question shows no Approve.
-  approve: { ic: 'approve', word: 'Approve', name: 'Approve: the agent goes ahead', key: 'A', toast: 'Approving {t}' },
+  approve: { ic: 'approve', word: 'Approve', name: 'Approve: the agent goes ahead', key: 'A', cmd: 'ticket.approve', toast: 'Approving {t}' },
   // Call 1a (Dan, 2026-11-10): the button says Changes; its tooltip, the keys sheet and the toasts keep the full name.
-  refire: { ic: 'changes', word: 'Changes', name: 'Request changes: say what to fix', key: 'F' },
-  reply: { ic: 'reply', word: 'Reply', name: 'Reply to the agent', key: 'R' },
-  hold: { ic: 'hold', name: 'Hold until 8:00 tomorrow', key: 'H' },
-  settle: { ic: 'settle', name: 'Settle: it leaves the pass', key: 'E' },
-  shipped: { ic: 'settle', word: 'Settle', name: 'Settle: it moves to Verified', key: 'E' },
+  refire: { ic: 'changes', word: 'Changes', name: 'Request changes: say what to fix', key: 'F', cmd: 'ticket.requestChanges' },
+  reply: { ic: 'reply', word: 'Reply', name: 'Reply to the agent', key: 'R', cmd: 'ticket.reply' },
+  hold: { ic: 'hold', name: 'Hold until 8:00 tomorrow', key: 'H', cmd: 'ticket.hold' },
+  settle: { ic: 'settle', name: 'Settle: it leaves the pass', key: 'E', cmd: 'ticket.settle' },
+  shipped: { ic: 'settle', word: 'Settle', name: 'Settle: it moves to Verified', key: 'E', cmd: 'ticket.settle' },
   send: { ic: 'send', word: 'Send answer', name: 'Send your answer', key: '' },
   again: { ic: 'send', word: 'Send again', name: 'Send the same answer again', key: '' },
 };
-const keys = (list) => list.filter(Boolean).map((k, i) => `${i ? '<span class="or">or</span>' : ''}<kbd>${k}</kbd>`).join('');
+// Each key is [label, command] (or a label alone, for a key no one can change).
+const kbd = (label, cmd) => `<kbd${cmd ? ` data-cmd="${cmd}"` : ''}>${label}</kbd>`;
+const keys = (list) => list.map((k) => (Array.isArray(k) ? k : [k])).filter((k) => k[0]).map((k, i) => `${i ? '<span class="or">or</span>' : ''}${kbd(k[0], k[1])}`).join('');
 // The tooltip: the full name, then the keys. Screen readers get the button's own name; the keys are for the eye.
 const tip = (name, list) => `<span class="tip" aria-hidden="true"><span class="tn">${name}</span>${keys(list)}</span>`;
 /** One action. a: an ACT entry, labelled when it has a word, else an icon; lead: the blue recommended action. */
 const btn = (kind, a, lead = false, extra = '') => `<button type="submit" name="kind" value="${kind}" class="${a.word ? 'ab' : 'ib'}${lead ? ' fill primary' : ''}"`
-  + ` data-toast="${a.toast || VERB[kind] || 'Sending {t}'}"${a.word ? '' : ` aria-label="${a.name}"`}${extra}>${svg(a.ic)}${a.word ? `<span class="bl">${a.word}</span>` : ''}${tip(a.name, [a.key, lead ? '⌘↵' : ''])}</button>`;
+  + ` data-toast="${a.toast || VERB[kind] || 'Sending {t}'}"${a.word ? '' : ` aria-label="${a.name}"`}${extra}>${svg(a.ic)}${a.word ? `<span class="bl">${a.word}</span>` : ''}${tip(a.name, [[a.key, a.cmd], lead ? ['⌘↵', 'ticket.suggested'] : ''])}</button>`;
 const noteField = (need, value = '') => `<label class="note"><span>Note to the agent <span class="muted">${need}</span></span><textarea name="note" rows="2" maxlength="4000" placeholder="What should the agent know?">${e(value)}</textarea></label>`;
 // More's rows: an icon, a word and its key. The note stays folded away until R, F, N or Add a note asks for it (council 1b).
-const MORE_NOTE = `<button type="button" class="mi" role="menuitem" data-addnote>${svg('note')}<span>Add a note</span><kbd>N</kbd></button>`;
-const MORE_T3 = `<button type="button" class="mi" role="menuitem" data-open-t3>${svg('out')}<span>Open in T3</span><kbd>O</kbd></button>`;
+const MORE_NOTE = `<button type="button" class="mi" role="menuitem" data-addnote>${svg('note')}<span>Add a note</span>${kbd('N', 'ticket.addNote')}</button>`;
+const MORE_T3 = `<button type="button" class="mi" role="menuitem" data-open-t3>${svg('out')}<span>Open in T3</span>${kbd('O', 'ticket.open')}</button>`;
 // On a phone the row has four slots, so Hold and Settle move into More, which opens as a sheet (call 2a); a narrow
 // ticket in a wide window does the same, and there the card shows their keys. These rows press the row's own button,
 // which keeps the form value.
-const phoneRow = (kind, word) => `<button type="button" class="mi ph" role="menuitem" data-press="${kind}">${svg(ACT[kind].ic)}<span>${word}</span><kbd>${ACT[kind].key}</kbd></button>`;
+const phoneRow = (kind, word) => `<button type="button" class="mi ph" role="menuitem" data-press="${kind}">${svg(ACT[kind].ic)}<span>${word}</span>${kbd(ACT[kind].key, ACT[kind].cmd)}</button>`;
 /** The bar: the labelled buttons, a divider and the icon buttons, then More and its card. The hint line sits above the
  *  row, so a hint never moves the buttons. More is a popover: the card floats above the ticket, never cut off by it. */
 function bar(labelled, icons, rows) {
   const id = `m-${randomUUID()}`, ic = icons.filter(Boolean);
   return `<div class="act-foot"><p class="result" role="status"></p><div class="abar">${labelled.filter(Boolean).join('')}`
     + (ic.length ? `<span class="vr" aria-hidden="true"></span>${ic.join('')}` : '')
-    + `<button type="button" class="ib more-b" data-more popovertarget="${id}" aria-label="More" aria-haspopup="menu">${svg('more')}<span class="mw">More</span>${tip('More', ['.'])}</button>`
+    + `<button type="button" class="ib more-b" data-more popovertarget="${id}" aria-label="More" aria-haspopup="menu">${svg('more')}<span class="mw">More</span>${tip('More', [['.', 'ticket.more']])}</button>`
     + `<div class="menu" id="${id}" popover role="menu" aria-label="More actions">${rows.filter(Boolean).join('')}`
     + `<button type="button" class="mi-x" popovertarget="${id}" popovertargetaction="hide">Cancel</button></div></div></div>`;
 }
@@ -486,7 +490,7 @@ function plate(k, link, origin, answered, rules) {
   const flag = shotsMissing ? `<p class="kr-flag"><span class="kr-k">No screenshots</span><span class="kr-t">This call asks about something you can see.</span>`
     + `<button type="button" class="btn quiet kr-ask" data-ask-shots="${e(ASK_SHOTS)}"><span class="bl">Ask for them</span></button></p>` : '';
   return `<article class="plate" id="${e(id)}" data-thread="${e(k.thread.threadId)}" data-latest="${e(k.latestId || '')}"${k.atPass ? ' data-at' : ''} aria-labelledby="${e(id)}-t">`
-    + `<div class="plate-bar"><span class="proj" data-project="${e(k.project)}">${mark(k.project, k.icon)}${e(k.project)}</span><span class="stg"><i class="gd c-${DOT[k.place] || 'gray'}"></i>${e(k.place)}</span>${model(k.thread.model) ? `<span class="mdl">${e(model(k.thread.model))}</span>` : ''}<a class="open-t3" href="${e(link(k.thread))}" target="_blank" rel="noopener">Open in T3${svg('out')}<kbd>O</kbd></a>`
+    + `<div class="plate-bar"><span class="proj" data-project="${e(k.project)}">${mark(k.project, k.icon)}${e(k.project)}</span><span class="stg"><i class="gd c-${DOT[k.place] || 'gray'}"></i>${e(k.place)}</span>${model(k.thread.model) ? `<span class="mdl">${e(model(k.thread.model))}</span>` : ''}<a class="open-t3" href="${e(link(k.thread))}" target="_blank" rel="noopener">Open in T3${svg('out')}${kbd('O', 'ticket.open')}</a>`
     + `<button type="button" class="close" data-close aria-label="Close"><kbd>esc</kbd>${svg('x')}</button></div>`
     // The title, the ask, the pull requests and the screenshots stay pinned while the message scrolls (Dan, 2026-11-08).
     + `<div class="plate-main"><div class="plate-scroll" tabindex="-1"><header class="plate-head"><h2 class="plate-t" id="${e(id)}-t">${e(k.thread.title)}</h2>`
@@ -501,103 +505,444 @@ const plural = (n, one, many = one + 's') => `${n} ${n === 1 ? one : many}`;
 // Minutes as a card says them: "52 min", "3 h", "2 d".
 const span = (m) => (m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h` : `${Math.floor(m / 1440)} d`);
 const NOT = (why) => `<b class="nc">Not checked</b><span>${why}</span>`;
-/** A small line chart of whole numbers, oldest first (views mock v4). */
-function spark(vals, label) {
-  const w = 200, h = 30, m = Math.max(1, ...vals), n = vals.length - 1;
-  const d = vals.map((v, i) => `${i ? 'L' : 'M'}${((i / n) * w).toFixed(1)} ${(h - 2 - (v / m) * (h - 4)).toFixed(1)}`).join(' ');
-  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="${e(label)}"><path d="${d} L${w} ${h} L0 ${h} Z" class="area"/><path d="${d}" class="line"/></svg>`;
-}
 /** Bars of whole numbers, one each, tallest the highest. */
 function bars(vals, label) {
   const w = 200, h = 30, m = Math.max(1, ...vals), bw = w / vals.length;
   return `<svg class="vbars" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="${e(label)}">${vals.map((v, i) => { const bh = Math.max(2, (v / m) * (h - 2));
     return `<rect x="${(i * bw + 1.5).toFixed(1)}" y="${(h - bh).toFixed(1)}" width="${Math.max(1, bw - 3).toFixed(1)}" height="${bh.toFixed(1)}" rx="1.5"/>`; }).join('')}</svg>`;
 }
+/** You, expanded: the stage columns, from the top of the window to the bottom, each scrolling inside. Dan, 2026-11-10:
+ *  the header line said nothing the rail and The Pass do not, the four instruments repeated The Pass or said "Not
+ *  checked", and the "At The Pass" key sat over one column at random. With them gone the columns move up and run the
+ *  full height, so the panels that sat under them went too: Merged, last 7 days only ever said "Not checked", Verified
+ *  and on hold are rows in the rail, and Agent time today was the one panel with its own numbers. */
+function youView({ trays }) {
+  return `<section class="you" aria-label="Your threads by stage"><div class="you-b"><div class="rail-wrap"><div class="rail">${trays}</div></div></div></section>`;
+}
 
-/** You, expanded (Dan, 2026-11-10, views mock v4): your threads with four instruments over the stage columns, then
- *  merges by day and agent time, then what is verified or on hold. Each number comes from T3 Code; what T3 does not
- *  send says "Not checked". now: the poll's time, so the view shows that one reading. */
-function youView({ board, shown, spots, waiting, since, status, project, trays, verified, heldAll }) {
-  const ok = status.ok, now = status.at;
-  const cooks = shown.filter((k) => k.place !== 'Coordinators');
-  const line = STAGES.flatMap((s) => spots[s] || []);
-  const running = cooks.reduce((n, k) => n + k.working, 0), busy = cooks.filter((k) => k.working).length;
-  const names = project ? [project] : [...new Set(cooks.map((k) => k.project))].sort((a, b) => a.localeCompare(b));
-  const at = new Date(now);
-  const time = `<time datetime="${at.toISOString()}">${at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</time>`;
-  const sub = ok ? [names.join(', '), plural(line.length, 'thread'), `${plural(running, 'agent')} running`].filter(Boolean).map((x) => `<span>${e(x)}</span>`).join('') + time
-    : '<span>Not checked</span>';
-  const down = 'T3 did not answer';
-  // 1. Agents running, with today's line from T3's run times.
-  const series = ok && board.runsChecked ? runningSeries(cooks, now) : { points: [] };
-  const most = Math.max(0, ...series.points);
-  const runLine = series.points.length > 1 ? spark(series.points, `Agents running over the last ${duration(series.span)}, ${most} at most`)
-    + `<span class="cap"><span>${duration(series.span)} ago</span><span>now</span></span>` : '';
-  const i1 = ok ? `<b>${running}</b><span>on ${plural(busy, 'thread')}</span>` : NOT(down);
-  // 2 and 4. T3 Code's pull requests carry no merge time and no checks (read 2026-11-10), so these say so.
-  const i2 = NOT(ok ? 'T3 Code sends no merge times' : down);
-  const i4 = NOT(ok ? 'T3 Code sends no check results' : down);
-  // 3. Your agents wait on you: how many, and how long each has waited, oldest first. A call with no time from T3 keeps
-  // its count, and the oldest age and the bars say "not checked" (PR-Agent r4 on #74).
-  const ages = waiting.map((k) => Math.max(0, Math.round((now - Date.parse(since(k))) / 60000)));
-  const aged = ages.every(Number.isFinite), sorted = ages.sort((a, b) => b - a);
-  const i3 = !ok ? NOT(down) : waiting.length ? `<b>${waiting.length}</b><span>${waiting.length === 1 ? 'call' : 'calls'}, oldest ${aged ? span(sorted[0]) : 'not checked'}</span>` : '<b>0</b><span>nothing waits</span>';
-  const waitBars = ok && aged && sorted.length ? bars(sorted.slice(0, 12), `How long each waits: ${sorted.slice(0, 12).map(span).join(', ')}`) : '';
-  const ins = (label, v, extra = '') => `<div class="ins" role="listitem"><p class="l">${label}</p><p class="v">${v}</p>${extra}</div>`;
-  const inst = `<div class="inst" role="list">${ins('Agents running', i1, runLine)}${ins('Merged today', i2)}${ins('Your agents wait on you', i3, waitBars)}${ins('Checks on open PRs', i4)}</div>`;
-  const stages = `<section class="pnl pnl-stages" aria-labelledby="you-st"><header class="ph"><h3 id="you-st">By stage</h3>`
-    + `<span class="lg">${svg('cloche', 'ic at-ic')}At The Pass</span></header><div class="rail-wrap"><div class="rail">${trays}</div></div></section>`;
-  const week = `<section class="pnl" aria-labelledby="you-wk"><header class="ph"><h3 id="you-wk">Merged, last 7 days</h3></header>`
-    + `<p class="nc-l"><b>Not checked</b> ${ok ? 'T3 Code sends no merge times, so merges by day cannot be counted.' : 'T3 did not answer.'}</p></section>`;
-  // Agent time today: each thread's run time since midnight, by project, from T3's run times.
-  let time2;
-  if (!ok || !board.runsChecked) time2 = `<header class="ph"><h3 id="you-at">Agent time today</h3></header><p class="nc-l"><b>Not checked</b> ${ok ? 'T3 did not send its run times.' : 'T3 did not answer.'}</p>`;
-  else {
-    const t = agentTime(cooks, now), icons = new Map(cooks.map((k) => [k.project, k.icon]));
-    const top = Math.max(1, ...t.byProject.values());
-    const rows = [...t.byProject.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([nm, ms]) => `<div class="ah"><p class="row">${mark(nm, icons.get(nm))}<span class="pn">${e(nm)}</span><span class="v">${duration(ms)}</span></p>`
-      + `<div class="track"><b style="width:${((ms / top) * 100).toFixed(1)}%"></b></div></div>`).join('');
-    // Agents count by whether they ran. A floor says "at least"; a floor of nothing says "not checked".
-    const sum = t.ms ? `${t.cut ? 'at least ' : ''}${duration(t.ms)}` : 'time not checked';
-    time2 = `<header class="ph"><h3 id="you-at">Agent time today</h3><span>${t.agents ? `${sum} across ${plural(t.agents, 'agent')}` : 'no agent ran today'}</span></header>${rows}`;
+// ---------- Your team, Open kitchen (step 4) ----------
+// client/open-kitchen.mjs derives the calls; this draws them in the approved parts (mock v2, round 2, 2026-11-10): the
+// call tile in The Pass, the rail card, the quiet line under the tiles, and a reader per call. Times are the team
+// reading's `now`, never the page clock. Until the team connection lands no page has a team view, so none of this
+// shows; the tests and screenshots feed it a made-up team.
+const initials = (name) => String(name || '').trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
+const face = (p, cls = '') => `<span class="av${cls ? ` ${cls}` : ''}" style="--h:${hue(String(p?.name || p?.id || '?'))}" title="${e(p?.name || 'Someone')}" aria-hidden="true">${e(initials(p?.name))}</span>`;
+const hm = (t) => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+const nf = (n) => Number(n).toLocaleString('en-US');
+const and = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+const pos = (s) => `${s}’s`;
+const teamPlateId = (c) => 'p-' + createHash('sha1').update(`team:${c.id}`).digest('hex').slice(0, 12);
+// A teammate's PR link comes from their summary: only a GitHub pull request address opens.
+const prHref = (pr) => (/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/[0-9]+$/.test(pr?.url || '') ? pr.url : `https://github.com/${String(pr?.repo || '').split('/').map(encodeURIComponent).join('/')}/pull/${Number(pr?.n) || 0}`);
+const teamPrChip = (pr) => `<a class="prc t-${PR_TONE[pr.state] || 'gray'}" href="${e(prHref(pr))}" target="_blank" rel="noopener"><i></i>${e(String(pr.repo).split('/').pop())}#${Number(pr.n)}<span>${e(pr.state)}</span>${svg('out')}</a>`;
+const kvs = (pairs) => `<div class="tvis"><div class="kvs">${pairs.map(([k, v, cls]) => `<div class="kv"><span>${e(k)}</span><b${cls ? ` class="${cls}"` : ''}>${e(v)}</b></div>`).join('')}</div></div>`;
+const vlab = (left, right = '', tone = '') => `<div class="vl"><span>${left}</span>${right ? `<b${tone ? ` class="${tone}"` : ''}>${e(right)}</b>` : ''}</div>`;
+const NC_V = 'Not checked';
+
+/** Who has seen the call, and why it reached you. Seen comes from each dev's own Yes Chef, in their summary. */
+function seenLine(c, name) {
+  const seen = c.who.filter((id) => c.seen[id] != null), not = c.who.filter((id) => c.seen[id] == null);
+  const s = seen.map((id) => `${name(id)} at ${hm(c.seen[id])}`);
+  const r = c.reach;
+  const why = r.why === 'red' ? 'Red calls reach you at once.'
+    : r.why === 'quiet' ? `${and(c.quiet.map((q) => name(q.person)))} ${c.quiet.length > 1 ? 'are' : 'is'} not reporting, so it reached you at once.`
+    : r.why === 'runs' ? `It reached you at the ${r.runs}th failed run.`
+    : r.why === 'time' ? `It reached you after ${r.min} min.`
+    : r.why === 'unseen' ? `It reached you after ${r.min} min unseen.` : '';
+  const head = seen.length ? `<b class="ok">Seen</b> by ${e(and(s))}.${not.length ? ` ${e(and(not.map(name)))} ${not.length > 1 ? 'have' : 'has'} not seen it.` : ''}`
+    : `<b class="no">Not seen</b> by ${e(and(not.map(name)))}.`;
+  return `<p class="tseen">${head} ${e(why)}</p>`;
+}
+
+/** A dev who is not reporting: their data stops at their last report, and the reader says so before anything else. */
+const quietBox = (c, name, now) => c.quiet.map((q) => `<div class="tquiet"><span class="hz" aria-hidden="true"></span><span><b>Not reporting${q.since != null ? ` since ${hm(q.since)}` : ''}.</b> `
+  + `${e(pos(name(q.person)))} Mac has sent nothing${q.since != null ? ` for ${span(Math.max(0, Math.round((now - q.since) / 60000)))}` : ''}, so what it sent last is all Yes Chef knows.</span></div>`).join('');
+
+/** The words and parts of each call: tile title and preview, the reader's lead, Suggested, its body and its actions.
+ *  acts: [kind, word, tooltip], the first one blue. */
+function callWords(c, { name, now, people }) {
+  const f = c.facts, who = name(c.who[0]);
+  const pr = c.prs[0];
+  switch (c.kind) {
+    case 'main': {
+      const n = f.cause?.pr.n, by = f.cause ? name(f.cause.person) : null, br = f.branch;
+      const checks = f.failing.length ? and(f.failing) : 'A required check';
+      const day = new Date(now); day.setHours(0, 0, 0, 0);
+      const merges = f.mergedToday.filter((m) => m.at >= day.getTime() && m.at <= now);
+      const cut = f.cause ? f.cause.pr.mergedAt : null;
+      const ribbon = merges.length ? `<div class="tvis">${vlab(`Your team’s merges to ${e(br)} today`, c.since != null ? `Red since ${hm(c.since)}` : 'Red', 'red')}`
+        + `<div class="ribbon">${merges.map((m) => `<i${m.n === n ? ' class="r"' : cut != null && m.at > cut ? ' class="a"' : ''} title="#${m.n}, ${e(name(m.person))}, ${hm(m.at)}"></i>`).join('')}</div>`
+        + `<div class="raxis"><span>${hm(merges[0].at)}</span>${f.cause ? `<span>#${n} at ${hm(cut)}</span>` : ''}<span>now</span></div>`
+        + `<div class="wlg">${merges.some((m) => m.n !== n && (cut == null || m.at <= cut)) ? '<span><i class="g"></i>merged</span>' : ''}${f.cause ? `<span><i class="r"></i>#${n}, then red</span>` : ''}`
+        + `${merges.some((m) => cut != null && m.at > cut) ? '<span><i class="a"></i>merged after it</span>' : ''}</div></div>` : '';
+      const waits = f.waiting.length ? `<div class="tvis">${vlab(`Waiting on ${e(br)}`, `${plural(f.waiting.length, 'PR')} can’t merge`)}<div class="tprs">${f.waiting.map((w) => `<span class="tpr">${face(people.get(w.person), 'sm')}#${w.n}</span>`).join('')}</div></div>` : '';
+      const size = f.cause?.pr.size;
+      const facts = kvs([
+        f.cause ? ['PR', `#${n} ${f.cause.ticket.title || ''}`.trim()] : ['Repo', f.repo],
+        ['By', f.cause ? `${pos(by)} agent, merged ${hm(cut)}` : NC_V],
+        ['Size', size && [size.files, size.added, size.removed].every(Number.isFinite) ? `${plural(size.files, 'file')}, +${nf(size.added)} −${nf(size.removed)}` : NC_V],
+        [f.failing.length > 1 ? 'Failing checks' : 'Failing check', f.failing.length ? f.failing.join(', ') : NC_V, 'mono'],
+      ]);
+      return {
+        title: f.cause ? `${br} is red after #${n} merged` : `${br} is red in ${f.repo}`,
+        preview: f.waiting.length ? `${plural(f.waiting.length, 'PR')} can’t merge until ${br} is green.` : `${br} has been red${c.since != null ? ` since ${hm(c.since)}` : ''}.`,
+        lead: `${checks} ${f.failing.length > 1 ? 'have' : 'has'} failed on ${br}${c.since != null ? ` since ${hm(c.since)}` : ''}. `
+          + (f.clean ? `#${n} is the first red commit, and nothing came after it.` : f.cause ? `#${n} is the first red commit. More came after it, so a roll back is not clean.` : 'No PR from your team is the first red commit.'),
+        suggest: f.clean ? `Roll back #${n}` : f.cause ? `Ask ${by} to fix ${br}` : `Find what broke ${br}`,
+        why: f.clean ? `Roll back #${n}. Nothing came after it, so the revert is clean. ${pos(by)} thread keeps the work.`
+          : f.cause ? `Ask ${pos(by)} agent to fix ${br}. More came after #${n}, so a revert would not be clean.` : `Open ${pos(br)} failing check in ${f.repo} on GitHub. No PR from your team is the first red commit.`,
+        body: ribbon + waits + facts,
+        acts: f.clean ? [['rollback', 'Roll back', `Roll back: ${pos(by)} agent reverts #${n}`], ['reply', 'Reply', `Reply to ${pos(by)} agent`]]
+          : f.cause ? [['reply', 'Reply', `Reply to ${pos(by)} agent`]] : [],
+        reply: f.cause ? by : null,
+      };
+    }
+    case 'overlap': {
+      const top = f.files[0], [A, B] = f.sides, R = name(f.rebaser.person), K = name(f.keeper.person);
+      const kpr = f.keeper.pr, rpr = f.rebaser.pr;
+      const same = A.person === B.person;
+      const names = same ? `${pos(name(A.person))} two threads` : `${name(A.person)} and ${name(B.person)}`;
+      const both = kpr && rpr;
+      const card = (s) => { const p = s.pr;
+        return `<div class="tcard"><div class="h">${face(people.get(s.person))}${e(name(s.person))}<span class="lb"><i class="gd c-${DOT[s.ticket.place] || 'gray'}"></i>${e(s.ticket.place || NC_V)}</span></div>`
+          + `<div class="t">${e(s.ticket.title || 'Untitled thread')}</div><div class="m">${e([p ? `PR #${p.n}` : 'No PR yet', s.ticket.working ? plural(s.ticket.working, 'agent') : '', s.ticket.startedAt != null ? `started ${hm(s.ticket.startedAt)}` : ''].filter(Boolean).join(', '))}</div></div>`; };
+      // The file's line map: each side's changed ranges, the shared lines boxed in red.
+      const ends = [...top.a, ...top.b].map((r) => Math.max(r[0], r[1]));
+      const L = Math.max(10, Math.ceil(Math.max(...ends) / 10) * 10);
+      const at = (a, b) => `left:${((a - 1) / L * 100).toFixed(2)}%;width:${(Math.max(1, b - a + 1) / L * 100).toFixed(2)}%`;
+      const lane = (s, rs) => `<div class="tr"><span>${e(name(s.person))}</span><div class="lane">${rs.map((r) => `<i style="${at(r[0], Math.max(r[0], r[1]))}"></i>`).join('')}</div></div>`;
+      const bands = top.shared.map((r) => `<div class="band" style="left:calc(62px + (100% - 62px) * ${((r[0] - 1) / L).toFixed(4)});width:calc((100% - 62px) * ${((r[1] - r[0] + 1) / L).toFixed(4)})"></div>`).join('');
+      const ticks = [1, Math.round(L / 4), Math.round(L / 2), Math.round((3 * L) / 4), L];
+      const s0 = top.shared[0];
+      // From two merge bases the line numbers are near, not exact: "About".
+      const lines = (f.near ? 'About l' : 'L') + (s0[0] === s0[1] ? `ine ${s0[0]}` : `ines ${s0[0]} to ${s0[1]}`);
+      const map = `<div class="tvis">${vlab(`<span class="mono">${e(top.path)}</span>`, `${lines}, both${top.shared.length > 1 ? `, and ${top.shared.length - 1} more` : ''}`, 'red')}<div class="fmap">`
+        + lane(A, top.a) + lane(B, top.b) + bands + `<div class="ticks"><span></span><div>${ticks.map((t) => `<span>${t}</span>`).join('')}</div></div></div>`
+        + (f.files.length > 1 ? `<p class="tmore">Also the same lines of ${plural(f.files.length - 1, 'more file')}: ${e(f.files.slice(1, 4).map((x) => x.path.split('/').pop()).join(', '))}${f.files.length > 4 ? ', …' : ''}</p>` : '') + '</div>';
+      return {
+        title: `${names} both change ${top.path.split('/').pop()}`,
+        preview: both ? 'Both PRs are open. Whoever merges second redoes the work.' : 'Whoever merges second redoes the work.',
+        lead: `Both change ${lines.toLowerCase()} of ${top.path}. Whoever merges second redoes part of the work.`
+          + (f.near ? ' They started from different points on the base, so the line numbers are near, not exact.' : ''),
+        suggest: `Ask ${R} to rebase`,
+        why: `Ask ${R} to rebase${kpr ? ` on #${kpr.n}` : ''}. ${pos(K)} thread is ${String(f.keeper.ticket.place || 'further along').toLowerCase()} and further along.`,
+        body: `<div class="duo">${card(A)}${card(B)}</div>` + map,
+        acts: [['rebase', 'Rebase', `Rebase: ${pos(R)} agent rebases${kpr ? ` on #${kpr.n}` : ''}`], ['reply', 'Reply', `Reply to ${pos(R)} agent`]],
+        reply: R,
+      };
+    }
+    case 'failing':
+      return {
+        title: `#${pr.n} checks failed ${f.redRuns} runs in a row`,
+        preview: c.since != null ? `${pos(who)} PR has been red since ${hm(c.since)}.` : `${pos(who)} PR keeps failing its checks.`,
+        lead: `${f.ticket.title || 'The thread'}: ${f.redRuns} red runs in a row${c.since != null ? `, the first at ${hm(c.since)}` : ''}.`,
+        suggest: 'Ask for a new approach',
+        why: `Request changes: ask ${pos(who)} agent for a new approach. ${f.redRuns} runs failed in a row.`,
+        body: kvs([['PR', `#${pr.n} ${f.ticket.title || ''}`.trim()], ['By', `${pos(who)} agent${f.ticket.working ? `, ${plural(f.ticket.working, 'agent')}` : ''}`], ['Red runs in a row', String(f.redRuns)], ['Red for', c.since != null ? span(Math.round((now - c.since) / 60000)) : NC_V]]),
+        acts: [['refire', 'Changes', `Request changes: ${pos(who)} agent gets your note`], ['reply', 'Reply', `Reply to ${pos(who)} agent`]],
+        reply: who,
+      };
+    case 'stuck':
+      return {
+        title: `${pos(who)} agent is quiet${pr ? ` on #${pr.n}` : ''}`,
+        preview: `The thread runs, with nothing new since ${hm(c.since)}.`,
+        lead: `${f.ticket.title || 'The thread'}. It is running, but it has sent no message, commit or check since ${hm(c.since)}.`,
+        suggest: 'Ask for status',
+        why: `Reply: ask ${pos(who)} agent where it stands.`,
+        body: kvs([['Agents', f.ticket.working ? `${f.ticket.working}, running` : NC_V], ['Quiet for', span(Math.round((now - c.since) / 60000))], ['PR', pr ? `#${pr.n}, ${pr.state}` : 'None yet'], ['Thread', f.ticket.place || NC_V]]),
+        acts: [['reply', 'Reply', `Reply to ${pos(who)} agent`], ['refire', 'Changes', `Request changes: ${pos(who)} agent gets your note`]],
+        reply: who,
+      };
+    case 'waiting': {
+      const a = f.ask, rec = /^[a-i]$/.test(a.rec || '') ? a.rec : null;
+      return {
+        title: `${pos(who)} agent waits on an answer`,
+        preview: String(a.q || 'An agent asks a question.'),
+        lead: `${f.ticket.title || 'The thread'} has waited on this since ${hm(c.since)}. It does nothing until someone answers.`,
+        suggest: rec ? `Answer ${rec}` : 'Answer it',
+        why: rec ? `Answer ${rec}, the agent’s pick.` : 'Answer it, or reply with what the agent needs.',
+        body: kvs([['Thread', f.ticket.title || NC_V], ['Waiting for', span(Math.round((now - c.since) / 60000))], ['PR', pr ? `#${pr.n}, ${pr.state}` : 'None yet'], [`${who}, last seen`, c.quiet[0]?.since != null ? hm(c.quiet[0].since) : 'Reporting']]),
+        ask: a, rec,
+        acts: [['answer', 'Send answer', `Send your answer to ${pos(who)} agent`], ['reply', 'Reply', `Reply to ${pos(who)} agent`]],
+        reply: who,
+      };
+    }
+    case 'big':
+    default:
+      return {
+        title: `#${pr.n} changes ${nf(f.lines)} lines in ${plural(f.size.files, 'file')}`,
+        preview: 'The limit is 800 lines or 30 files.',
+        lead: 'The limit is 800 lines or 30 files, with lockfiles left out.',
+        suggest: 'Split it',
+        why: `Request changes: ask ${pos(who)} agent to split #${pr.n} into smaller PRs.`,
+        body: kvs([['PR', `#${pr.n} ${f.ticket.title || ''}`.trim()], ['Changed lines', `+${nf(f.size.added)} −${nf(f.size.removed)}`], ['Files', String(f.size.files)], ['By', `${pos(who)} agent`]]),
+        acts: [['refire', 'Changes', `Request changes: ${pos(who)} agent gets your note`], ['reply', 'Reply', `Reply to ${pos(who)} agent`]],
+        reply: who,
+      };
   }
-  const split = `<div class="split">${week}<section class="pnl" aria-labelledby="you-at">${time2}</section></div>`;
-  // Verified and on hold: not moving. Each opens its ticket; a held one's tooltip names why it is held.
-  const still = [...verified, ...heldAll];
-  const chips = still.map((k) => `<button type="button" class="hc" data-plate="${e(plateId(k))}" data-thread="${e(k.thread.threadId)}" title="${k.place === 'Verified' ? 'Verified today' : `On hold: ${k.place}`}">`
-    + `${k.place === 'Verified' ? svg('done', 'ic vd') : '<i class="gd c-gray"></i>'}<span class="w">${k.place === 'Verified' ? 'Verified' : 'On hold'}</span>`
-    + `<span class="proj">${mark(k.project, k.icon)}<span class="pn">${e(k.project)}</span></span><span class="t">${e(k.thread.title)}</span>${k.atPass ? svg('cloche', 'ic at-ic') + '<span class="vh">At the pass.</span>' : ''}</button>`).join('');
-  const heldSub = !ok ? 'Not checked' : still.some((k) => k.atPass) ? 'not moving' : 'not moving, nothing needs you';
-  const held = `<section class="pnl pnl-held" aria-labelledby="you-hd"><header class="ph"><h3 id="you-hd">Verified and on hold</h3><span>${heldSub}</span></header>`
-    + `<div class="held">${chips || (ok ? '<p class="muted">Nothing verified today, nothing on hold.</p>' : '')}</div></section>`;
-  return `<section class="you" aria-labelledby="you-t"><header class="you-h"><h2 id="you-t">Your threads</h2><p class="you-sub">${sub}</p></header>`
-    + `<div class="you-b">${inst}${stages}${split}${held}</div></section>`;
 }
 
-/** The view switch (Dan, 2026-11-10): only a user with reports has one, in the rail's footer chip, with You (your
- *  threads, then each project) and Your team. team: { name, below, mode } from the team connection, or null. Until
- *  that connection lands it is null, and the chip stays the project menu. */
-function viewMenu({ team, rows, cur, project, waitAll, names }) {
-  const below = typeof team.below === 'number' && Number.isFinite(team.below) ? `${team.below} ${team.below === 1 ? 'person' : 'people'} below you` : 'People below you not checked';
-  const mode = { open: 'Open kitchen', brigade: 'French Brigade' }[team.mode];
-  // In Your team the chip names the mode in full, never "Your team" (it wrapped; brief v0.4). The team's faces need
-  // the team connection, so the mode's icon stands in for them.
-  const modeIc = { open: 'skillet', brigade: 'toque' }[team.mode] || 'person';
-  return `<details class="pmenu vmenu"><summary>${svg('person', 'ic who vi-you')}${svg(modeIc, 'ic who vi-team')}<span><span class="vl-you">You · ${e(cur[2])}</span><span class="vl-team">${e(mode || team.name || 'Your team')}</span></span>${svg('chev')}</summary>`
-    + `<nav class="pmenu-l" aria-label="Views"><p class="mh">You</p>`
-    + `<a href="/" data-scope="you"${!project ? ' aria-current="page"' : ''}><span class="tk"></span><span class="mi"><b>Your threads</b><small>${names.length ? `Your agents in ${e(names.join(', '))}` : 'Your agents'}</small></span><span class="n">${waitAll == null ? 'Not checked' : `${waitAll} need you`}</span></a>`
-    + rows.slice(1).map(([h, m, nm, c, on]) => `<a class="sub" href="${e(h)}" data-scope="you"${on ? ' aria-current="page"' : ''}>${m}<span>${e(nm)}</span><span class="n">${plural(c, 'thread')}</span></a>`).join('')
-    + `<hr><p class="mh">Your team</p><button type="button" data-scope="team"><span class="tk"></span><span class="mi"><b>${e(team.name || 'Your team')}</b><small>${e([below, mode].filter(Boolean).join('. '))}</small></span></button></nav></details>`;
+/** The call's dock. Each action shows only for a role whose boxes allow it (open-kitchen.mjs may); the blue one only
+ *  when it is the suggested action. Nothing here sends yet: the page refuses a team form until the team connection
+ *  lands, and the server has no route for one. */
+function teamDock(c, w, me, id) {
+  const allowed = w.acts.filter(([kind]) => may(me, kind));
+  const blue = allowed.length && allowed[0] === w.acts[0] ? allowed[0][0] : null;
+  // Names come from teammates' summaries, so the tooltip's name is escaped here (btn writes it as markup).
+  const labelled = allowed.map(([kind, word, name]) => btn(kind, { ic: kind === 'reply' ? 'reply' : kind === 'refire' ? 'changes' : 'send', word, name: e(name), key: '' }, kind === blue, ` data-what="${e(name)}"${kind === 'reply' || kind === 'refire' ? ' data-note' : ''}`));
+  const hold = may(me, 'hold') ? btn('hold', ACT.hold, false, ' data-what="Hold until 8:00 tomorrow"') : '';
+  const settle = btn('settle', { ...ACT.settle, name: 'Settle: it leaves your Pass' }, false, ' data-what="Settle"');
+  const rows = [hold ? phoneRow('hold', ACT.hold.name) : '', phoneRow('settle', 'Settle'), allowed.length ? MORE_NOTE : ''];
+  const ask = w.ask && may(me, 'answer') ? `<fieldset class="q-set"><legend>${e(w.ask.q || 'The agent asks')}</legend>`
+    + (Array.isArray(w.ask.options) ? w.ask.options : []).filter((o) => /^[a-i]$/.test(o?.k || '')).map((o) => `<label class="opt"><input type="radio" name="c:0" value="${o.k}" data-key="${o.k}" data-need${o.k === w.rec ? ' data-rec' : ''}><span class="opt-t"><b>${o.k}.</b> ${e(o.t)}${o.k === w.rec ? ' <span class="rec">Recommended</span>' : ''}</span></label>`).join('')
+    + '</fieldset>' : '';
+  const kinds = allowed.map(([kind]) => kind);
+  const note = !allowed.length ? '' : noteField(kinds.includes('refire') ? 'needed for Changes and Reply' : kinds.includes('reply') ? `optional with ${kinds[0] === 'reply' ? 'Hold' : allowed[0][1]}, needed for Reply` : 'optional');
+  const only = allowed.length ? '' : `<p class="dock-who">Your role can see this call. Acting on it needs more from your lead.</p>`;
+  return `<aside class="dock dock-plain" aria-label="Your move"><form class="act team-act" method="post" action="/act" data-plate="${e(id)}">${only}${ask}${note}${bar(labelled, [hold, settle], rows)}</form></aside>`;
 }
 
-/** The page body (#app). project: one project's title, or null for All projects.
+/** Your team, expanded (mock v2, approved 2026-11-10): a header, four instruments, Who's on what and the files two live
+ *  threads change. Its numbers come from client/open-kitchen.mjs kitchenBoard; what no summary says reads "Not checked". */
+function boardOf({ ok, now, want, name, people, plateOf }) {
+  const at = new Date(now);
+  const time = `<time datetime="${at.toISOString()}">${hm(now)}</time>`;
+  const title = want ? [...want].sort((a, b) => a.localeCompare(b)).join(', ') : 'All projects';
+  const head = (sub) => `<header class="you-h"><h2 id="tb-t">${e(title)}</h2><p class="you-sub">${sub}</p></header>`;
+  const B = kitchenBoard(ok, { now, want });
+  if (!B) {
+    const why = ok.why === 'offline' ? 'Yes Chef’s team connection is down.' : 'No one on your team has reported yet.';
+    return `<section class="tboard" aria-labelledby="tb-t">${head('<span>Open kitchen</span><span>Not checked</span>')}<div class="you-b"><p class="nc-l"><b>Not checked</b> ${e(why)}</p></div></section>`;
+  }
+  const sub = ['Open kitchen', plural(B.people, 'person', 'people'), plural(B.threads, 'live thread')].map((x) => `<span>${e(x)}</span>`).join('') + time;
+  const ins = (label, v, extra = '') => `<div class="ins" role="listitem"><p class="l">${e(label)}</p><p class="v">${v}</p>${extra}</div>`;
+  const ago = (t) => span(Math.max(0, Math.round((now - t) / 60000)));
+  const short = (repo) => String(repo).split('/').pop();
+  // 1. The base: red since the first red commit, or green; one mark per merge today, so it agrees with Merged today.
+  const b = B.base;
+  const label1 = b.branches.length === 1 ? b.branches[0] : 'Base branches';
+  // Bases are one per repo and branch: name the branch only when there is more than one, and count repos apart.
+  const baseName = (r) => (b.branches.length > 1 ? `${short(r.repo)} ${r.branch}` : short(r.repo));
+  const nRepos = new Set(b.repos.map((r) => r.toLowerCase())).size;
+  const v1 = b.state === 'red' ? `<b class="red">Red</b><span>${b.since !== null ? `since ${hm(b.since)}` : 'since not checked'}${b.count > 1 ? `, ${e(and([...new Set(b.red.map(baseName))]))}` : ''}</span>`
+    : b.state === 'green' ? `<b class="green">Green</b><span>${e(nRepos > 1 ? `${nRepos} repos` : b.count > 1 ? `${short(b.repos[0])}, ${plural(b.count, 'branch', 'branches')}` : short(b.repos[0]))}</span>`
+    : NOT(b.count ? 'a required check has no result yet' : 'no Mac online has read it');
+  const rib = b.merges.length ? `<div class="kribbon" role="img" aria-label="${e(`${plural(b.merges.length, 'merge')} today`)}">${b.merges.map((m) => `<i${m.tone === 'red' ? ' class="r"' : ''} title="${e(`#${m.n}, ${name(m.person)}, ${hm(m.at)}${m.tone === 'red' ? `, while ${label1} is red` : ''}`)}"></i>`).join('')}</div>`
+    + `<span class="cap"><span>${plural(b.merges.length, 'merge')}</span>${b.merges.some((m) => m.tone === 'red') ? `<span class="red">red: since ${b.since !== null ? hm(b.since) : 'the break'}</span>` : ''}</span>` : '';
+  // 2. Merged today: the count and bars by hour. "Usual by now" needs weeks of merge times, which no summary sends.
+  const m = B.merged;
+  // Merges with no time may be today's: the count is then a floor, and says so.
+  // What a count cannot see goes in a caption under it ("Not counted: …"); a count that may be low says "at least".
+  const gapWords = (g, untimed = 0) => [untimed ? `${plural(untimed, 'merge')} with no time` : '', g.away ? `${plural(g.away, 'Mac')} not reporting` : '',
+    g.capped ? `${plural(g.capped, 'Mac')} that sent part of ${g.capped === 1 ? 'its' : 'their'} threads` : ''].filter(Boolean).join(', ');
+  const gapCap = (words) => words ? `<span class="cap"><span>Not counted: ${e(words)}</span></span>` : '';
+  const mGap = gapWords(m.gap, m.untimed);
+  const v2 = `<b>${m.count}</b><span>${mGap ? 'at least' : 'usual by now: not checked'}</span>`;
+  const hh = (h) => `${String(h).padStart(2, '0')}:00`;
+  const mbars = bars(m.byHour, `Merges by hour from ${hh(m.from)}: ${m.byHour.join(', ')}`).replace('class="vbars"', 'class="vbars mg"')
+    + `<span class="cap"><span>${hh(m.from)}</span><span>now</span></span>` + gapCap(mGap);
+  // 3. Waiting for review: PRs ready for review and how long each has waited, oldest first.
+  const r = B.review;
+  // A Mac that is not reporting may hold more, so a caption says so; with none counted the count is not checked, never 0.
+  const rGap = gapWords(r.gap);
+  const v3 = r.count ? `<b>${r.count}</b><span>${r.count === 1 ? 'PR' : 'PRs'}, oldest ${r.ages ? span(Math.round(r.ages[0] / 60000)) : 'not checked'}</span>`
+    : rGap ? NOT(e(rGap)) : '<b>0</b><span>no PR waits</span>';
+  const rbars = (r.ages ? bars(r.ages.slice(0, 12).map((a) => Math.round(a / 60000)), `How long each waits: ${r.ages.slice(0, 12).map((a) => span(Math.round(a / 60000))).join(', ')}`) : '') + (r.count ? gapCap(rGap) : '');
+  // 4. Agents running now. The day's line needs readings over the day, which no summary sends.
+  const v4 = `<b>${B.agents.count}</b><span>on ${plural(B.agents.threads, 'thread')}</span>`;
+  const inst = `<div class="inst" role="list">${ins(label1, v1, rib)}${ins('Merged today', v2, mbars)}${ins('Waiting for review', v3, rbars)}${ins('Agents running', v4, gapCap(gapWords(B.agents.gap)))}</div>`;
+
+  // Who's on what: rows of bars along today, a blue now line, and a red link for each Overlap.
+  const T = B.timeline, total = Math.max(1, (T.to - T.from) * 1.035);
+  const X = (t) => (((t - T.from) / total) * 100).toFixed(2);
+  const W = (a, z) => Math.max(0.4, ((z - a) / total) * 100).toFixed(2);
+  const step = T.to - T.from > 9 * 3600000 ? 2 : 1;
+  const first = new Date(T.from); first.setMinutes(0, 0, 0);
+  const ticks = [];
+  for (let t = first.getTime() + (first.getTime() < T.from ? 3600000 : 0); t <= T.to; t += 3600000) if (new Date(t).getHours() % step === 0) ticks.push(t);
+  const grid = ticks.map((t) => `<i class="gv" style="left:${X(t)}%"></i>`).join('');
+  const STATE = { pass: ['In The Pass', 'k-pass'], alarm: ['Fixing an alarm', 'k-amber'], quiet: ['Not reporting', 'k-gray'], track: ['', ''], unknown: [NC_V, 'k-gray'] };
+  const LANE = [3, 16];
+  const rowOf = new Map(T.rows.map((row, i) => [row.person, i]));
+  const rows = T.rows.map((row) => {
+    const p = people.get(row.person), [word, cls] = STATE[row.state];
+    const marks = row.bars.map((x) => {
+      const top = row.bars.some((y) => y.lane === 1) ? LANE[x.lane] : 9;
+      const call = x.call, tone = call ? KINDS[call.kind].tone : '', open = call && call.mine ? plateOf(call.id) : null;
+      const label = `${x.title || 'Untitled thread'}${x.pr ? ` #${x.pr.n}` : ''}`;
+      const tip = `${label}. ${x.place}${call ? `, ${KINDS[call.kind].word}${call.mine ? ' in The Pass' : `, ${name(row.person)} holds it`}` : ''}. Started ${x.clip ? 'before ' : ''}${hm(x.start)}${x.merged !== null ? `, merged ${hm(x.merged)}` : ''}.`;
+      // The call's word is part of its bar, at the right end and clear of the merge mark: a click on it opens the call,
+      // and the title shortens before it, so it never covers the next bar or the title.
+      const tag = call ? `<span class="tltag ${tone}"${x.merged !== null ? ' style="margin-right:6px"' : ''}>${e(KINDS[call.kind].word)}</span>` : '';
+      const attrs = `class="tlb${tone ? ` ${tone}` : ''}${x.clip ? ' clip' : ''}" style="top:${top}px;left:${X(x.start)}%;width:${W(x.start, x.end)}%" title="${e(tip)}"`;
+      const words = (x.end - x.start) / total > 0.07 ? `<span class="tlt">${e(label)}</span>` : '';
+      const bar = open ? `<button type="button" ${attrs} data-team-open="${e(open)}" aria-label="${e(tip)}">${words}${tag}</button>` : `<span ${attrs}>${words}${tag}</span>`;
+      return bar + (x.merged !== null ? `<i class="tlm" style="top:${top + 6}px;left:${X(x.merged)}%" title="${e(`Merged ${hm(x.merged)}`)}"></i>` : '');
+    }).join('');
+    const top0 = row.bars.some((y) => y.lane === 1) ? LANE[0] : 9;
+    const q0 = row.quiet ? Math.min(T.to, Math.max(T.from, row.quiet.since)) : 0;
+    const quiet = row.quiet ? `<span class="tlb off${row.quiet.since < T.from ? ' clip' : ''}" style="top:${top0}px;left:${X(q0)}%;width:${W(q0, T.to)}%">Mac quiet since ${row.quiet.since < T.day ? new Date(row.quiet.since).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : hm(row.quiet.since)}</span>` : '';
+    const extra = [row.more ? `${row.more} more` : '', row.untimed ? `${row.untimed} with no start time` : ''].filter(Boolean).join(', ');
+    return `<div class="tlr" role="listitem"><div class="who">${face(p, 'sm')}<span><b>${e(name(row.person))}</b>${word ? `<em class="${cls}">${e(word)}</em>` : ''}</span></div>`
+      + `<div class="plot">${grid}${marks}${quiet}${extra ? `<span class="tlx">${e(extra)}</span>` : ''}</div></div>`;
+  }).join('');
+  const ROW = 30, AX = 16;
+  const two = (i) => T.rows[i].bars.some((y) => y.lane === 1);
+  const links = T.links.filter((l) => rowOf.has(l.a) && rowOf.has(l.b)).map((l) => {
+    const [i, j] = [rowOf.get(l.a), rowOf.get(l.b)].sort((x, y) => x - y);
+    const y0 = AX + i * ROW + (two(i) ? 28 : 21), y1 = AX + j * ROW + (two(j) ? 3 : 9);
+    const open = l.mine ? plateOf(l.id) : null;
+    const tag = `<span>${e(l.file.split('/').pop())}</span>`;
+    return `<div class="conn" style="left:calc(116px + (100% - 116px) * ${(Number(X(l.at)) / 100).toFixed(4)});top:${y0}px;height:${Math.max(6, y1 - y0)}px">${open ? `<button type="button" data-team-open="${e(open)}" title="${e(`Overlap: ${l.file}`)}">${tag}</button>` : tag}</div>`;
+  }).join('');
+  const nowL = `calc(116px + (100% - 116px) * ${(Number(X(T.to)) / 100).toFixed(4)})`;
+  // An hour's label within 6% of now would run into the now label: its grid line stays, its words go.
+  const axis = `<div class="tlax"><span></span><div class="ax">${ticks.filter((t) => (T.to - t) / total > 0.06).map((t) => `<span style="left:${X(t)}%">${hm(t)}</span>`).join('')}</div></div>`;
+  const legend = '<span class="lg"><span><i class="sw"></i>working</span><span><i class="mk"></i>merged</span><span><i class="sw red"></i>red: act now</span>'
+    + '<span><i class="sw amber"></i>amber: decide soon</span><span><i class="sw off"></i>not reporting</span></span>';
+  const who = `<section class="pnl tl-p" aria-labelledby="tb-who"><header class="ph"><h3 id="tb-who">Who’s on what</h3><span>today, one row per person</span>${legend}</header>`
+    + `<div class="tl-s"><div class="tl" role="list">${axis}${rows}${links}<div class="now" style="left:${nowL};top:${AX - 14}px"><span>now</span></div></div></div></section>`;
+
+  // Files two live threads change.
+  const F = B.files;
+  const FS = { same: ['Same lines. In The Pass', 'red'], different: ['Different lines. Fine', ''], nc: ['Lines not checked', 'gray'], gen: ['Lockfile or generated. Not compared', 'gray'] };
+  const frow = (f) => {
+    const [word, tone] = f.state === 'same' && !(f.call && f.call.mine) ? ['Same lines', 'red'] : f.state === 'nc' && f.near ? ['Lines not checked: two merge bases', 'gray'] : FS[f.state];
+    const open = f.call && f.call.mine ? plateOf(f.call.id) : null;
+    const inner = `<span class="f" title="${e(`${f.repo}: ${f.path}`)}">${e(f.path)}</span><span class="fc">${f.people.map((id) => face(people.get(id), 'sm')).join('')}</span><span class="s${tone ? ` ${tone}` : ''}">${e(word)}</span>`;
+    return open ? `<button type="button" class="sf" role="listitem" data-team-open="${e(open)}">${inner}</button>` : `<div class="sf" role="listitem">${inner}</div>`;
+  };
+  // Threads whose changes were not read could share any file, so the list never reads as all clear while some are out.
+  const out = [F.unread ? `${plural(F.unread, 'live thread')} not checked: ${F.unread === 1 ? 'its' : 'their'} changed files were not sent.` : '',
+    F.partial ? `${plural(F.partial, 'thread')} sent only part of ${F.partial === 1 ? 'its' : 'their'} files.` : '',
+    F.capped ? `${plural(F.capped, 'Mac')} sent only part of ${F.capped === 1 ? 'its' : 'their'} threads.` : ''].filter(Boolean).join(' ');
+  const fbody = !F.compared ? `<p class="nc-l"><b>Not checked</b> No live thread has sent its changed files.</p>`
+    : F.rows.length ? `<div class="sfl" role="list">${F.rows.slice(0, 8).map(frow).join('')}</div>${F.rows.length > 8 ? `<p class="tmore">And ${plural(F.rows.length - 8, 'more file')}.</p>` : ''}${out ? `<p class="tmore">${e(out)}</p>` : ''}`
+    : out ? `<p class="nc-l">No file is changed by two of the ${plural(F.compared, 'thread')} read. ${e(out)}</p>` : `<p class="nc-l">No file is changed by two live threads.</p>`;
+  const files = `<section class="pnl" aria-labelledby="tb-f"><header class="ph"><h3 id="tb-f">Files two live threads change</h3><span>${F.at !== null ? `checked ${hm(F.at)}` : 'check time not checked'}</span></header>${fbody}</section>`;
+  return `<section class="tboard" aria-labelledby="tb-t">${head(sub)}<div class="you-b">${inst}${who}${files}</div></section>`;
+}
+
+/** Everything Your team draws when the page has a team reading. ctx: { icons } from the board, for project marks. */
+function teamParts(team, icons, want = null) {
+  const now = Number.isFinite(team.now) ? team.now : Date.now();
+  const ok = openKitchen(team.view, { now });
+  const me = team.view.me;
+  const people = new Map(ok.people.map((p) => [p.id, p]));
+  const name = (id) => people.get(id)?.name || 'Someone';
+  const pm = (p) => mark(p || 'Project', (p && icons.get(p)) || null);
+  // A picked project narrows the team's calls too; a call with no known project shows under All projects only.
+  const calls = ok.pass.filter((c) => !want || (c.project !== null && want.has(c.project))).map((c) => ({ c, id: teamPlateId(c), w: callWords(c, { name, now, people }) }));
+  // A red base with no named cause has nobody to name: the tile names its repo instead.
+  const who = (c) => (!c.who.length ? (c.facts.repo || 'Not checked') : c.kind === 'overlap' && c.who.length > 1 ? and(c.who.map(name)) : name(c.who[0]));
+  const age = (c) => (c.since != null ? span(Math.max(0, Math.round((now - c.since) / 60000))) : '');
+  const tile = ({ c, id, w }) => `<button type="button" class="tile call-tile mail team-tile" data-plate="${e(id)}" data-thread="${e(id)}">`
+    + `<span class="ct-top"><span class="proj">${pm(c.project)}<span class="pn">${e(c.project || 'Project')}</span></span><span class="mdl">${e(who(c))}</span>${age(c) ? `<span class="age">${age(c)}</span>` : ''}</span>`
+    + `<span class="q">${e(w.title)}</span><span class="ct-pv">${e(w.preview)}</span>`
+    + `<span class="lbs">${chip(KINDS[c.kind].word, KINDS[c.kind].tone)}<span class="lb tsg">Suggested: <b>${e(w.suggest)}</b></span></span></button>`;
+  const plateOf = ({ c, id, w }) => `<article class="plate team-plate" id="${e(id)}" data-thread="${e(id)}" data-at aria-labelledby="${e(id)}-t">`
+    + `<div class="plate-bar"><span class="proj">${pm(c.project)}${e(c.project || 'Project')}</span><span class="stg"><i class="gd c-${KINDS[c.kind].tone}"></i>${e(KINDS[c.kind].word)}</span><span class="mdl">${e(who(c))}</span>`
+    + `<button type="button" class="close" data-close aria-label="Close"><kbd>esc</kbd>${svg('x')}</button></div>`
+    + `<div class="plate-main"><div class="plate-scroll" tabindex="-1"><header class="plate-head"><h2 class="plate-t" id="${e(id)}-t">${e(w.title)}</h2>`
+    + `<p class="lead"><span class="lead-q">${e(w.lead)}</span></p>${c.prs.length ? `<div class="pr-row">${c.prs.map(teamPrChip).join('')}</div>` : ''}</header>`
+    + `<section class="msg tv">${quietBox(c, name, now)}${seenLine(c, name)}${w.body}<div class="tsug"><b>Suggested</b><span>${e(w.why)}</span></div></section></div>`
+    + teamDock(c, w, me, id) + '</div></article>';
+
+  // The groups, each dev once (open-kitchen.mjs sets the order of precedence): Not reporting, In The Pass, Fixing an
+  // alarm, On track; and Not checked for a dev whose Mac has not reported at all.
+  const GROUPS = [['pass', 'In The Pass', 'blue'], ['alarm', 'Fixing an alarm', 'amber'], ['quiet', 'Not reporting', 'gray'], ['track', 'On track', 'green'], ['unknown', NC_V, 'nc']];
+  const by = Object.fromEntries(GROUPS.map(([k]) => [k, ok.people.filter((p) => p.state === k)]));
+  const live = ok.status === 'live';
+  const why = ok.why === 'offline' ? `Yes Chef’s team connection is down${ok.linkAt ? ` since ${hm(ok.linkAt)}` : ''}.` : 'No one on your team has reported yet.';
+  const segs = live ? GROUPS.flatMap(([k, , tone]) => by[k].map(() => `<i class="c-${tone}"></i>`)).join('') : '';
+  const rows = live ? GROUPS.filter(([k]) => k !== 'unknown' || by[k].length).map(([k, word, tone]) => `<p class="nf tst"><i class="gd c-${tone}"></i><span>${word}</span><span class="n">${by[k].length}</span></p>`).join('')
+    : `<p class="nf tst"><i class="gd c-nc"></i><span>${NC_V}</span><span class="n">–</span></p>`;
+  const card = `<div class="nav-card team-card" role="group" aria-label="Your team"><div class="idrow">${svg('skillet', 'ic who')}<span class="vh">Open kitchen</span><span class="segbar" aria-hidden="true">${segs}</span></div>${rows}</div>`;
+
+  // The quiet line: who else there is, so an empty Pass never reads as "nobody is working".
+  const held = new Map(); for (const c of ok.held) for (const id of c.who) if (!held.has(id)) held.set(id, c);
+  const bits = [];
+  const q = by.quiet;
+  if (q.length === 1) { const p = q[0], t = p.lastSeen ?? p.at; bits.push(`${name(p.id)} is not reporting${Number.isFinite(t) ? ` since ${hm(t)}` : ''}.`); }
+  else if (q.length) bits.push(`${and(q.map((p) => name(p.id)))} are not reporting.`);
+  const al = by.alarm;
+  if (al.length === 1) { const c = held.get(al[0].id); bits.push(`${name(al[0].id)} is fixing an alarm${c?.prs[0] ? ` on #${c.prs[0].n}` : ''}.`); }
+  else if (al.length) bits.push(`${and(al.map((p) => name(p.id)))} are fixing alarms.`);
+  if (by.track.length) bits.push(`${plural(by.track.length, 'person', 'people')} ${by.track.length === 1 ? 'is' : 'are'} on track.`);
+  if (by.unknown.length) bits.push(`${plural(by.unknown.length, 'person', 'people')} not checked.`);
+  const calm = `<p class="tcalm">${svg('done')}<span>${calls.length ? 'Nothing else needs you.' : 'Nothing from your team needs you.'}${bits.length ? ` ${e(bits.join(' '))}` : ''}</span></p>`;
+  // The Pass as a column beside the board (expanded): each call with its suggestion and Open, one click each. A click
+  // goes back to The Pass with the call open; the suggestion also puts focus on its action there, since nothing sends
+  // from Your team until the team connection lands.
+  const xcard = ({ c, id, w }) => {
+    const [kind] = w.acts[0] || [];
+    const sug = kind && may(me, kind) ? `<button type="button" class="xb fill" data-team-open="${e(id)}" data-team-act="${e(kind)}">${e(w.suggest)}</button>` : '';
+    return `<div class="xc" role="listitem" data-team-open="${e(id)}"><p class="xk"><span class="w t-${KINDS[c.kind].tone}">${e(KINDS[c.kind].word)}</span>${age(c) ? `<span class="age">${age(c)}</span>` : ''}</p>`
+      + `<p class="xt">${e(w.title)}</p><p class="xw">${e(who(c))}</p><div class="xa">${sug}<button type="button" class="xb" data-team-open="${e(id)}">Open</button></div></div>`;
+  };
+  const col = calls.length ? `<div class="tcol" role="list" aria-label="Your team’s calls">${calls.map(xcard).join('')}</div>` : '';
+  const pass = !live ? `<div class="clear team-pass">${svg('cloche')}<p><b>${NC_V}</b></p><p class="muted">${e(why)} Your team’s calls show once it is back.</p></div>`
+    : `<div class="team-pass tp-live"><div class="folder" data-folder="team">${calls.map(tile).join('')}</div>${col}${calm}</div>`;
+  const board = boardOf({ ok, now, want, name, people, plateOf: (id) => (calls.some((x) => x.c.id === id) ? teamPlateId({ id }) : null) });
+  return {
+    ok, card, pass, board, count: live ? calls.length : '–',
+    plates: calls.map(plateOf).join(''),
+    meta: { name: [team.view.teamName, team.name].find((x) => typeof x === 'string' && x) || null, below: ok.people.length, mode: 'open' },
+  };
+}
+
+/** The projects a page shows, from its address: ?p=A&p=B picks A and B; no p is All projects (Dan, 2026-11-10).
+ *  Empty and repeated names drop out. Null means All projects. */
+export function pickedFrom(params) {
+  const names = [...new Set(params.getAll('p').filter((p) => p !== ''))];
+  return names.length ? names : null;
+}
+
+// A check box (view menu mock a, Dan, 2026-11-10): a drawn tick when picked, a dash when some are (All projects only).
+const CB = '<span class="cb" aria-hidden="true"><svg viewBox="0 0 18 18"><path class="tick" d="M4.75 9.4l2.85 2.85 5.65-6.5"/><path class="dash" d="M5.25 9h7.5"/></svg></span>';
+// A mark in the chip's fan has no tooltip of its own: the fan's tooltip names every picked project.
+const fanMark = (name, icon) => mark(name, icon).replace(/ title="[^"]*"/, '');
+
+/** The rail's footer chip and the menu it opens (Dan, 2026-11-10, view menu mock a). The chip: the person and "You",
+ *  or the toque and "Team", then "All projects" or the picked projects' icons fanned like a hand of cards. It never
+ *  names the team or its mode. The menu, top to bottom: All projects as a tri-state check box, one check box per
+ *  project, and, only for a user with reports, a sliding You | Team toggle on one line. The toque means Team in both
+ *  modes. projs: [name, mark html, on the board] in menu order; picked: the names picked, or null for All projects.
+ *  ok: the board was read, so the project list is current; without it the list says "not checked". */
+function viewMenu({ team, projs, picked, icons, ok }) {
+  const sel = new Set(picked || projs.map(([nm]) => nm));
+  // Picking exactly the board's projects is All projects. A pick with no ticket now stays a pick, and so does any pick
+  // without a board: then the list is unknown.
+  const every = !picked || (ok && projs.every(([nm, , here]) => (here ? sel.has(nm) : !sel.has(nm))));
+  const on = projs.filter(([nm]) => sel.has(nm)).map(([nm]) => nm);
+  const names = e(on.join(', '));
+  const which = every ? '<span class="vp">All projects</span>'
+    : `<span class="fan" style="--n:${on.length}" title="${names}">${on.map((nm, i) => `<span class="card" style="--i:${i}">${fanMark(nm, icons.get(nm))}</span>`).join('')}<span class="vh">${names}</span></span>`;
+  const who = team ? `${svg('person', 'ic who vi-you')}${svg('toque', 'ic who vi-team')}<span class="vl"><span class="vl-you">You</span><span class="vl-team">Team</span></span>`
+    : `${svg('person', 'ic who')}<span class="vl">You</span>`;
+  // data-gone: a pick with no ticket now. The page script counts All projects as every box but these.
+  const box = ([nm, m, here]) => `<button type="button" class="pk" role="checkbox" data-p="${e(nm)}"${here ? '' : ' data-gone'} aria-checked="${sel.has(nm)}">${CB}${m}<span class="vn">${e(nm)}</span></button>`;
+  const seg = team ? `<hr><div class="seg" role="radiogroup" aria-label="View">`
+    + `<button type="button" role="radio" aria-checked="false" data-scope="you">${svg('person')}<span>You</span></button>`
+    + `<button type="button" role="radio" aria-checked="false" data-scope="team">${svg('toque')}<span>Team</span></button></div>` : '';
+  return `<details class="pmenu vmenu"><summary>${who}<span class="vdot" aria-hidden="true">·</span>${which}${svg('chev')}</summary>`
+    + `<nav class="pmenu-l" aria-label="${team ? 'Projects and view' : 'Projects'}"${ok ? '' : ' data-nc'}>`
+    + `<button type="button" class="pk all" role="checkbox" aria-checked="${every ? 'true' : 'mixed'}">${CB}<span class="vn">All projects</span></button><hr>`
+    + projs.map(box).join('')
+    + (ok ? '' : '<p class="pk-nc"><b>Projects not checked.</b> T3 did not answer.</p>')
+    + `${seg}</nav></details>`;
+}
+
+/** The page body (#app). picked: the projects' titles to show (pickedFrom), or null for All projects.
  *  Two views (Dan, 2026-11-07), switched by the logo: the pass, focused (stages as a list on the left, the tickets
  *  that wait on you, the open ticket beside them, like a mail client) and You, expanded (instruments over every
  *  stage as a column, 2026-11-10). The page script picks the view; the markup carries both.
- *  team: the user's team when they have reports (see viewMenu), else null. */
-export function renderApp({ board, project, link, status, origin, answered = new Map(), projects = [], rules = null, team = null }) {
+ *  team: the user's team when they have reports (see viewMenu), else null. With team.view (client/team.mjs Team.view())
+ *  and team.now, Your team draws its calls (Open kitchen); without a view it says "Not checked". */
+export function renderApp({ board, picked = null, link, status, origin, answered = new Map(), projects = [], rules = null, team = null }) {
+  const want = picked && picked.length ? new Set(picked) : null;
   // Missing data renders "not checked": without a good poll, show no tickets at all, never an older board.
-  const shown = status.ok ? board.tickets.filter((k) => !project || k.project === project) : [];
+  const shown = status.ok ? board.tickets.filter((k) => !want || want.has(k.project)) : [];
   const spots = {};
   for (const k of shown) (spots[k.place] ||= []).push(k);
   // A stable order in every column: newest ticket first by when it was opened, not by its last update (Opus).
@@ -606,18 +951,18 @@ export function renderApp({ board, project, link, status, origin, answered = new
   const since = (k) => k.asks.map((a) => a.thread.updatedAt).sort()[0] || k.updatedAt;
   const asking = (k) => !!(k.asks.length || k.call);
   const waiting = shown.filter((k) => k.atPass).sort((a, b) => (asking(b) - asking(a)) || (since(a) < since(b) ? -1 : 1));
-  // A Map: project titles come from T3 and may be any string, including "__proto__".
-  const counts = new Map(), icons = new Map();
+  // The menu lists every project with a ticket on the board, and any picked one that has none now, so it can still be
+  // unticked. A Map: project titles come from T3 and may be any string, including "__proto__".
+  const icons = new Map();
   const onBoard = (status.ok ? board.tickets : []).filter((k) => k.place !== 'Coordinators');
-  for (const k of onBoard) { counts.set(k.project, (counts.get(k.project) || 0) + 1); if (k.icon) icons.set(k.project, k.icon); }
-  // All projects has no icon (Dan, 2026-11-09: for clarity).
-  const rows = [['/', '', 'All projects', status.ok ? onBoard.length : 'not checked', !project],
-    ...[...counts.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([nm, c]) => [`/?p=${encodeURIComponent(nm)}`, mark(nm, icons.get(nm)), nm, c, nm === project])];
-  const cur = rows.find((r) => r[4]) || rows[0];
-  const menu = `<details class="pmenu"><summary>${cur[1]}<span>${e(cur[2])}</span><span class="n">${cur[3]}</span>${svg('chev')}</summary>`
-    + `<nav class="pmenu-l" aria-label="Projects">${rows.map(([h, m, nm, c, on]) => `<a href="${e(h)}"${on ? ' aria-current="page"' : ''}>${m}<span>${e(nm)}</span><span class="n">${c}</span></a>`).join('')}</nav></details>`;
-  // With reports, the rail's footer chip is the view switch, and so is its stand-in in the top bar (phones).
-  const footMenu = team ? viewMenu({ team, rows, cur, project, waitAll: status.ok ? board.tickets.filter((k) => k.atPass).length : null, names: rows.slice(1).map((r) => r[2]) }) : menu;
+  for (const k of onBoard) if (!icons.has(k.project) || k.icon) icons.set(k.project, k.icon || null);
+  const here = new Set(icons.keys());
+  for (const nm of want || []) if (!icons.has(nm)) icons.set(nm, null);
+  const projs = [...icons.keys()].sort((a, b) => a.localeCompare(b)).map((nm) => [nm, mark(nm, icons.get(nm)), here.has(nm)]);
+  // The rail's footer chip and its menu, and its stand-in in the top bar (phones). The toggle needs reports.
+  const footMenu = viewMenu({ team, projs, picked: want ? [...want] : null, icons, ok: status.ok });
+  // Your team, from a team reading (team.view, client/team.mjs's shape). Without one it says "Not checked".
+  const T = team?.view ? teamParts(team, icons, want) : null;
   const active = STAGES.reduce((x, s) => x + (spots[s] || []).length, 0), held = HELD.reduce((x, s) => x + (spots[s] || []).length, 0);
   // Unknown is not zero: without a good poll the counts read "not checked".
   const n = (v) => (status.ok ? v : 'not checked');
@@ -635,25 +980,30 @@ export function renderApp({ board, project, link, status, origin, answered = new
   const off = [['Verified', 'Verified', verified.length], ['On hold', 'On hold', heldAll.length]];
   const folders = [['pass', 'The Pass', waiting.length], ...line, ...off];
   const nfBtn = ([key, label, c]) => `<button type="button" class="nf${status.ok && !c && key !== 'pass' ? ' zero' : ''}" data-folder="${e(key)}">${key === 'pass' ? '' : DOT[key] ? `<i class="gd c-${DOT[key]}"></i>` : key === 'Verified' ? svg('done', 'ic vd') : '<i class="gd c-gray"></i>'}<span>${e(label)}</span><span class="n">${status.ok ? c : '–'}</span></button>`;
-  // You (Dan, 2026-11-10): the person, then a bar with one piece per thread in its stage's colour, in the rows' order.
+  // You (Dan, 2026-11-10): the person, then a bar with one piece per thread in its stage's colour. The bar reads left to
+  // right along the line, Backlog to Merged (Dan, 2026-11-10), though the rows below list Merged first.
   // A long line shows one piece per stage, sized by its count, so each stays wide enough to see.
-  const lineTickets = [...STAGES].reverse().flatMap((s) => spots[s] || []);
+  const lineTickets = STAGES.flatMap((s) => spots[s] || []);
   const segs = lineTickets.length <= 24 ? lineTickets.map((k) => `<i class="c-${DOT[k.place]}"></i>`).join('')
-    : [...STAGES].reverse().filter((s) => spots[s]?.length).map((s) => `<i class="c-${DOT[s]}" style="flex-grow:${spots[s].length}"></i>`).join('');
+    : STAGES.filter((s) => spots[s]?.length).map((s) => `<i class="c-${DOT[s]}" style="flex-grow:${spots[s].length}"></i>`).join('');
   const idrow = `<div class="idrow">${svg('person', 'ic who')}<span class="vh">You</span><span class="segbar" aria-hidden="true">${segs}</span></div>`;
   // The Pass item has no cloche: the app icon beside it is the only one (Dan, 2026-11-08).
-  const nav = `<nav class="stagenav" aria-label="Stages">${nfBtn(folders[0])}<div class="nav-scroll"><div class="nav-card" role="group" aria-label="Your threads">${idrow}${line.map(nfBtn).join('')}</div>`
+  // In Your team the Pass item counts the team's calls instead of yours.
+  const passBtn = T ? nfBtn(folders[0]).replace(/<\/button>$/, `<span class="n tpn">${T.count}</span></button>`) : nfBtn(folders[0]);
+  const nav = `<nav class="stagenav" aria-label="Stages">${passBtn}<div class="nav-scroll">${T ? T.card : ''}<div class="nav-card" role="group" aria-label="Your threads">${idrow}${line.map(nfBtn).join('')}</div>`
     + `<div class="nav-card" role="group" aria-label="Off the line">${off.map(nfBtn).join('')}</div>`;
   const clear = status.ok ? `<div class="clear">${svg('cloche')}<p><b>All clear</b></p><p class="muted">Nothing needs you.</p></div>`
     : `<div class="clear">${svg('cloche')}<p><b>Not checked</b></p><p class="muted">T3 did not answer, so the Pass cannot say what waits on you.</p></div>`;
   // The Pass follows the view: in Your team it would hold your team's calls, which Yes Chef cannot read yet.
-  const teamPass = team ? `<div class="clear team-pass">${svg('cloche')}<p><b>Not checked</b></p><p class="muted">Your team's calls need the team connection, which Yes Chef does not have yet.</p></div>` : '';
+  const teamPass = T ? T.pass : team ? `<div class="clear team-pass">${svg('cloche')}<p><b>Not checked</b></p><p class="muted">Your team's calls need the team connection, which Yes Chef does not have yet.</p></div>` : '';
   const lists = teamPass + `<div class="folder" data-folder="pass">${waiting.length ? waiting.map((k) => passTile(k)).join('') : clear}</div>`
     + folders.slice(1).map(([key]) => `<div class="folder" data-folder="${e(key)}" hidden>${(key === 'Verified' ? verified : key === 'On hold' ? heldAll : spots[key] || []).map((k) => tile(k, key === 'Verified' || key === 'On hold')).join('')}</div>`).join('');
   const pass = `<section class="head" aria-labelledby="head-t"><header class="head-h"><h2 id="head-t">${svg('cloche')}<span class="head-name">The Pass</span></h2>${waiting.length ? `<span class="badge">${waiting.length}</span>` : ''}`
-    + `<p class="muted">${waiting.length ? 'Needs your focus.<span class="sub2"> Questions first, then oldest first.</span>' : 'Calls and plates for you land here.'}</p></header><div class="head-b">${lists}</div>`
+    + `<p class="muted">${waiting.length ? 'Needs your focus.<span class="sub2"> Questions first, then oldest first.</span>' : 'Calls and plates for you land here.'}</p>`
+    // Your team, expanded: the column says how many calls need you (mock v2).
+    + `${T && T.ok.status === 'live' ? `<p class="muted tpm">${T.count ? `${T.count} need you, most urgent first.` : 'Nothing from your team needs you.'}</p>` : ''}</header><div class="head-b">${lists}</div>`
     + `</section>`;
-  const you = youView({ board, shown, spots, waiting, since, status, project, trays, verified, heldAll });
+  const you = youView({ trays });
   // Your team is not built yet (Dan, 2026-11-10): with reports, its view says so instead of showing anything made up.
   const teamWait = team ? `<section class="team-wait" aria-label="Your team"><p><b>${e(team.name || 'Your team')}</b></p><p class="muted">Not checked. Your team's view needs the team connection, which Yes Chef does not have yet.</p></section>` : '';
   const lamp = status.ok ? 'ok' : 'bad';
@@ -663,18 +1013,18 @@ export function renderApp({ board, project, link, status, origin, answered = new
   // list (Dan, 2026-11-08), pinned to the bottom of the column with no rule above them: the space does the separating
   // (Dan, 2026-11-09). With no stage list (phones) they stay in the top bar. The Shortcuts button went: ? and Settings open them.
   const lamps = `<ul class="lamps" aria-label="Sources"><li class="${lamp}" title="${e(detail)}"><i></i>${status.ok ? 'Live' : 'Not checked'}</li></ul>`;
-  const gear = `<button type="button" class="gear" data-settings aria-label="Settings" title="Settings (⌘,)">${svg('sliders')}</button>`;
+  const gear = `<button type="button" class="gear" data-settings data-tcmd="settings.open" aria-label="Settings" title="Settings (⌘,)">${svg('sliders')}</button>`;
   const navFoot = `<div class="nav-foot">${footMenu}<div class="nav-foot-row">${lamps}${gear}</div></div></div></nav>`;
   const strip = status.ok ? '' : `<div class="strip" role="status"><b>T3</b> not checked: ${e(status.error)}</div>`;
   // The logo is the view switch: white on blue for the focused pass, blue on white for You, expanded.
-  const logo = `<button type="button" class="logo" data-view-toggle aria-label="Show the full kitchen" title="Switch view (V)"><span class="flip"><span class="face f-pass">${svg('cloche')}</span><span class="face f-kitchen">${svg('cloche')}</span></span><span class="vh">Yes Chef</span></button>`;
+  const logo = `<button type="button" class="logo" data-view-toggle data-tcmd="view.toggle" aria-label="Show the full kitchen" title="Switch view (V)"><span class="flip"><span class="face f-pass">${svg('cloche')}</span><span class="face f-kitchen">${svg('cloche')}</span></span><span class="vh">Yes Chef</span></button>`;
   return `<header class="bar"><h1 class="brand">${logo}</h1><ul class="stats" aria-label="Counts">${stats}</ul>${lamps}${footMenu}${gear}</header>${strip}`
-    + `<div class="board">${nav}${navFoot}${you}${teamWait}${pass}`
+    + `<div class="board">${nav}${navFoot}${you}${T ? T.board : teamWait}${pass}`
     + `<section class="reader" aria-label="Open ticket"><div class="reader-empty">${svg('cloche')}<p class="muted">Pick a ticket to read it here.</p></div></section></div>${projectOptions}`
-    + (team ? `<script type="application/json" id="yc-team">${JSON.stringify({ name: team.name || null, below: typeof team.below === 'number' ? team.below : null, mode: team.mode === 'open' || team.mode === 'brigade' ? team.mode : null }).replace(/</g, '\\u003c')}</script>` : '')
+    + (team ? `<script type="application/json" id="yc-team">${JSON.stringify(T ? T.meta : { name: team.name || null, below: typeof team.below === 'number' ? team.below : null, mode: team.mode === 'open' || team.mode === 'brigade' ? team.mode : null }).replace(/</g, '\\u003c')}</script>` : '')
     // The saved rules ride each refresh, so a second window's Settings shows them (PR-Agent r3 on #49).
     + (rules ? `<script type="application/json" id="yc-rules-now">${JSON.stringify(rules).replace(/</g, '\\u003c')}</script>` : '')
-    + `<div id="plates" hidden>${shown.filter((k) => k.place !== 'Coordinators').map((k) => plate(k, link, origin, answered, rules)).join('')}</div>`;
+    + `<div id="plates" hidden>${T ? T.plates : ''}${shown.filter((k) => k.place !== 'Coordinators').map((k) => plate(k, link, origin, answered, rules)).join('')}</div>`;
 }
 
 // Settings -> Rules (Dan, 2026-11-08; Kitchen rules until 2026-11-10), laid out like T3 Code's settings: groups of rows, each a title and a

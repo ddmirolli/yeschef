@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- The Yes Chef (Nightly) mark for /download's Nightly channel only (Dan, 2026-11-10): the Nightly Dock icon
+       (desktop/build/icon-nightly.svg) on the site mark's tile, so the two cross-fade in the same frame. The cloche
+       matches yeschef-icon.svg; the stars are icon-nightly.svg's, scaled from its 824-unit tile to 64. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4A3AB8"/>
+      <stop offset="1" stop-color="#1C1458"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="17" fill="url(#tile)"/>
+  <g transform="translate(-7.76699 -7.76699) scale(0.0776699)" fill="#fff">
+    <path d="M282 196Q282 246 332 246Q282 246 282 296Q282 246 232 246Q282 246 282 196Z"/>
+    <path d="M748 236Q748 266 778 266Q748 266 748 296Q748 266 718 266Q748 266 748 236Z" opacity=".85"/>
+    <path d="M818 372Q818 388 834 388Q818 388 818 404Q818 388 802 388Q818 388 818 372Z" opacity=".7"/>
+  </g>
+  <g transform="translate(2.94 0.34) scale(2.4216)" fill="#fff"><path d="M4.25 17.4a7.75 7.75 0 0 1 15.5 0" fill="none" stroke="#fff" stroke-width="1.5"/><circle cx="12" cy="7.4" r="1.75"/><path d="M2.75 19h18.5l-1.5 1.5H4.25z"/></g>
+</svg>
