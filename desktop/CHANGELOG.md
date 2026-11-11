@@ -2,6 +2,15 @@
 
 Each Stable release has a section here, `## <version>`. `npm run release -- <version>` stops without one and uses it as the release notes on GitHub. Nightly releases need none.
 
+## 0.2.2
+
+- Invite your team: ⌘K, Invite your team. Make a team and send its link. Each dev who opens it asks to join, and you place them on the chart: Lead, Deputies, areas with their Area owners and Engineers, and Viewers. Drag an ask onto a slot, or click it. The same six digits show on their screen and beside their ask, so you add the right person.
+- Join a team from its link. You see your role, who can act on your threads, and what you share.
+- Open kitchen, expanded: Your team as a full board. The base and when it went red, merges today by hour, PRs waiting for review, agents running, who's on what, and each Overlap: a file that two live threads both change. The Pass sits beside it as a column.
+- Your teammates see more of your work: when each thread started, its last message and open question, the lines it changes, and each PR's checks, ready time and merge.
+- Yes Chef checks what it gets from T3 Code, GitHub, the team relay and the update server. A reply it cannot read is refused or shown as not checked, never shown as a guess.
+- Tested with T3 Code 0.1.7.
+
 ## 0.2.1
 
 - Change any shortcut in Settings → Shortcuts. Record a new key, swap it with the command that has it, or reset one or all. The Mac app keeps your keys in `keybindings.json` in its data folder, in T3 Code's format and with its rules: an entry replaces its command's default keys, and the last rule for a key wins.
