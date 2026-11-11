@@ -851,7 +851,8 @@ function boardOf({ ok, now, want, name, people, plateOf }) {
     return `<div class="conn" style="left:calc(116px + (100% - 116px) * ${(Number(X(l.at)) / 100).toFixed(4)});top:${y0}px;height:${Math.max(6, y1 - y0)}px">${open ? `<button type="button" data-team-open="${e(open)}" title="${e(`Overlap: ${l.file}`)}">${tag}</button>` : tag}</div>`;
   }).join('');
   const nowL = `calc(116px + (100% - 116px) * ${(Number(X(T.to)) / 100).toFixed(4)})`;
-  const axis = `<div class="tlax"><span></span><div class="ax">${ticks.map((t) => `<span style="left:${X(t)}%">${hm(t)}</span>`).join('')}</div></div>`;
+  // An hour's label within 6% of now would run into the now label: its grid line stays, its words go.
+  const axis = `<div class="tlax"><span></span><div class="ax">${ticks.filter((t) => (T.to - t) / total > 0.06).map((t) => `<span style="left:${X(t)}%">${hm(t)}</span>`).join('')}</div></div>`;
   const legend = '<span class="lg"><span><i class="sw"></i>working</span><span><i class="mk"></i>merged</span><span><i class="sw red"></i>red: act now</span>'
     + '<span><i class="sw amber"></i>amber: decide soon</span><span><i class="sw off"></i>not reporting</span></span>';
   const who = `<section class="pnl tl-p" aria-labelledby="tb-who"><header class="ph"><h3 id="tb-who">Who’s on what</h3><span>today, one row per person</span>${legend}</header>`

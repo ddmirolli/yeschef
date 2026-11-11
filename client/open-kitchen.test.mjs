@@ -746,3 +746,11 @@ test('r11: checked changes with no base branch are not checked, never counted as
   assert.deepEqual([F.compared, F.unread], [F0.compared - 1, F0.unread + 1]);
   assert.ok(!F.rows.some((f) => f.path === 'web/src/sidebar.tsx'));
 });
+
+test('the axis drops an hour label that would run into now, and keeps its grid line', () => {
+  const at = new Date(2026, 10, 10, 16, 6).getTime();
+  const html = page({ view: fixtureView(at), now: at });
+  const axis = html.match(/<div class="tlax">[^]*?<\/div><\/div>/)[0];
+  assert.ok(!axis.includes('>16:00<'), 'six minutes before now: no label');
+  assert.ok(axis.includes('>15:00<'));
+});
