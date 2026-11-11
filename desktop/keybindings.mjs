@@ -1,10 +1,11 @@
-// Settings → Shortcuts on the Mac (client/keys.mjs): the keys you changed, in keybindings.json in the app's data
-// folder, in the shape of T3 Code's keybindings.json: a list of { key, command, when? }. The board reads the file at
-// start and each time the window comes back, so an edit made in the file applies, and writes it on each change in
-// Settings. This module only reads and writes the list: what each entry means, and what is wrong with one, is the
-// board's (client/keys.mjs build()).
+// Settings → Shortcuts on the Mac (client/keys.mjs): your shortcuts, in keybindings.json in the app's data folder, in
+// T3 Code's shape and with its rules: a list of { key, command, when? }. At start the app writes every default into a
+// new file and adds the defaults of a command the file does not name, as T3 Code does (syncKeybindings). The board
+// reads the file at start and each time the window comes back, so an edit made in the file applies, and writes it on
+// each change in Settings. What each entry means, and what is wrong with one, is the board's (client/keys.mjs).
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { keysCore } from '../client/keys.mjs';
 
 export const MAX_ENTRIES = 500;
 export const MAX_FIELD = 200;
@@ -68,9 +69,30 @@ export function writeKeybindings(file, list) {
   }
 }
 
-/** Open the file: an empty list first when there is none, so there is a file to open. */
-export function ensureKeybindings(file) {
+/** Open the file: every default first when there is none, as T3 Code writes a new file. */
+export function ensureKeybindings(file, mac = process.platform === 'darwin') {
   const r = readKeybindings(file);
-  if (r.list === null) return writeKeybindings(file, []);
+  if (r.list === null) return writeKeybindings(file, keysCore(mac).defaultList());
   return { ok: true };
+}
+
+/** T3 Code's start-up sync (apps/server/src/keybindings.ts, syncDefaultKeybindingsOnStartup). No file: every default.
+ *  A file whose every entry Yes Chef uses: the defaults of each command it does not name go in before its entries, so
+ *  its entries win a key both have, and a default whose key and when an entry already has is left out. A file with an
+ *  entry Yes Chef cannot use, or that is not a list, is left as it is, as T3 Code leaves one with issues; the board
+ *  names what is wrong. { ok, wrote } or { error }. */
+export function syncKeybindings(file, mac = process.platform === 'darwin') {
+  const K = keysCore(mac);
+  const r = readKeybindings(file);
+  if (r.error) return r;
+  if (r.list === null) { const w = writeKeybindings(file, K.defaultList()); return w.error ? w : { ok: true, wrote: true }; }
+  if (!Array.isArray(r.list)) return { ok: true, wrote: false };
+  const rules = r.list.map((e, i) => K.compile(e, i).rule);
+  if (rules.some((x) => !x)) return { ok: true, wrote: false };
+  const named = new Set(rules.map((x) => x.id));
+  const used = new Set(rules.map((x) => `${x.key}\u0000${x.when}`));
+  const missing = K.defaultList().filter((d) => !named.has(d.command) && !used.has(`${d.key}\u0000${d.when || ''}`));
+  if (!missing.length) return { ok: true, wrote: false };
+  const w = writeKeybindings(file, [...missing, ...r.list]);
+  return w.error ? w : { ok: true, wrote: true };
 }

@@ -244,8 +244,12 @@ own Send stay ⌘↵: the suggested action's `!dialog` keeps them apart.
 **The file.**
 
 - **Where.** The Mac app keeps the list in `keybindings.json` in its data folder. A browser keeps it in
-  `localStorage` (`yc.keys`). Open the file (Mac app only) opens it in your editor for `.json`, and makes an empty
-  one first when there is none.
+  `localStorage` (`yc.keys`). Open the file (Mac app only) opens it in your editor for `.json`.
+- **Start.** As T3 Code does at start (`apps/server/src/keybindings.ts`), the Mac app writes every default into a
+  new file, and an empty list too. In a file whose every entry Yes Chef uses, it adds the defaults of each command
+  the file does not name, before the file's entries, and leaves out a default whose key and when an entry already
+  has. A file with an entry Yes Chef cannot use is left as it is. Open the file makes the same new file when there
+  is none.
 - **Shape.** T3 Code's: a list of `{ "key": "mod+shift+u", "command": "view.team", "when": "ticket" }`. A key names
   `mod`, `alt`, `shift`, then the key, joined with `+`. `mod` is ⌘ on a Mac and Ctrl elsewhere. A sign carries its
   own Shift (`?`), except a shifted digit's, which reads as the digit: `!` is `shift+1`. Written with `shift`, a US
@@ -254,17 +258,31 @@ own Send stay ⌘↵: the suggested action's `!dialog` keeps them apart.
   (AltGr+E is € on a German keyboard), so a key pressed with it is never a shortcut. `when` joins names
   with `&&`, each with an optional `!`: `ticket` (a ticket is open) and `dialog` (the bar, Settings, New thread or a
   screenshot is open). No chords.
-- **Changes only.** The list holds what differs from the defaults, as VS Code's does. An entry adds a key to its
-  command. `-command` with a key takes that key away. `-command` with no key takes every key away. An entry with no
-  `when` takes its command's; `"when": ""` applies everywhere, and is written out when the command's own is not
-  empty. An empty list is every default.
+- **T3 Code's rules** (`packages/shared/src/keybindings.ts`, `mergeWithDefaultKeybindings`;
+  `apps/web/src/keybindings.ts`, `resolveShortcutCommand`). The rules are the defaults of every command the list
+  does not name, then the list in order. A command the list names has only the list's keys: an entry replaces its
+  command's defaults, it never adds to them. Of the rules for a key whose `when` holds, the last runs, whichever
+  command it is. An entry with no `when` applies everywhere. An empty list is every default. There is no
+  `-command`: a command keeps a key until a later rule takes it.
+- **Settings writes as T3 Code's Settings does.** A recorded key, a Swap or a Reset takes the command's entries out
+  and puts the new ones at the end, with the command's own `when`. Every other entry stays where it is.
+  - Swap them: the other command's entries become its keys but this one, plus the keys it got.
+  - Take it: the other command keeps its entry. The new one is later, so it wins the key wherever both apply, and
+    the other keeps the key only where the new one's `when` does not hold (Merge on V merges with a ticket open; V
+    still expands the view with none).
+  - Reset: the command's defaults go at the end, so it takes its keys back.
+  - Reset all: writes every default.
+- **What Settings shows.** A key shows on a command when it runs that command somewhere. The Action bar and the
+  suggested action always keep a key that runs them outside a dialog wherever their `when` holds. That is Yes
+  Chef's own rule; T3 Code has none.
 - **Edits by hand.** The app reads the file at start and each time the window comes back, so an edit applies when
   you return. An entry Yes Chef cannot use is named under the buttons and skipped: a key it cannot read or that is
   not text, a when it
   cannot read or that can never hold (`ticket && !ticket`), a plain key or ⌘↵ whose when needs `dialog` (a dialog
-  keeps those), or a key Settings would refuse (macOS's, a fixed key, a suggested-action key with no ⌘ or ⌥). Where
-  two commands get one key and both can apply, the later entry has it, and an entry beats a default, as in VS Code.
-  An entry for a command Yes Chef does not have is kept as written, with every field (an `args` too). A file that is not valid JSON is named and not
+  keeps those), or a key Settings would refuse (macOS's, a fixed key, a suggested-action key with no ⌘ or ⌥). Such
+  an entry replaces no default, as T3 Code ignores an invalid rule. When the file leaves the Action bar or the
+  suggested action with no key, it gets its default back after every rule, and the note says from whom. An entry
+  Yes Chef cannot use, or for a command it does not have, is kept where it is, with every field (an `args` too). A file that is not valid JSON is named and not
   read. The next change in Settings writes it again.
 
 **Routing.**
