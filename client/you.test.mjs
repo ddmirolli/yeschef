@@ -143,7 +143,6 @@ test('a run with no start time has no known length: agent time and the running l
   const t = agentTime([k], NOW);
   assert.deepEqual([t.ms, t.agents, t.cut], [0, 1, true]);
   assert.deepEqual(runningSeries([k], NOW).points, []);
-  assert.match(page({ runs: new Map([['review', k.runs[0]]]) }), /time not checked across 1 agent/);
   // Still running, with no start: the same.
   assert.equal(timeToday(readRuns({ thread: { runCount: 1 }, recentRuns: [nostart(null)] }), NOW).open, true);
   // One that ended yesterday leaves today alone, and the run after it still counts.
@@ -160,13 +159,6 @@ test('run times are read for threads updated today, running, or with no update t
   assert.equal(mayRunToday(T('d', { updatedAt: 'garbled' }), t0), true);
   assert.equal(mayRunToday(T('e', { updatedAt: yday }), t0), false);
   assert.equal(mayRunToday(T('f', { latestRunId: null, updatedAt: null }), t0), false);
-});
-
-test('a call with no time from T3 keeps its count, and its oldest age says "not checked" (PR-Agent r4 on #74)', () => {
-  const b = buildBoard({ projects: [{ id: 'p', title: 'Fernpay' }], threads: THREADS.map((x) => (x.threadId === 'planned' ? { ...x, updatedAt: null } : x)), questions: new Map(), runs: RUNS, today: new Date(NOW) });
-  const inst = page({ board: b }).match(/<div class="inst"[\s\S]*?<section class="pnl pnl-stages"/)[0];
-  assert.match(inst, /Your agents wait on you<\/p><p class="v"><b>3<\/b><span>calls, oldest not checked<\/span>/);
-  assert.doesNotMatch(inst, /How long each waits/);
 });
 
 test('the demo kitchen runs one run per thread at a time, and its answered question stays out of agent time', async () => {
@@ -223,24 +215,60 @@ test('the rail opens with the person and one bar piece per thread on the line, B
   assert.doesNotMatch(html, /Your threads<\/h3>|class="nav-h"/);
 });
 
-test('You, expanded: instruments say "Not checked" for what T3 does not send', () => {
-  const html = page();
-  const inst = html.match(/<div class="inst"[\s\S]*?<section class="pnl pnl-stages"/)[0];
-  assert.match(inst, /Agents running<\/p><p class="v"><b>1<\/b><span>on 1 thread<\/span>/);
-  assert.match(inst, /Merged today<\/p><p class="v"><b class="nc">Not checked<\/b><span>T3 Code sends no merge times/);
-  assert.match(inst, /Checks on open PRs<\/p><p class="v"><b class="nc">Not checked<\/b><span>T3 Code sends no check results/);
-  // Calls, as views mock v4 counts them: "4 calls, oldest 52 min".
-  assert.match(inst, /Your agents wait on you<\/p><p class="v"><b>3<\/b><span>calls, oldest 1 h<\/span>/);
-  assert.match(html, /Merged, last 7 days<\/h3><\/header><p class="nc-l"><b>Not checked<\/b>/);
+const youOf = (html) => html.match(/<section class="you"[\s\S]*?<\/div><\/div><\/div><\/section>/)[0];
+
+test('You, expanded is the six stage columns alone (Dan, 2026-11-10)', () => {
+  const you = youOf(page());
+  assert.match(you, /^<section class="you" aria-label="Your threads by stage"><div class="you-b"><div class="rail-wrap"><div class="rail"><section class="tray/);
+  assert.deepEqual([...you.matchAll(/<section class="tray[^"]*" data-stage="([^"]+)"/g)].map((m) => m[1]), ['Backlog', 'Planned', 'In progress', 'In review', 'Ready to merge', 'Merged']);
+  // Each thread on the line once, in its column.
+  for (const [id, stage] of [['backlog', 'Backlog'], ['planned', 'Planned'], ['cooking', 'In progress'], ['review', 'In review'], ['merged', 'Merged']]) {
+    assert.match(you, new RegExp(`data-stage="${stage}"[^]*?<div class="tray-b">(?:(?!</section>)[^])*data-thread="${id}"`));
+  }
+  // Dan cut the header line, the four cards, the "At The Pass" key and the panels under the board.
+  for (const gone of [/class="you-h"/, /class="you-sub"/, /class="inst"/, /Agents running/, /Merged today/, /Checks on open PRs/, /Your agents wait on you/,
+    /At The Pass/, /Merged, last 7 days/, /Agent time today/, /class="held"/, /class="pnl/]) assert.doesNotMatch(you, gone);
+  // Verified and on hold stay one click away in the stage list.
+  assert.match(page(), /<button type="button" class="nf" data-folder="Verified">[\s\S]*?<span class="n">1<\/span><\/button><button type="button" class="nf" data-folder="On hold">/);
 });
 
-test('agent time comes from run times, and says "Not checked" without them', () => {
-  assert.match(page(), /Agent time today<\/h3><span>3 h across 2 agents<\/span>[\s\S]*?Fernpay<\/span><span class="v">3 h<\/span>/);
-  const quick = new Map([['review', readRuns({ thread: { runCount: 1 }, recentRuns: [run(at(14), new Date(2026, 10, 10, 14, 0, 20).toISOString())] })]]);
-  assert.match(page({ runs: quick }), /Agent time today<\/h3><span>under 1 min across 1 agent<\/span>/);
-  const none = page({ runs: null });
-  assert.match(none, /Agent time today<\/h3><\/header><p class="nc-l"><b>Not checked<\/b> T3 did not send its run times/);
-  assert.doesNotMatch(none, /class="spark"/);
+test('without a good poll the columns say "–" and hold no threads', () => {
+  const you = youOf(page({ status: { ok: false, error: 'down', at: NOW, ms: 0 } }));
+  assert.equal([...you.matchAll(/<span class="n">–<\/span>/g)].length, 6);
+  assert.doesNotMatch(you, /data-thread=/);
+});
+
+test('the columns run the window\'s full height and each scrolls inside; all six stay in the window (Dan, 2026-11-10)', () => {
+  const src = readFileSync(new URL('./server.mjs', import.meta.url), 'utf8');
+  const wide = src.match(/@media \(min-width:761px\)\{\n {2}\.v-kitchen \.you,\.v-kitchen \.you-b,\.v-kitchen \.you \.rail-wrap\{[^\n]*\n[\s\S]*?\n\}/)[0];
+  assert.match(wide, /\.v-kitchen \.you-b,\.v-kitchen \.you \.rail-wrap\{flex:1;height:auto\}/);
+  assert.match(wide, /\.v-kitchen \.you \.tray\{max-height:none\}/);
+  // The wide rules never let a column grow past the window or scroll the middle as a whole.
+  assert.doesNotMatch(wide, /\.tray-b\{[^}]*overflow:visible|you-b\{[^}]*overflow-y:auto/);
+  assert.match(src, /\.v-kitchen \.rail \.at-ic\{display:none\}/);
+  // A phone's stages still grow with their threads.
+  assert.match(src, /@media \(max-width:760px\)\{[^}]*\}[\s\S]*?\.you \.tray-b\{flex:none;overflow:visible\}\n\}/);
+  // fitRail tries the 4-line floor, then the 5-line one, then .tight, then .tighter, and starts over on each call.
+  const fn = src.match(/function fitRail\(\)\{[\s\S]*?\n {2}\}/)[0];
+  const run = (fits) => {
+    const cls = new Set(['tight', 'tighter']);
+    const rail = { clientWidth: 800, get scrollWidth() { return fits(cls) ? 800 : 900; }, classList: { add: (...c) => c.forEach((x) => cls.add(x)), remove: (...c) => c.forEach((x) => cls.delete(x)) } };
+    vm.runInContext(fn + ' fitRail();', vm.createContext({ $$: () => [rail], fades() {} }));
+    return [...cls].sort();
+  };
+  assert.deepEqual(run(() => true), ['four']);
+  assert.deepEqual(run((c) => !c.has('four')), []);
+  assert.deepEqual(run((c) => c.has('tight')), ['tight']);
+  assert.deepEqual(run(() => false), ['tight', 'tighter']);
+  // No floor splits a title word: each stage keeps its longest word (--word, up to 200 px), in every mode (PR-Agent on
+  // #14: .tight fit with a long word split, so .tighter never ran).
+  const floors = src.match(/\.v-kitchen \.rail(?:\.four|\.tight)?>\.tray:not\(\.empty\)\{min-width:max\([^}]*\}/g);
+  assert.equal(floors.length, 4);
+  floors.forEach((f) => assert.match(f, /,min\(var\(--word,0px\),200px\)\)/, f));
+  assert.match(src, /\.v-kitchen \.rail\.tight>\.tray:not\(\.empty\)\{min-width:max\(88px,var\(--name,0px\),min\(var\(--word,0px\),200px\)\)\}/);
+  assert.match(src, /\.v-kitchen \.rail\.tight\.tighter>\.tray\.empty,\.v-kitchen \.rail\.tight\.tighter>\.tray:not\(\.empty\)\{min-width:max\(88px,min\(var\(--word,0px\),200px\)\)\}/);
+  assert.match(src, /tr\.style\.setProperty\('--word', Math\.ceil\(word\) \+ 'px'\)/);
+  assert.doesNotMatch(src, /hyphens:auto/);
 });
 
 test('a stale page hides the rail bar with the counts (PR-Agent on #74)', () => {
@@ -329,18 +357,6 @@ test('switching to Your team forgets the ticket the Pass kept, even with none op
   assert.equal(ctx.placed, 2);
 });
 
-test('without a good poll every instrument says "Not checked"', () => {
-  const html = page({ status: { ok: false, error: 'down', at: NOW, ms: 0 } });
-  const inst = html.match(/<div class="inst"[\s\S]*?<section class="pnl pnl-stages"/)[0];
-  assert.equal([...inst.matchAll(/<b class="nc">Not checked<\/b><span>T3 did not answer/g)].length, 4);
-});
-
-test('Verified and on hold are chips that open their tickets', () => {
-  const held = page().match(/<div class="held">[\s\S]*?<\/div><\/section>/)[0];
-  assert.match(held, /<button type="button" class="hc" data-plate="[^"]+" data-thread="done" title="Verified today">/);
-  assert.match(held, /data-thread="held" title="On hold: Snoozed">/);
-});
-
 const menuOf = (html) => html.match(/<details class="pmenu vmenu">[\s\S]*?<\/details>/)[0];
 const summaryOf = (html) => menuOf(html).match(/<summary>[\s\S]*?<\/summary>/)[0];
 
@@ -386,8 +402,7 @@ test('picked projects: the chip fans their marks, All projects shows a dash, and
   const menu = menuOf(html);
   assert.match(menu, /class="pk all" role="checkbox" aria-checked="mixed"/);
   assert.deepEqual([...menu.matchAll(/data-p="(\w+)" aria-checked="(\w+)"/g)].map((m) => m.slice(1)), [['Fernpay', 'true'], ['Loopline', 'false'], ['Quillo', 'true']]);
-  // You, expanded names the picked projects; the board holds only their tickets.
-  assert.match(html, /<p class="you-sub"><span>Fernpay, Quillo<\/span>/);
+  // The board holds only the picked projects' tickets.
   assert.match(html, /data-thread="quill"/);
   assert.doesNotMatch(html, /data-thread="loop"/);
 });

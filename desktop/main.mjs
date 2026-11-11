@@ -30,12 +30,13 @@
 import { app, BrowserWindow, Menu, autoUpdater as squirrel, dialog, ipcMain, nativeTheme, net, powerMonitor, protocol, safeStorage, shell, utilityProcess } from 'electron';
 import electronUpdater from 'electron-updater';
 import { createInterface } from 'node:readline';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CHANNELS, channelOf } from './channels.mjs';
 import { TESTED_T3, findT3, older, t3Answers } from './t3.mjs';
 import { canUpdateInPlace, createUpdates, feedOverride, menuFor, moveCard, visibleCard } from './updates.mjs';
+import { ensureKeybindings, readKeybindings, syncKeybindings, writeKeybindings } from './keybindings.mjs';
 
 const STARTED = Date.now();
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -302,6 +303,30 @@ ipcMain.handle('yeschef:theme', (event, t) => {
   nativeTheme.themeSource = t === 'light' || t === 'dark' ? t : 'system';
   return true;
 });
+// Settings → Shortcuts (desktop/keybindings.mjs): the board reads and writes keybindings.json in the data folder, and
+// asks to open it. Only the board page in this window, as for Appearance. A capture run without its own data folder
+// keeps the file in a temp folder, so a test never changes Dan's, as for the rules.
+let keysDir = null;
+function keysFile() {
+  if (KEEP) return join(app.getPath('userData'), 'keybindings.json');
+  keysDir ??= mkdtempSync(join(app.getPath('temp'), 'yeschef-keys-'));
+  return join(keysDir, 'keybindings.json');
+}
+ipcMain.handle('yeschef:keys', async (event, req) => {
+  let fromBoard = false;
+  try { const frame = event.senderFrame; fromBoard = !!win && event.sender === win.webContents && !!frame && frame.parent === null && isBoard(frame.url); } catch { fromBoard = false; }
+  if (!fromBoard) return { error: 'Shortcuts are saved only from the Yes Chef board window.' };
+  const ask = req && typeof req === 'object' ? req.op : null;
+  if (ask === 'read') return readKeybindings(keysFile());
+  if (ask === 'write') return writeKeybindings(keysFile(), req.list);
+  if (ask === 'open') {
+    const made = ensureKeybindings(keysFile());
+    if (made.error) return made;
+    const failed = await shell.openPath(keysFile());
+    return failed ? { error: failed } : { ok: true };
+  }
+  return { error: 'Yes Chef does not know that request.' };
+});
 // null asks for the card showing now; { card, button } is a click, which counts only on a button of that card.
 ipcMain.handle('yeschef:card', (event, click) => {
   if (!fromWindow(event)) return null;
@@ -474,6 +499,10 @@ async function capture(name) {
 
 async function main() {
   await app.whenReady();
+  // T3 Code's start-up sync for keybindings.json (desktop/keybindings.mjs): every default into a new file, and the
+  // defaults of a command the file does not name.
+  const keys = syncKeybindings(keysFile());
+  if (keys.error) console.error(keys.error);
   protocol.handle('yeschef', boardPage);
   buildMenu();
   if (app.dock && !CAPTURE) app.dock.setIcon(ICON);

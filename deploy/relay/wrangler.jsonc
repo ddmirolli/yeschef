@@ -1,0 +1,25 @@
+// Yes Chef's own relay, at relay.yeschef.codes (Dan's ruling, 2026-11-10: one relay on Cloudflare, free with a cap).
+// Deploy from the repo root with Wrangler 4 and this config, as for the site (deploy/yeschef/wrangler.jsonc). The
+// Cloudflare token and account id come from the 1Password service account at run time, never from a file.
+// The cap stays empty until Dan sets it from the usage numbers (GET /v1/usage, relay/README.md).
+{
+  "name": "yeschef-relay",
+  "main": "../../relay/worker.mjs",
+  "compatibility_date": "2026-11-01",
+  "durable_objects": {
+    "bindings": [
+      { "name": "TEAMS", "class_name": "Team" },
+      { "name": "REGISTRY", "class_name": "Registry" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Team", "Registry"] }],
+  "vars": {
+    "SUMMARY_MIN_MS": "10000",
+    "MAX_DEVS": "",
+    "MAX_DAILY_REQUESTS": ""
+  },
+  "routes": [
+    { "pattern": "relay.yeschef.codes", "custom_domain": true }
+  ],
+  "workers_dev": false
+}

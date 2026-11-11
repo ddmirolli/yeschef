@@ -71,11 +71,11 @@ test('with no open pull request there is nothing to merge: the button is Approve
   const html = renderApp({ board: b, project: null, link: (t) => `https://t3/${t.threadId}`, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
   // Approve is the blue recommended action (Dan, 2026-11-10): A, or Cmd+Enter, named in its tooltip. A comes first: the
   // page script reads it to tell Approve from Merge.
-  assert.match(html, /value="go" class="ab fill primary" data-toast="Approving \{t\}" data-what="Approve: the agent goes ahead"><svg[^>]*>[\s\S]*?<\/svg><span class="bl">Approve<\/span><span class="tip" aria-hidden="true"><span class="tn">Approve: the agent goes ahead<\/span><kbd>A<\/kbd><span class="or">or<\/span><kbd>⌘↵<\/kbd><\/span><\/button>/);
+  assert.match(html, /value="go" class="ab fill primary" data-toast="Approving \{t\}" data-what="Approve: the agent goes ahead"><svg[^>]*>[\s\S]*?<\/svg><span class="bl">Approve<\/span><span class="tip" aria-hidden="true"><span class="tn">Approve: the agent goes ahead<\/span><kbd data-cmd="ticket.approve">A<\/kbd><span class="or">or<\/span><kbd data-cmd="ticket.suggested">⌘↵<\/kbd><\/span><\/button>/);
   assert.match(html, /<input type="hidden" name="pr" value="none">/);
   // Call 1a: the button says Changes; the tooltip keeps the full name and its key.
-  assert.match(html, /value="refire" class="ab" data-toast="Requesting changes on \{t\}"[^>]*><svg[^>]*>[\s\S]*?<\/svg><span class="bl">Changes<\/span><span class="tip" aria-hidden="true"><span class="tn">Request changes: say what to fix<\/span><kbd>F<\/kbd><\/span>/);
-  assert.doesNotMatch(html, />Go<|<kbd>G<\/kbd>|>Merge</);
+  assert.match(html, /value="refire" class="ab" data-toast="Requesting changes on \{t\}"[^>]*><svg[^>]*>[\s\S]*?<\/svg><span class="bl">Changes<\/span><span class="tip" aria-hidden="true"><span class="tn">Request changes: say what to fix<\/span><kbd data-cmd="ticket.requestChanges">F<\/kbd><\/span>/);
+  assert.doesNotMatch(html, />Go<|<kbd[^>]*>G<\/kbd>|>Merge</);
   const t3 = spy();
   const out = await act({ board: b, t3, input: { kind: 'go', thread: 'plan', nonce: 'n', pr: 'none' } });
   assert.deepEqual([out.status, out.text, t3.calls[0][1].message], [200, 'Sent: Approve.', 'Dan, from the Pass: Approved. Go ahead.']);
@@ -105,8 +105,8 @@ test('Merge and Approve send only what the lead saw: a pull request that opened 
 test('an open pull request shows Merge with M, and Request changes with F', () => {
   const html = renderApp({ board: board(), project: null, link: (t) => `https://t3/${t.threadId}`, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
   const turnPlate = html.slice(html.indexOf('value="turn"'), html.indexOf('</form>', html.indexOf('value="turn"')));
-  assert.match(turnPlate, /value="go" class="ab fill primary" data-toast="Merging \{t\}" data-what="Merge: the agent merges it"><svg[^>]*>[\s\S]*?<\/svg><span class="bl">Merge<\/span><span class="tip" aria-hidden="true"><span class="tn">Merge: the agent merges it<\/span><kbd>M<\/kbd><span class="or">or<\/span><kbd>⌘↵<\/kbd>/);
-  assert.match(turnPlate, /<span class="bl">Changes<\/span><span class="tip" aria-hidden="true"><span class="tn">Request changes: say what to fix<\/span><kbd>F<\/kbd>/);
+  assert.match(turnPlate, /value="go" class="ab fill primary" data-toast="Merging \{t\}" data-what="Merge: the agent merges it"><svg[^>]*>[\s\S]*?<\/svg><span class="bl">Merge<\/span><span class="tip" aria-hidden="true"><span class="tn">Merge: the agent merges it<\/span><kbd data-cmd="ticket.merge">M<\/kbd><span class="or">or<\/span><kbd data-cmd="ticket.suggested">⌘↵<\/kbd>/);
+  assert.match(turnPlate, /<span class="bl">Changes<\/span><span class="tip" aria-hidden="true"><span class="tn">Request changes: say what to fix<\/span><kbd data-cmd="ticket.requestChanges">F<\/kbd>/);
   assert.match(turnPlate, /needed for Request changes and Reply/);
   assert.match(html, /Review the pull request, then merge or request changes\./);
   assert.doesNotMatch(html, /Refire|>Go</);
@@ -125,23 +125,23 @@ test('the action bar: the blue action, Changes and Reply, then Hold and Settle a
   assert.match(bar, /value="hold" class="ib"[^>]* aria-label="Hold until 8:00 tomorrow"/);
   assert.match(bar, /value="settle" class="ib"[^>]* aria-label="Settle: it leaves the pass"/);
   // Keys live in tooltips only: none sits on the bar outside one.
-  assert.doesNotMatch(bar.replace(/<span class="tip"[\s\S]*?<\/span><\/button>/g, '</button>').replace(/<div class="menu"[\s\S]*$/, ''), /<kbd>/);
+  assert.doesNotMatch(bar.replace(/<span class="tip"[\s\S]*?<\/span><\/button>/g, '</button>').replace(/<div class="menu"[\s\S]*$/, ''), /<kbd[\s>]/);
   // More: "." in its tooltip, a popover menu with Add a note (N) and Open in T3 (O). On a phone it also holds Hold and
   // Settle, which press the bar's own buttons (data-press), so every check still runs.
   const id = bar.match(/data-more popovertarget="(m-[0-9a-f-]{36})"/)[1];
-  assert.match(bar, /<span class="tn">More<\/span><kbd>\.<\/kbd>/);
+  assert.match(bar, /<span class="tn">More<\/span><kbd data-cmd="ticket.more">\.<\/kbd>/);
   const menu = bar.slice(bar.indexOf(`<div class="menu" id="${id}" popover role="menu"`));
   assert.ok(menu.length < bar.length, 'the menu follows its button');
   assert.deepEqual([...menu.matchAll(/data-press="(\w+)"/g)].map((m) => m[1]), ['hold', 'settle']);
   // A narrow ticket in a wide window moves them into More too, and there the card shows their keys.
-  assert.match(menu, /data-press="hold">[\s\S]*?<span>Hold until 8:00 tomorrow<\/span><kbd>H<\/kbd><\/button>/);
-  assert.match(menu, /data-press="settle">[\s\S]*?<span>Settle<\/span><kbd>E<\/kbd><\/button>/);
-  assert.match(menu, /data-addnote>[\s\S]*?<span>Add a note<\/span><kbd>N<\/kbd><\/button>/);
-  assert.match(menu, /data-open-t3>[\s\S]*?<span>Open in T3<\/span><kbd>O<\/kbd><\/button>/);
+  assert.match(menu, /data-press="hold">[\s\S]*?<span>Hold until 8:00 tomorrow<\/span><kbd data-cmd="ticket.hold">H<\/kbd><\/button>/);
+  assert.match(menu, /data-press="settle">[\s\S]*?<span>Settle<\/span><kbd data-cmd="ticket.settle">E<\/kbd><\/button>/);
+  assert.match(menu, /data-addnote>[\s\S]*?<span>Add a note<\/span><kbd data-cmd="ticket.addNote">N<\/kbd><\/button>/);
+  assert.match(menu, /data-open-t3>[\s\S]*?<span>Open in T3<\/span><kbd data-cmd="ticket.open">O<\/kbd><\/button>/);
   assert.match(menu, new RegExp(`popovertarget="${id}" popovertargetaction="hide">Cancel</button>`));
   // A question: Send is blue, Hold and Settle wait, and More says why.
   const q = html.slice(html.indexOf('name="request" value="r1"'), html.indexOf('</form>', html.indexOf('name="request" value="r1"')));
-  assert.match(q, /value="answer" class="ab fill primary"[^>]*><svg[^>]*>[\s\S]*?<\/svg><span class="bl">Send answer<\/span><span class="tip" aria-hidden="true"><span class="tn">Send your answer<\/span><kbd>⌘↵<\/kbd>/);
+  assert.match(q, /value="answer" class="ab fill primary"[^>]*><svg[^>]*>[\s\S]*?<\/svg><span class="bl">Send answer<\/span><span class="tip" aria-hidden="true"><span class="tn">Send your answer<\/span><kbd data-cmd="ticket.suggested">⌘↵<\/kbd>/);
   assert.doesNotMatch(q, /value="(go|hold|settle)"|data-press/);
   assert.match(q, /Hold and Settle come back once the question is answered\./);
 });
@@ -181,7 +181,7 @@ test('a finished Merged ticket offers Settle first, filled, and no Merge; the se
   const html = renderApp({ board: b, project: null, link: (t) => `https://t3/${t.threadId}`, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
   const foot = html.slice(html.indexOf('<aside class="dock'));
   const acts = foot.slice(foot.indexOf('<div class="abar">'), foot.indexOf('<div class="menu"', foot.indexOf('<div class="abar">')));
-  assert.match(acts, /^<div class="abar"><button type="submit" name="kind" value="settle" class="ab fill primary"[^>]*><svg[^>]*>[\s\S]*?<\/svg><span class="bl">Settle<\/span><span class="tip" aria-hidden="true"><span class="tn">Settle: it moves to Verified<\/span><kbd>E<\/kbd><span class="or">or<\/span><kbd>⌘↵<\/kbd>/);
+  assert.match(acts, /^<div class="abar"><button type="submit" name="kind" value="settle" class="ab fill primary"[^>]*><svg[^>]*>[\s\S]*?<\/svg><span class="bl">Settle<\/span><span class="tip" aria-hidden="true"><span class="tn">Settle: it moves to Verified<\/span><kbd data-cmd="ticket.settle">E<\/kbd><span class="or">or<\/span><kbd data-cmd="ticket.suggested">⌘↵<\/kbd>/);
   assert.doesNotMatch(acts, /value="go"/);
   assert.match(acts, /value="refire"/);
   // Settled once is enough: no second Settle in the row, and none in the phone's More sheet.

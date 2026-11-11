@@ -3,7 +3,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { imagesIn, imageUrl, withoutImages, recommendLines } from './calls.mjs';
 import { missingShots, ASK_SHOTS } from './kitchen.mjs';
-import { agentTime, runningSeries, duration, trackWaits, withoutWaits } from './you.mjs';
+import { trackWaits, withoutWaits } from './you.mjs';
 import { openKitchen, kitchenBoard, KINDS, may } from './open-kitchen.mjs';
 
 // Developer words (Dan, 2026-11-10). A stage is never stored: T3 state decides it on every poll, so no old data names one.
@@ -268,44 +268,47 @@ const VERB = { go: 'Merging {t}', refire: 'Requesting changes on {t}', reply: 'R
 // the rest. New actions go in More, not the row. Keys show only in a tooltip, on hover or keyboard focus.
 // The blue button is what Cmd+Enter sends: Merge, Approve, Send, or Settle once merged. Dan's tooltip for Merge reads
 // "M or ⌘↵", so it replaces council 1b's "Merge never takes Cmd+Enter"; the Undo still holds every send four seconds.
-// Each button keeps its form value, so the keys and sends find it. Its first key is the one the page script reads (M or
-// A tells Merge from Approve); Cmd+Enter comes second.
+// Each button keeps its form value, so the keys and sends find it. Its first key names its command (data-cmd, from
+// client/keys.mjs), which the page script reads to tell Merge from Approve and relabels when the key is changed in
+// Settings → Shortcuts; Cmd+Enter comes second.
 const ACT = {
-  go: { ic: 'merge', word: 'Merge', name: 'Merge: the agent merges it', key: 'M' },
+  go: { ic: 'merge', word: 'Merge', name: 'Merge: the agent merges it', key: 'M', cmd: 'ticket.merge' },
   // A ticket with no open pull request has nothing to merge: there the same button is Approve, with A, and the agent
   // goes ahead with what it handed back, a plan or a finding (Pass call 1a, Dan, 2026-11-10). A question's option
   // letters never meet it: a ticket with a question shows no Approve.
-  approve: { ic: 'approve', word: 'Approve', name: 'Approve: the agent goes ahead', key: 'A', toast: 'Approving {t}' },
+  approve: { ic: 'approve', word: 'Approve', name: 'Approve: the agent goes ahead', key: 'A', cmd: 'ticket.approve', toast: 'Approving {t}' },
   // Call 1a (Dan, 2026-11-10): the button says Changes; its tooltip, the keys sheet and the toasts keep the full name.
-  refire: { ic: 'changes', word: 'Changes', name: 'Request changes: say what to fix', key: 'F' },
-  reply: { ic: 'reply', word: 'Reply', name: 'Reply to the agent', key: 'R' },
-  hold: { ic: 'hold', name: 'Hold until 8:00 tomorrow', key: 'H' },
-  settle: { ic: 'settle', name: 'Settle: it leaves the pass', key: 'E' },
-  shipped: { ic: 'settle', word: 'Settle', name: 'Settle: it moves to Verified', key: 'E' },
+  refire: { ic: 'changes', word: 'Changes', name: 'Request changes: say what to fix', key: 'F', cmd: 'ticket.requestChanges' },
+  reply: { ic: 'reply', word: 'Reply', name: 'Reply to the agent', key: 'R', cmd: 'ticket.reply' },
+  hold: { ic: 'hold', name: 'Hold until 8:00 tomorrow', key: 'H', cmd: 'ticket.hold' },
+  settle: { ic: 'settle', name: 'Settle: it leaves the pass', key: 'E', cmd: 'ticket.settle' },
+  shipped: { ic: 'settle', word: 'Settle', name: 'Settle: it moves to Verified', key: 'E', cmd: 'ticket.settle' },
   send: { ic: 'send', word: 'Send answer', name: 'Send your answer', key: '' },
   again: { ic: 'send', word: 'Send again', name: 'Send the same answer again', key: '' },
 };
-const keys = (list) => list.filter(Boolean).map((k, i) => `${i ? '<span class="or">or</span>' : ''}<kbd>${k}</kbd>`).join('');
+// Each key is [label, command] (or a label alone, for a key no one can change).
+const kbd = (label, cmd) => `<kbd${cmd ? ` data-cmd="${cmd}"` : ''}>${label}</kbd>`;
+const keys = (list) => list.map((k) => (Array.isArray(k) ? k : [k])).filter((k) => k[0]).map((k, i) => `${i ? '<span class="or">or</span>' : ''}${kbd(k[0], k[1])}`).join('');
 // The tooltip: the full name, then the keys. Screen readers get the button's own name; the keys are for the eye.
 const tip = (name, list) => `<span class="tip" aria-hidden="true"><span class="tn">${name}</span>${keys(list)}</span>`;
 /** One action. a: an ACT entry, labelled when it has a word, else an icon; lead: the blue recommended action. */
 const btn = (kind, a, lead = false, extra = '') => `<button type="submit" name="kind" value="${kind}" class="${a.word ? 'ab' : 'ib'}${lead ? ' fill primary' : ''}"`
-  + ` data-toast="${a.toast || VERB[kind] || 'Sending {t}'}"${a.word ? '' : ` aria-label="${a.name}"`}${extra}>${svg(a.ic)}${a.word ? `<span class="bl">${a.word}</span>` : ''}${tip(a.name, [a.key, lead ? '⌘↵' : ''])}</button>`;
+  + ` data-toast="${a.toast || VERB[kind] || 'Sending {t}'}"${a.word ? '' : ` aria-label="${a.name}"`}${extra}>${svg(a.ic)}${a.word ? `<span class="bl">${a.word}</span>` : ''}${tip(a.name, [[a.key, a.cmd], lead ? ['⌘↵', 'ticket.suggested'] : ''])}</button>`;
 const noteField = (need, value = '') => `<label class="note"><span>Note to the agent <span class="muted">${need}</span></span><textarea name="note" rows="2" maxlength="4000" placeholder="What should the agent know?">${e(value)}</textarea></label>`;
 // More's rows: an icon, a word and its key. The note stays folded away until R, F, N or Add a note asks for it (council 1b).
-const MORE_NOTE = `<button type="button" class="mi" role="menuitem" data-addnote>${svg('note')}<span>Add a note</span><kbd>N</kbd></button>`;
-const MORE_T3 = `<button type="button" class="mi" role="menuitem" data-open-t3>${svg('out')}<span>Open in T3</span><kbd>O</kbd></button>`;
+const MORE_NOTE = `<button type="button" class="mi" role="menuitem" data-addnote>${svg('note')}<span>Add a note</span>${kbd('N', 'ticket.addNote')}</button>`;
+const MORE_T3 = `<button type="button" class="mi" role="menuitem" data-open-t3>${svg('out')}<span>Open in T3</span>${kbd('O', 'ticket.open')}</button>`;
 // On a phone the row has four slots, so Hold and Settle move into More, which opens as a sheet (call 2a); a narrow
 // ticket in a wide window does the same, and there the card shows their keys. These rows press the row's own button,
 // which keeps the form value.
-const phoneRow = (kind, word) => `<button type="button" class="mi ph" role="menuitem" data-press="${kind}">${svg(ACT[kind].ic)}<span>${word}</span><kbd>${ACT[kind].key}</kbd></button>`;
+const phoneRow = (kind, word) => `<button type="button" class="mi ph" role="menuitem" data-press="${kind}">${svg(ACT[kind].ic)}<span>${word}</span>${kbd(ACT[kind].key, ACT[kind].cmd)}</button>`;
 /** The bar: the labelled buttons, a divider and the icon buttons, then More and its card. The hint line sits above the
  *  row, so a hint never moves the buttons. More is a popover: the card floats above the ticket, never cut off by it. */
 function bar(labelled, icons, rows) {
   const id = `m-${randomUUID()}`, ic = icons.filter(Boolean);
   return `<div class="act-foot"><p class="result" role="status"></p><div class="abar">${labelled.filter(Boolean).join('')}`
     + (ic.length ? `<span class="vr" aria-hidden="true"></span>${ic.join('')}` : '')
-    + `<button type="button" class="ib more-b" data-more popovertarget="${id}" aria-label="More" aria-haspopup="menu">${svg('more')}<span class="mw">More</span>${tip('More', ['.'])}</button>`
+    + `<button type="button" class="ib more-b" data-more popovertarget="${id}" aria-label="More" aria-haspopup="menu">${svg('more')}<span class="mw">More</span>${tip('More', [['.', 'ticket.more']])}</button>`
     + `<div class="menu" id="${id}" popover role="menu" aria-label="More actions">${rows.filter(Boolean).join('')}`
     + `<button type="button" class="mi-x" popovertarget="${id}" popovertargetaction="hide">Cancel</button></div></div></div>`;
 }
@@ -487,7 +490,7 @@ function plate(k, link, origin, answered, rules) {
   const flag = shotsMissing ? `<p class="kr-flag"><span class="kr-k">No screenshots</span><span class="kr-t">This call asks about something you can see.</span>`
     + `<button type="button" class="btn quiet kr-ask" data-ask-shots="${e(ASK_SHOTS)}"><span class="bl">Ask for them</span></button></p>` : '';
   return `<article class="plate" id="${e(id)}" data-thread="${e(k.thread.threadId)}" data-latest="${e(k.latestId || '')}"${k.atPass ? ' data-at' : ''} aria-labelledby="${e(id)}-t">`
-    + `<div class="plate-bar"><span class="proj" data-project="${e(k.project)}">${mark(k.project, k.icon)}${e(k.project)}</span><span class="stg"><i class="gd c-${DOT[k.place] || 'gray'}"></i>${e(k.place)}</span>${model(k.thread.model) ? `<span class="mdl">${e(model(k.thread.model))}</span>` : ''}<a class="open-t3" href="${e(link(k.thread))}" target="_blank" rel="noopener">Open in T3${svg('out')}<kbd>O</kbd></a>`
+    + `<div class="plate-bar"><span class="proj" data-project="${e(k.project)}">${mark(k.project, k.icon)}${e(k.project)}</span><span class="stg"><i class="gd c-${DOT[k.place] || 'gray'}"></i>${e(k.place)}</span>${model(k.thread.model) ? `<span class="mdl">${e(model(k.thread.model))}</span>` : ''}<a class="open-t3" href="${e(link(k.thread))}" target="_blank" rel="noopener">Open in T3${svg('out')}${kbd('O', 'ticket.open')}</a>`
     + `<button type="button" class="close" data-close aria-label="Close"><kbd>esc</kbd>${svg('x')}</button></div>`
     // The title, the ask, the pull requests and the screenshots stay pinned while the message scrolls (Dan, 2026-11-08).
     + `<div class="plate-main"><div class="plate-scroll" tabindex="-1"><header class="plate-head"><h2 class="plate-t" id="${e(id)}-t">${e(k.thread.title)}</h2>`
@@ -502,77 +505,19 @@ const plural = (n, one, many = one + 's') => `${n} ${n === 1 ? one : many}`;
 // Minutes as a card says them: "52 min", "3 h", "2 d".
 const span = (m) => (m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h` : `${Math.floor(m / 1440)} d`);
 const NOT = (why) => `<b class="nc">Not checked</b><span>${why}</span>`;
-/** A small line chart of whole numbers, oldest first (views mock v4). */
-function spark(vals, label) {
-  const w = 200, h = 30, m = Math.max(1, ...vals), n = vals.length - 1;
-  const d = vals.map((v, i) => `${i ? 'L' : 'M'}${((i / n) * w).toFixed(1)} ${(h - 2 - (v / m) * (h - 4)).toFixed(1)}`).join(' ');
-  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="${e(label)}"><path d="${d} L${w} ${h} L0 ${h} Z" class="area"/><path d="${d}" class="line"/></svg>`;
-}
 /** Bars of whole numbers, one each, tallest the highest. */
 function bars(vals, label) {
   const w = 200, h = 30, m = Math.max(1, ...vals), bw = w / vals.length;
   return `<svg class="vbars" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="${e(label)}">${vals.map((v, i) => { const bh = Math.max(2, (v / m) * (h - 2));
     return `<rect x="${(i * bw + 1.5).toFixed(1)}" y="${(h - bh).toFixed(1)}" width="${Math.max(1, bw - 3).toFixed(1)}" height="${bh.toFixed(1)}" rx="1.5"/>`; }).join('')}</svg>`;
 }
-
-/** You, expanded (Dan, 2026-11-10, views mock v4): your threads with four instruments over the stage columns, then
- *  merges by day and agent time, then what is verified or on hold. Each number comes from T3 Code; what T3 does not
- *  send says "Not checked". now: the poll's time, so the view shows that one reading. */
-function youView({ board, shown, spots, waiting, since, status, picked, trays, verified, heldAll }) {
-  const ok = status.ok, now = status.at;
-  const cooks = shown.filter((k) => k.place !== 'Coordinators');
-  const line = STAGES.flatMap((s) => spots[s] || []);
-  const running = cooks.reduce((n, k) => n + k.working, 0), busy = cooks.filter((k) => k.working).length;
-  const names = [...(picked || new Set(cooks.map((k) => k.project)))].sort((a, b) => a.localeCompare(b));
-  const at = new Date(now);
-  const time = `<time datetime="${at.toISOString()}">${at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</time>`;
-  const sub = ok ? [names.join(', '), plural(line.length, 'thread'), `${plural(running, 'agent')} running`].filter(Boolean).map((x) => `<span>${e(x)}</span>`).join('') + time
-    : '<span>Not checked</span>';
-  const down = 'T3 did not answer';
-  // 1. Agents running, with today's line from T3's run times.
-  const series = ok && board.runsChecked ? runningSeries(cooks, now) : { points: [] };
-  const most = Math.max(0, ...series.points);
-  const runLine = series.points.length > 1 ? spark(series.points, `Agents running over the last ${duration(series.span)}, ${most} at most`)
-    + `<span class="cap"><span>${duration(series.span)} ago</span><span>now</span></span>` : '';
-  const i1 = ok ? `<b>${running}</b><span>on ${plural(busy, 'thread')}</span>` : NOT(down);
-  // 2 and 4. T3 Code's pull requests carry no merge time and no checks (read 2026-11-10), so these say so.
-  const i2 = NOT(ok ? 'T3 Code sends no merge times' : down);
-  const i4 = NOT(ok ? 'T3 Code sends no check results' : down);
-  // 3. Your agents wait on you: how many, and how long each has waited, oldest first. A call with no time from T3 keeps
-  // its count, and the oldest age and the bars say "not checked" (PR-Agent r4 on #74).
-  const ages = waiting.map((k) => Math.max(0, Math.round((now - Date.parse(since(k))) / 60000)));
-  const aged = ages.every(Number.isFinite), sorted = ages.sort((a, b) => b - a);
-  const i3 = !ok ? NOT(down) : waiting.length ? `<b>${waiting.length}</b><span>${waiting.length === 1 ? 'call' : 'calls'}, oldest ${aged ? span(sorted[0]) : 'not checked'}</span>` : '<b>0</b><span>nothing waits</span>';
-  const waitBars = ok && aged && sorted.length ? bars(sorted.slice(0, 12), `How long each waits: ${sorted.slice(0, 12).map(span).join(', ')}`) : '';
-  const ins = (label, v, extra = '') => `<div class="ins" role="listitem"><p class="l">${label}</p><p class="v">${v}</p>${extra}</div>`;
-  const inst = `<div class="inst" role="list">${ins('Agents running', i1, runLine)}${ins('Merged today', i2)}${ins('Your agents wait on you', i3, waitBars)}${ins('Checks on open PRs', i4)}</div>`;
-  const stages = `<section class="pnl pnl-stages" aria-labelledby="you-st"><header class="ph"><h3 id="you-st">By stage</h3>`
-    + `<span class="lg">${svg('cloche', 'ic at-ic')}At The Pass</span></header><div class="rail-wrap"><div class="rail">${trays}</div></div></section>`;
-  const week = `<section class="pnl" aria-labelledby="you-wk"><header class="ph"><h3 id="you-wk">Merged, last 7 days</h3></header>`
-    + `<p class="nc-l"><b>Not checked</b> ${ok ? 'T3 Code sends no merge times, so merges by day cannot be counted.' : 'T3 did not answer.'}</p></section>`;
-  // Agent time today: each thread's run time since midnight, by project, from T3's run times.
-  let time2;
-  if (!ok || !board.runsChecked) time2 = `<header class="ph"><h3 id="you-at">Agent time today</h3></header><p class="nc-l"><b>Not checked</b> ${ok ? 'T3 did not send its run times.' : 'T3 did not answer.'}</p>`;
-  else {
-    const t = agentTime(cooks, now), icons = new Map(cooks.map((k) => [k.project, k.icon]));
-    const top = Math.max(1, ...t.byProject.values());
-    const rows = [...t.byProject.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([nm, ms]) => `<div class="ah"><p class="row">${mark(nm, icons.get(nm))}<span class="pn">${e(nm)}</span><span class="v">${duration(ms)}</span></p>`
-      + `<div class="track"><b style="width:${((ms / top) * 100).toFixed(1)}%"></b></div></div>`).join('');
-    // Agents count by whether they ran. A floor says "at least"; a floor of nothing says "not checked".
-    const sum = t.ms ? `${t.cut ? 'at least ' : ''}${duration(t.ms)}` : 'time not checked';
-    time2 = `<header class="ph"><h3 id="you-at">Agent time today</h3><span>${t.agents ? `${sum} across ${plural(t.agents, 'agent')}` : 'no agent ran today'}</span></header>${rows}`;
-  }
-  const split = `<div class="split">${week}<section class="pnl" aria-labelledby="you-at">${time2}</section></div>`;
-  // Verified and on hold: not moving. Each opens its ticket; a held one's tooltip names why it is held.
-  const still = [...verified, ...heldAll];
-  const chips = still.map((k) => `<button type="button" class="hc" data-plate="${e(plateId(k))}" data-thread="${e(k.thread.threadId)}" title="${k.place === 'Verified' ? 'Verified today' : `On hold: ${k.place}`}">`
-    + `${k.place === 'Verified' ? svg('done', 'ic vd') : '<i class="gd c-gray"></i>'}<span class="w">${k.place === 'Verified' ? 'Verified' : 'On hold'}</span>`
-    + `<span class="proj">${mark(k.project, k.icon)}<span class="pn">${e(k.project)}</span></span><span class="t">${e(k.thread.title)}</span>${k.atPass ? svg('cloche', 'ic at-ic') + '<span class="vh">At the pass.</span>' : ''}</button>`).join('');
-  const heldSub = !ok ? 'Not checked' : still.some((k) => k.atPass) ? 'not moving' : 'not moving, nothing needs you';
-  const held = `<section class="pnl pnl-held" aria-labelledby="you-hd"><header class="ph"><h3 id="you-hd">Verified and on hold</h3><span>${heldSub}</span></header>`
-    + `<div class="held">${chips || (ok ? '<p class="muted">Nothing verified today, nothing on hold.</p>' : '')}</div></section>`;
-  return `<section class="you" aria-labelledby="you-t"><header class="you-h"><h2 id="you-t">Your threads</h2><p class="you-sub">${sub}</p></header>`
-    + `<div class="you-b">${inst}${stages}${split}${held}</div></section>`;
+/** You, expanded: the stage columns, from the top of the window to the bottom, each scrolling inside. Dan, 2026-11-10:
+ *  the header line said nothing the rail and The Pass do not, the four instruments repeated The Pass or said "Not
+ *  checked", and the "At The Pass" key sat over one column at random. With them gone the columns move up and run the
+ *  full height, so the panels that sat under them went too: Merged, last 7 days only ever said "Not checked", Verified
+ *  and on hold are rows in the rail, and Agent time today was the one panel with its own numbers. */
+function youView({ trays }) {
+  return `<section class="you" aria-label="Your threads by stage"><div class="you-b"><div class="rail-wrap"><div class="rail">${trays}</div></div></div></section>`;
 }
 
 // ---------- Your team, Open kitchen (step 4) ----------
@@ -1058,7 +1003,7 @@ export function renderApp({ board, picked = null, link, status, origin, answered
     // Your team, expanded: the column says how many calls need you (mock v2).
     + `${T && T.ok.status === 'live' ? `<p class="muted tpm">${T.count ? `${T.count} need you, most urgent first.` : 'Nothing from your team needs you.'}</p>` : ''}</header><div class="head-b">${lists}</div>`
     + `</section>`;
-  const you = youView({ board, shown, spots, waiting, since, status, picked: want, trays, verified, heldAll });
+  const you = youView({ trays });
   // Your team is not built yet (Dan, 2026-11-10): with reports, its view says so instead of showing anything made up.
   const teamWait = team ? `<section class="team-wait" aria-label="Your team"><p><b>${e(team.name || 'Your team')}</b></p><p class="muted">Not checked. Your team's view needs the team connection, which Yes Chef does not have yet.</p></section>` : '';
   const lamp = status.ok ? 'ok' : 'bad';
@@ -1068,11 +1013,11 @@ export function renderApp({ board, picked = null, link, status, origin, answered
   // list (Dan, 2026-11-08), pinned to the bottom of the column with no rule above them: the space does the separating
   // (Dan, 2026-11-09). With no stage list (phones) they stay in the top bar. The Shortcuts button went: ? and Settings open them.
   const lamps = `<ul class="lamps" aria-label="Sources"><li class="${lamp}" title="${e(detail)}"><i></i>${status.ok ? 'Live' : 'Not checked'}</li></ul>`;
-  const gear = `<button type="button" class="gear" data-settings aria-label="Settings" title="Settings (⌘,)">${svg('sliders')}</button>`;
+  const gear = `<button type="button" class="gear" data-settings data-tcmd="settings.open" aria-label="Settings" title="Settings (⌘,)">${svg('sliders')}</button>`;
   const navFoot = `<div class="nav-foot">${footMenu}<div class="nav-foot-row">${lamps}${gear}</div></div></div></nav>`;
   const strip = status.ok ? '' : `<div class="strip" role="status"><b>T3</b> not checked: ${e(status.error)}</div>`;
   // The logo is the view switch: white on blue for the focused pass, blue on white for You, expanded.
-  const logo = `<button type="button" class="logo" data-view-toggle aria-label="Show the full kitchen" title="Switch view (V)"><span class="flip"><span class="face f-pass">${svg('cloche')}</span><span class="face f-kitchen">${svg('cloche')}</span></span><span class="vh">Yes Chef</span></button>`;
+  const logo = `<button type="button" class="logo" data-view-toggle data-tcmd="view.toggle" aria-label="Show the full kitchen" title="Switch view (V)"><span class="flip"><span class="face f-pass">${svg('cloche')}</span><span class="face f-kitchen">${svg('cloche')}</span></span><span class="vh">Yes Chef</span></button>`;
   return `<header class="bar"><h1 class="brand">${logo}</h1><ul class="stats" aria-label="Counts">${stats}</ul>${lamps}${footMenu}${gear}</header>${strip}`
     + `<div class="board">${nav}${navFoot}${you}${T ? T.board : teamWait}${pass}`
     + `<section class="reader" aria-label="Open ticket"><div class="reader-empty">${svg('cloche')}<p class="muted">Pick a ticket to read it here.</p></div></section></div>${projectOptions}`

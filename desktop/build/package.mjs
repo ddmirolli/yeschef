@@ -28,7 +28,7 @@
 // passes Gatekeeper before it is opened, rewrites the DMG's size and sha512 in latest-mac.yml (stapling changes its
 // bytes), and runs the section 2 checks on the app inside the ZIP and on the DMG.
 //
-// The app is one asar: desktop/ (main.mjs, t3.mjs, preload.cjs, updates.mjs, channels.mjs, the Dock icon), client/
+// The app is one asar: desktop/ (main.mjs, t3.mjs, preload.cjs, updates.mjs, channels.mjs, keybindings.mjs, the Dock icon), client/
 // without its tests, pass.py (the board's stylesheet) and electron-updater with its dependencies, in the repo's own
 // layout, so main.mjs finds the board server at ../client as in the repo. The asar integrity and "only load the app
 // from asar" fuses then cover the board server and the updater too. Last, a hidden --capture start of the built app
@@ -91,7 +91,7 @@ run('/usr/bin/iconutil', ['-c', 'icns', set, '-o', icns]);
 
 // What ships, in the repo's layout. No tests (section 3), and nothing else from the repo.
 rmSync(STAGE, { recursive: true, force: true });
-for (const f of ['main.mjs', 't3.mjs', 'preload.cjs', 'updates.mjs', 'channels.mjs']) cpSync(join(DESKTOP, f), join(STAGE, 'desktop', f));
+for (const f of ['main.mjs', 't3.mjs', 'preload.cjs', 'updates.mjs', 'channels.mjs', 'keybindings.mjs']) cpSync(join(DESKTOP, f), join(STAGE, 'desktop', f));
 cpSync(join(DESKTOP, 'build', C.icon), join(STAGE, 'desktop', 'build', C.icon));
 for (const f of readdirSync(join(REPO, 'client'))) {
   if (f.endsWith('.mjs') && !f.endsWith('.test.mjs')) cpSync(join(REPO, 'client', f), join(STAGE, 'client', f));
