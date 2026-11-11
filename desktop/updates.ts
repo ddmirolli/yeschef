@@ -12,8 +12,20 @@ import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { OutgoingHttpHeaders } from 'node:http';
+import * as Option from 'effect/Option';
+import * as Schema from 'effect/Schema';
 import { CHANNELS, channelOf } from './channels.ts';
 import type { ChannelName } from './channels.ts';
+
+// What electron-updater sends with its events, read as T3 Code reads it (apps/desktop/src/updates/DesktopUpdates.ts,
+// UpdateInfo and DownloadProgressInfo). An event that does not match is never acted on as a guess. The percent must
+// be finite: NaN or Infinity would put "NaN%" on the card.
+const UpdateInfo = Schema.Struct({ version: Schema.String });
+const DownloadProgress = Schema.Struct({ percent: Schema.Finite });
+const readUpdateInfo = Schema.decodeUnknownOption(UpdateInfo);
+const readProgress = Schema.decodeUnknownOption(DownloadProgress);
+/** The error an update or a download gets when Yes Chef cannot read what the update server sent about it. */
+const UNREADABLE = 'The update server sent an answer Yes Chef cannot read.';
 
 /** Where the updater is: off, idle, checking, an update available, downloading, ready to install, current, or failed. */
 export type UpdateStatus = 'off' | 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'current' | 'error';
@@ -33,10 +45,8 @@ export interface Updater {
   allowPrerelease: boolean; requestHeaders: OutgoingHttpHeaders | null;
   setFeedURL(options: { provider: 'generic'; url: string; channel: string }): void;
   on(event: 'checking-for-update' | 'update-not-available', listener: () => void): unknown;
-  on(event: 'update-available', listener: (info: { version: string }) => void): unknown;
-  on(event: 'download-progress', listener: (progress: { percent?: unknown } | null) => void): unknown;
-  on(event: 'update-downloaded', listener: (info: { version?: string } | null) => void): unknown;
-  on(event: 'error', listener: (error: unknown) => void): unknown;
+  // What these events carry is read through the Schemas above, so it arrives here as unknown.
+  on(event: 'update-available' | 'download-progress' | 'update-downloaded' | 'error', listener: (payload: unknown) => void): unknown;
   checkForUpdates(): unknown;
   downloadUpdate(): unknown;
   quitAndInstall(): void;
@@ -223,12 +233,16 @@ export function createUpdates({ updater, squirrel, app, version, feed = null, in
   if (feed) updater.setFeedURL({ provider: 'generic', url: feed, channel });
 
   updater.on('checking-for-update', () => { if (doing === 'check') set({ status: 'checking', manual: true }); });
-  updater.on('update-available', (info: { version: string }) => {
+  updater.on('update-available', (raw: unknown) => {
+    const info = readUpdateInfo(raw);
+    // Never offered without a version: a check by hand shows the error, a background check stays quiet (failed).
+    if (Option.isNone(info)) return failed(new Error(UNREADABLE));
+    const { version } = info.value;
     const manual = doing === 'check';
     doing = null;
     // A background check that finds the version the card already offers keeps the card as it is (hidden or not).
-    if (!manual && state.status === 'available' && state.version === info.version) return;
-    set({ status: 'available', version: info.version, manual });
+    if (!manual && state.status === 'available' && state.version === version) return;
+    set({ status: 'available', version, manual });
   });
   updater.on('update-not-available', () => {
     const manual = doing === 'check';
@@ -236,19 +250,21 @@ export function createUpdates({ updater, squirrel, app, version, feed = null, in
     if (manual) set({ status: 'current', manual: true });
     else if (state.status === 'checking' || state.status === 'error') set({ status: 'idle' });
   });
-  updater.on('download-progress', (p: { percent?: unknown } | null) => {
-    const percent = Math.floor(Number(p?.percent) || 0);
+  updater.on('download-progress', (raw: unknown) => {
+    const progress = readProgress(raw);
+    // As in T3 Code: a tick that cannot be read is logged and the bar keeps its place until the next one.
+    if (Option.isNone(progress)) { log.warn?.(`Update download progress not read: ${UNREADABLE}`); return; }
+    const percent = Math.floor(progress.value.percent);
     if (state.status !== 'downloading' || percent !== state.percent) set({ ...state, status: 'downloading', percent });
   });
-  updater.on('update-downloaded', (info: { version?: string } | null) => { doing = null; set({ status: 'ready', version: info?.version || state.version, manual: true }); });
-  updater.on('error', (e: unknown) => {
-    const was = doing;
+  updater.on('update-downloaded', (raw: unknown) => {
+    const info = readUpdateInfo(raw);
+    // Never ready on the version the card offered before: the download's own version, or the error.
+    if (Option.isNone(info)) return failed(new Error(UNREADABLE));
     doing = null;
-    log.error?.(`Update ${was || 'check'} failed: ${shortError(e)}`);
-    // A background check that fails (offline, GitHub busy) stays quiet and tries again in 4 minutes.
-    if (was === 'poll' || was === null) { if (state.status === 'checking') set({ status: 'idle' }); return; }
-    set({ status: 'error', message: shortError(e), manual: true });
+    set({ status: 'ready', version: info.value.version, manual: true });
   });
+  updater.on('error', failed);
 
   timer = timers.setTimeout(() => {
     check();
@@ -332,6 +348,15 @@ export function createUpdates({ updater, squirrel, app, version, feed = null, in
   function hide(): void {
     if (['current', 'error', 'checking'].includes(state.status)) set({ status: 'idle' });
     else set({ ...state, manual: false, hidden: true });
+  }
+  /** An updater error, or an update or a download Yes Chef cannot read. */
+  function failed(e: unknown): void {
+    const was = doing;
+    doing = null;
+    log.error?.(`Update ${was || 'check'} failed: ${shortError(e)}`);
+    // A background check that fails (offline, GitHub busy) stays quiet and tries again in 4 minutes.
+    if (was === 'poll' || was === null) { if (state.status === 'checking') set({ status: 'idle' }); return; }
+    set({ status: 'error', message: shortError(e), manual: true });
   }
 }
 
