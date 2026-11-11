@@ -55,9 +55,9 @@ test('what it cannot read fails loudly, never half-themed', () => {
   assert.throws(() => onTheme('@media (prefers-color-scheme:dark){.a{b:c}'), /closing brace/);
 });
 
-test('the real sheets: pass.py tokens and the bar each come out with every block written twice', () => {
+test('the real sheets: pass.css tokens and the bar each come out with every block written twice', () => {
   const here = dirname(fileURLToPath(import.meta.url));
-  const pass = readFileSync(join(here, '..', 'pass.py'), 'utf8').match(/CSS = r"""([\s\S]*?)"""/)[1];
+  const pass = readFileSync(join(here, 'pass.css'), 'utf8');
   for (const css of [pass, BAR_CSS]) {
     const blocks = (css.match(/prefers-color-scheme/g) || []).length;
     const out = onTheme(css);
@@ -86,8 +86,8 @@ test('the pictures read the page\'s tokens as the page does: every :root in orde
 
 test('the pictures need every token they draw with, and stop the build when one is missing', () => {
   const here = dirname(fileURLToPath(import.meta.url));
-  const pass = readFileSync(join(here, '..', 'pass.py'), 'utf8').match(/CSS = r"""([\s\S]*?)"""/)[1];
-  assert.throws(() => miniCss(pass), /no --st-merged for light/, 'the stage colors live in the prototype, not in pass.py');
+  const pass = readFileSync(join(here, 'pass.css'), 'utf8');
+  assert.throws(() => miniCss(pass), /no --st-merged for light/, 'the stage colors live in the prototype, not in pass.css');
   const all = MINI_TOKENS.map((k) => `--${k}:#${k.length}`).join(';');
   const css = miniCss(`:root{${all}}@media (prefers-color-scheme:dark){:root{--bg:#000}}`);
   assert.match(css, /^\.mt-light\{--m-bg:#2;/);
