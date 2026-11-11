@@ -775,3 +775,20 @@ test('r14: a lockfile two live threads change stays in the files list, not compa
   assert.deepEqual([row.state, row.call], ['gen', null]);
   assert.ok(!board(v).files.rows.slice(0, -1).some((f, i, rs) => f.state === 'gen' && rs[i + 1] && rs[i + 1].state !== 'gen'), 'generated files sort last');
 });
+
+// ---- PR B, PR-Agent round 15 ----
+test('r15: a copy that leaves out readyAt never hides another copy\'s time for the same PR', () => {
+  const v = viewL();
+  const R0 = board(v).review;
+  assert.ok(R0.ages, 'the fixture has every ready time');
+  const src = v.people.flatMap((p) => (p.summary?.tickets ?? []).map((k) => ({ p, k })))
+    .find(({ k }) => k.place === 'In review' && k.prs.some((pr) => pr.state === 'open' && !pr.draft && pr.readyAt));
+  const pr = src.k.prs.find((x) => x.state === 'open' && !x.draft && x.readyAt);
+  const other = v.people.find((p) => p !== src.p && p.online && p.summary);
+  other.summary.tickets.push({ ...src.k, thread: 'mcp:copy-1', prs: [{ ...pr, readyAt: null }] });
+  const i = v.people.indexOf(other);
+  v.people.splice(0, 0, ...v.people.splice(i, 1));
+  const R = board(v).review;
+  assert.equal(R.count, R0.count);
+  assert.deepEqual(R.ages, R0.ages);
+});

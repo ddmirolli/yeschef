@@ -412,10 +412,17 @@ export function kitchenBoard(ok, { now, want = null }) {
   // Waiting for review: open PRs, not drafts, on live threads In review. Their age needs the time each was marked ready
   // (proposed `pr.readyAt`); with any one missing, the ages say not checked rather than a part of them.
   // A PR that any summary, live or old, reports merged (`done`, above) never waits, whatever another copy says.
+  // The ready time is settled per PR over every copy first: one copy that left it out never hides another's. Two
+  // copies that differ take the later time, since a PR put back to draft and readied again waits from then.
+  const readyAt = new Map();
+  for (const { k } of ok.tickets) for (const pr of k.prs) if (pr.readyAt !== null) {
+    const key = prKey(pr.repo, pr.n);
+    readyAt.set(key, Math.max(readyAt.get(key) ?? pr.readyAt, pr.readyAt));
+  }
   const rv = new Map();
   for (const { k, person, live } of all) if (live && k.place === 'In review') for (const pr of k.prs) {
     const key = prKey(pr.repo, pr.n);
-    if (pr.state === 'open' && !pr.draft && !done.has(key) && !rv.has(key)) rv.set(key, { n: pr.n, repo: pr.repo, person, at: pr.readyAt });
+    if (pr.state === 'open' && !pr.draft && !done.has(key) && !rv.has(key)) rv.set(key, { n: pr.n, repo: pr.repo, person, at: readyAt.get(key) ?? null });
   }
   const ready = [...rv.values()];
   const review = { count: ready.length, gap, ages: ready.length && ready.every((r) => r.at !== null) ? ready.map((r) => Math.max(0, now - r.at)).sort((a, z) => z - a) : null };
