@@ -171,7 +171,7 @@ test("a base's red began at its first red commit, along first parents, past pend
   const slash = fake({ commits, runs });
   await readBaseRed({ repo: 'acme/app', branch: 'release/(hotfix)!', head: h(4) }, { get: slash, memo: new Map() });
   assert.ok(slash.paths.includes('repos/acme/app/commits?sha=release%2F%28hotfix%29%21&per_page=50'), slash.paths[0]);
-  // ghGet's own rule for a path (client/github.mjs SAFE_PATH).
+  // ghGet's own rule for a path (client/github.ts SAFE_PATH).
   assert.match('repos/acme/app/commits?sha=release%2F%28hotfix%29%21&per_page=50', /^repos\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+(\/[A-Za-z0-9._%-]+)*(\?[A-Za-z0-9._=&%-]+)?$/);
 });
 

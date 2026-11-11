@@ -4,6 +4,6 @@
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "types": ["node"]
   },
-  // The client's TypeScript so far: every .ts here and its tests. The .mjs files join as they are ported.
+  // Every .ts here and its tests.
   "include": ["*.ts", "test/*.ts"]
 }

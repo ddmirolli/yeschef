@@ -1012,7 +1012,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     return post(body, keep).then(function(r){ done(); return r; }, function(e){ done(); throw e; });
   }
   // A browser tab asks before it leaves while a send waits out its Undo, so Undo stays possible (hill climb 2 r2).
-  // The desktop app skips the question: its drain has already let every send finish (main.mjs).
+  // The desktop app skips the question: its drain has already let every send finish (desktop/main.ts).
   window.addEventListener('beforeunload', function(ev){ if (pendingSends.length) { ev.preventDefault(); ev.returnValue = ''; } });
   window.addEventListener('pagehide', function(){ pendingSends.slice().forEach(function(p){ p.fire(true); }); });
   function send(f: PageForm, btn: HTMLButtonElement): void {

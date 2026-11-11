@@ -14,7 +14,8 @@ Yes Chef is a Mac app. It finds T3 Code on the same Mac, signs in to it, and rea
 | `client/` | The board server and the Pass page. The app runs it in a utility process; `node client/server.ts` runs it alone as the web prototype. |
 | `relay/` | The team relay, a Cloudflare Worker: `relay/README.md`. |
 | `site/` | yeschef.codes and its live demo: `site/README.md`. |
-| `tools/` | Screenshots through Browserbase (`shoot.sh`), the site demo build, the public-tree check, the PR-Agent review. |
+| `tools/` | Screenshots through Browserbase (`shoot.sh`), the demo's made-up screenshots (`hero-art/plates.ts`), the dev sign-in approver, the public-tree check, the PR-Agent review. |
+| `spikes/` | One-off scripts that tried T3 Code's interfaces before the app used them: `docs/pass-product-brief-v1_0.md`. |
 | `docs/` | The spec, the locked words, the briefs and the release plan. |
 | `fixtures/` | Made-up T3 messages for the tests. |
 
@@ -28,7 +29,7 @@ Strict TypeScript on T3 Code's toolchain. Dan's rulings, 2026-11-10:
 - **2 = B.** The port does not wait for open pull requests. What is merged gets ported.
 - **3 = B.** The Python pass is retired, not ported (#22).
 
-Node 24 runs `.ts` files with the types stripped, and so does the Node inside Electron, so the app and the relay need no build step for their own code. Ported so far: `relay/`, `client/seal.ts`, `site/` (#24, Astro), the client's core (the board, calls, actions, the action bar and keys, the T3 and GitHub clients, the followers, the theme, You and Open kitchen), `desktop/` (the app, its updater and its release scripts), and the client's team modules (the team client, its roster, inbox and summaries, the `/team` page and its host, the roles and the stream shells), and the board server with its page script (`client/server.ts`, `client/page.ts`), with their tests. The window's preload is the one file built at all: Electron needs it as one CommonJS file, so `desktop/build/preload.ts` strips its types. Still JavaScript: `tools/` and `spikes/`.
+Node 24 runs `.ts` files with the types stripped, and so does the Node inside Electron, so the app and the relay need no build step for their own code. Every script is TypeScript: `relay/`, `client/seal.ts`, `site/` (#24, Astro), the client's core (the board, calls, actions, the action bar and keys, the T3 and GitHub clients, the followers, the theme, You and Open kitchen), `desktop/` (the app, its updater and its release scripts), and the client's team modules (the team client, its roster, inbox and summaries, the `/team` page and its host, the roles and the stream shells), the board server with its page script (`client/server.ts`, `client/page.ts`), `tools/` and `spikes/`, with their tests. The window's preload is the one file built at all: Electron needs it as one CommonJS file, so `desktop/build/preload.ts` strips its types. The Python left is the public-tree check (`tools/public_tree.py`, `test_public.py`).
 
 ## Tests
 

@@ -1,0 +1,11 @@
+{
+  "name": "yeschef-spikes",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "effect-tsgo tsrs --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:"
+  }
+}

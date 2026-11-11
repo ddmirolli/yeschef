@@ -1,8 +1,7 @@
 import "vite-plus/test/config";
 import { defineConfig } from "vite-plus";
 
-// Vitest runs the TypeScript tests. The node:test files (*.test.mjs) run under `node --test` until their package is
-// ported, so they stay out of this list.
+// Vitest runs the workspace's tests (client/, relay/). desktop/ and site/ run their own, as their READMEs say.
 export default defineConfig({
   test: {
     environment: "node",

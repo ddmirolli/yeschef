@@ -1,7 +1,7 @@
 // What step 4's Failing, Waiting on review, Main broken and Too big calls read from GitHub beyond a PR's size
-// (client/github.mjs): a PR's check result per pushed commit, when it was marked ready for review, its merge commit,
+// (client/github.ts): a PR's check result per pushed commit, when it was marked ready for review, its merge commit,
 // and the first red commit of a base branch's current run of red. Read only, through the `get` the caller passes
-// (github.mjs ghGet), so every read is a GET through gh's own sign-in. Missing data is null: "not checked", never a
+// (github.ts ghGet), so every read is a GET through gh's own sign-in. Missing data is null: "not checked", never a
 // guess. 3b PR 4b (docs/team-relay-v0_1.md, "What step 4's calls read").
 
 export type Get = (path: string, opts: { host: string }) => Promise<unknown>;

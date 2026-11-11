@@ -1,12 +1,14 @@
 name: Workspace
 
-# The pnpm workspace (client/ and relay/ so far) and the desktop app: strict TypeScript and the tests, set up as T3
+# The pnpm workspace (client/, relay/, tools/ and spikes/) and the desktop app: strict TypeScript and the tests, set up as T3
 # Code's CI does it.
 on:
   pull_request:
     paths:
       - 'client/**'
       - 'relay/**'
+      - 'tools/**'
+      - 'spikes/**'
       - 'desktop/**'
       - 'package.json'
       - 'pnpm-lock.yaml'
@@ -19,6 +21,8 @@ on:
     paths:
       - 'client/**'
       - 'relay/**'
+      - 'tools/**'
+      - 'spikes/**'
       - 'desktop/**'
       - 'package.json'
       - 'pnpm-lock.yaml'

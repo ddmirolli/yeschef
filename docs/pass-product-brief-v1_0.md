@@ -59,7 +59,7 @@ Done means a report with the tool list, timings, and each step as passed or fail
 
 ## S0 results (2026-11-06, through T3 Connect)
 
-Run: `node spikes/t3-client-spike.mjs https://prod-1f046a21d95ebc69.t3coderelay.com` (this Mac's T3 Connect address). Dan told the thread to configure the sign-in itself, so it approved with a 5-minute pairing code from `t3 auth pairing create`, access "full-access". A real user approves on T3's page instead.
+Run: `node spikes/t3-client-spike.mjs https://prod-1f046a21d95ebc69.t3coderelay.com` (this Mac's T3 Connect address; the script is `spikes/t3-client-spike.ts` since the TypeScript port). Dan told the thread to configure the sign-in itself, so it approved with a 5-minute pairing code from `t3 auth pairing create`, access "full-access". A real user approves on T3's page instead.
 
 | Step | Result |
 |---|---|
@@ -85,8 +85,8 @@ What it proves: a client with no stored secrets except its T3 sign-in can see ev
 - `client/t3mcp.ts`: sign-in (OAuth with PKCE) and a small MCP client. The token stays in the process.
 - `client/board.ts`: T3 threads as tickets. A ticket is a top-level thread; its subagent threads are its stations. Stages: Order (never ran), Prep (ran, no PR), Fire (any thread running), Tasting (a PR open), Plating (a PR open and a question waiting), Sent (PRs merged), Verified (settled in T3 today with nothing open or running; older ones leave the board). A settled ticket with an open PR or running work keeps its stage. Held: Stopped, Failed, Snoozed. A waiting question puts a ticket at the pass in any stage. So does a hand-back: a top-level thread whose run ended and that is not settled has given the turn back to Dan, and waits at the pass as "Your turn" with the agent's last message. Settling the thread in T3 clears it (Dan, 2026-11-06, "A"). A finished ticket in Sent is already merged, so its main action is Settle, which moves it to Verified; it offers no Go (Dan, 2026-11-06). Coordinator threads (titles starting ATC or Expo) never wait at the pass. With no good poll, the page shows no tickets and says "not checked".
 - `client/server.ts`: follows T3's live shell stream (`client/t3live.ts`, read only) instead of polling, and builds the board from it (open threads, settled threads from the last 14 days, and any missing parent of active work, `client/shells.ts`). It reads over MCP only what the stream lacks: projects, waiting questions and hand-backs, each again only when its thread changes. It pushes each change to the page over server-sent events, and a beat every 5 s. Without a live, synchronized stream the page says "Not checked". It also reads each open thread's changed files and line ranges with a read-only `git diff` in its folder (`client/changes.ts`), and, through the `gh` CLI this Mac is signed in to, the checks on each thread's base branch and each open PR's size (`client/github.ts`, GET only), for the team calls; nothing shows them yet. Each T3 request has a 20 s deadline. Run `node client/server.ts [t3-origin] [port]`.
-- `tools/dev-approve.mjs <t3-origin> <link-file> <access>`: dev only, approves the sign-in on the machine that runs T3. It refuses a link for any other origin. Users approve on T3's page.
-- Tests: `node --test client/board.test.ts client/t3mcp.test.ts`.
+- `tools/dev-approve.ts <t3-origin> <link-file> <access>`: dev only, approves the sign-in on the machine that runs T3. It refuses a link for any other origin. Users approve on T3's page.
+- Tests: `vp run -r test` at the repo root (vitest).
 
 ## Open
 
