@@ -25,7 +25,7 @@ function actionKind(value: string): ActionKind {
   var esc = function (s: unknown) { return String(s).replace(/[&<>"]/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] ?? c); }); };
   // Until the visitor clicks or types here, nothing moves focus (the site page around this frame stays put).
   var touched = false;
-  ['pointerdown', 'keydown', 'touchstart'].forEach(function (t) { window.addEventListener(t, function () { touched = true; }, true); });
+  ['pointerdown', 'keydown', 'touchstart', 'focusin'].forEach(function (t) { window.addEventListener(t, function () { touched = true; }, true); });
   function focusIn(el: HTMLElement | null) { if (touched && el) el.focus({ preventScroll: true }); }
 
   var mini = function (av: string, c: string, name: string, stage: string, dot: string, title: string, text: string, course: string, cname: string) {
@@ -114,7 +114,7 @@ function actionKind(value: string): ActionKind {
     }
     list.innerHTML = ids.map(function (id) {
       var c = CARDS[id];
-      return '<button class="card' + (state.sel === id ? ' sel' : '') + '" type="button" data-open="' + id + '"><div class="top"><span class="flag ' + c.cls + '">' + c.flag + '</span><span class="age">' + c.age + '</span></div>'
+      return '<button class="card' + (state.sel === id ? ' sel' : '') + '" type="button"' + (state.sel === id ? ' aria-current="true"' : '') + ' data-open="' + id + '"><div class="top"><span class="flag ' + c.cls + '">' + c.flag + '</span><span class="age">' + c.age + '</span></div>'
         + '<h3>' + c.title + '</h3><p class="body">' + c.body + '</p><div class="who">' + c.who.map(function (w) { return '<span class="av ' + w[1] + '">' + w[0] + '</span>'; }).join('') + '</div></button>';
     }).join('');
   }
@@ -175,9 +175,19 @@ function actionKind(value: string): ActionKind {
     filterGrid();
   }
   function filterGrid() {
-    $$('.ri[data-staff]').forEach(function (b) { b.classList.toggle('on', state.view === 'kitchen' && b.dataset.staff === state.staff); });
-    $$('.ri[data-course]').forEach(function (b) { b.classList.toggle('on', state.view === 'kitchen' && b.dataset.course === state.course && !!state.course); });
-    $$('.fchip').forEach(function (b) { b.classList.toggle('on', b.dataset.course === state.course); });
+    $$('.passbtn[data-go]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.go === state.view)); });
+    $$('.ri[data-staff]').forEach(function (b) {
+      var on = state.view === 'kitchen' && b.dataset.staff === state.staff;
+      b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on));
+    });
+    $$('.ri[data-course]').forEach(function (b) {
+      var on = state.view === 'kitchen' && b.dataset.course === state.course && !!state.course;
+      b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on));
+    });
+    $$('.fchip').forEach(function (b) {
+      var on = b.dataset.course === state.course;
+      b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on));
+    });
     $$('#grid [data-row]').forEach(function (n) { n.classList.toggle('row-hi', !!state.staff && n.dataset.row === state.staff && n.dataset.row !== 'lee'); n.classList.toggle('dimmed', !!state.staff && n.dataset.row !== state.staff); });
     $$('#grid .tk').forEach(function (t) { t.classList.toggle('dimmed', !!state.course && t.dataset.k !== state.course); });
     var tray = must('#tray-tk'); tray.classList.toggle('wait', state.brigade);

@@ -66,7 +66,7 @@ Dan picked Fable's bakeoff entry as the base on 2026-11-06 and asked for:
 - any ticket opens full screen with its visuals, so visitors can compare before and after;
 - a cookbook display face for headings (Fraunces) and a plain sans for body (Figtree).
 
-Later on 2026-11-06 Dan added: the cloche badge centred above the headline and the nav lockup in Fraunces; a calmer demo (fixed line under The Pass, a slower Last call); developer-plain brigade copy built on the Chef staying at the pass; the problem (our own story) and the fix as two cards; no footer licence line or Credits page (the MIT notice stays in `site.js`, `CREDITS.md` stays in the repo).
+Later on 2026-11-06 Dan added: the cloche badge centred above the headline and the nav lockup in Fraunces; a calmer demo (fixed line under The Pass, a slower Last call); developer-plain brigade copy built on the Chef staying at the pass; the problem (our own story) and the fix as two cards; no footer licence line or Credits page (the MIT notice stays in `src/scripts/site.ts`, `CREDITS.md` stays in the repo).
 
 On 2026-11-07 Dan added "The bill" after Our way: the token chart from a replay of our own 30 days of T3 Code logs (Oct 8 to Nov 7), with Yes Chef in place of the ATC threads cutting 19% without auto-compaction and 14% with it. The scenario figures are modeled, and the copy says so. Keep the four rows, values and 0 to 40B scale as they are; Claude and Codex have their own chart tokens because blue means "at the pass".
 

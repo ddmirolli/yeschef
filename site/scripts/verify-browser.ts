@@ -102,6 +102,37 @@ function pixels(before: Buffer, after: Buffer): number {
 }
 
 try {
+  const accessible = await pageFor(1440, 'light');
+  await ready(accessible, 'http://after.local/demo/team.html');
+  assert.equal(await accessible.locator('.card[aria-current="true"]').count(), 1);
+  await accessible.locator('.ri[data-staff]').first().click();
+  assert.equal(await accessible.locator('.ri[data-staff].on').getAttribute('aria-pressed'), 'true');
+  assert.equal(await accessible.locator('.passbtn[data-go="kitchen"]').getAttribute('aria-pressed'), 'true');
+  await accessible.locator('.fchip:not([data-course=""])').first().click();
+  assert.equal(await accessible.locator('.fchip.on').getAttribute('aria-pressed'), 'true');
+  assert.equal(await accessible.locator('.fchip:not(.on)[aria-pressed="false"]').count(), await accessible.locator('.fchip:not(.on)').count());
+  await accessible.locator('.passbtn[data-go="pass"]:visible').first().click();
+  assert.equal(await accessible.locator('.passbtn[data-go="kitchen"]').getAttribute('aria-pressed'), 'false');
+  await ready(accessible, 'http://after.local/demo/app.html');
+  await accessible.locator('#app .tile:visible').first().waitFor();
+  assert.equal(await accessible.evaluate(() => {
+    for (const id of ['focus-entry', 'focus-followup']) {
+      const input = document.createElement('input'); input.id = id; document.body.append(input);
+    }
+    document.querySelector<HTMLElement>('#focus-followup')?.focus();
+    return document.activeElement?.id;
+  }), '', 'the demo must not steal focus on load');
+  const focusSession = await context.newCDPSession(accessible);
+  const { root } = await focusSession.send('DOM.getDocument');
+  const { nodeId } = await focusSession.send('DOM.querySelector', { nodeId: root.nodeId, selector: '#focus-entry' });
+  await focusSession.send('DOM.focus', { nodeId });
+  assert.equal(await accessible.evaluate(() => {
+    document.querySelector<HTMLElement>('#focus-followup')?.focus();
+    return document.activeElement?.id;
+  }), 'focus-followup', 'native focus entry must release the demo focus gate');
+  await accessible.close();
+  report.accessibility = 'Native focus entry releases the focus gate; selected tickets, filters, and views expose ARIA state';
+
   for (const width of [1440, 390]) for (const scheme of ['light', 'dark'] as const) {
     const before = await pageFor(width, scheme), after = await pageFor(width, scheme);
     for (const view of ['team', 'solo']) {

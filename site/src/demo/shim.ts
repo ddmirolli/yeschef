@@ -10,7 +10,7 @@ free.textContent = '*{overscroll-behavior:auto!important}';
 document.head.appendChild(free);
 
 let touched = false;
-for (const type of ['pointerdown', 'keydown', 'touchstart']) listen(type, () => { touched = true; }, true);
+for (const type of ['pointerdown', 'keydown', 'touchstart', 'focusin']) listen(type, () => { touched = true; }, true);
 const focus = HTMLElement.prototype.focus;
 const into = Element.prototype.scrollIntoView;
 HTMLElement.prototype.focus = function (options?: FocusOptions): void {
