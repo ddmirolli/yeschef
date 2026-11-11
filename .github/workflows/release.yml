@@ -1,5 +1,5 @@
 # Yes Chef's releases, built the way T3 Code builds its own (pingdotgg/t3code, .github/workflows/release.yml and
-# release-desktop.yml). docs/desktop-release-plan-v0_1.md, section 7, is the plan; desktop/build/publish.mjs does the
+# release-desktop.yml). docs/desktop-release-plan-v0_1.md, section 7, is the plan; desktop/build/publish.ts does the
 # work in three parts, the same parts `npm run release` runs on a Mac:
 #
 #   plan     Linux, no secrets. Picks the version and the commit, or decides the scheduled Nightly has nothing to do.
@@ -68,7 +68,7 @@ jobs:
       head: ${{ steps.plan.outputs.head }}
       channel: ${{ steps.plan.outputs.channel }}
     steps:
-      # The ref that started the run: main for the schedule and for a dispatch from main. publish.mjs refuses any
+      # The ref that started the run: main for the schedule and for a dispatch from main. publish.ts refuses any
       # other branch for a release.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -109,7 +109,7 @@ jobs:
               esac ;;
             *) echo "::error::Unexpected event $EVENT."; exit 1 ;;
           esac
-          node desktop/build/publish.mjs plan "${args[@]}" --ci
+          node desktop/build/publish.ts plan "${args[@]}" --ci
           {
             echo "due=$(jq -r '.due' "$file")"
             echo "plan=$(jq -c . "$file")"
@@ -120,7 +120,7 @@ jobs:
 
   # Dan's approval for a signed Stable (Dan, 2026-11-10). The `stable` Environment holds no secret: its rules are Dan
   # as the required reviewer, his own runs allowed, and the branch main. It fails closed: every signed build whose
-  # plan is not a Nightly waits here (a Stable's channel is `latest`, desktop/channels.mjs). Nightly and dry runs skip it.
+  # plan is not a Nightly waits here (a Stable's channel is `latest`, desktop/channels.ts). Nightly and dry runs skip it.
   approve:
     name: Approve the Stable
     needs: plan
@@ -138,7 +138,7 @@ jobs:
           jq -r '"Approved: \(.title), tag \(.tag) at \(.commit[0:12])."' <<<"$PLAN"
 
   # The gate, in Build and Publish: a signed build that is not a Nightly runs only after `approve` succeeded.
-  # !cancelled() lets Nightly run when `approve` is skipped. release.test.mjs evaluates these conditions.
+  # !cancelled() lets Nightly run when `approve` is skipped. release.test.ts evaluates these conditions.
   build:
     name: Build (macOS arm64)
     needs: [plan, approve]
@@ -192,7 +192,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/release"
           printf '%s' "$PLAN" > "$RUNNER_TEMP/release/plan.json"
-          node desktop/build/publish.mjs build "$RUNNER_TEMP/release/plan.json" --ci
+          node desktop/build/publish.ts build "$RUNNER_TEMP/release/plan.json" --ci
 
       - name: Delete the signing keychain and key
         if: always() && env.SIGNED == 'true'
@@ -236,14 +236,14 @@ jobs:
           path: ${{ runner.temp }}/release
 
       # What is released comes from the Plan job, the plan the Stable gate saw. The artifact comes from the build job,
-      # which runs npm's install scripts: publish.mjs takes only its time and files, and stops on any other change.
+      # which runs npm's install scripts: publish.ts takes only its time and files, and stops on any other change.
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_PLAN: ${{ needs.plan.outputs.plan }}
         run: |
           set -euo pipefail
-          node desktop/build/publish.mjs publish "$RUNNER_TEMP/release/plan.json" --ci
+          node desktop/build/publish.ts publish "$RUNNER_TEMP/release/plan.json" --ci
           jq -r '"### Published \(.title)\n\nhttps://github.com/\(.repo)/releases/tag/\(.tag)"' <<<"$RELEASE_PLAN" >> "$GITHUB_STEP_SUMMARY"
 
   # Proves the signing secrets without building: dispatch with channel signing-check, from main. It reads the vault

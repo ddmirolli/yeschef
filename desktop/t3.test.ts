@@ -1,15 +1,17 @@
-// Finding T3 Code on this Mac. Run: node --test desktop/t3.test.mjs
-import { test } from 'node:test';
+// Finding T3 Code on this Mac. Run: npm test --prefix desktop -- t3.test.ts
+import { test } from 'vite-plus/test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { DEFAULT_T3, findT3, older, t3Answers } from './t3.mjs';
+import type { Server } from 'node:http';
+import { DEFAULT_T3, findT3, older, t3Answers } from './t3.ts';
 
-const runtime = (obj) => () => JSON.stringify(obj);
+const runtime = (obj: object) => () => JSON.stringify(obj);
+const portOf = (s: Server): number => { const a = s.address(); assert.ok(a && typeof a === 'object'); return a.port; };
 const home = '/Users/someone';
 
 test('T3 Code\'s own file names the address and the version', () => {
-  let asked = null;
-  const read = (file) => { asked = file; return JSON.stringify({ origin: 'http://127.0.0.1:4100', port: 4100, serverVersion: '0.1.9' }); };
+  let asked: string | null = null;
+  const read = (file: string) => { asked = file; return JSON.stringify({ origin: 'http://127.0.0.1:4100', port: 4100, serverVersion: '0.1.9' }); };
   assert.deepEqual(findT3({ env: {}, home, read }), { origin: 'http://127.0.0.1:4100', version: '0.1.9', from: 'server-runtime.json' });
   assert.equal(asked, '/Users/someone/.t3/userdata/server-runtime.json');
 });
@@ -45,8 +47,8 @@ test('older compares x.y.z numerically and never guesses', () => {
 
 test('t3Answers is true only when T3 Code\'s sign-in metadata answers', async () => {
   const srv = createServer((req, res) => res.writeHead(req.url === '/.well-known/oauth-authorization-server' ? 200 : 404).end('{}'));
-  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
-  const origin = `http://127.0.0.1:${srv.address().port}`;
+  await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
+  const origin = `http://127.0.0.1:${portOf(srv)}`;
   try {
     assert.equal(await t3Answers(origin), true);
   } finally { srv.close(); }
@@ -54,10 +56,10 @@ test('t3Answers is true only when T3 Code\'s sign-in metadata answers', async ()
   assert.equal(await t3Answers(origin), false);
   // A server that never answers runs out of time instead of hanging.
   const hang = createServer(() => {});
-  await new Promise((r) => hang.listen(0, '127.0.0.1', r));
+  await new Promise<void>((r) => hang.listen(0, '127.0.0.1', r));
   try {
     const t0 = Date.now();
-    assert.equal(await t3Answers(`http://127.0.0.1:${hang.address().port}`, { timeoutMs: 300 }), false);
+    assert.equal(await t3Answers(`http://127.0.0.1:${portOf(hang)}`, { timeoutMs: 300 }), false);
     assert.ok(Date.now() - t0 < 2000);
   } finally { hang.closeAllConnections(); hang.close(); }
 });

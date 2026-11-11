@@ -1,6 +1,6 @@
 // The team inside the board server (step 3b, PR 3): the /team page and the kind=team actions. It keeps one Team
 // (client/team.mjs) alive, hands it each board the Pass reads, and saves its state through `store`. The desktop app's
-// store seals the state with the Keychain-held key before it touches a disk (desktop/main.mjs); the web prototype keeps
+// store seals the state with the Keychain-held key before it touches a disk (desktop/main.ts); the web prototype keeps
 // it in memory only, so a prototype run never writes a private key to a file.
 import { createTeam, joinTeam, Team, webNet } from './team.mjs';
 import { readInvite } from './seal.ts';

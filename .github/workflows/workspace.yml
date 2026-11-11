@@ -1,11 +1,13 @@
 name: Workspace
 
-# The pnpm workspace (client/ and relay/ so far): strict TypeScript and the tests, set up as T3 Code's CI does it.
+# The pnpm workspace (client/ and relay/ so far) and the desktop app: strict TypeScript and the tests, set up as T3
+# Code's CI does it.
 on:
   pull_request:
     paths:
       - 'client/**'
       - 'relay/**'
+      - 'desktop/**'
       - 'package.json'
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
@@ -17,6 +19,7 @@ on:
     paths:
       - 'client/**'
       - 'relay/**'
+      - 'desktop/**'
       - 'package.json'
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
@@ -56,3 +59,13 @@ jobs:
         run: vp run -r typecheck
       - name: Test
         run: vp run -r test
+      # desktop/ keeps its own npm lockfile until it joins the workspace; its typecheck and tests use the workspace's
+      # tools. They need no Electron binary: electron-updater asks for Electron only inside the app.
+      - name: Install the desktop app's locked packages
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+        run: npm ci --prefix desktop
+      - name: Typecheck the desktop app
+        run: npm run typecheck --prefix desktop
+      - name: Test the desktop app
+        run: npm test --prefix desktop

@@ -1,5 +1,5 @@
-// The release build's rules (build/release.mjs): which certificate signs, which fuses ship, and the feed rewrite.
-import { test } from 'node:test';
+// The release build's rules (build/release.ts): which certificate signs, which fuses ship, and the feed rewrite.
+import { test } from 'vite-plus/test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -7,51 +7,55 @@ import { spawn, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { FUSES, FUSE_WIRE, TEAM_ID, appUpdateProblems, checkApp, checkDmg, entitlementKeys, feedProblems, fuseProblems, identities, literalPattern, machOFiles, pickIdentity, resultLine, rewriteFeed, runningFrom, targetsFor, topLevel, writesAppUpdate } from './build/release.mjs';
-import { assetProblems, changelogEntry, ghArgs, newestNightly, nightlyDue, parseArgs, pickRelease, releaseFiles, releaseNotes, releaseTitle, settle, trustedPlan } from './build/publish.mjs';
+import { FUSES, FUSE_WIRE, TEAM_ID, appUpdateProblems, checkApp, checkDmg, entitlementKeys, feedProblems, fuseProblems, identities, literalPattern, machOFiles, pickIdentity, resultLine, rewriteFeed, runningFrom, targetsFor, topLevel, writesAppUpdate } from './build/release.ts';
+import { assetProblems, changelogEntry, ghArgs, newestNightly, nightlyDue, parseArgs, pickRelease, releaseFiles, releaseNotes, releaseTitle, settle, trustedPlan } from './build/publish.ts';
+import { nth } from '../client/test/expect.ts';
+
+/** x, or the test fails. */
+function must<X>(x: X | null | undefined, what = 'a value'): X { assert.ok(x != null, `no ${what}`); return x; }
 
 const DEV = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const DEVID = 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
 const OTHER = 'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC';
 const SELF = 'DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD';
-const listing = (...lines) => `  ${lines.map((l, i) => `${i + 1}) ${l}`).join('\n  ')}\n     ${lines.length} valid identities found\n`;
+const listing = (...lines: string[]) => `  ${lines.map((l, i) => `${i + 1}) ${l}`).join('\n  ')}\n     ${lines.length} valid identities found\n`;
 const dev = `${DEV} "Apple Development: someone@example.com (ABCDE12345)"`;
 const devId = `${DEVID} "Developer ID Application: Someone (${TEAM_ID})"`;
 const otherTeam = `${OTHER} "Developer ID Application: Someone Else (ZZZZZZZZZZ)"`;
 const selfSigned = `${SELF} "Yes Chef Local"`;
-const teams = { [DEV]: TEAM_ID, [DEVID]: TEAM_ID, [OTHER]: 'ZZZZZZZZZZ', [SELF]: null };
-const teamOf = (hash) => teams[hash];
+const teams: Record<string, string | null> = { [DEV]: TEAM_ID, [DEVID]: TEAM_ID, [OTHER]: 'ZZZZZZZZZZ', [SELF]: null };
+const teamOf = (hash: string) => teams[hash] as string | null;
 
 test('identities keeps Developer ID Application and Apple Development only', () => {
   assert.deepEqual(identities(listing(dev, selfSigned, devId)).map((i) => i.kind), ['development', 'developer-id']);
 });
 
 test('a build for this Mac prefers Developer ID, then Apple Development, from our team only', () => {
-  assert.equal(pickIdentity(listing(dev, devId), { teamOf }).hash, DEVID);
-  assert.equal(pickIdentity(listing(dev), { teamOf }).hash, DEV);
+  assert.equal(must(pickIdentity(listing(dev, devId), { teamOf })).hash, DEVID);
+  assert.equal(must(pickIdentity(listing(dev), { teamOf })).hash, DEV);
   // Another team's Developer ID never signs: the Keychain would stop trusting Yes Chef.
-  assert.equal(pickIdentity(listing(otherTeam, dev), { teamOf }).hash, DEV);
+  assert.equal(must(pickIdentity(listing(otherTeam, dev), { teamOf })).hash, DEV);
   assert.equal(pickIdentity(listing(selfSigned), { teamOf }), null);
 });
 
 test('a release takes only Developer ID Application from our team', () => {
-  assert.equal(pickIdentity(listing(dev, devId), { release: true, teamOf }).hash, DEVID);
+  assert.equal(must(pickIdentity(listing(dev, devId), { release: true, teamOf })).hash, DEVID);
   assert.equal(pickIdentity(listing(dev), { release: true, teamOf }), null);
   assert.equal(pickIdentity(listing(otherTeam), { release: true, teamOf }), null);
 });
 
 test('YESCHEF_SIGN_IDENTITY narrows the choice and cannot pick another team', () => {
-  assert.equal(pickIdentity(listing(dev, devId), { want: DEV.toLowerCase(), teamOf }).hash, DEV);
-  assert.equal(pickIdentity(listing(dev, devId), { want: 'Apple Development', teamOf }).hash, DEV);
+  assert.equal(must(pickIdentity(listing(dev, devId), { want: DEV.toLowerCase(), teamOf })).hash, DEV);
+  assert.equal(must(pickIdentity(listing(dev, devId), { want: 'Apple Development', teamOf })).hash, DEV);
   assert.equal(pickIdentity(listing(otherTeam), { want: OTHER, teamOf }), null);
   assert.equal(pickIdentity(listing(dev), { want: 'Apple Development', release: true, teamOf }), null);
 });
 
 test('the fuse settings and the wire check agree', () => {
-  const index = { runAsNode: 0, enableCookieEncryption: 1, enableNodeOptionsEnvironmentVariable: 2, enableNodeCliInspectArguments: 3,
+  const index: Record<string, number> = { runAsNode: 0, enableCookieEncryption: 1, enableNodeOptionsEnvironmentVariable: 2, enableNodeCliInspectArguments: 3,
     enableEmbeddedAsarIntegrityValidation: 4, onlyLoadAppFromAsar: 5, grantFileProtocolExtraPrivileges: 7 };
   assert.deepEqual(Object.keys(FUSES).sort(), Object.keys(index).sort());
-  for (const [name, on] of Object.entries(FUSES)) assert.equal(FUSE_WIRE[index[name]], on ? 49 : 48, name);
+  for (const [name, on] of Object.entries(FUSES)) assert.equal(FUSE_WIRE[index[name]!], on ? 49 : 48, name);
   // RunAsNode stays off above all: it would let anyone run the signed binary as Node.
   assert.equal(FUSES.runAsNode, false);
 });
@@ -59,7 +63,7 @@ test('the fuse settings and the wire check agree', () => {
 test('fuseProblems names each fuse that is wrong', () => {
   const stock = { 0: 49, 1: 48, 2: 49, 3: 49, 4: 48, 5: 48, 6: 48, 7: 49, 8: 49, version: '1' };
   assert.equal(fuseProblems(stock).length, 7);
-  assert.match(fuseProblems(stock)[0], /^RunAsNode is on, should be off$/);
+  assert.match(nth(fuseProblems(stock)), /^RunAsNode is on, should be off$/);
   assert.deepEqual(fuseProblems({ ...stock, ...FUSE_WIRE }), []);
 });
 
@@ -160,7 +164,7 @@ test('the feed must offer this version\'s ZIP and list its DMG', () => {
 });
 
 // gh release list --json tagName,isDraft,isPrerelease
-const rel = (tagName, { draft = false, pre = tagName.includes('-') } = {}) => ({ tagName, isDraft: draft, isPrerelease: pre });
+const rel = (tagName: string, { draft = false, pre = tagName.includes('-') }: { draft?: boolean; pre?: boolean } = {}) => ({ tagName, isDraft: draft, isPrerelease: pre });
 const NOW = new Date('2026-11-12T10:00:00Z');
 
 test('a Nightly release numbers itself after the newest Stable and the day\'s runs', () => {
@@ -291,8 +295,8 @@ test('the command line takes its flags anywhere and refuses unknown ones', () =>
 });
 
 test('settle asks again until a check passes, then gives the last problems', async () => {
-  const waits = [];
-  const sleep = async (ms) => { waits.push(ms); };
+  const waits: number[] = [];
+  const sleep = async (ms: number) => { waits.push(ms); };
   let n = 0;
   assert.deepEqual(await settle(async () => (++n < 3 ? ['not yet'] : []), { tries: 5, wait: 7, sleep }), []);
   assert.equal(n, 3);
@@ -317,7 +321,7 @@ test('an unsigned dry run reports the certificate checks as skip, and a release 
 });
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
-const publishCli = (args, env = {}) => spawnSync(process.execPath, [join(HERE, 'build', 'publish.mjs'), ...args],
+const publishCli = (args: string[], env: Record<string, string> = {}) => spawnSync(process.execPath, [join(HERE, 'build', 'publish.ts'), ...args],
   { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, GITHUB_ACTIONS: '', ...env } });
 
 test('--ci runs only where GitHub Actions says it runs, and drops only the terminal guard', () => {
@@ -349,7 +353,7 @@ test('--ci runs only where GitHub Actions says it runs, and drops only the termi
 
 // A Nightly as the Plan job plans it, and the build's plan file for it.
 const PLANNED = { version: '0.2.1-nightly.20261112.1', channel: 'nightly', tag: 'v0.2.1-nightly.20261112.1', from: null, due: true, commit: 'a'.repeat(40), title: 'Yes Chef (Nightly) 0.2.1-nightly.20261112.1', repo: 'ddmirolli/yeschef', plannedAt: '2026-11-12T08:23:00.000Z' };
-const builtFiles = (version) => releaseFiles(version).map((name) => ({ name, path: name, size: 1, sha512: 'x' }));
+const builtFiles = (version: string) => releaseFiles(version).map((name) => ({ name, path: name, size: 1, sha512: 'x' }));
 const BUILT = { ...PLANNED, built: '2026-11-12T08:40:00.000Z', files: builtFiles(PLANNED.version) };
 
 test('publish in Actions takes the plan from the Plan job; the build adds only its time and files', () => {
@@ -392,7 +396,8 @@ test('publish --ci needs the Plan job\'s plan and stops on a changed one, before
 function releaseWorkflow() {
   const yml = readFileSync(join(HERE, '..', '.github', 'workflows', 'release.yml'), 'utf8');
   const code = yml.split('\n').filter((l) => !l.trimStart().startsWith('#')).join('\n');
-  const jobs = Object.fromEntries(code.split('\njobs:\n')[1].split(/\n(?=  [a-z][a-z-]*:\n)/).map((b) => [b.match(/^ {2}([a-z-]+):/)[1], b]));
+  // The jobs by name: 'plan', 'approve', 'build', 'publish', 'signing-check'.
+  const jobs: { [name: string]: string } & Record<'plan' | 'approve' | 'build' | 'publish' | 'signing-check', string> = Object.fromEntries(code.split('\njobs:\n')[1]!.split(/\n(?=  [a-z][a-z-]*:\n)/).map((b) => [b.match(/^ {2}([a-z-]+):/)![1], b]));
   return { code, jobs };
 }
 
@@ -404,8 +409,8 @@ test('release.yml: one secret, read only in the release Environment', () => {
   for (const line of code.split('\n').filter((l) => /\buses:/.test(l))) assert.match(line, /@[0-9a-f]{40} # v\d/, line);
   // The token is the only secret, and only the two load steps get it.
   assert.deepEqual(code.match(/secrets\.[A-Za-z_]+/g), ['secrets.OP_SERVICE_ACCOUNT_TOKEN', 'secrets.OP_SERVICE_ACCOUNT_TOKEN']);
-  for (const name of ['build', 'signing-check']) assert.match(jobs[name], /OP_SERVICE_ACCOUNT_TOKEN: \$\{\{ secrets\.OP_SERVICE_ACCOUNT_TOKEN \}\}\n\s+run: bash desktop\/build\/ci-signing\.sh load/);
-  for (const name of ['plan', 'approve', 'publish']) assert.doesNotMatch(jobs[name], /secrets\./, name);
+  for (const name of ['build', 'signing-check'] as const) assert.match(jobs[name], /OP_SERVICE_ACCOUNT_TOKEN: \$\{\{ secrets\.OP_SERVICE_ACCOUNT_TOKEN \}\}\n\s+run: bash desktop\/build\/ci-signing\.sh load/);
+  for (const name of ['plan', 'approve', 'publish'] as const) assert.doesNotMatch(jobs[name], /secrets\./, name);
   // Build names `release` only off pull requests and dry runs; signing-check always names it; approve names `stable`.
   assert.match(jobs.build, /name: \$\{\{ github\.event_name != 'pull_request' && inputs\.channel != 'dry-run' && 'release' \|\| '' \}\}/);
   assert.match(jobs['signing-check'], /environment:\n\s+name: release\n/);
@@ -424,18 +429,18 @@ test('release.yml: one secret, read only in the release Environment', () => {
 // really plans. A text match missed that a Stable's channel is `latest`, not `stable`; this cannot.
 test('release.yml: a signed Stable builds and publishes only after Dan approves it; Nightly runs by itself', () => {
   const { jobs } = releaseWorkflow();
-  const cond = (name) => jobs[name].match(/\n {4}if: (?:\$\{\{ )?(.+?)(?: \}\})?\n/)[1];
+  const cond = (name: string) => jobs[name]!.match(/\n {4}if: (?:\$\{\{ )?(.+?)(?: \}\})?\n/)![1]!;
   // GitHub's expressions here use only '...', ==, !=, &&, ||, !, ( ) and cancelled(), so JavaScript can run them.
-  const evaluate = (expr, ctx) => {
+  const evaluate = (expr: string, ctx: { needs: unknown; github: unknown; inputs: unknown }): boolean => {
     assert.doesNotMatch(expr, /[^\w\s.'!=&|()-]/, `an expression this test cannot run: ${expr}`);
     return Function('needs', 'github', 'inputs', 'cancelled', `return (${expr.replace(/[!=]=/g, '$&=')});`)(ctx.needs, ctx.github, ctx.inputs, () => false);
   };
   // Which of approve, build and publish run, with Dan's answer when approve asks.
-  const flow = ({ event, input = '', channel, due = 'true', answer = 'success' }) => {
+  const flow = ({ event, input = '', channel, due = 'true', answer = 'success' }: { event: string; input?: string; channel: string; due?: string; answer?: string }) => {
     const github = { event_name: event };
     const inputs = { channel: input };
-    const needs = { plan: { result: 'success', outputs: { due, channel } } };
-    const ran = { plan: evaluate(cond('plan'), { needs, github, inputs }), check: evaluate(cond('signing-check'), { needs, github, inputs }) };
+    const needs: Record<string, { result: string; outputs?: object }> = { plan: { result: 'success', outputs: { due, channel } } };
+    const ran: { plan: boolean; check: boolean; approve?: boolean; build?: boolean; publish?: boolean } = { plan: evaluate(cond('plan'), { needs, github, inputs }), check: evaluate(cond('signing-check'), { needs, github, inputs }) };
     ran.approve = ran.plan && evaluate(cond('approve'), { needs, github, inputs });
     needs.approve = { result: ran.approve ? answer : 'skipped' };
     ran.build = evaluate(cond('build'), { needs, github, inputs });
@@ -448,7 +453,7 @@ test('release.yml: a signed Stable builds and publishes only after Dan approves 
   const dryStable = pickRelease({ arg: 'dry-run', pkgVersion: '0.1.0', releases: [], date: NOW, dryRunVersion: '0.2.0' }).channel;
   const dryNightly = pickRelease({ arg: 'dry-run', pkgVersion: '0.1.0', releases: [], date: NOW }).channel;
   assert.notEqual(stable, nightly);
-  const runs = (r) => ['plan', 'approve', 'build', 'publish', 'check'].filter((k) => r[k]);
+  const runs = (r: Partial<Record<string, boolean>>) => ['plan', 'approve', 'build', 'publish', 'check'].filter((k) => r[k]);
 
   // A Stable waits for Dan: approved, it builds and publishes; rejected, nothing runs after approve.
   assert.deepEqual(runs(flow({ event: 'workflow_dispatch', input: 'stable', channel: stable })), ['plan', 'approve', 'build', 'publish']);
@@ -481,7 +486,7 @@ test('ci-signing.sh masks each line of a secret, so no line of a multiline value
   const file = join(HERE, 'build', 'ci-signing.sh');
   // Every mask goes through mask(): one workflow command in the whole script.
   assert.equal(readFileSync(file, 'utf8').split('add-mask').length - 1, 1);
-  const mask = (value) => spawnSync('/bin/bash', ['-c', 'src=$(sed -n \'/^mask() {$/,/^}$/p\' "$1"); eval "$src"; mask "$2"', 'mask', file, value], { encoding: 'utf8' });
+  const mask = (value: string) => spawnSync('/bin/bash', ['-c', 'src=$(sed -n \'/^mask() {$/,/^}$/p\' "$1"); eval "$src"; mask "$2"', 'mask', file, value], { encoding: 'utf8' });
   const r = mask('first\nsec%0Aond\r\n\n  third  ');
   assert.equal(r.status, 0, r.stderr);
   // "%" and the carriage return escaped as the runner expects; the blank line skipped; spaces kept.

@@ -1,10 +1,20 @@
 // What a Yes Chef build must be, and the checks that prove it (docs/desktop-release-plan-v0_1.md, sections 2 and 3).
-// build/package.mjs builds with these settings and runs the checks; `npm run check -- <app or dmg>` runs them alone.
-// The pure parts (identity choice, fuse states, the feed rewrite) are tested in desktop/release.test.mjs.
+// build/package.ts builds with these settings and runs the checks; `npm run check -- <app or dmg>` runs them alone.
+// The pure parts (identity choice, fuse states, the feed rewrite) are tested in desktop/release.test.ts.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { closeSync, lstatSync, openSync, readFileSync, readSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
+
+/** One check's result, as report prints it. `skipped` marks a check an unsigned dry run cannot run. */
+export interface Result { name: string; ok: boolean; detail: string; skipped?: boolean }
+/** A signing identity in the keychain. */
+export interface Identity { hash: string; name: string; kind: 'developer-id' | 'development' }
+/** What a build must be (build/package.ts): its bundle ID, name, version, channel, update cache, feed and files. */
+export interface Expected {
+  appId: string; name: string; version: string; channel: string; pkg: string;
+  feed: { readonly provider: string; readonly owner: string; readonly repo: string }; dmg: string; zip: string;
+}
 
 // Dan's personal Apple team (ruling 2026-11-09). Every signature, local or released, must carry it: the Keychain
 // ties "Yes Chef Safe Storage" to this Team ID, so the saved sign-in survives updates.
@@ -15,8 +25,8 @@ export const MIN_MACOS = '13.0';
 
 // electron-builder's targets. On the Mac it writes app-update.yml, the updater's settings, only for a dmg or zip
 // target (app-builder-lib, PublishManager), so `npm run app` builds the ZIP too: a `dir` build has no updates.
-export const targetsFor = ({ dist }) => (dist ? ['dmg', 'zip'] : ['zip']);
-export const writesAppUpdate = (targets) => targets.some((t) => t === 'dmg' || t === 'zip');
+export const targetsFor = ({ dist }: { dist: boolean }): string[] => (dist ? ['dmg', 'zip'] : ['zip']);
+export const writesAppUpdate = (targets: readonly string[]): boolean => targets.some((t) => t === 'dmg' || t === 'zip');
 
 // The fuses (section 3), as electron-builder's `electronFuses` takes them. It flips them right before signing.
 export const FUSES = {
@@ -30,29 +40,29 @@ export const FUSES = {
 };
 // The same, by position in Electron's fuse wire, as read back from a built app: 49 is on, 48 is off.
 // Fuses not named here (6, the browser-only V8 snapshot; 8 and on, newer than @electron/fuses 1.8.0) keep Electron's default.
-export const FUSE_WIRE = { 0: 48, 1: 49, 2: 48, 3: 48, 4: 49, 5: 49, 7: 48 };
+export const FUSE_WIRE: Readonly<Record<number, number>> = { 0: 48, 1: 49, 2: 48, 3: 48, 4: 49, 5: 49, 7: 48 };
 const FUSE_NAMES = ['RunAsNode', 'EnableCookieEncryption', 'EnableNodeOptionsEnvironmentVariable', 'EnableNodeCliInspectArguments',
   'EnableEmbeddedAsarIntegrityValidation', 'OnlyLoadAppFromAsar', 'LoadBrowserProcessSpecificV8Snapshot', 'GrantFileProtocolExtraPrivileges'];
-const onOff = (v) => (v === 49 ? 'on' : v === 48 ? 'off' : `state ${v}`);
+const onOff = (v: unknown) => (v === 49 ? 'on' : v === 48 ? 'off' : `state ${v}`);
 
 /** The fuses in `wire` (from @electron/fuses getCurrentFuseWire) that differ from FUSE_WIRE, as readable lines. */
-export function fuseProblems(wire) {
+export function fuseProblems(wire: Readonly<Record<string, unknown>>): string[] {
   return Object.entries(FUSE_WIRE)
     .filter(([i, want]) => wire[i] !== want)
-    .map(([i, want]) => `${FUSE_NAMES[i]} is ${onOff(wire[i])}, should be ${onOff(want)}`);
+    .map(([i, want]) => `${FUSE_NAMES[Number(i)]} is ${onOff(wire[i])}, should be ${onOff(want)}`);
 }
 
 /**
  * The signing identities in `security find-identity -v -p codesigning` output that can sign Yes Chef:
  * Developer ID Application and Apple Development, as { hash, name, kind }.
  */
-export function identities(found) {
-  const ids = [];
+export function identities(found: unknown): Identity[] {
+  const ids: Identity[] = [];
   for (const line of String(found).split('\n')) {
     const m = /^\s*\d+\)\s+([0-9A-F]{40})\s+"(.+)"\s*$/.exec(line);
     if (!m) continue;
-    const kind = m[2].startsWith('Developer ID Application: ') ? 'developer-id' : m[2].startsWith('Apple Development: ') ? 'development' : null;
-    if (kind) ids.push({ hash: m[1], name: m[2], kind });
+    const kind = m[2]!.startsWith('Developer ID Application: ') ? 'developer-id' : m[2]!.startsWith('Apple Development: ') ? 'development' : null;
+    if (kind) ids.push({ hash: m[1]!, name: m[2]!, kind });
   }
   return ids;
 }
@@ -62,20 +72,20 @@ export function identities(found) {
  * A release takes only Developer ID Application. A build for this Mac takes Developer ID if there is one, else
  * Apple Development; both keep the Keychain's trust. `want` (YESCHEF_SIGN_IDENTITY) narrows the choice by hash or name.
  */
-export function pickIdentity(found, { release = false, want = '', teamOf }) {
+export function pickIdentity(found: unknown, { release = false, want = '', teamOf }: { release?: boolean; want?: string; teamOf: (hash: string) => string | null }): Identity | null {
   const pool = identities(found)
     .filter((id) => !want || id.hash === want.toUpperCase() || id.name.includes(want))
     .filter((id) => teamOf(id.hash) === TEAM_ID);
   return pool.find((id) => id.kind === 'developer-id') || (release ? null : pool.find((id) => id.kind === 'development')) || null;
 }
 
-const sh = (cmd, args, input) => {
+const sh = (cmd: string, args: string[], input?: string) => {
   const r = spawnSync(cmd, args, { encoding: 'utf8', input, maxBuffer: 64 * 1024 * 1024 });
   return { ok: r.status === 0, out: `${r.stdout || ''}${r.stderr || ''}`, stdout: r.stdout || '' };
 };
 
 /** The Team ID (the certificate's OU) of the keychain certificate with this SHA-1 hash, or null. */
-export function teamOf(hash) {
+export function teamOf(hash: string): string | null {
   // Each certificate prints as a "SHA-1 hash:" line, then its PEM.
   const all = sh('/usr/bin/security', ['find-certificate', '-a', '-Z', '-p']).stdout;
   const at = all.indexOf(`SHA-1 hash: ${hash}`);
@@ -87,7 +97,7 @@ export function teamOf(hash) {
 }
 
 /** `text` as an extended regular expression that matches only itself, for `pgrep -f`. */
-export function literalPattern(text) {
+export function literalPattern(text: string): string {
   return text.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
 }
 
@@ -96,12 +106,12 @@ export function literalPattern(text) {
  * unescaped, the parentheses of "Yes Chef (Nightly).app" form a group and a running Nightly goes unseen (PR-Agent r1
  * on #66). Only pgrep's "no match" (exit 1) counts as not running; an error counts as running, so nothing is replaced.
  */
-export function runningFrom(bundle) {
+export function runningFrom(bundle: string): boolean {
   return spawnSync('/usr/bin/pgrep', ['-f', literalPattern(`${bundle}/Contents/MacOS/`)], { stdio: 'ignore' }).status !== 1;
 }
 
 /** sha512 as base64, the form electron-builder writes in latest-mac.yml. */
-export function sha512(file) {
+export function sha512(file: string): string {
   return createHash('sha512').update(readFileSync(file)).digest('base64');
 }
 
@@ -110,14 +120,14 @@ export function sha512(file) {
  * The feed is electron-builder's own simple YAML: a `files:` list of `- url:` items, then a top-level `path:` and
  * `sha512:` for the first file. Throws when `url` is not listed, so a renamed file never leaves a stale entry.
  */
-export function rewriteFeed(yml, url, { sha512: sum, size }) {
+export function rewriteFeed(yml: string, url: string, { sha512: sum, size }: { sha512: string; size: number }): string {
   const lines = yml.split('\n');
   const start = lines.indexOf(`  - url: ${url}`);
   if (start < 0) throw new Error(`latest-mac.yml lists no ${url}`);
   let set = 0;
-  for (let i = start + 1; i < lines.length && /^ {4}\S/.test(lines[i]); i++) {
-    if (lines[i].startsWith('    sha512: ')) { lines[i] = `    sha512: ${sum}`; set++; }
-    else if (lines[i].startsWith('    size: ')) { lines[i] = `    size: ${size}`; set++; }
+  for (let i = start + 1; i < lines.length && /^ {4}\S/.test(lines[i]!); i++) {
+    if (lines[i]!.startsWith('    sha512: ')) { lines[i] = `    sha512: ${sum}`; set++; }
+    else if (lines[i]!.startsWith('    size: ')) { lines[i] = `    size: ${size}`; set++; }
   }
   if (set !== 2) throw new Error(`latest-mac.yml: ${url} needs one sha512 and one size`);
   // The top-level path and sha512 describe the first file; they change only when that file is this one.
@@ -133,8 +143,8 @@ export function rewriteFeed(yml, url, { sha512: sum, size }) {
 const ALLOWED = ['com.apple.security.cs.allow-jit'];
 
 /** Every Mach-O file in a bundle (by its magic number, not its name), skipping symlinks such as Versions/Current. */
-export function machOFiles(dir) {
-  const out = [];
+export function machOFiles(dir: string): string[] {
+  const out: string[] = [];
   const magic = new Set(['cffaedfe', 'cefaedfe', 'feedfacf', 'feedface', 'cafebabe', 'bebafeca']);
   for (const name of readdirSync(dir)) {
     const p = join(dir, name);
@@ -151,7 +161,7 @@ export function machOFiles(dir) {
 }
 
 /** The entitlement keys in `codesign -d --entitlements - --xml` output. */
-export const entitlementKeys = (xml) => [...String(xml).matchAll(/<key>([^<]+)<\/key>/g)].map((m) => m[1]);
+export const entitlementKeys = (xml: unknown): string[] => [...String(xml).matchAll(/<key>([^<]+)<\/key>/g)].map((m) => m[1]!);
 
 // Why an unsigned dry run skips a check (see `signed` below).
 const AD_HOC = 'ad hoc signature: only a certificate build can pass this';
@@ -164,11 +174,11 @@ const AD_HOC = 'ad hoc signature: only a certificate build can pass this';
  * reported as skipped, not passed. A release is always signed.
  * Returns a list of { name, ok, detail, skipped? }.
  */
-export async function checkApp(app, { release = false, signed = true } = {}) {
+export async function checkApp(app: string, { release = false, signed = true }: { release?: boolean; signed?: boolean } = {}): Promise<Result[]> {
   if (release && !signed) throw new Error('A release build is always signed.');
-  const results = [];
-  const add = (name, ok, detail = '') => results.push({ name, ok, detail: detail.trim() });
-  const skip = (name) => results.push({ name, ok: true, skipped: true, detail: AD_HOC });
+  const results: Result[] = [];
+  const add = (name: string, ok: boolean, detail = '') => results.push({ name, ok, detail: detail.trim() });
+  const skip = (name: string) => results.push({ name, ok: true, skipped: true, detail: AD_HOC });
   const verify = sh('/usr/bin/codesign', ['--verify', '--deep', '--strict', '--verbose=2', app]);
   add('codesign --verify --deep --strict', verify.ok, verify.ok ? '' : verify.out);
   const info = sh('/usr/bin/codesign', ['-dvvv', app]).out;
@@ -185,7 +195,7 @@ export async function checkApp(app, { release = false, signed = true } = {}) {
   const keys = entitlementKeys(sh('/usr/bin/codesign', ['-d', '--entitlements', '-', '--xml', app]).stdout);
   add('entitlements: allow-jit only', keys.length === 1 && keys[0] === ALLOWED[0], keys.join(', ') || 'none');
   // Every helper, framework and library too (PR-Agent r1 on #64): --deep verifies signatures, not this policy.
-  const loose = [];
+  const loose: string[] = [];
   const files = machOFiles(join(app, 'Contents'));
   for (const file of files) {
     const name = relative(app, file);
@@ -213,10 +223,10 @@ export async function checkApp(app, { release = false, signed = true } = {}) {
  * installer packages) and the stapled ticket. electron-builder leaves an ad hoc build's DMG unsigned, so with
  * `signed: false` (as for checkApp) the two signature checks are reported as skipped.
  */
-export function checkDmg(dmg, { release = true, signed = true } = {}) {
+export function checkDmg(dmg: string, { release = true, signed = true }: { release?: boolean; signed?: boolean } = {}): Result[] {
   if (release && !signed) throw new Error('A release build is always signed.');
-  const results = [];
-  const add = (name, ok, detail = '') => results.push({ name, ok, detail: detail.trim() });
+  const results: Result[] = [];
+  const add = (name: string, ok: boolean, detail = '') => results.push({ name, ok, detail: detail.trim() });
   if (signed) {
     // Verify the signature, not only read it (PR-Agent r1 on #64): -d prints a signer even for changed bytes.
     const verify = sh('/usr/bin/codesign', ['--verify', '--strict', '--verbose=2', dmg]);
@@ -238,11 +248,11 @@ export function checkDmg(dmg, { release = true, signed = true } = {}) {
 }
 
 /** The top-level `key: value` lines of electron-builder's simple YAML (app-update.yml, the feed), quotes removed. */
-export function topLevel(yml) {
-  const out = {};
+export function topLevel(yml: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
   for (const line of String(yml).split('\n')) {
     const m = /^([A-Za-z][\w]*): ?(.*)$/.exec(line);
-    if (m) out[m[1]] = m[2].replace(/^'(.*)'$/, '$1').replace(/^"(.*)"$/, '$1');
+    if (m) out[m[1]!] = m[2]!.replace(/^'(.*)'$/, '$1').replace(/^"(.*)"$/, '$1');
   }
   return out;
 }
@@ -252,7 +262,7 @@ export function topLevel(yml) {
  * repo, and an update cache named after this channel's package, so Stable and Nightly never share one.
  * `expected` is { feed: { provider, owner, repo }, pkg, channel }. Returns the problems, empty when right.
  */
-export function appUpdateProblems(yml, expected) {
+export function appUpdateProblems(yml: string, expected: Pick<Expected, 'feed' | 'pkg' | 'channel'>): string[] {
   const got = topLevel(yml);
   const want = { ...expected.feed, updaterCacheDirName: `${expected.pkg}-updater` };
   const problems = Object.entries(want).filter(([k, v]) => got[k] !== v).map(([k, v]) => `${k} is ${got[k] ?? 'missing'}, should be ${v}`);
@@ -264,10 +274,10 @@ export function appUpdateProblems(yml, expected) {
  * What the update feed must say (latest-mac.yml or nightly-mac.yml): this version, the ZIP the updater downloads as
  * its main file, and the DMG. `expected` is { version, zip, dmg }.
  */
-export function feedProblems(yml, expected) {
+export function feedProblems(yml: string, expected: Pick<Expected, 'version' | 'zip' | 'dmg'>): string[] {
   const got = topLevel(yml);
-  const urls = [...String(yml).matchAll(/^ {2}- url: (.+)$/gm)].map((m) => m[1].trim());
-  const problems = [];
+  const urls = [...String(yml).matchAll(/^ {2}- url: (.+)$/gm)].map((m) => m[1]!.trim());
+  const problems: string[] = [];
   if (got.version !== expected.version) problems.push(`version is ${got.version ?? 'missing'}, should be ${expected.version}`);
   if (got.path !== expected.zip) problems.push(`path is ${got.path ?? 'missing'}, should be ${expected.zip}`);
   for (const f of [expected.zip, expected.dmg]) if (!urls.includes(f)) problems.push(`no entry for ${f}`);
@@ -276,12 +286,12 @@ export function feedProblems(yml, expected) {
 
 /**
  * The checks that tell Stable and Nightly apart in a built app: bundle ID, name, version and update settings.
- * `expected` is { appId, name, version, channel, pkg, feed } (build/package.mjs).
+ * `expected` is { appId, name, version, channel, pkg, feed } (build/package.ts).
  */
-export function checkBuild(app, expected) {
-  const results = [];
-  const add = (name, ok, detail = '') => results.push({ name, ok, detail: detail.trim() });
-  let plist = {};
+export function checkBuild(app: string, expected: Omit<Expected, 'dmg' | 'zip'>): Result[] {
+  const results: Result[] = [];
+  const add = (name: string, ok: boolean, detail = '') => results.push({ name, ok, detail: detail.trim() });
+  let plist: Record<string, unknown> = {};
   try { plist = JSON.parse(sh('/usr/bin/plutil', ['-convert', 'json', '-o', '-', join(app, 'Contents', 'Info.plist')]).stdout); } catch { plist = {}; }
   add(`bundle ID ${expected.appId}`, plist.CFBundleIdentifier === expected.appId, `CFBundleIdentifier=${plist.CFBundleIdentifier || 'none'}`);
   add(`name ${expected.name}`, plist.CFBundleName === expected.name && plist.CFBundleDisplayName === expected.name,
@@ -295,7 +305,7 @@ export function checkBuild(app, expected) {
 }
 
 /** The feed file's checks (feedProblems), as results. */
-export function checkFeed(file, expected) {
+export function checkFeed(file: string, expected: Pick<Expected, 'version' | 'zip' | 'dmg'>): Result[] {
   let yml = '';
   try { yml = readFileSync(file, 'utf8'); } catch { yml = ''; }
   const bad = yml ? feedProblems(yml, expected) : [`no ${file}`];
@@ -303,10 +313,10 @@ export function checkFeed(file, expected) {
 }
 
 /** One result as a line: ok, FAIL, or skip for a check an unsigned dry run cannot run. */
-export const resultLine = (r) => `${r.skipped ? 'skip' : r.ok ? 'ok  ' : 'FAIL'} ${r.name}${r.detail ? `: ${r.detail.split('\n').join(' | ')}` : ''}`;
+export const resultLine = (r: Result): string => `${r.skipped ? 'skip' : r.ok ? 'ok  ' : 'FAIL'} ${r.name}${r.detail ? `: ${r.detail.split('\n').join(' | ')}` : ''}`;
 
 /** Print results; true when every check passed or was skipped. */
-export function report(results) {
+export function report(results: readonly Result[]): boolean {
   for (const r of results) console.log(resultLine(r));
   return results.every((r) => r.ok);
 }

@@ -190,7 +190,7 @@ Scope addition, Dan, 2026-11-10: "also add switching to a quick action in the co
 ## Shortcuts
 
 PR 4. Settings → Shortcuts, as in mock v3's Shortcuts tab. Code: `client/keys.ts` (the commands, key names, routing
-and clashes), tested in `client/keys.test.ts`. The Mac app's file: `desktop/keybindings.mjs`.
+and clashes), tested in `client/keys.test.ts`. The Mac app's file: `desktop/keybindings.ts`.
 
 - **The list.** One row per command, in two groups: App and On a call. Each row shows its keys as keycaps, with
   Change on the right. The search field on top filters by name, line or key. A third group, Fixed, lists the keys that

@@ -1,15 +1,18 @@
-// Settings → Shortcuts' file on the Mac. Run: node --test desktop/keybindings.test.mjs
-import test from 'node:test';
+// Settings → Shortcuts' file on the Mac. Run: npm test --prefix desktop -- keybindings.test.ts
+import { test } from 'vite-plus/test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { MAX_ENTRIES, cleanKeybindings, ensureKeybindings, readKeybindings, syncKeybindings, writeKeybindings } from './keybindings.mjs';
+import { MAX_ENTRIES, cleanKeybindings, ensureKeybindings, readKeybindings, syncKeybindings, writeKeybindings } from './keybindings.ts';
 import { keysCore } from '../client/keys.ts';
+import { nth } from '../client/test/expect.ts';
 
 const DEFAULTS = keysCore(true).defaultList();
 
 const dir = () => mkdtempSync(join(tmpdir(), 'yc-keys-'));
+/** The error a result carries, or the test fails. */
+const errorOf = (r: { error?: string | undefined }): string => { assert.ok(r.error !== undefined, 'no error'); return r.error; };
 
 test('no file is no list yet; an empty file is an empty list', () => {
   const d = dir();
@@ -40,34 +43,34 @@ test('a file that is not JSON is named, never guessed at', () => {
   try {
     const f = join(d, 'keybindings.json');
     writeFileSync(f, '[{"key": "h",');
-    assert.match(readKeybindings(f).error, /not valid JSON/);
+    assert.match(errorOf(readKeybindings(f)), /not valid JSON/);
     writeFileSync(f, 'x'.repeat(300 * 1024));
-    assert.match(readKeybindings(f).error, /larger than 256 KB/);
+    assert.match(errorOf(readKeybindings(f)), /larger than 256 KB/);
   } finally { rmSync(d, { recursive: true, force: true }); }
 });
 
 test('only a list of commands with short text fields is saved; other fields are kept as written', () => {
-  assert.match(cleanKeybindings({}).error, /must be a list/);
-  assert.match(cleanKeybindings(Array(MAX_ENTRIES + 1).fill({ command: 'x' })).error, /at most 500/);
-  assert.match(cleanKeybindings([{ key: 'h' }]).error, /needs a command/);
-  assert.match(cleanKeybindings(['h']).error, /needs a command/);
-  assert.match(cleanKeybindings([{ key: 7, command: 'x' }]).error, /key must be text/);
-  assert.match(cleanKeybindings([{ key: 'k'.repeat(201), command: 'x' }]).error, /at most 200/);
+  assert.match(errorOf(cleanKeybindings({})), /must be a list/);
+  assert.match(errorOf(cleanKeybindings(Array(MAX_ENTRIES + 1).fill({ command: 'x' }))), /at most 500/);
+  assert.match(errorOf(cleanKeybindings([{ key: 'h' }])), /needs a command/);
+  assert.match(errorOf(cleanKeybindings(['h'])), /needs a command/);
+  assert.match(errorOf(cleanKeybindings([{ key: 7, command: 'x' }])), /key must be text/);
+  assert.match(errorOf(cleanKeybindings([{ key: 'k'.repeat(201), command: 'x' }])), /at most 200/);
   // Inherited fields are never read; an own field another app wrote stays, as JSON.
   assert.deepEqual(cleanKeybindings([{ key: 'h', command: 'x', args: { a: 1 }, __proto__: { when: 'y' } }]), { list: [{ key: 'h', command: 'x', args: { a: 1 } }] });
   const odd = JSON.parse('[{"command":"x","__proto__":{"p":1},"skip":null}]');
-  const kept = cleanKeybindings(odd).list[0];
+  const kept = nth(cleanKeybindings(odd).list);
   assert.equal(Object.getPrototypeOf(kept), Object.prototype, 'a __proto__ field never becomes the prototype');
   assert.equal(JSON.stringify(kept), '{"command":"x","__proto__":{"p":1},"skip":null}');
   assert.deepEqual(cleanKeybindings([{ command: 'x', f() {} }]), { list: [{ command: 'x' }] }, 'nothing that is not JSON');
   const d = dir();
   try {
     const f = join(d, 'keybindings.json');
-    assert.match(writeKeybindings(f, 'nope').error, /must be a list/);
+    assert.match(errorOf(writeKeybindings(f, 'nope')), /must be a list/);
     assert.deepEqual(readdirSync(d), [], 'a refused list writes nothing');
     // The most the cleaner lets through can still be more than the reader takes: then nothing is written either.
     const big = Array.from({ length: MAX_ENTRIES }, (_, i) => ({ key: 'k'.repeat(200), command: `c${i}`.padEnd(200, 'x'), when: 'w'.repeat(200) }));
-    assert.match(writeKeybindings(f, big).error, /larger than 256 KB/);
+    assert.match(errorOf(writeKeybindings(f, big)), /larger than 256 KB/);
     assert.deepEqual(readdirSync(d), [], 'a list too large to read back writes nothing');
     const most = big.slice(0, 100);
     assert.deepEqual(writeKeybindings(f, most), { ok: true });
@@ -119,6 +122,7 @@ test('start-up sync: the defaults of a command the file does not name go before 
     writeKeybindings(f, mine);
     assert.deepEqual(syncKeybindings(f, true), { ok: true, wrote: true });
     const list = readKeybindings(f).list;
+    assert.ok(Array.isArray(list));
     assert.deepEqual(list.slice(-2), mine, 'its entries stay last, as written, so they win');
     const added = list.slice(0, -2);
     assert.deepEqual(added, DEFAULTS.filter((e) => e.command !== 'ticket.reply' && e.command !== 'commandPalette.toggle'));
@@ -137,7 +141,7 @@ test('start-up sync leaves a file alone when Yes Chef cannot use an entry, or ca
       assert.equal(readFileSync(f, 'utf8'), text);
     }
     writeFileSync(f, '[{"key": "h",');
-    assert.match(syncKeybindings(f, true).error, /not valid JSON/);
+    assert.match(errorOf(syncKeybindings(f, true)), /not valid JSON/);
     assert.equal(readFileSync(f, 'utf8'), '[{"key": "h",');
   } finally { rmSync(d, { recursive: true, force: true }); }
 });

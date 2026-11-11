@@ -1,21 +1,25 @@
 // The board window's one bridge to the app: send an action, get [status, text] back.
-// A sandboxed preload must be CommonJS. It exposes no Electron or Node API to the page.
-const { contextBridge, ipcRenderer } = require('electron');
+// A sandboxed preload must be one CommonJS file, so this one is .cts: build/preload.ts strips its types into
+// preload.cjs, which the window loads. It exposes no Electron or Node API to the page.
+import type { ContextBridge, IpcRenderer, IpcRendererEvent } from 'electron';
+import type { Card } from './updates.ts';
+
+const { contextBridge, ipcRenderer } = require('electron') as { contextBridge: ContextBridge; ipcRenderer: IpcRenderer };
 
 contextBridge.exposeInMainWorld('yeschef', {
-  act: (body) => ipcRenderer.invoke('yeschef:act', String(body)),
+  act: (body: unknown) => ipcRenderer.invoke('yeschef:act', String(body)),
   // Appearance: 'system', 'light' or 'dark', so the window's title bar, menus and this card follow the board's choice.
-  theme: (t) => ipcRenderer.invoke('yeschef:theme', String(t)),
-  // Settings → Shortcuts: keybindings.json in the app's data folder (desktop/keybindings.mjs). Read and write the list,
+  theme: (t: unknown) => ipcRenderer.invoke('yeschef:theme', String(t)),
+  // Settings → Shortcuts: keybindings.json in the app's data folder (desktop/keybindings.ts). Read and write the list,
   // or open the file in the Mac's editor for .json.
   keys: {
     read: () => ipcRenderer.invoke('yeschef:keys', { op: 'read' }),
-    write: (list) => ipcRenderer.invoke('yeschef:keys', { op: 'write', list }),
+    write: (list: unknown) => ipcRenderer.invoke('yeschef:keys', { op: 'write', list }),
     open: () => ipcRenderer.invoke('yeschef:keys', { op: 'open' }),
   },
 });
 
-// The app's own card (desktop/updates.mjs): an update, or the one-time offer to move to Applications. The app sends
+// The app's own card (desktop/updates.ts): an update, or the one-time offer to move to Applications. The app sends
 // its text; this draws it over whatever page the window shows (the board, or a waiting page) and sends back which
 // button was clicked. It lives outside <body> in its own shadow root, so the board's styles and scripts never touch it.
 const CSS = `
@@ -41,15 +45,15 @@ button.p{background:var(--accent,#0071E3);color:#fff}
 button:focus-visible{outline:2px solid var(--accent,#0071E3);outline-offset:2px}
 `;
 
-let host = null;
-function draw(card) {
+let host: HTMLElement | null = null;
+function draw(card: Card | null) {
   if (!card) { if (host) { host.remove(); host = null; } return; }
   if (!host) {
     host = document.createElement('yeschef-card');
     host.attachShadow({ mode: 'open' });
   }
   if (!host.isConnected) document.documentElement.appendChild(host);
-  const root = host.shadowRoot;
+  const root = host.shadowRoot!;
   root.textContent = '';
   const style = document.createElement('style');
   style.textContent = CSS;
@@ -66,8 +70,8 @@ function draw(card) {
   else {
     const v = document.createElement('span');
     v.className = 'v';
-    v.textContent = card.version;
-    title.append(card.title.slice(0, at), v, card.title.slice(at + card.version.length));
+    v.textContent = card.version!;
+    title.append(card.title.slice(0, at), v, card.title.slice(at + card.version!.length));
   }
   box.appendChild(title);
   if (card.body) {
@@ -101,7 +105,7 @@ function draw(card) {
   root.append(style, box);
 }
 
-ipcRenderer.on('yeschef:card', (_event, card) => draw(card));
+ipcRenderer.on('yeschef:card', (_event: IpcRendererEvent, card: Card | null) => draw(card));
 // Each page load starts without the card: ask for the current one.
 const ask = () => ipcRenderer.invoke('yeschef:card', null).then(draw).catch(() => {});
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ask, { once: true });

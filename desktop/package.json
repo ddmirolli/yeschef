@@ -5,15 +5,16 @@
   "version": "0.1.0",
   "description": "Yes Chef for the desktop: The Pass, signed in to the T3 Code on this machine.",
   "type": "module",
-  "main": "main.mjs",
+  "main": "main.ts",
   "scripts": {
-    "start": "electron .",
-    "capture": "electron . --capture",
-    "app": "node build/package.mjs",
-    "dist": "node build/package.mjs --dist",
-    "check": "node build/check.mjs",
+    "start": "node build/preload.ts && electron .",
+    "capture": "node build/preload.ts && electron . --capture",
+    "app": "node build/package.ts",
+    "dist": "node build/package.ts --dist",
+    "check": "node build/check.ts",
     "release": "zsh build/release.zsh",
-    "test": "node --test *.test.mjs"
+    "typecheck": "effect-tsgo tsrs --noEmit",
+    "test": "vp test run --config ../vite.config.ts --dir ."
   },
   "devDependencies": {
     "@electron/fuses": "1.8.0",

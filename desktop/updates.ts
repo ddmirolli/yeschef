@@ -4,14 +4,76 @@
 //   - The first check runs 15 seconds after start, then one every 4 minutes.
 //   - Nothing downloads on its own (autoDownload off) and nothing installs on quit (autoInstallOnAppQuit off).
 //     The user starts the download, then picks Restart, or When I Quit, which is the only way install on quit turns on.
-//   - Stable takes only Stable releases; Nightly only Nightly releases (channels.mjs). Never an older version.
+//   - Stable takes only Stable releases; Nightly only Nightly releases (channels.ts). Never an older version.
 //
-// No Electron import here: main.mjs passes in electron-updater's autoUpdater, Electron's own (Squirrel.Mac) autoUpdater
-// and the app, so the rules below run under `node --test` with stand-ins (desktop/updates.test.mjs).
+// No Electron import here: main.ts passes in electron-updater's autoUpdater, Electron's own (Squirrel.Mac) autoUpdater
+// and the app, so the rules below run under vitest with stand-ins (desktop/updates.test.ts).
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { CHANNELS, channelOf } from './channels.mjs';
+import type { OutgoingHttpHeaders } from 'node:http';
+import { CHANNELS, channelOf } from './channels.ts';
+import type { ChannelName } from './channels.ts';
+
+/** Where the updater is: off, idle, checking, an update available, downloading, ready to install, current, or failed. */
+export type UpdateStatus = 'off' | 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'current' | 'error';
+export interface UpdateState {
+  status: UpdateStatus; version?: string | undefined; percent?: number; manual?: boolean; hidden?: boolean; onQuit?: boolean; message?: string;
+}
+export interface CardButton { id: string; label: string; primary?: boolean }
+/** The update card's copy. The preload draws it. */
+export interface Card { id: string; version?: string | undefined; title: string; body: string; progress?: number; buttons: CardButton[] }
+export interface MenuItem { id?: string; label: string; enabled?: boolean; toolTip?: string | undefined }
+/** What the card and the menu read besides the state. */
+export interface CardContext { name: string; current?: string; inPlace?: boolean }
+
+/** electron-updater's autoUpdater, as this file uses it (a MacUpdater; the tests pass a stand-in). */
+export interface Updater {
+  logger: unknown; autoDownload: boolean; autoInstallOnAppQuit: boolean; channel: string | null; allowDowngrade: boolean;
+  allowPrerelease: boolean; requestHeaders: OutgoingHttpHeaders | null;
+  setFeedURL(options: { provider: 'generic'; url: string; channel: string }): void;
+  on(event: 'checking-for-update' | 'update-not-available', listener: () => void): unknown;
+  on(event: 'update-available', listener: (info: { version: string }) => void): unknown;
+  on(event: 'download-progress', listener: (progress: { percent?: unknown } | null) => void): unknown;
+  on(event: 'update-downloaded', listener: (info: { version?: string } | null) => void): unknown;
+  on(event: 'error', listener: (error: unknown) => void): unknown;
+  checkForUpdates(): unknown;
+  downloadUpdate(): unknown;
+  quitAndInstall(): void;
+}
+/** Electron's own autoUpdater (Squirrel.Mac), as this file uses it. */
+export interface Squirrel {
+  setFeedURL(options: { url: string }): void;
+  checkForUpdates(): void;
+  once(event: 'update-downloaded' | 'error', listener: () => void): unknown;
+  removeListener(event: 'update-downloaded' | 'error', listener: () => void): unknown;
+}
+/** MacUpdater's step that hands the download to Squirrel.Mac, which fileHandoff replaces. */
+interface Handoff {
+  autoInstallOnAppQuit: boolean;
+  dispatchUpdateDownloaded(event: unknown): void;
+  updateDownloaded(zipFileInfo: unknown, event: { downloadedFile: string }): Promise<unknown[]>;
+}
+/** electron-updater's logger, as the app passes it (console); the update errors go to its error. */
+export interface Logger { info?: (line: string) => void; warn?: (line: string) => void; error?: (line: string) => void; debug?: (line: string) => void }
+export interface Timers {
+  setTimeout(fn: () => void, ms: number): unknown;
+  clearTimeout(timer: unknown): void;
+  setInterval(fn: () => void, ms: number): unknown;
+  clearInterval(timer: unknown): void;
+}
+export interface Updates {
+  channel: ChannelName;
+  readonly state: UpdateState;
+  check(options?: { manual?: boolean }): void;
+  download(): void;
+  install(): void;
+  installOnQuit(): void;
+  hide(): void;
+  whenStaged(): Promise<boolean>;
+  act(id: string): void;
+  stop(): void;
+}
 
 export const FIRST_CHECK_MS = 15 * 1000;
 export const CHECK_EVERY_MS = 4 * 60 * 1000;
@@ -26,7 +88,7 @@ export const NO_ID = '00000000-0000-0000-0000-000000000000';
  * Only http on 127.0.0.1 or localhost counts; anything else is refused, so it can never move the feed off the Mac.
  * Even then Squirrel.Mac installs only a bundle signed to the running app's own code requirement.
  */
-export function feedOverride(value) {
+export function feedOverride(value: string | null | undefined): string | null {
   if (!value) return null;
   try {
     const u = new URL(value);
@@ -38,7 +100,7 @@ export function feedOverride(value) {
 }
 
 /** Squirrel.Mac cannot replace an app on a disk image or one macOS runs from a translocated copy. */
-export const canUpdateInPlace = (appPath) => !/^\/Volumes\//.test(appPath) && !appPath.includes('/AppTranslocation/');
+export const canUpdateInPlace = (appPath: string): boolean => !/^\/Volumes\//.test(appPath) && !appPath.includes('/AppTranslocation/');
 
 /**
  * electron-updater 6.8.9 hands the downloaded ZIP to Squirrel.Mac by serving it from an HTTP server on 127.0.0.1
@@ -48,9 +110,9 @@ export const canUpdateInPlace = (appPath) => !/^\/Volumes\//.test(appPath) && !a
  * Returns false, and changes nothing, when this electron-updater has no such step: the caller then turns updates off
  * rather than let the library open its port.
  */
-export function fileHandoff(updater, squirrel) {
-  if (typeof Object.getPrototypeOf(updater)?.updateDownloaded !== 'function') return false;
-  updater.updateDownloaded = async function updateDownloaded(zipFileInfo, event) {
+export function fileHandoff(updater: object, squirrel: Pick<Squirrel, 'setFeedURL' | 'checkForUpdates'>): boolean {
+  if (typeof (Object.getPrototypeOf(updater) as Partial<Handoff> | null)?.updateDownloaded !== 'function') return false;
+  (updater as Handoff).updateDownloaded = async function updateDownloaded(this: Handoff, _zipFileInfo: unknown, event: { downloadedFile: string }) {
     const feed = join(dirname(event.downloadedFile), 'squirrel-feed.json');
     writeFileSync(feed, JSON.stringify({ url: pathToFileURL(event.downloadedFile).href }), { mode: 0o600 });
     squirrel.setFeedURL({ url: pathToFileURL(feed).href });
@@ -63,18 +125,18 @@ export function fileHandoff(updater, squirrel) {
 }
 
 /** One short line from an updater error, for the card. */
-export function shortError(e) {
-  const text = String(e?.message || e || 'unknown error').split('\n')[0].trim();
+export function shortError(e: unknown): string {
+  const text = (String((e as { message?: unknown } | null | undefined)?.message || e || 'unknown error').split('\n')[0] ?? '').trim();
   if (/ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ERR_INTERNET_DISCONNECTED|net::ERR_/.test(text)) return 'No connection to the update server. Try again later.';
   return text.length > 160 ? `${text.slice(0, 157)}...` : text;
 }
 
 /**
- * The card the window shows for an update state, or null. Copy only; the preload draws it (preload.cjs), and keeps
+ * The card the window shows for an update state, or null. Copy only; the preload draws it (preload.cts), and keeps
  * `version` on one line in the title (a Nightly version would break at its hyphen).
  * `current` is the running version; `inPlace` is canUpdateInPlace for this copy.
  */
-export function cardFor(state, { name, current, inPlace = true }) {
+export function cardFor(state: UpdateState, { name, current, inPlace = true }: CardContext): Card | null {
   const v = state.version;
   switch (state.status) {
     case 'available':
@@ -102,11 +164,11 @@ export function cardFor(state, { name, current, inPlace = true }) {
 }
 
 /** The one-time offer to move the app into Applications (section 6, "Where the app runs from"). */
-export const moveCard = (name) => ({ id: 'move', title: `Move ${name} to Applications?`, body: `${name} can update itself only from the Applications folder.`,
+export const moveCard = (name: string): Card => ({ id: 'move', title: `Move ${name} to Applications?`, body: `${name} can update itself only from the Applications folder.`,
   buttons: [{ id: 'stay', label: 'Not Now' }, { id: 'move', label: 'Move', primary: true }] });
 
 /** The update items in the app menu, by state. An item with an `id` runs that action (the controller's act, or main's move). */
-export function menuFor(state, { name, inPlace = true }) {
+export function menuFor(state: UpdateState, { name, inPlace = true }: CardContext): MenuItem[] {
   const v = state.version;
   switch (state.status) {
     case 'off': return [{ label: 'Check for Updates…', enabled: false, toolTip: state.message }];
@@ -127,20 +189,23 @@ export function menuFor(state, { name, inPlace = true }) {
  *   feed      feedOverride(process.env.YESCHEF_UPDATE_FEED), or null for the GitHub feed in app-update.yml
  *   onChange  called with each new state; the card and the menu follow it
  */
-export function createUpdates({ updater, squirrel, app, version, feed = null, inPlace = true, log = console, onChange = () => {}, timers = globalThis }) {
+export function createUpdates({ updater, squirrel, app, version, feed = null, inPlace = true, log = console, onChange = () => {}, timers = globalThis }: {
+  updater: Updater; squirrel: Squirrel; app: { isPackaged: boolean }; version: string; feed?: string | null; inPlace?: boolean;
+  log?: Logger; onChange?: (state: UpdateState) => void; timers?: Timers;
+}): Updates {
   const channel = channelOf(version);
-  let state = { status: 'idle' };
-  let doing = null; // 'check' | 'download' | 'install' while one runs; a background check is 'poll'
-  let checking = null; // the check that runs now, so its end is told apart from a later one's
-  let staging = null; // When I Quit: settles true once Squirrel.Mac has the update, false if it failed to take it
-  let timer = null;
-  let poller = null;
-  const set = (next) => { state = next; onChange(state); };
-  const api = {
+  let state: UpdateState = { status: 'idle' };
+  let doing: 'check' | 'poll' | 'download' | 'install' | null = null; // while one runs; a background check is 'poll'
+  let checking: object | null = null; // the check that runs now, so its end is told apart from a later one's
+  let staging: Promise<boolean> | null = null; // When I Quit: settles true once Squirrel.Mac has the update, false if it failed to take it
+  let timer: unknown = null;
+  let poller: unknown = null;
+  const set = (next: UpdateState) => { state = next; onChange(state); };
+  const api: Updates = {
     channel,
     get state() { return state; },
     check, download, install, installOnQuit, hide, whenStaged,
-    act(id) { return ({ check: () => check({ manual: true }), download, restart: install, 'on-quit': installOnQuit, later: hide, ok: hide })[id]?.(); },
+    act(id) { const acts: Record<string, () => void> = { check: () => check({ manual: true }), download, restart: install, 'on-quit': installOnQuit, later: hide, ok: hide }; return acts[id]?.(); },
     stop() { timers.clearTimeout(timer); timers.clearInterval(poller); },
   };
 
@@ -158,7 +223,7 @@ export function createUpdates({ updater, squirrel, app, version, feed = null, in
   if (feed) updater.setFeedURL({ provider: 'generic', url: feed, channel });
 
   updater.on('checking-for-update', () => { if (doing === 'check') set({ status: 'checking', manual: true }); });
-  updater.on('update-available', (info) => {
+  updater.on('update-available', (info: { version: string }) => {
     const manual = doing === 'check';
     doing = null;
     // A background check that finds the version the card already offers keeps the card as it is (hidden or not).
@@ -171,12 +236,12 @@ export function createUpdates({ updater, squirrel, app, version, feed = null, in
     if (manual) set({ status: 'current', manual: true });
     else if (state.status === 'checking' || state.status === 'error') set({ status: 'idle' });
   });
-  updater.on('download-progress', (p) => {
+  updater.on('download-progress', (p: { percent?: unknown } | null) => {
     const percent = Math.floor(Number(p?.percent) || 0);
     if (state.status !== 'downloading' || percent !== state.percent) set({ ...state, status: 'downloading', percent });
   });
-  updater.on('update-downloaded', (info) => { doing = null; set({ status: 'ready', version: info?.version || state.version, manual: true }); });
-  updater.on('error', (e) => {
+  updater.on('update-downloaded', (info: { version?: string } | null) => { doing = null; set({ status: 'ready', version: info?.version || state.version, manual: true }); });
+  updater.on('error', (e: unknown) => {
     const was = doing;
     doing = null;
     log.error?.(`Update ${was || 'check'} failed: ${shortError(e)}`);
@@ -196,7 +261,7 @@ export function createUpdates({ updater, squirrel, app, version, feed = null, in
    * until the user acts on it, and no check holds up its Download (PR-Agent r3 on #66). A withdrawn release then fails
    * the download with its error, and the next check starts afresh.
    */
-  function check({ manual = false } = {}) {
+  function check({ manual = false }: { manual?: boolean } = {}): void {
     if (state.status === 'off') return;
     // A check by hand while an update is offered, downloading or ready shows its card again instead.
     if (['available', 'downloading', 'ready'].includes(state.status) && manual) { set({ ...state, hidden: false }); return; }
@@ -204,7 +269,7 @@ export function createUpdates({ updater, squirrel, app, version, feed = null, in
     if (manual && doing === 'poll') { doing = 'check'; set({ status: 'checking', manual: true }); return; }
     if (doing || ['available', 'downloading', 'ready'].includes(state.status)) return;
     doing = manual ? 'check' : 'poll';
-    const mine = {};
+    const mine: object = {};
     checking = mine;
     // Errors arrive as the 'error' event too; the promise's own rejection is handled there. A check that ends with no
     // event at all (electron-updater returns null when it is not active) must not block every check after it.
@@ -219,14 +284,14 @@ export function createUpdates({ updater, squirrel, app, version, feed = null, in
         if (state.status === 'checking') set({ status: 'idle' });
       });
   }
-  function download() {
+  function download(): void {
     if (state.status !== 'available' || doing) return;
     doing = 'download';
     set({ status: 'downloading', version: state.version, percent: 0, manual: true });
     Promise.resolve(updater.downloadUpdate()).catch(() => {});
   }
   /** Restart: quit, let Squirrel.Mac put the new app in place, and open it. */
-  function install() {
+  function install(): void {
     if (state.status !== 'ready') return;
     doing = 'install';
     updater.quitAndInstall();
@@ -235,12 +300,12 @@ export function createUpdates({ updater, squirrel, app, version, feed = null, in
    * When I Quit: the user's choice to install on quit. Squirrel.Mac takes the update now and installs it on the next
    * quit. Taking it (copy, unzip, check the signature) needs a moment, so a quit waits for it: see whenStaged.
    */
-  function installOnQuit() {
+  function installOnQuit(): void {
     if (state.status !== 'ready' || state.onQuit) return;
     doing = 'install';
     updater.autoInstallOnAppQuit = true;
-    staging = new Promise((resolve) => {
-      const done = (ok) => {
+    staging = new Promise<boolean>((resolve) => {
+      const done = (ok: boolean) => {
         squirrel.removeListener('update-downloaded', taken);
         squirrel.removeListener('error', failed);
         // The error itself reaches the user through electron-updater's 'error' event (the card above).
@@ -259,16 +324,16 @@ export function createUpdates({ updater, squirrel, app, version, feed = null, in
    * For main's before-quit: resolves when the quit may go on. With When I Quit chosen, that is once Squirrel.Mac has
    * the update (true) or failed to take it (false), or after STAGE_WAIT_MS (false). Otherwise at once (true).
    */
-  function whenStaged() {
+  function whenStaged(): Promise<boolean> {
     if (!staging) return Promise.resolve(true);
-    return Promise.race([staging, new Promise((resolve) => timers.setTimeout(() => resolve(false), STAGE_WAIT_MS))]);
+    return Promise.race([staging, new Promise<boolean>((resolve) => timers.setTimeout(() => resolve(false), STAGE_WAIT_MS))]);
   }
   /** Later, Hide or OK: the card goes until something changes. The menu keeps the update. */
-  function hide() {
+  function hide(): void {
     if (['current', 'error', 'checking'].includes(state.status)) set({ status: 'idle' });
     else set({ ...state, manual: false, hidden: true });
   }
 }
 
 /** The card for a state, unless the user hid it. */
-export const visibleCard = (state, ctx) => (state.hidden ? null : cardFor(state, ctx));
+export const visibleCard = (state: UpdateState, ctx: CardContext): Card | null => (state.hidden ? null : cardFor(state, ctx));

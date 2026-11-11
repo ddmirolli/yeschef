@@ -1,2 +1,4 @@
 node_modules/
 out/
+# Built from preload.cts by build/preload.ts.
+preload.cjs
