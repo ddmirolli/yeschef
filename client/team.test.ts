@@ -102,6 +102,17 @@ async function until(cond: () => unknown, what = 'the condition'): Promise<void>
   throw new Error(`timed out waiting for ${what}`);
 }
 
+/** Start a client and say when its first hello is done and its summary has gone or waits on the clock. It goes online
+ *  before both: the hello's last step sends the summary, and a relay that holds it to the limit answers later. A test
+ *  that moves the clock to send one waits for this first. */
+function startHeard(t: Team): () => boolean {
+  let heard = false;
+  const hello = t.hello.bind(t);
+  t.hello = async (msg) => { await hello(msg); heard = true; };
+  t.start();
+  return () => heard && (t.summaryTimer != null || (!t.next && !t.flushing));
+}
+
 /** Threads in two projects: one this dev shares, one it does not. */
 function threads(now = Date.UTC(2026, 10, 10, 12)) {
   const at = new Date(now).toISOString();
@@ -140,6 +151,13 @@ async function crew({ role = 'engineer', perms }: { role?: string; perms?: strin
   const r = await lead.approve(idOf(dev), role, perms);
   assert.equal(r.t, 'ok');
   await until(() => dev.state.status === 'member' && dev.state.key && dev.me?.name === 'Ada Lovelace', 'the dev let in');
+  // The roster can reach the dev before its welcome: the dev then asks for the key, and the lead sends a second
+  // welcome. A test starts only once both inboxes are empty and no welcome is owed, so none is still on its way.
+  const inbox = (m: string): number => Number(relay.sql.exec('SELECT COUNT(*) AS n FROM inbox WHERE to_m = ?', m).one().n);
+  const quiet = (): boolean => inbox(idOf(lead)) === 0 && inbox(idOf(dev)) === 0 && !lead.state.welcomes?.length;
+  await until(quiet, 'the team quiet');
+  await settle();
+  await until(quiet, 'the team still quiet');
   return { relay, net, timers, lead, dev, ran, t3calls, saved, setBoard: (b: OwnBoard) => { devBoard = b; } };
 }
 
@@ -1247,8 +1265,8 @@ test('a project dropped just before a restart still leaves the relay\'s copy', a
   await dev.share([P]);
   dev.stop();
   const again = new Team({ state: structuredClone(saved.dev.at(-1)!), save: () => {}, net: dev.net, now: () => relay.now(), timers, random: () => 1 });
-  again.start();
-  await until(() => again.link === 'online', 'online again');
+  const heard = startHeard(again);
+  await until(() => again.link === 'online' && heard(), 'online again');
   await timers.advance(10000);
   await until(() => !sumMaybe(lead, idOf(dev))?.tickets.some((k) => k.title === 'Private work'), 'Q gone from the relay');
   again.stop(); lead.stop();
@@ -1644,7 +1662,7 @@ test('a welcome pass while an approval waits on its roster keeps that welcome', 
   const { link } = linked(await lead.invite());
   const d2 = new Team({ state: await joinTeam({ link, name: 'Bo', shared: [P], net, now }), net, now, timers, random: () => 1 });
   d2.start();
-  await until(() => lead.pending.size === 1 && idOf(d2), 'the second ask at the lead');
+  await until(() => lead.pending.size === 1 && d2.meId, 'the second ask at the lead');
   const id = idOf(d2);
   d2.stop();
   let release = null as ((value?: unknown) => void) | null;
@@ -1693,6 +1711,8 @@ test('an unchanged board sends nothing however long it runs; only a change goes'
   const c = boardNow(relay.now()); c.tickets[1]!.place = 'Merged';
   dev.board(c);
   await timers.advance(10000);
+  // Sealing the changed summary waits on WebCrypto, which a busy test run can hold past the clock's settle.
+  await until(() => sent.length >= 2, 'the changed summary sent');
   assert.equal(sent.length, 2);
   lead.stop(); dev.stop();
 });
@@ -1791,8 +1811,8 @@ test('a board failure reported before the roster loads still goes out once the t
   const again = new Team({ state: structuredClone(dev.state), net, now: () => relay.now(), timers, random: () => 1 });
   const failedAt = relay.now();
   again.health(false);
-  again.start();
-  await until(() => again.link === 'online', 'the dev back');
+  const heard = startHeard(again);
+  await until(() => again.link === 'online' && heard(), 'the dev back');
   await timers.advance(10000);
   await until(() => lead.summaries.get(idOf(dev))?.body.health?.ok === false, 'the failing health at the lead');
   const p = personOf(lead, idOf(dev));
@@ -1826,8 +1846,8 @@ test('after a restart, the summary the relay kept is not live until this Mac rea
   dev.stop();
   await until(() => !lead.online.has(idOf(dev)), 'the dev offline');
   const again = new Team({ state: structuredClone(dev.state), net, now: () => relay.now(), timers, random: () => 1 });
-  again.start();
-  await until(() => again.link === 'online' && lead.online.has(idOf(dev)), 'the dev back');
+  const heard = startHeard(again);
+  await until(() => again.link === 'online' && heard() && lead.online.has(idOf(dev)), 'the dev back');
   await timers.advance(10000);
   await until(() => lead.summaries.get(idOf(dev))?.body.health?.ok === null, 'the unknown health at the lead');
   const p = personOf(lead, idOf(dev));
