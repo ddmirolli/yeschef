@@ -17,11 +17,13 @@
 name: Release
 
 on:
-  # Nightly, once a day at 08:23 UTC (03:23 in New York in winter), away from the busy top of the hour. The plan job
-  # stops before any secret is read when main has nothing new since the newest published Nightly. Once a day because
-  # every Nightly is a notarization round trip and an update prompt for Nightly users; a dispatch ships one sooner.
+  # Nightly, as T3 Code's (Dan, 2026-11-11, "A"): a check every 30 minutes, at T3's minutes, away from the busy top of
+  # the hour. The plan job stops before any secret is read unless main has app changes (APP_PATHS in publish.ts, the
+  # paths below) since the newest published Nightly and that Nightly is six hours old or more. So a merge reaches
+  # Nightly within about six and a half hours; a dispatch ships one sooner. A Stable waiting for Dan's approval holds
+  # these checks in the queue (below); each one reads the gap again when it runs and stops in seconds.
   schedule:
-    - cron: "23 8 * * *"
+    - cron: "8,38 * * * *"
   # Start a release by hand: github.com, Actions, Release, Run workflow, from main.
   workflow_dispatch:
     inputs:
