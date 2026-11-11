@@ -35,8 +35,9 @@ const AuthServer = Schema.Struct({
 });
 const ProtectedResource = Schema.Struct({ resource: Schema.String });
 const Registration = Schema.Struct({ client_id: Schema.String });
+// An empty token is no sign-in (PR-Agent r1 on #37).
 const TokenReply = Schema.Struct({
-  access_token: Schema.String,
+  access_token: Schema.NonEmptyString,
   scope: Schema.optional(Schema.String),
   expires_in: Schema.optional(Schema.Number),
 });
@@ -55,6 +56,11 @@ const ToolResult = Schema.Struct({
   isError: Schema.optional(Schema.Boolean),
 });
 const Json = Schema.fromJsonString(Schema.Unknown);
+// Why T3 refused a request outside a 2xx: T3 Code's own { error, message } (McpHttpServer.ts), or a JSON-RPC error.
+const Refusal = Schema.fromJsonString(Schema.Union([
+  Schema.Struct({ message: Schema.String }),
+  Schema.Struct({ error: Schema.Struct({ message: Schema.String }) }),
+]));
 
 /** A finished sign-in: the MCP resource and its bearer token. */
 export interface SignedIn { resource: string; token: string; scope: string | undefined; expiresIn: number | undefined }
@@ -206,15 +212,21 @@ export function connect({ resource, token }: { resource: string; token: string }
       Effect.mapError((cause) => new T3CallError({ reason: `${method}: could not reach T3 (${cause.message})`, cause })),
     );
     session = response.headers['mcp-session-id'] || session;
+    // A refusal names its status, and T3's reason when the body gives one.
+    const refused = response.text.pipe(
+      Effect.map((text) => Option.match(Schema.decodeOption(Refusal)(text), { onNone: () => '', onSome: (r) => `: ${'message' in r ? r.message : r.error.message}` })),
+      Effect.orElseSucceed(() => ''),
+      Effect.flatMap((said) => Effect.fail(new T3CallError({ reason: `${method}: HTTP ${response.status}${said}`.slice(0, 300) }))),
+    );
     if (myId === null) {
+      if (!isOk(response.status)) return yield* refused;
       yield* Effect.ignore(response.text);
-      if (!isOk(response.status)) return yield* new T3CallError({ reason: `${method}: HTTP ${response.status}` });
       return undefined;
     }
     if (response.status === 401) return yield* new T3AuthError();
     // A 404 on an established session means T3 dropped it: start a new session on the next call.
     if (response.status === 404 && sent) { session = null; ready = false; return yield* new T3SessionEndedError(); }
-    if (!isOk(response.status)) return yield* new T3CallError({ reason: `${method}: HTTP ${response.status}` });
+    if (!isOk(response.status)) return yield* refused;
     const unreadable = (cause: unknown) => new T3CallError({ reason: `${method}: T3 sent a reply the Pass cannot read`, cause });
     // On a stream, read only until our reply arrives; the server may keep the stream open.
     const raw = (response.headers['content-type'] ?? '').includes('event-stream')

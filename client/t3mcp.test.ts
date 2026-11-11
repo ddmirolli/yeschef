@@ -189,21 +189,23 @@ test('a fixed port still works when one is asked for', async () => {
 
 // Every reply is read through a Schema (Effect PR, step 3). A reply that is not what T3 promised fails with what was
 // wrong, so the board shows "not checked", instead of a value nobody checked.
-test('a token reply whose token is not a string is refused, not kept as a sign-in', async () => {
-  const t3 = fakeT3();
-  const fetch = async (url: string | URL | Request, opts: RequestInit = {}) => String(url) === 'http://t3.test/token'
-    ? new Response('{"access_token":123,"scope":"orchestration:read"}', { headers: { 'content-type': 'application/json' } })
-    : t3.fetch(url, opts);
-  const real = globalThis.fetch;
-  globalThis.fetch = fetch;
-  try {
-    let link = null as URL | null;
-    const done = signIn('http://t3.test', { onLink: (l) => { link = new URL(l); } }).then(() => null, (e: unknown) => e);
-    while (!link) await new Promise((r) => setTimeout(r, 5));
-    await hit(`${String(link.searchParams.get('redirect_uri'))}?code=abc&state=${link.searchParams.get('state')}`);
-    assert.match(String((await done as Error | null)?.message), /no token/);
-  } finally { globalThis.fetch = real; }
-});
+for (const [what, body] of [['not a string', '{"access_token":123,"scope":"orchestration:read"}'], ['empty', '{"access_token":"","scope":"orchestration:read"}']]) {
+  test(`a token reply whose token is ${what} is refused, not kept as a sign-in`, async () => {
+    const t3 = fakeT3();
+    const fetch = async (url: string | URL | Request, opts: RequestInit = {}) => String(url) === 'http://t3.test/token'
+      ? new Response(body, { headers: { 'content-type': 'application/json' } })
+      : t3.fetch(url, opts);
+    const real = globalThis.fetch;
+    globalThis.fetch = fetch;
+    try {
+      let link = null as URL | null;
+      const done = signIn('http://t3.test', { onLink: (l) => { link = new URL(l); } }).then(() => null, (e: unknown) => e);
+      while (!link) await new Promise((r) => setTimeout(r, 5));
+      await hit(`${String(link.searchParams.get('redirect_uri'))}?code=abc&state=${link.searchParams.get('state')}`);
+      assert.match(String((await done as Error | null)?.message), /no token/);
+    } finally { globalThis.fetch = real; }
+  });
+}
 
 test('OAuth metadata without its scopes names what T3 sent wrong', async () => {
   const t3 = fakeT3();
@@ -237,5 +239,22 @@ test('a refused sign-in (401) is an auth fault the board can tell apart', async 
     const err = await connect({ resource: 'http://t3.test/mcp', token: 't' }).call('t3_environment_read').then(() => null, (e: unknown) => e as Error & { auth?: boolean });
     assert.equal(err?.auth, true);
     assert.match(String(err?.message), /T3 sign-in expired or revoked/);
+  } finally { globalThis.fetch = real; }
+});
+
+test('T3 refusing a request names its reason, as T3 Code sends it ({ error, message })', async () => {
+  // T3 Code's McpHttpServer.ts answers some requests with a 403 or 400 and a JSON body, not a JSON-RPC reply.
+  const real = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ error: 'linked_environments_off', message: 'Linked environments is off on this machine.' }),
+    { status: 403, headers: { 'content-type': 'application/json' } });
+  try {
+    await assert.rejects(connect({ resource: 'http://t3.test/mcp', token: 't' }).call('t3_environment_read'),
+      { message: 'initialize: HTTP 403: Linked environments is off on this machine.' });
+    // A JSON-RPC error outside a 2xx is read too.
+    globalThis.fetch = async () => new Response(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Bad Request: no session' } }), { status: 400 });
+    await assert.rejects(connect({ resource: 'http://t3.test/mcp', token: 't' }).call('t3_environment_read'), { message: 'initialize: HTTP 400: Bad Request: no session' });
+    // A body that says nothing readable still names the status.
+    globalThis.fetch = async () => new Response('<html>busy</html>', { status: 503 });
+    await assert.rejects(connect({ resource: 'http://t3.test/mcp', token: 't' }).call('t3_environment_read'), { message: 'initialize: HTTP 503' });
   } finally { globalThis.fetch = real; }
 });
