@@ -7,6 +7,8 @@ import { createFollower } from './follow.ts';
 import type { FollowerOptions } from './follow.ts';
 import { LOCKFILE } from './changes.ts';
 import type { GitError } from './changes.ts';
+import { readPrRuns, readBaseRed } from './pr-runs.ts';
+import type { PrRuns, BaseRed } from './pr-runs.ts';
 
 /** One GET to GitHub's REST API, as JSON: ghGet, or a stand-in in tests. */
 export type GhGet = (path: string, opts: { host: string }) => Promise<unknown>;
@@ -278,6 +280,38 @@ export async function readPrSize({ host = 'github.com', repo, number }: PrArgs, 
   } catch (ex) { return { state: 'not-checked', why: ghWhy(ex), at }; }
 }
 
+/** A pull request's facts for the team (3b PR 4b): open, its size (readPrSize) with `runs` beside it (client/pr-runs.ts:
+ *  check runs, ready time); merged, only its merge commit, read once. */
+export type PrFacts = (PrSizeRead & { runs?: PrRuns }) | PrRuns;
+export interface PrFactsOptions {
+  size?: (a: PrArgs, o: { get: GhGet }) => Promise<PrSizeRead>;
+  runs?: (a: PrArgs, o: { get: GhGet; why: (ex: unknown) => string }) => Promise<PrRuns>;
+  get?: GhGet;
+}
+export async function readPrFacts(a: PrArgs & { merged?: boolean }, { size = readPrSize, runs = readPrRuns, get = ghGet }: PrFactsOptions = {}): Promise<PrFacts> {
+  if (a.merged) return runs(a, { get, why: ghWhy });
+  const s = await size(a, { get });
+  if (s.state !== 'checked') return s;
+  return { ...s, runs: await runs(a, { get, why: ghWhy }) };
+}
+
+/** A base branch's checks (readBaseChecks), and when its required checks are red, where that red began (`red`:
+ *  client/pr-runs.ts readBaseRed, along the required checks). A failed red read leaves the checks as they were. */
+export type BaseFacts = BaseChecksRead & { red?: BaseRed };
+export interface BaseFactsOptions {
+  read?: (a: BaseArgs) => Promise<BaseChecksRead>;
+  red?: (a: { host: string; repo: string; branch: string; head: string; names: string[] }, o: { get: GhGet }) => Promise<BaseRed>;
+  get?: GhGet;
+}
+export async function readBaseFacts(a: BaseArgs, { read = readBaseChecks, red = readBaseRed, get = ghGet }: BaseFactsOptions = {}): Promise<BaseFacts> {
+  const b = await read(a);
+  if (b.state !== 'checked' || b.requiredResult !== 'failing' || !b.sha) return b;
+  try {
+    const names = [...new Set(b.checks.filter((c) => c.required).map((c) => c.name).filter((n): n is string => typeof n === 'string'))];
+    return { ...b, red: await red({ host: b.host, repo: b.repo, branch: b.branch, head: b.sha, names }, { get }) };
+  } catch { return b; }
+}
+
 const repoOk = (repo: unknown): repo is string => /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(String(repo || ''));
 
 /** Base-branch checks per thread: want([{ id, host, repo, branch }]) (or { id, why }); read again every 2 minutes,
@@ -285,11 +319,11 @@ const repoOk = (repo: unknown): repo is string => /^[A-Za-z0-9._-]+\/[A-Za-z0-9.
 /** One thread whose base checks to follow, or why it has none. */
 export interface BaseTarget { id: string; why?: string | null | undefined; host?: string | null | undefined; repo?: unknown; branch?: string | null | undefined }
 type BaseFollowArgs = Required<BaseArgs>;
-export type BaseChecksOptions = Omit<FollowerOptions<BaseFollowArgs, BaseChecksRead>, 'read'> & {
-  read?: (a: BaseFollowArgs) => BaseChecksRead | Promise<BaseChecksRead>;
+export type BaseChecksOptions = Omit<FollowerOptions<BaseFollowArgs, BaseFacts>, 'read'> & {
+  read?: (a: BaseFollowArgs) => BaseFacts | Promise<BaseFacts>;
 };
 export function createBaseChecks({ read = readBaseChecks, ...opts }: BaseChecksOptions = {}) {
-  const f = createFollower<BaseFollowArgs, BaseChecksRead>({ read: (a) => read(a), every: 120000, gap: 120000, maxAge: 360000, name: 'base checks', ...opts });
+  const f = createFollower<BaseFollowArgs, BaseFacts>({ read: (a) => read(a), every: 120000, gap: 120000, maxAge: 360000, name: 'base checks', ...opts });
   return {
     ...f,
     want(targets: BaseTarget[]) {
@@ -303,23 +337,25 @@ export function createBaseChecks({ read = readBaseChecks, ...opts }: BaseChecksO
   };
 }
 
-/** PR sizes, per PR: want([{ id, host, repo, number, stamp }]), where id names the PR (prKey). Read again when its
- *  thread moves (at most every 2 minutes) and every 5 minutes; "not checked" after 15. */
+/** PR sizes, per PR: want([{ id, host, repo, number, stamp, merged }]), where id names the PR (prKey). Read again when
+ *  its thread moves (at most every 2 minutes) and every 5 minutes; "not checked" after 15. A merged PR is its own
+ *  source, so the read that follows a merge is a new one. */
 export const prKey = ({ host = 'github.com', repo, number }: { host?: string | null | undefined; repo: string; number: number }) => `${String(host).toLowerCase()}/${repo}#${number}`;
 /** One pull request whose size to follow. */
-export interface PrTarget { host?: string | null | undefined; repo?: unknown; number?: unknown; stamp?: string | number | null | undefined }
-type PrFollowArgs = Required<PrArgs>;
-export type PrSizesOptions = Omit<FollowerOptions<PrFollowArgs, PrSizeRead>, 'read'> & {
-  read?: (a: PrFollowArgs) => PrSizeRead | Promise<PrSizeRead>;
+export interface PrTarget { host?: string | null | undefined; repo?: unknown; number?: unknown; stamp?: string | number | null | undefined; merged?: boolean | undefined }
+type PrFollowArgs = Required<PrArgs> & { merged: boolean };
+export type PrSizesOptions = Omit<FollowerOptions<PrFollowArgs, PrFacts>, 'read'> & {
+  read?: (a: PrFollowArgs) => PrFacts | Promise<PrFacts>;
 };
 export function createPrSizes({ read = readPrSize, ...opts }: PrSizesOptions = {}) {
-  const f = createFollower<PrFollowArgs, PrSizeRead>({ read: (a) => read(a), every: 300000, gap: 120000, maxAge: 900000, name: 'PR sizes', ...opts });
+  const f = createFollower<PrFollowArgs, PrFacts>({ read: (a) => read(a), every: 300000, gap: 120000, maxAge: 900000, name: 'PR sizes', ...opts });
   return {
     ...f,
     want(targets: PrTarget[]) {
       f.want(targets.filter((x): x is PrTarget & { repo: string; number: number } => repoOk(x.repo) && Number.isInteger(x.number)).map((x) => {
         const host = String(x.host || 'github.com').toLowerCase();
-        return { id: prKey(x), key: prKey(x), args: { host, repo: x.repo, number: x.number }, stamp: x.stamp };
+        const merged = x.merged === true;
+        return { id: prKey(x), key: `${prKey(x)}${merged ? ':merged' : ''}`, args: { host, repo: x.repo, number: x.number, merged }, stamp: x.stamp };
       }));
     },
   };

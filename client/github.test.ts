@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ghGet, ghWhy, runState, overall, readBaseChecks, readPrSize, createBaseChecks, createPrSizes, prKey, segment } from './github.ts';
+import { ghGet, ghWhy, runState, overall, readBaseChecks, readPrSize, createBaseChecks, createPrSizes, prKey, segment, readPrFacts, readBaseFacts } from './github.ts';
+import type { BaseChecksRead, PrSizeRead } from './github.ts';
+import type { PrRuns } from './pr-runs.ts';
 import { checked, whyOf } from './test/expect.ts';
 
 /** A stand-in for gh: each path GitHub would answer, with its body, a function of the path, or an Error to throw. */
@@ -284,8 +286,53 @@ test('following: one read per branch for every thread on it; one per PR', () => 
   const sizeReads: unknown[] = [];
   const sizes = createPrSizes({ read: (a) => { sizeReads.push(a); return new Promise(() => {}); } });
   sizes.want([{ repo: 'o/r', number: 7 }, { repo: 'o/r', number: 7 }, { repo: 'o/r', number: 'x' }]);
-  assert.deepEqual(sizeReads, [{ host: 'github.com', repo: 'o/r', number: 7 }]);
+  assert.deepEqual(sizeReads, [{ host: 'github.com', repo: 'o/r', number: 7, merged: false }]);
   assert.equal(whyOf(sizes.get(prKey({ repo: 'o/r', number: 7 }))), 'not read yet');
+  // A PR that merged is a new source under the same id: the read after the merge is its own (3b PR 4b).
+  sizes.want([{ repo: 'o/r', number: 7, merged: true }]);
+  assert.deepEqual(sizeReads.at(-1), { host: 'github.com', repo: 'o/r', number: 7, merged: true });
+});
+
+test('the facts beside a PR and a base: runs with an open PR, only the merge with a merged one, the red when required checks fail (3b PR 4b)', async () => {
+  const calls: [string, number][] = [];
+  const get = async () => ({});
+  const size = async (a: { number: number }): Promise<PrSizeRead> => {
+    calls.push(['size', a.number]);
+    return { state: 'checked', at: 1, host: 'github.com', repo: 'o/r', number: a.number, url: null, prState: 'open', draft: false, head: null, base: 'main',
+      additions: 1, deletions: 0, changedFiles: 1, size: { files: 1, added: 1, removed: 0 }, lockfiles: [] };
+  };
+  const runs = async (a: { number: number; merged?: boolean }): Promise<PrRuns> => {
+    calls.push(['runs', a.number]);
+    return { state: 'checked', at: 1, host: 'github.com', repo: 'o/r', number: a.number, head: null, draft: false, readyAt: null, mergeSha: a.merged ? 'm'.repeat(40) : null, checks: null };
+  };
+  const open = await readPrFacts({ repo: 'o/r', number: 7, merged: false }, { size, runs, get });
+  assert.ok(open.state === 'checked' && 'size' in open && open.runs?.state === 'checked');
+  assert.deepEqual('size' in open && open.size, { files: 1, added: 1, removed: 0 });
+  const merged = await readPrFacts({ repo: 'o/r', number: 8, merged: true }, { size, runs, get });
+  assert.equal(merged.state === 'checked' && 'mergeSha' in merged && merged.mergeSha, 'm'.repeat(40));
+  assert.deepEqual(calls, [['size', 7], ['runs', 7], ['runs', 8]], 'a merged PR is not sized');
+  // GitHub refused the size: the runs are not read either.
+  const refused = await readPrFacts({ repo: 'o/r', number: 9 }, { size: async () => ({ state: 'not-checked', why: 'x', at: 1 }), runs, get });
+  assert.equal('runs' in refused, false);
+
+  const base: BaseChecksRead = { state: 'checked', at: 1, host: 'github.com', repo: 'o/r', branch: 'main', sha: 'c'.repeat(40), title: 't', committedAt: null,
+    checks: [{ name: 'test', app: null, state: 'failing', url: null, at: null, required: true }, { name: 'lint', app: null, state: 'passing', url: null, at: null, required: false },
+      { name: 'test', app: null, state: 'failing', url: null, at: null, required: true }],
+    result: 'failing', requiredResult: 'failing', requiredNotRun: [], truncated: false };
+  const asked: unknown[] = [];
+  const red = async (a: unknown) => { asked.push(a); return { redSha: 'b'.repeat(40), redSince: 5 }; };
+  const b = await readBaseFacts({ repo: 'o/r', branch: 'main' }, { read: async () => base, red, get });
+  assert.deepEqual(b.red, { redSha: 'b'.repeat(40), redSince: 5 });
+  assert.deepEqual(asked, [{ host: 'github.com', repo: 'o/r', branch: 'main', head: 'c'.repeat(40), names: ['test'] }], 'only the required checks, once each');
+  const others: BaseChecksRead[] = [{ ...base, requiredResult: 'passing' }, { ...base, requiredResult: null }, { state: 'not-checked', why: 'x', at: 1 }];
+  for (const other of others) {
+    const g = await readBaseFacts({ repo: 'o/r', branch: 'main' }, { read: async () => other, red, get });
+    assert.equal(g.red, undefined);
+  }
+  assert.equal(asked.length, 1, 'a base that is not red costs no walk');
+  const broke = await readBaseFacts({ repo: 'o/r', branch: 'main' }, { read: async () => base, red: async () => { throw new Error('HTTP 502'); }, get });
+  assert.equal(broke.red, undefined, 'a failed walk leaves the checks as they were');
+  assert.equal(broke.state === 'checked' && broke.requiredResult, 'failing');
 });
 
 test('following: a reused read is not read again before its turn, so an unchanged base costs what the rate math says', async () => {

@@ -1868,7 +1868,7 @@ test('summarize carries the readers: changes per ticket, each base once with its
   assert.deepEqual(asked, [{ host: 'github.com', repo: 'acme/app', number: 12 }]);
   assert.deepEqual(s.tickets.find((k) => k.thread === 'th-parser').prs[0].size, { files: 2, added: 30, removed: 1, at: now });
   assert.equal(s.bases.length, 1, 'two threads on one base: sent once');
-  assert.deepEqual(s.bases[0], { repo: 'acme/app', branch: 'main', sha: 'c'.repeat(40), title: 'Merge #11', committedAt: Date.UTC(2026, 10, 10, 11), result: 'failing', requiredResult: 'failing', failing: ['test'], at: now });
+  assert.deepEqual(s.bases[0], { repo: 'acme/app', branch: 'main', sha: 'c'.repeat(40), title: 'Merge #11', committedAt: Date.UTC(2026, 10, 10, 11), result: 'failing', requiredResult: 'failing', redSha: null, redSince: null, failing: ['test'], at: now });
   assert.deepEqual(s.seen, { 'stuck:th-x:1': now - 3600000 }, 'a call seen over a day ago is dropped');
   assert.doesNotMatch(JSON.stringify(s), /Private work/);
   // A reader that throws reads as not checked; the summary still goes.
@@ -1934,4 +1934,60 @@ test('Seen keeps the newest calls within 8 KiB, so even long ids leave the summa
   const base = { state: 'checked', at: now, repo: 'acme/app', branch: 'main', sha: 'c'.repeat(40), title: 'x'.repeat(120), checks: [] };
   const tiny = summarize(boardNow(now), [P], 900, { base: () => base, now });
   assert.ok((new TextEncoder().encode(JSON.stringify(tiny)).length * 4) / 3 + 600 <= 900);
+});
+
+test('summary fields for 4b: PR runs and ready time, merge commit, Too big since, base red, head time (3b PR 4b)', () => {
+  const now = Date.UTC(2026, 10, 11, 12), AT = now - 60000;
+  const link = { repository: 'acme/app', number: 12, state: 'open', url: 'https://github.com/acme/app/pull/12', base: 'main', draft: false };
+  const run = (i, result) => ({ at: AT - (20 - i) * 60000, sha: String(i).padStart(40, 'a'), title: `commit ${i} ${'x'.repeat(200)}`, result });
+  const runs = { state: 'checked', at: AT, readyAt: AT - 3600000, mergeSha: null,
+    checks: { result: 'failing', redRuns: 3, at: AT, runs: Array.from({ length: 12 }, (_, i) => run(i, i > 8 ? 'failing' : 'passing')) } };
+  const open = summaryPr(link, { state: 'checked', at: AT, base: 'main', draft: false, size: { files: 2, added: 30, removed: 1 }, runs });
+  assert.equal(open.readyAt, AT - 3600000);
+  assert.equal(open.checks.result, 'failing');
+  assert.equal(open.checks.redRuns, 3);
+  assert.equal(open.checks.runs.length, 10, 'the last 10');
+  assert.deepEqual(open.checks.runs.at(-1), { at: AT - 9 * 60000, sha: String(11).padStart(40, 'a'), title: `commit 11 ${'x'.repeat(70)}`, result: 'failing' });
+  assert.equal(open.mergeSha, undefined, 'an open PR has no merge commit');
+  // The runs not read: no runs and no ready time, never a guess.
+  const unread = summaryPr(link, { state: 'checked', at: AT, size: null, runs: { state: 'not-checked', why: 'x', at: AT } });
+  assert.deepEqual([unread.checks, unread.readyAt], [undefined, undefined]);
+  // Merged: the merge commit, and nothing GitHub says about a size.
+  const merged = summaryPr({ ...link, state: 'merged', mergedAt: '2026-11-11T08:00:00Z' }, { state: 'checked', at: AT, mergeSha: 'D'.repeat(40), checks: null });
+  assert.deepEqual([merged.mergeSha, merged.size, merged.checks], ['d'.repeat(40), undefined, undefined]);
+
+  // Too big's age: kept from the read before while the PR stays over, set now when it first goes over, dropped under.
+  const big = { files: 40, added: 900, removed: 10 };
+  const prRead = (size) => () => ({ state: 'checked', at: AT, draft: false, base: 'main', size });
+  const kept = [];
+  const s1 = summarize(boardNow(now), [P], 65536, { pr: prRead(big), now, over: {}, keepOver: (m) => kept.push(m) });
+  assert.equal(s1.tickets.find((k) => k.prs.length).prs[0].size.overAt, now);
+  assert.deepEqual(kept.at(-1), { 'github.com/acme/app#12': now });
+  const s2 = summarize(boardNow(now + 60000), [P], 65536, { pr: prRead(big), now: now + 60000, over: kept.at(-1), keepOver: (m) => kept.push(m) });
+  assert.equal(s2.tickets.find((k) => k.prs.length).prs[0].size.overAt, now, 'the first time it was seen over');
+  const s3 = summarize(boardNow(now), [P], 65536, { pr: prRead({ files: 2, added: 30, removed: 1 }), now, over: kept.at(-1), keepOver: (m) => kept.push(m) });
+  assert.equal(s3.tickets.find((k) => k.prs.length).prs[0].size.overAt, undefined);
+  assert.deepEqual(kept.at(-1), {}, 'back under: forgotten');
+  // Size unknown (a restart before GitHub is read, or a refusal): the first time over is kept, not lost (PR-Agent r1 on #28).
+  const back = { 'github.com/acme/app#12': now - 3600000 };
+  summarize(boardNow(now), [P], 65536, { pr: () => ({ state: 'not-checked', why: 'not read yet' }), now, over: back, keepOver: (m) => kept.push(m) });
+  assert.deepEqual(kept.at(-1), back);
+  summarize(boardNow(now), [P], 65536, { pr: prRead(null), now, over: back, keepOver: (m) => kept.push(m) });
+  assert.deepEqual(kept.at(-1), back, 'a partial file list is unknown too');
+  const s5 = summarize(boardNow(now), [P], 65536, { pr: prRead(big), now, over: back });
+  assert.equal(s5.tickets.find((k) => k.prs.length).prs[0].size.overAt, now - 3600000);
+  // Keyed with the host, as the reads are: the same repo and number on another host is another PR (PR-Agent r2 on #28).
+  const other = [];
+  const s6 = summarize(boardNow(now), [P], 65536, { pr: prRead(big), now, over: { 'ghe.example.com/acme/app#12': now - 7200000, 'acme/app#12': now - 7200000 }, keepOver: (m) => other.push(m) });
+  assert.equal(s6.tickets.find((k) => k.prs.length).prs[0].size.overAt, now);
+  assert.deepEqual(other.at(-1), { 'github.com/acme/app#12': now });
+  // A time from the future is not kept.
+  const s4 = summarize(boardNow(now), [P], 65536, { pr: prRead(big), now, over: { 'github.com/acme/app#12': now + 3600000 } });
+  assert.equal(s4.tickets.find((k) => k.prs.length).prs[0].size.overAt, now);
+
+  // The base's red, and the head commit's time.
+  const b = summaryBase({ repo: 'acme/app', branch: 'main', sha: 'c'.repeat(40), checks: [], red: { redSha: 'b'.repeat(40), redSince: AT }, at: AT });
+  assert.deepEqual([b.redSha, b.redSince], ['b'.repeat(40), AT]);
+  assert.equal(summaryChanges({ state: 'checked', at: AT, headAt: AT - 5000, files: [] }).headAt, AT - 5000);
+  assert.equal(summaryChanges({ state: 'checked', at: AT, files: [] }).headAt, null);
 });

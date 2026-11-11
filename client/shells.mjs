@@ -106,22 +106,27 @@ export function changeTargets(rows, shells, project = () => null) {
 }
 
 const openLinks = (shell) => (shell?.pullRequests || []).filter((l) => l.source !== 'stack-dismissed' && l.snapshot?.state === 'open');
+const mergedLinks = (shell) => (shell?.pullRequests || []).filter((l) => l.source !== 'stack-dismissed' && l.snapshot?.state === 'merged');
 
 /** What GitHub is asked about the followed threads (client/github.ts), read only.
  *  base: per thread, the repo and base branch of its open pull request, or else the repo and base its local read
  *  found (client/changes.ts `remote` and `base.branch`), as [{ id, host, repo, branch }] or [{ id, why }].
  *  prs: every open pull request of those threads, once each, [{ host, repo, number, stamp }], stamped with the
- *  thread's last move. */
+ *  thread's last move; and every merged one, with merged: true, for its merge commit (3b PR 4b). */
 export function githubTargets(targets, shells, local = () => null) {
   const base = [], prs = new Map();
   for (const { id } of targets) {
     const s = shells.get(id);
     const links = openLinks(s);
-    for (const l of links) {
+    for (const [l, merged] of [...links.map((l) => [l, false]), ...mergedLinks(s).map((l) => [l, true])]) {
       if (!l.repository || !Number.isInteger(l.number)) continue;
       const k = `${hostOf(l)}/${l.repository}#${l.number}`;
       const stamp = s.updatedAt ?? null;
-      if (!prs.has(k) || String(stamp ?? '') > String(prs.get(k).stamp ?? '')) prs.set(k, { host: hostOf(l), repo: l.repository, number: l.number, stamp });
+      // Open in any thread wins: the PR's size and runs are still read.
+      if (prs.has(k) && prs.get(k).merged === false && merged) continue;
+      if (!prs.has(k) || (prs.get(k).merged && !merged) || String(stamp ?? '') > String(prs.get(k).stamp ?? '')) {
+        prs.set(k, { host: hostOf(l), repo: l.repository, number: l.number, stamp, merged });
+      }
     }
     const pr = links.find((l) => l.repository && l.snapshot?.baseBranch);
     if (pr) { base.push({ id, host: hostOf(pr), repo: pr.repository, branch: pr.snapshot.baseBranch }); continue; }
