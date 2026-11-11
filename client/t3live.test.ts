@@ -454,3 +454,13 @@ test('the key: an empty key, or a pairing reply that is not T3 Code\'s, is refus
   await assert.rejects(createKeys({ origin: 'http://127.0.0.1:3773', run: noisy.run, fetchImpl: noisy.fetch, pid: 4242 }).get(),
     { message: 'T3 Code gave no pairing code' });
 });
+
+test('a session list that is not T3 Code\'s fails the revoke, not "revoked 0"', async () => {
+  const cli = fakeCli();
+  const run = cli.run;
+  cli.run = async (bin, args) => (args[1] === 'session' && args[2] === 'list' ? '{"error":"the server is not running"}' : run(bin, args));
+  const keys = createKeys({ origin: 'http://127.0.0.1:3773', run: cli.run, fetchImpl: cli.fetch, pid: 4242 });
+  await assert.rejects(keys.revokeMine(), { message: 'T3 Code listed its sessions in a form the Pass cannot read' });
+  await assert.rejects(keys.sweep(), { message: 'T3 Code listed its sessions in a form the Pass cannot read' });
+  assert.deepEqual(cli.revoked, []);
+});
