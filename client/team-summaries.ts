@@ -5,32 +5,81 @@
 // read time (a key named `at`) is not a change: it rides along with a real one. Whether a teammate reads as live comes
 // from events too: the relay's presence and the health their summary carries. Nothing compares two Macs' clocks.
 import { sealSigned, openSigned, aad } from './seal.ts';
-import { shares } from './roles.mjs';
-import { clean } from './team-common.mjs';
-import { RETRY } from './team-connection.mjs';
+import { shares } from './roles.ts';
+import { clean } from './team-common.ts';
+import { RETRY } from './team-connection.ts';
 import { rangesOf } from './changes.ts';
 import { RULES } from './open-kitchen.ts';
+import type { Board, Ticket } from './board.ts';
+import type { ChangedFile } from './changes.ts';
+import type { PullRequestLink } from './contracts.ts';
+import type { Person, Team } from './team.ts';
+
+/** A teammate's summary, opened: outside data. Each field is checked where it is read (client/open-kitchen.ts). */
+export type Received = { rev?: unknown; at?: unknown; health?: { ok?: unknown; since?: unknown } | null; tickets?: unknown; more?: unknown; [field: string]: unknown };
+/** This Mac's board health: ok true or false, or null before the first read since this Mac started. */
+export interface Health { ok: boolean | null; since: number | null }
+/** This dev's summary, before it is sealed. */
+export type OwnSummary = { v: number; tickets: unknown[]; more: number; health: Health; [field: string]: unknown };
+/** The newest summary not yet sent, or a forget: the relay's copy goes. */
+export type Next = { forget?: undefined; id: string; body: OwnSummary; drop: number | undefined; blob?: string }
+  | { forget: true; drop: number | undefined; id?: undefined; body?: undefined; blob?: undefined };
+/** A teammate as the screens show them. */
+export interface PersonView { online: boolean; summary: Received | null; at: number | null; live: boolean; notCheckedSince: number | null }
+
+/** A changed-files read (client/changes.ts readChanges), as the summary reads it: each field checked here. */
+export type ChangesIn = { state?: unknown; why?: unknown; at?: unknown; files?: unknown; remote?: { repo?: unknown } | null;
+  base?: { branch?: unknown; commit?: unknown } | null; head?: unknown; headAt?: unknown; truncated?: unknown;
+  size?: { files?: unknown; added?: unknown; removed?: unknown } | null };
+/** A changed file in that read. */
+type FileIn = { path: string; hunks?: unknown; added?: unknown; removed?: unknown; lock?: unknown; generated?: unknown };
+/** A PR's check runs (client/pr-runs.ts), as the summary reads them. */
+export type ChecksIn = { result?: unknown; redRuns?: unknown; at?: unknown; runs?: unknown };
+/** What the board server read of a PR from GitHub (client/github.ts readPrFacts), as the summary reads it. */
+export type PrIn = { state?: unknown; why?: unknown; draft?: unknown; base?: unknown; at?: unknown; mergeSha?: unknown;
+  size?: { files?: unknown; added?: unknown; removed?: unknown } | null;
+  runs?: { state?: unknown; why?: unknown; at?: unknown; readyAt?: unknown; checks?: ChecksIn | null } | null };
+/** One base branch's checks (client/github.ts readBaseChecks), as the summary reads them. */
+export type BaseIn = { state?: unknown; host?: unknown; repo?: unknown; branch?: unknown; sha?: unknown; title?: unknown; committedAt?: unknown;
+  result?: unknown; requiredResult?: unknown; red?: { redSha?: unknown; redSince?: unknown } | null; checks?: unknown; at?: unknown };
+/** What the board server reads beside the board, as getters, and what the summary keeps between reads. Each is optional:
+ *  one left out reads "Not checked" on the lead's screen. */
+export interface Readers {
+  changes?: ((threadId: string) => ChangesIn | null | undefined) | undefined;
+  pr?: ((pr: { host: string; repo: string; number: number }) => PrIn | null | undefined) | undefined;
+  base?: ((threadId: string) => BaseIn | null | undefined) | undefined;
+  seen?: unknown; over?: unknown; keepOver?: ((over: Record<string, number>) => void) | undefined; now?: number | undefined;
+}
+/** A PR's size as the summary sends it. */
+export type SummarySize = { files: number | null; added: number | null; removed: number | null; at: number | null; overAt?: number };
+/** A PR as the summary sends it. */
+export type SummaryPr = { repo: string; n: number; state: string | null | undefined; url: string | null; base: string | null; draft: boolean | null;
+  mergedAt: number | null; size?: SummarySize | null; readyAt?: number | null; checks?: ReturnType<typeof summaryChecks>; mergeSha?: string | null };
+/** A ticket as the summary sends it. */
+export type SummaryTicket = { thread: string; title: string; project: string; place: string; atPass: boolean; working: number; asks: number; call: boolean;
+  prs: SummaryPr[]; updatedAt: string | null; startedAt: number | null; last: string | null; ask: ReturnType<typeof summaryAsk>;
+  changes?: NonNullable<ReturnType<typeof summaryChanges>> };
 
 const SUMMARY_TICKETS = 100;
 
 /** What a summary says, without its read times: two summaries with one identity are the same news. */
-export function identity(body) {
+export function identity(body: unknown): string {
   return JSON.stringify(body, (k, v) => (k === 'at' ? undefined : v));
 }
 
 /** When a teammate was last known to be checked, for one who is not live: the earlier of the times that apply. Their
  *  board failing applies from its health's `since`; offline applies from when the relay last saw them. Null when no
  *  time is known. */
-export function notCheckedSince({ online, health, lastSeen }) {
-  const times = [];
-  if (health && health.ok === false && Number.isFinite(health.since)) times.push(health.since);
-  if (!online && Number.isFinite(lastSeen)) times.push(lastSeen);
+export function notCheckedSince({ online, health, lastSeen }: { online: boolean; health: { ok?: unknown; since?: unknown } | null | undefined; lastSeen: number | null | undefined }): number | null {
+  const times: number[] = [];
+  if (health && health.ok === false && Number.isFinite(health.since)) times.push(health.since as number);
+  if (!online && Number.isFinite(lastSeen)) times.push(lastSeen as number);
   return times.length ? Math.min(...times) : null;
 }
 
 export const summaries = {
   // ---- the team's summaries and presence ----
-  async takeSummary(m, blob) {
+  async takeSummary(m: string, blob: string): Promise<void> {
     const p = this.people.get(m);
     const key = await this.teamKey();
     if (!p || m === this.meId) return;
@@ -38,7 +87,7 @@ export const summaries = {
     // comes.
     if (!key) { this.later = this.later.filter((x) => !(x.t === 'summary' && x.m === m)); this.later.push({ t: 'summary', m, blob }); return; }
     try {
-      const body = await openSigned(key, blob, aad.summary(this.state.team, m), p.sign);
+      const body = await openSigned(key, blob, aad.summary(this.state.team, m), p.sign) as Received | null;
       const rev = Number(body?.rev);
       if (!Number.isFinite(rev)) { this.summaries.delete(m); this.emit('team'); return; }
       // The floor outlives the shown summary: a reconnect clears what is shown, never the newest revision taken, so a
@@ -46,7 +95,7 @@ export const summaries = {
       // still gets through.
       if (rev < (this.summaryFloor.get(m) || 0)) return;
       this.summaryFloor.set(m, rev);
-      this.summaries.set(m, { body });
+      this.summaries.set(m, { body: body as Received });
     } catch { this.summaries.delete(m); }
     this.emit('team');
   },
@@ -54,32 +103,32 @@ export const summaries = {
   /** A teammate withdrew their summary. Their summary still waiting for the key goes too. Revisions are whole
    *  milliseconds: half past the withdrawn one turns that summary away and lets a newer one in. Added once, so repeated
    *  withdrawals do not shut out the next revision. */
-  takeGone(m) {
+  takeGone(m: string): void {
     this.summaries.delete(m);
-    if (Number.isInteger(this.summaryFloor.get(m))) this.summaryFloor.set(m, this.summaryFloor.get(m) + 0.5);
+    if (Number.isInteger(this.summaryFloor.get(m))) this.summaryFloor.set(m, this.summaryFloor.get(m)! + 0.5);
     this.later = this.later.filter((x) => !(x.t === 'summary' && x.m === m));
     this.emit('team');
   },
 
   /** The relay says a teammate came online or went. Going carries the relay's time (`at`), read on the relay's clock. */
-  takePresence(msg) {
+  takePresence(msg: { m: string; on: boolean; at?: number }): void {
     if (msg.on) { this.online.add(msg.m); this.lastSeen.delete(msg.m); }
-    else { this.online.delete(msg.m); if (Number.isFinite(msg.at)) this.lastSeen.set(msg.m, msg.at); }
+    else { this.online.delete(msg.m); if (Number.isFinite(msg.at)) this.lastSeen.set(msg.m, msg.at!); }
     this.emit('team');
   },
 
   /** The summary the relay kept from this Mac before a restart, opened with this Mac's own key, so the first summary
    *  after the restart can carry its tickets with the health still unknown. */
-  async takeHeld(blob) {
+  async takeHeld(blob: string | undefined): Promise<void> {
     if (this.lastBoard || !blob) return;
     try {
       const me = await this.member();
-      this.heldBody = await openSigned(await this.teamKey(), blob, aad.summary(this.state.team, me.id), me.signPub);
+      this.heldBody = await openSigned((await this.teamKey())!, blob, aad.summary(this.state.team, me.id), me.signPub) as Received | null;
     } catch { this.heldBody = null; }
   },
 
   /** Who the hello says is online, and when the relay last saw each of the rest (`seen`: member id -> time). */
-  takeHelloPresence(msg) {
+  takeHelloPresence(msg: { online?: string[]; seen?: Record<string, number> }): void {
     this.online = new Set(msg.online || []);
     this.lastSeen = new Map(Object.entries(msg.seen && typeof msg.seen === 'object' ? msg.seen : {})
       .filter(([m, at]) => !this.online.has(m) && Number.isFinite(at)));
@@ -88,21 +137,21 @@ export const summaries = {
   /** A teammate as the screens show them. Live: they are online, this Mac is online, and their summary says their
    *  board reads. Otherwise "Not checked since" the earlier of the times that apply. While this Mac is offline, a
    *  teammate it last saw online counts as offline from when this Mac lost the relay. */
-  personView(p) {
+  personView(p: Pick<Person, 'id'>): PersonView {
     const linked = this.link === 'online';
     const online = linked && this.online.has(p.id);
     const s = this.summaries.get(p.id);
     const health = s?.body?.health || null;
     const lastSeen = linked ? this.lastSeen.get(p.id) : (this.online.has(p.id) ? this.lostAt : this.lastSeen.get(p.id));
     const live = online && health?.ok === true;
-    return { online, summary: s?.body || null, at: Number.isFinite(s?.body?.at) ? s.body.at : null, live,
+    return { online, summary: s?.body || null, at: Number.isFinite(s?.body?.at) ? s!.body.at as number : null, live,
       notCheckedSince: live ? null : notCheckedSince({ online, health, lastSeen }) };
   },
 
   // ---- this dev's summary ----
   /** The Pass read this dev's board. Its summary follows, only when it changed. readers: what the board server reads
    *  beside the board, as getters (summarize's `readers`); the last ones given stay until new ones come. */
-  board(board, readers) {
+  board(board: Board, readers?: Readers): void {
     this.lastBoard = board;
     if (readers) this.readers = readers;
     this.lastBoardAt = this.now();
@@ -110,18 +159,18 @@ export const summaries = {
   },
 
   /** The Pass's last board read worked (true) or failed (false). A flip is news and goes out like any change. */
-  health(ok) {
+  health(ok: boolean): void {
     if (this.healthOk !== ok) { this.healthOk = ok; this.healthSince = this.now(); }
     this.publish();
   },
 
   /** One of the readers beside the board (changed files, base checks, PR sizes) has news: the summary follows it, only
    *  when it changed. A board that failed its last read sends nothing new. */
-  readersMoved() { if (this.lastBoard && this.healthOk) this.publish(); },
+  readersMoved(): void { if (this.lastBoard && this.healthOk) this.publish(); },
 
   /** The dev opened a call on their own Pass: its id (client/open-kitchen.ts callId) goes in their summary's `seen` (kept as state.seenCalls: state.seen is the actions already run), so
    *  the lead's Mac stops the call reaching them. Kept on disk for a day. */
-  markSeen(callId) {
+  markSeen(callId: unknown): void {
     if (typeof callId !== 'string' || !callId || callId.length > 300) return;
     this.state.seenCalls = keepSeen({ ...(this.state.seenCalls || {}), [callId]: this.now() }, this.now());
     this.save();
@@ -129,7 +178,7 @@ export const summaries = {
   },
 
   /** Queue this dev's summary as it is now, if it differs from the one the relay took. */
-  publish() {
+  publish(): void {
     if (this.state.status !== 'member' || !(this.me && shares(this.me.role)) || !this.state.shared?.length) return;
     // No board read yet and nothing kept on the relay: there is nothing to say, or to correct.
     if (this.healthOk == null && !this.heldBody) return;
@@ -145,19 +194,19 @@ export const summaries = {
   /** The summary of the last board read, with this Mac's board health: ok true or false, or null before the first read
    *  since this Mac started. Before that read, the tickets are the ones the relay kept from before the restart, so a
    *  teammate keeps them but reads them as not checked. */
-  summaryBody() {
-    const health = { ok: this.healthOk ?? null, since: this.healthSince };
+  summaryBody(): OwnSummary {
+    const health: Health = { ok: this.healthOk ?? null, since: this.healthSince };
     if (!this.lastBoard) {
       const held = this.heldBody;
-      return { v: 1, tickets: Array.isArray(held?.tickets) ? held.tickets : [], more: Number(held?.more) || 0, health };
+      return { v: 1, tickets: Array.isArray(held?.tickets) ? held!.tickets as unknown[] : [], more: Number(held?.more) || 0, health };
     }
-    const readers = { ...(this.readers || {}), seen: this.state.seenCalls, now: this.now(), over: this.state.overAt,
+    const readers: Readers = { ...(this.readers || {}), seen: this.state.seenCalls, now: this.now(), over: this.state.overAt,
       // Kept on disk, so a restart keeps Too big's age; saved only when it changed.
       keepOver: (m) => { if (JSON.stringify(m) !== JSON.stringify(this.state.overAt || {})) { this.state.overAt = m; this.save(); } } };
     return { ...summarize(this.lastBoard, this.state.shared, this.limits.summaryMax, readers), at: this.lastBoardAt, health };
   },
 
-  async flush() {
+  async flush(): Promise<void> {
     if (!this.next || this.link !== 'online' || this.summaryTimer || this.flushing || !this.state.key) return;
     // Checked again at send time: a dev made a Viewer, or sharing nothing, sends no summary, whatever was queued before.
     if (!this.next.forget && (!(this.me && shares(this.me.role)) || !this.state.shared?.length)) { this.next = null; return; }
@@ -175,12 +224,12 @@ export const summaries = {
       this.sentAt = this.now() - this.limits.summaryMs + Math.min(RETRY.cap, this.limits.summaryMs * 2 ** Math.min(this.flushFails, 10)); this.setAt = this.now();
     };
     try {
-      let blob = null;
+      let blob: string | null = null;
       if (!next.forget) {
         try { blob = next.blob || (next.blob = await this.sealSummary(next.body)); } catch (ex) {
           // A key or member that does not load fails the same way every time: wait as for a failed send.
           backoff();
-          this.emit('error', { text: `Yes Chef could not seal this Mac's summary: ${clean(String(ex?.message || ex), 200)}` });
+          this.emit('error', { text: `Yes Chef could not seal this Mac's summary: ${clean(String((ex as Error)?.message || ex), 200)}` });
           return;
         }
         // Sealing waits on WebCrypto. A project dropped, or a Viewer made, while it ran replaced this summary or ended
@@ -212,7 +261,7 @@ export const summaries = {
 
   /** Seal a summary, and halve its tickets until the sealed blob fits the relay's limit: names in any script are
    *  measured as the bytes they seal to. */
-  async sealSummary(body) {
+  async sealSummary(body: OwnSummary): Promise<string> {
     const me = await this.member();
     const key = await this.teamKey();
     // The order is a revision, kept on disk and only going up, even when the clock goes back, so a replacement built
@@ -222,7 +271,7 @@ export const summaries = {
     this.state.summaryRev = rev;
     if (!(await this.saveNow())) throw new Error('This Mac could not save the summary\'s revision, so it did not send it.');
     for (let b = body; ; ) {
-      const blob = await sealSigned(key, me, { ...b, rev }, aad.summary(this.state.team, me.id));
+      const blob = await sealSigned(key!, me, { ...b, rev }, aad.summary(this.state.team, me.id));
       if (blob.length <= this.limits.summaryMax || !b.tickets.length) return blob;
       const n = Math.floor(b.tickets.length / 2);
       b = { ...b, tickets: b.tickets.slice(0, n), more: (b.more || 0) + b.tickets.length - n };
@@ -230,12 +279,12 @@ export const summaries = {
   },
 
   /** Nothing more goes out, and the relay's copy goes. */
-  unshare() { this.next = { forget: true, drop: this.state.dropped }; this.flush(); },
+  unshare(): void { this.next = { forget: true, drop: this.state.dropped }; this.flush(); },
 
   /** The dev changed which projects they share. Sharing nothing drops the relay's copy. Dropping a project rebuilds the
    *  waiting summary from the last board at once, so a summary queued before the change never carries that project's
    *  tickets. Resolves false when the new list did not reach the disk. It is in use here all the same. */
-  async share(projectIds) {
+  async share(projectIds: unknown[]): Promise<boolean> {
     const before = new Set(this.state.shared || []);
     this.state.shared = [...new Set(projectIds.map(String))];
     // A project dropped is kept on disk as owed until the relay takes a summary or forget built after it: a restart
@@ -244,9 +293,9 @@ export const summaries = {
     this.shareNow(before);
     return this.saveNow();
   },
-  shareNow(before) {
+  shareNow(before: Set<string | null>): void {
     if (!this.state.shared.length) { this.unshare(); return; }
-    const dropped = [...before].some((id) => !this.state.shared.includes(id));
+    const dropped = [...before].some((id) => !this.state.shared.includes(id as string));
     // Only added: the summary changes, so it goes as any change does.
     if (!dropped) { this.publish(); return; }
     if (this.lastBoard && this.me && shares(this.me.role)) {
@@ -255,25 +304,25 @@ export const summaries = {
       this.flush();
     } else this.unshare();
   },
-};
+} satisfies ThisType<Team>;
 
 // ---- the summary's fields (3b PR 4, agreed with step 4: client/open-kitchen.ts cleanTicket and cleanBase read them) ----
 const FILES_MAX = 150, RANGES_MAX = 24, BASES_MAX = 10, SEEN_MAX = 100, SEEN_MS = 24 * 3600000, SEEN_BYTES = 8192;
 // A time as epoch ms, or null. T3 and GitHub give ISO strings; the summary sends numbers.
-const time = (v) => { const t = typeof v === 'number' ? v : typeof v === 'string' ? Date.parse(v) : NaN; return Number.isFinite(t) ? t : null; };
-const sha = (v) => (typeof v === 'string' && /^[0-9a-f]{7,64}$/i.test(v) ? v.toLowerCase() : null);
-const count = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
-const name = (v, n) => (typeof v === 'string' && v.trim() ? clean(v, n) : null);
-const firstLine = (v, n) => name(String(v || '').split('\n').map((l) => l.trim()).find(Boolean), n);
+const time = (v: unknown): number | null => { const t = typeof v === 'number' ? v : typeof v === 'string' ? Date.parse(v) : NaN; return Number.isFinite(t) ? t : null; };
+const sha = (v: unknown): string | null => (typeof v === 'string' && /^[0-9a-f]{7,64}$/i.test(v) ? v.toLowerCase() : null);
+const count = (v: unknown): number | null => (Number.isInteger(v) && (v as number) >= 0 ? v as number : null);
+const name = (v: unknown, n: number): string | null => (typeof v === 'string' && v.trim() ? clean(v, n) : null);
+const firstLine = (v: unknown, n: number): string | null => name(String(v || '').split('\n').map((l) => l.trim()).find(Boolean), n);
 
 /** At most n line ranges for a file: the two neighbours with the smallest gap between them merge, until n are left.
  *  Every changed line stays inside a range. */
-export function fewerRanges(list, n = RANGES_MAX) {
-  const r = list.map(([a, b]) => [a, b]).sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+export function fewerRanges(list: readonly (readonly [number, number, ...unknown[]])[], n = RANGES_MAX): [number, number][] {
+  const r = list.map(([a, b]): [number, number] => [a, b]).sort((x, y) => x[0] - y[0] || x[1] - y[1]);
   while (r.length > n) {
     let best = 0;
-    for (let i = 1; i < r.length - 1; i++) if (r[i + 1][0] - r[i][1] < r[best + 1][0] - r[best][1]) best = i;
-    r.splice(best, 2, [r[best][0], Math.max(r[best][1], r[best + 1][1])]);
+    for (let i = 1; i < r.length - 1; i++) if (r[i + 1]![0] - r[i]![1] < r[best + 1]![0] - r[best]![1]) best = i;
+    r.splice(best, 2, [r[best]![0], Math.max(r[best]![1], r[best + 1]![1])]);
   }
   return r;
 }
@@ -282,18 +331,18 @@ export function fewerRanges(list, n = RANGES_MAX) {
  *  the one coordinate two devs share. Unknown stays null, never 0 or []. At most 150 files, the most lines changed
  *  first (a file of unknown size counts as large); `more` counts the files left out, plus one when git's own list was
  *  cut. Lockfiles and generated files carry `x: 1` and stay out of `size`. */
-export function summaryChanges(r) {
+export function summaryChanges(r: ChangesIn | null | undefined) {
   if (!r || typeof r !== 'object') return null;
-  if (r.state !== 'checked') return { state: 'not-checked', why: name(r.why, 200) || 'Not read yet.', at: time(r.at) };
-  const lines = (f) => (count(f.added) === null || count(f.removed) === null ? Infinity : f.added + f.removed);
-  const all = (Array.isArray(r.files) ? r.files : []).filter((f) => f && typeof f.path === 'string');
+  if (r.state !== 'checked') return { state: 'not-checked' as const, why: name(r.why, 200) || 'Not read yet.', at: time(r.at) };
+  const lines = (f: FileIn): number => (count(f.added) === null || count(f.removed) === null ? Infinity : (f.added as number) + (f.removed as number));
+  const all = ((Array.isArray(r.files) ? r.files : []) as (FileIn | null)[]).filter((f) => f && typeof f.path === 'string') as FileIn[];
   const files = [...all].sort((a, b) => lines(b) - lines(a) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)).slice(0, FILES_MAX).map((f) => {
-    const out = { p: clean(f.path, 300), r: Array.isArray(f.hunks) && f.hunks.length ? fewerRanges(rangesOf(f, 'old')) : null, a: count(f.added), d: count(f.removed) };
+    const out: { p: string; r: [number, number][] | null; a: number | null; d: number | null; x?: 1 } = { p: clean(f.path, 300), r: Array.isArray(f.hunks) && f.hunks.length ? fewerRanges(rangesOf(f as Pick<ChangedFile, 'hunks'>, 'old')) : null, a: count(f.added), d: count(f.removed) };
     if (f.lock || f.generated) out.x = 1;
     return out;
   });
   return {
-    state: 'checked', at: time(r.at), repo: name(r.remote?.repo, 100), base: name(r.base?.branch, 100), mergeBase: sha(r.base?.commit), head: sha(r.head), headAt: time(r.headAt),
+    state: 'checked' as const, at: time(r.at), repo: name(r.remote?.repo, 100), base: name(r.base?.branch, 100), mergeBase: sha(r.base?.commit), head: sha(r.head), headAt: time(r.headAt),
     files, more: all.length - files.length + (r.truncated ? 1 : 0),
     size: { files: count(r.size?.files), added: count(r.size?.added), removed: count(r.size?.removed) },
   };
@@ -301,17 +350,17 @@ export function summaryChanges(r) {
 
 /** A PR's check runs as the summary sends them (client/pr-runs.ts): the head's result, how many runs failed in a
  *  row, and the last 10 runs, oldest first. */
-export function summaryChecks(c) {
+export function summaryChecks(c: ChecksIn | null | undefined) {
   if (!c || typeof c !== 'object') return null;
   return { result: name(c.result, 20), redRuns: count(c.redRuns), at: time(c.at),
-    runs: (Array.isArray(c.runs) ? c.runs : []).slice(-10).map((r) => ({ at: time(r?.at), sha: sha(r?.sha), title: name(r?.title, 80), result: name(r?.result, 20) })) };
+    runs: ((Array.isArray(c.runs) ? c.runs : []) as ({ at?: unknown; sha?: unknown; title?: unknown; result?: unknown } | null)[]).slice(-10).map((r) => ({ at: time(r?.at), sha: sha(r?.sha), title: name(r?.title, 80), result: name(r?.result, 20) })) };
 }
 
 /** A PR as the summary sends it: T3's link (state, target branch, draft, merge time), and what the board server read
  *  from GitHub (client/github.ts readPrFacts). Open: the size (null when GitHub's file list was partial), the check
  *  runs and when it was marked ready. Merged: its merge commit. A fact not read is left out, never a guess. */
-export function summaryPr(p, read) {
-  const out = { repo: clean(p.repository, 100), n: p.number, state: p.state, url: typeof p.url === 'string' && /^https:\/\//.test(p.url) ? p.url.slice(0, 300) : null,
+export function summaryPr(p: PullRequestLink, read: PrIn | null | undefined): SummaryPr {
+  const out: SummaryPr = { repo: clean(p.repository, 100), n: p.number, state: p.state, url: typeof p.url === 'string' && /^https:\/\//.test(p.url) ? p.url.slice(0, 300) : null,
     base: name(p.base, 100), draft: typeof p.draft === 'boolean' ? p.draft : null, mergedAt: time(p.mergedAt) };
   // Draft unknown stays null, never "not a draft" (PR-Agent r1 on #27).
   if (read?.state === 'checked' && p.state === 'open') {
@@ -326,35 +375,35 @@ export function summaryPr(p, read) {
 
 /** The first open question on a ticket: a T3 question, else a call in the agent's hand-back (client/calls.ts). `at`
  *  is when the thread stopped to ask; `n` how many are open. */
-export function summaryAsk(k) {
+export function summaryAsk(k: Pick<Ticket, 'asks' | 'call' | 'thread'>) {
   const qs = (k.asks || []).flatMap((a) => (a.items || []).map((it) => ({ it, at: a.thread?.updatedAt })));
   if (qs.length) {
-    const { it, at } = qs[0];
+    const { it, at } = qs[0]!;
     return { at: time(at), q: name(it.question, 200) || 'A question', rec: null, n: qs.length,
       options: (Array.isArray(it.options) ? it.options : []).slice(0, 6).map((o) => ({ k: name(o?.label, 40), t: name(o?.description || o?.label, 120) })) };
   }
   const calls = k.call?.calls || [];
   if (!calls.length) return null;
-  const c = calls[0];
+  const c = calls[0]!;
   return { at: time(k.thread?.updatedAt), q: name(c.question, 200) || 'Your call', rec: name(c.recommend, 4), n: calls.length,
     options: (Array.isArray(c.options) ? c.options : []).slice(0, 6).map((o) => ({ k: name(o?.letter, 4), t: name(o?.text, 120) })) };
 }
 
 /** One base branch's checks as the summary sends it (client/github.ts readBaseChecks). `failing`: up to 5 names. */
-export function summaryBase(b) {
+export function summaryBase(b: BaseIn) {
   return { repo: name(b.repo, 100), branch: name(b.branch, 100), sha: sha(b.sha), title: name(b.title, 120), committedAt: time(b.committedAt),
     result: name(b.result, 20), requiredResult: name(b.requiredResult, 20), redSha: sha(b.red?.redSha), redSince: time(b.red?.redSince),
-    failing: (Array.isArray(b.checks) ? b.checks : []).filter((c) => c?.state === 'failing').map((c) => name(c.name, 80)).filter(Boolean).slice(0, 5),
+    failing: ((Array.isArray(b.checks) ? b.checks : []) as ({ state?: unknown; name?: unknown } | null)[]).filter((c) => c?.state === 'failing').map((c) => name(c!.name, 80)).filter(Boolean).slice(0, 5),
     at: time(b.at) };
 }
 
 /** The calls this dev opened on their own Pass in the last day, at most 100 and 8 KiB as UTF-8, the newest kept: the
  *  summary's other fields keep their room under the relay's limit (PR-Agent r2 on #27). */
-export function keepSeen(seen, now) {
-  const list = Object.entries(seen && typeof seen === 'object' ? seen : {})
+export function keepSeen(seen: unknown, now: number): Record<string, number> {
+  const list = (Object.entries(seen && typeof seen === 'object' ? seen : {}) as [string, number][])
     .filter(([id, at]) => typeof id === 'string' && id.length <= 300 && Number.isFinite(at) && at <= now + 60000 && now - at < SEEN_MS)
     .sort((a, b) => b[1] - a[1]).slice(0, SEEN_MAX);
-  const out = [];
+  const out: [string, number][] = [];
   let used = 2;
   for (const [id, at] of list) {
     used += new TextEncoder().encode(JSON.stringify(id)).length + String(at).length + 2;
@@ -372,32 +421,32 @@ export function keepSeen(seen, now) {
  *  keepOver(map), which takes the new one; now. A reader left out reads "Not checked" on the lead's
  *  screen, never a guess. It fits the relay's limit with room for the seal: the changed files of the least recent
  *  tickets go first, then whole tickets. */
-export function summarize(board, shared, max = 65536, readers = {}) {
-  const keep = new Set(shared || []);
-  const get = (f, ...a) => { try { return typeof f === 'function' ? f(...a) : null; } catch { return null; } };
-  const now = Number.isFinite(readers.now) ? readers.now : Date.now();
+export function summarize(board: Pick<Board, 'tickets'> | null | undefined, shared: readonly string[] | null | undefined, max = 65536, readers: Readers = {}) {
+  const keep = new Set<string | undefined>(shared || []);
+  const get = <A extends unknown[], R>(f: ((...a: A) => R) | null | undefined, ...a: A): R | null => { try { return typeof f === 'function' ? f(...a) : null; } catch { return null; } };
+  const now = Number.isFinite(readers.now) ? readers.now! : Date.now();
   // Too big's age: when this Mac first saw each open PR over the limit, kept while it stays over (3b PR 4b).
-  const overBefore = readers.over && typeof readers.over === 'object' ? readers.over : {}, over = {};
+  const overBefore = (readers.over && typeof readers.over === 'object' ? readers.over : {}) as Record<string, unknown>, over: Record<string, number> = {};
   // Keyed like the reads, host and all (PR-Agent r2 on #28).
-  const withOver = (pr, host) => {
+  const withOver = (pr: SummaryPr, host: string | undefined): SummaryPr => {
     const s = pr.size, key = `${String(host || 'github.com').toLowerCase()}/${String(pr.repo).toLowerCase()}#${pr.n}`, was = overBefore[key];
     if (pr.state !== 'open') return pr;
     // Size unknown (not read yet, GitHub refused, a partial list): the first time over is kept, not lost (PR-Agent
     // r1 on #28). It goes only when a read shows the PR under the limit, or the PR leaves the board or closes.
     if (!s || s.added === null || s.removed === null || s.files === null) {
-      if (Number.isFinite(was) && was <= now) over[key] = was;
+      if (Number.isFinite(was) && (was as number) <= now) over[key] = was as number;
       return pr;
     }
     if (s.added + s.removed <= RULES.bigLines && s.files <= RULES.bigFiles) return pr;
-    over[key] = Number.isFinite(was) && was <= now ? was : now;
+    over[key] = Number.isFinite(was) && (was as number) <= now ? was as number : now;
     s.overAt = over[key];
     return pr;
   };
   const picked = (board?.tickets || [])
     .filter((k) => keep.has(k.thread.projectId) && k.place !== 'Coordinators')
-    .sort((a, b) => (b.atPass - a.atPass) || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+    .sort((a, b) => (+b.atPass - +a.atPass) || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
   const tickets = picked.map((k) => {
-    const t = {
+    const t: SummaryTicket = {
       thread: k.thread.threadId, title: clean(k.thread.title, 160), project: clean(k.project, 80), place: k.place,
       atPass: !!k.atPass, working: k.working || 0, asks: k.asks.length, call: !!k.call,
       // Every PR keeps its Too big age, also past the 5 the summary carries (PR-Agent r3 on #28).
@@ -408,7 +457,7 @@ export function summarize(board, shared, max = 65536, readers = {}) {
     if (c) t.changes = c;
     return t;
   });
-  const bases = new Map();
+  const bases = new Map<string, ReturnType<typeof summaryBase>>();
   for (const k of picked) {
     const b = get(readers.base, k.thread.threadId);
     if (b?.state !== 'checked' || bases.size >= BASES_MAX) continue;
@@ -421,11 +470,11 @@ export function summarize(board, shared, max = 65536, readers = {}) {
   // A sealed summary is about 4/3 of its JSON's UTF-8 bytes plus the signature. Shed the changed files of the least
   // recent tickets first (a ticket without them reads "Not checked"), then halve the list until it fits. Sealing checks
   // the real size again (sealSummary).
-  const bytes = (x) => new TextEncoder().encode(JSON.stringify(x)).length;
+  const bytes = (x: unknown): number => new TextEncoder().encode(JSON.stringify(x)).length;
   const fits = () => (bytes({ ...top, tickets: tickets.slice(0, n) }) * 4) / 3 + 600 <= max;
-  const byAge = tickets.slice(0, n).map((t, i) => i).filter((i) => tickets[i].changes)
-    .sort((a, b) => String(tickets[a].updatedAt || '').localeCompare(String(tickets[b].updatedAt || '')) || b - a);
-  for (const i of byAge) { if (fits()) break; delete tickets[i].changes; }
+  const byAge = tickets.slice(0, n).map((t, i) => i).filter((i) => tickets[i]!.changes)
+    .sort((a, b) => String(tickets[a]!.updatedAt || '').localeCompare(String(tickets[b]!.updatedAt || '')) || b - a);
+  for (const i of byAge) { if (fits()) break; delete tickets[i]!.changes; }
   while (n > 0 && !fits()) n = Math.floor(n / 2);
   // Last, and only for a limit far below the relay's: the base branches go too, so the summary always fits.
   while (top.bases.length && !fits()) top.bases.pop();

@@ -1,23 +1,51 @@
 // The team screens (step 3b, PR 3): the lead's invite page with the asks drawer and the chart, the role dialog, and the
 // dev's Join, waiting and joined screens. Built from mock v1 (Dan's picks 2026-11-10: 1b the chart, 2a the match
-// code, 3a the Engineer sees only). Rendered here from the team client's view (client/team.mjs); the page posts each
+// code, 3a the Engineer sees only). Rendered here from the team client's view (client/team.ts); the page posts each
 // change to /act as kind=team, the same door every action uses. Dev words only: the modes are Open kitchen and French
 // Brigade, in full.
-import { PERMS, DEFAULTS, ROLE_NAMES } from './roles.mjs';
+import { PERMS, DEFAULTS, ROLE_NAMES } from './roles.ts';
+import type { Role } from './roles.ts';
+import type { Invite } from './seal.ts';
+import type { Area, View, ViewPerson } from './team.ts';
+
+/** A project row: T3 Code's project and how many threads the board holds in it (null: not checked). */
+export interface ProjectRow { id: string; title: string; threads: number | null }
+/** An open invite's link, to show and copy again (Team.links()). */
+export interface LinkRow { id: string; until: number; by: string; link: string }
+/** What the team page shows. view: the team client's view() or null. join: a read invite the dev opened, with the
+ *  fragment they opened it with, or null. */
+export interface PageOptions {
+  lost?: string; view?: View | null; join?: (Invite & { raw?: string | null }) | null; links?: LinkRow[]; projects?: ProjectRow[];
+  shared?: string[]; t3?: { ok: boolean }; relay?: string; now?: number; name?: string;
+}
+/** What the page script reads from the page: the role dialog's asks, people, areas and boxes. */
+interface PageData {
+  teamName: string; pending: View['pending']; areas: Area[]; people: Pick<ViewPerson, 'id' | 'name' | 'role' | 'perms' | 'area'>[];
+  perms: { key: string; label: string; hint: string }[]; defaults: Record<string, string[]>; roleNames: Record<string, string>;
+}
+/** A kind=team action's fields, as the page script sends them. */
+type Fields = Record<string, unknown> & { op?: string | undefined };
+/** Someone with a face: a member, an ask, or the lead of an invite. */
+type Face = { id?: string | undefined; m?: string; name?: string | undefined };
+
+declare global {
+  // The desktop app's bridge (desktop/preload.cts): an action goes to the board server without a network hop.
+  interface Window { yeschef?: { act?: (body: string) => Promise<[number, string]> } }
+}
 
 export const DEFAULT_RELAY = 'https://relay.yeschef.codes';
 export const SITE = 'https://yeschef.codes';
 
-const e = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-const initials = (name) => (String(name || '').trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('') || '?').toUpperCase();
+const e = (s: unknown): string => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[c]!);
+const initials = (name: unknown): string => (String(name || '').trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('') || '?').toUpperCase();
 // A colour per person, from their id: the same on every Mac.
-const hue = (id) => { let h = 0; for (const c of String(id || '')) h = (h * 31 + c.charCodeAt(0)) >>> 0; return `c${(h % 6) + 1}`; };
-const av = (p, size = '') => `<span class="av ${size} ${hue(p.id || p.m)}" aria-hidden="true">${e(initials(p.name))}</span>`;
-const day = (ms) => new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-const ago = (ms, now) => { const m = Math.max(0, Math.round((now - ms) / 60000)); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
-const and = (list) => (list.length < 2 ? list.join('') : `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`);
-const first = (name) => String(name || '').trim().split(/\s+/)[0] || 'the lead';
-const use = (id, w = 14, h = 14) => `<svg width="${w}" height="${h}" aria-hidden="true"><use href="#${id}"/></svg>`;
+const hue = (id: unknown): string => { let h = 0; for (const c of String(id || '')) h = (h * 31 + c.charCodeAt(0)) >>> 0; return `c${(h % 6) + 1}`; };
+const av = (p: Face, size = ''): string => `<span class="av ${size} ${hue(p.id || p.m)}" aria-hidden="true">${e(initials(p.name))}</span>`;
+const day = (ms: number): string => new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+const ago = (ms: number, now: number): string => { const m = Math.max(0, Math.round((now - ms) / 60000)); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
+const and = (list: readonly string[]): string => (list.length < 2 ? list.join('') : `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`);
+const first = (name: unknown): string => String(name || '').trim().split(/\s+/)[0] || 'the lead';
+const use = (id: string, w = 14, h = 14): string => `<svg width="${w}" height="${h}" aria-hidden="true"><use href="#${id}"/></svg>`;
 
 const ICONS = `<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
   <symbol id="cloche" viewBox="0 0 24 24"><path d="M4.25 17.4a7.75 7.75 0 0 1 15.5 0" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="7.4" r="1.75" fill="currentColor"/><path d="M2.75 19h18.5l-1.5 1.5H4.25z" fill="currentColor"/></symbol>
@@ -211,10 +239,10 @@ dialog.dlg::backdrop{background:var(--scrim)}
 // ---- the pieces ----
 
 const PROJECT_COLORS = ['#0A84FF', '#30A46C', '#8E4EC6', '#D9822B', '#E5484D', '#636366'];
-const pj = (p, i) => `<span class="pj" style="background:${PROJECT_COLORS[i % PROJECT_COLORS.length]}" aria-hidden="true">${e(String(p.title || '?').slice(0, 2).toLowerCase())}</span>`;
-const threads = (n) => (typeof n === 'number' ? `${n} ${n === 1 ? 'thread' : 'threads'}` : 'Threads not checked');
+const pj = (p: { title?: unknown }, i: number): string => `<span class="pj" style="background:${PROJECT_COLORS[i % PROJECT_COLORS.length]}" aria-hidden="true">${e(String(p.title || '?').slice(0, 2).toLowerCase())}</span>`;
+const threads = (n: unknown): string => (typeof n === 'number' ? `${n} ${n === 1 ? 'thread' : 'threads'}` : 'Threads not checked');
 
-function linkCard(links, now) {
+function linkCard(links: readonly LinkRow[], now: number): string {
   const l = links[0];
   if (!l) {
     return `<div class="linkcard"><div class="row"><div class="field">No open link</div><button class="btn primary" data-op="invite">Make a link</button></div>
@@ -224,7 +252,7 @@ function linkCard(links, now) {
     <div class="fine"><span>Works until ${e(day(l.until))}. Anyone with it can ask to join, and you add each one. The link alone reads nothing.</span><button class="lnk" data-op="invite">New link</button></div></div>`;
 }
 
-function drawer(v, now) {
+function drawer(v: View, now: number): string {
   const asks = v.pending || [];
   return `<aside class="drawer" aria-label="Asking to join">
     <div class="hd">Asking to join<span class="n">${asks.length}</span></div>
@@ -234,17 +262,17 @@ function drawer(v, now) {
   </aside>`;
 }
 
-const roleLine = (p) => (p.role === 'viewer' ? 'Sees, sends no summary' : ROLE_NAMES[p.role] || 'Not checked');
-const member = (p, cls = '') => `<button type="button" class="slot ${cls}" draggable="true" data-member="${e(p.id)}" title="Change ${e(p.name)}'s role">${av(p)}<span class="who">${e(p.name)}<i>${e(roleLine(p))}</i></span></button>`;
-const drop = (label, role, area = '', cls = '') => `<div class="slot empty drop ${cls}" data-drop="${role}" data-area="${e(area)}">${e(label)}</div>`;
+const roleLine = (p: { role: Role }): string => (p.role === 'viewer' ? 'Sees, sends no summary' : ROLE_NAMES[p.role] || 'Not checked');
+const member = (p: ViewPerson, cls = ''): string => `<button type="button" class="slot ${cls}" draggable="true" data-member="${e(p.id)}" title="Change ${e(p.name)}'s role">${av(p)}<span class="who">${e(p.name)}<i>${e(roleLine(p))}</i></span></button>`;
+const drop = (label: string, role: Role, area = '', cls = ''): string => `<div class="slot empty drop ${cls}" data-drop="${role}" data-area="${e(area)}">${e(label)}</div>`;
 
-function chart(v) {
+function chart(v: View): string {
   const people = v.people.filter((p) => p.id !== v.me.id);
   const lead = v.people.find((p) => p.role === 'lead') || v.me;
-  const by = (role, area) => people.filter((p) => p.role === role && (area === undefined || (p.area || '') === area));
+  const by = (role: Role, area?: string): ViewPerson[] => people.filter((p) => p.role === role && (area === undefined || (p.area || '') === area));
   const deputies = by('deputy');
   const loose = people.filter((p) => (p.role === 'owner' || p.role === 'engineer') && !p.area);
-  const areaCard = (a) => {
+  const areaCard = (a: Area): string => {
     const owners = by('owner', a.id), engineers = by('engineer', a.id);
     return `<div class="area" data-area-id="${e(a.id)}"><div class="ah"><span title="${e(a.name)}">${e(a.name)}</span>
       <details><summary aria-label="${e(a.name)} options">⋯</summary><div class="menu"><button type="button" data-rename="${e(a.id)}">Rename</button><button type="button" data-op="removeArea" data-id="${e(a.id)}">Remove area</button></div></details></div>
@@ -267,7 +295,7 @@ function chart(v) {
   </div>`;
 }
 
-function leadPage(v, links, now, own = '') {
+function leadPage(v: View, links: readonly LinkRow[], now: number, own = ''): string {
   return `<div class="lead">${drawer(v, now)}<main>
     <h1 class="ih"><span class="logo">${use('person-plus', 36, 36)}</span>Invite your team</h1>
     <p class="lede">Send the link any way you like. Each dev connects their own T3 Code, picks the projects to share, and asks to join.</p>
@@ -277,7 +305,7 @@ function leadPage(v, links, now, own = '') {
   </main></div>`;
 }
 
-function projectRows(projects, shared, name = 'share') {
+function projectRows(projects: readonly ProjectRow[], shared: readonly string[], name = 'share'): string {
   if (!projects.length) return '<div class="rowi"><span class="grow"><i>No projects checked yet. Yes Chef reads them from T3 Code.</i></span></div>';
   const on = new Set(shared);
   return projects.map((p, i) => `<label class="rowi">${pj(p, i)}<div class="grow">${e(p.title)}<i>${e(threads(p.threads))}</i></div><input type="checkbox" class="sw" name="${name}" value="${e(p.id)}"${on.has(p.id) ? ' checked' : ''} aria-label="Share ${e(p.title)}"></label>`).join('');
@@ -288,13 +316,13 @@ const SEES = `<div class="box2"><div class="bh">What the team sees from shared p
   <div><span class="y">✓</span>How many agents are working, and whether a thread waits on you</div>
   <div><span class="n">✕</span>Your messages, code, diffs and file names, and every project you leave off</div></div></div>`;
 
-function t3Row(t3) {
+function t3Row(t3: { ok: boolean }): string {
   return `<div class="box2"><div class="rowi"><span class="logo cl">${use('cloche', 31, 31)}</span><div class="grow">T3 Code on this Mac<i>${t3.ok
     ? 'Connected. Yes Chef reads it; teammates\' actions go through your own sign-in.'
     : 'Not checked. Yes Chef could not read T3 Code just now.'}</i></div>${t3.ok ? '<span class="ok">Connected</span>' : '<span class="bad">Not checked</span>'}</div></div>`;
 }
 
-function joinPage(inv, projects, t3, now) {
+function joinPage(inv: Invite & { raw?: string | null }, projects: readonly ProjectRow[], t3: { ok: boolean }, now: number): string {
   const lead = inv.leadName || 'The lead';
   return `<form class="dev join" data-form="join"><input type="hidden" name="link" value="${e(inv.raw || '')}">
     <div class="from">${av({ id: inv.leadSignPub, name: lead }, 'xl')}<div><h1>Join ${e(inv.teamName || 'the team')}</h1><p class="who">${e(lead)} invited you. Nothing is shared until ${e(first(lead))} adds you.</p></div></div>
@@ -307,7 +335,7 @@ function joinPage(inv, projects, t3, now) {
   </form>`;
 }
 
-function waitingPage(v, projects) {
+function waitingPage(v: View, projects: readonly ProjectRow[]): string {
   const lead = v.leadName || 'The lead';
   const names = (v.asked || []).length ? and(v.asked) : 'Your projects';
   return `<div class="wait">
@@ -320,12 +348,12 @@ function waitingPage(v, projects) {
   </div>`;
 }
 
-const sharingBox = (me, projects, shared) => (me.role === 'viewer'
+const sharingBox = (me: View['me'], projects: readonly ProjectRow[], shared: readonly string[]): string => (me.role === 'viewer'
   ? '<div class="box2"><div class="bh">Sharing</div><div class="rowi"><span class="grow"><i>A Viewer shares nothing with the team.</i></span></div></div>'
   : `<form class="box2" data-form="share"><div class="bh">Sharing</div>${projectRows(projects, shared)}</form>`);
 
 /** A member who may invite (a Deputy by default) keeps their own sharing switches under the chart (PR-Agent r1 on #8). */
-function ownSharing(v, projects, shared) {
+function ownSharing(v: View, projects: readonly ProjectRow[], shared: readonly string[]): string {
   if (v.lead) return '';
   return `<div class="dev own">${sharingBox(v.me, projects, shared)}
     <p class="err" role="alert"></p>
@@ -333,7 +361,7 @@ function ownSharing(v, projects, shared) {
   </div>`;
 }
 
-function joinedPage(v, projects, shared) {
+function joinedPage(v: View, projects: readonly ProjectRow[], shared: readonly string[]): string {
   const me = v.me;
   const lead = v.people.find((p) => p.role === 'lead');
   const mine = new Set(me.perms || []);
@@ -342,7 +370,7 @@ function joinedPage(v, projects, shared) {
   const area = v.areas.find((a) => a.id === me.area);
   const boss = me.under ? v.people.find((p) => p.id === me.under) : null;
   return `<div class="dev">
-    <div class="from">${av(lead || { name: v.leadName })}<div><h1>You're on ${e(v.teamName || 'the team')}</h1><p class="who">${e(lead?.name || v.leadName || 'The lead')} added you as <span class="badge">${e(ROLE_NAMES[me.role] || 'Not checked')}</span>${area ? ` in ${e(area.name)}` : ''}${boss && boss.id !== lead?.id ? `, reporting to ${e(boss.name)}` : ''}</p></div></div>
+    <div class="from">${av(lead || { name: v.leadName })}<div><h1>You're on ${e(v.teamName || 'the team')}</h1><p class="who">${e(lead?.name || v.leadName || 'The lead')} added you as <span class="badge">${e(ROLE_NAMES[me.role as Role] || 'Not checked')}</span>${area ? ` in ${e(area.name)}` : ''}${boss && boss.id !== lead?.id ? `, reporting to ${e(boss.name)}` : ''}</p></div></div>
     <div class="box2"><div class="bh">Your role lets you</div><div class="acts-li">
       ${can.map((p) => `<div><span class="y">✓</span>${e(p.label)}</div>`).join('')}
       <div class="muted">Ask ${e(first(lead?.name || v.leadName))} for more.</div></div></div>
@@ -355,18 +383,18 @@ function joinedPage(v, projects, shared) {
   </div>`;
 }
 
-const ENDED = {
+const ENDED: Record<string, [string, string]> = {
   declined: ['The lead did not add you', 'Your ask to join was declined. Nothing was shared.'],
   removed: ['You are off the team', 'The lead took you off the team. Yes Chef stopped sharing and dropped the team key.'],
   ended: ['The team was deleted', 'The lead deleted the team. Yes Chef stopped sharing and dropped the team key.'],
 };
-function endedPage(v) {
-  const [title, text] = ENDED[v.status] || ENDED.ended;
+function endedPage(v: View): string {
+  const [title, text] = ENDED[v.status] || ENDED.ended!;
   return `<div class="wait"><span class="logo">${use('person-plus', 36, 36)}</span><h1>${e(title)}</h1><p class="lede">${e(text)}</p>
     <button type="button" class="btn" data-op="leave">OK</button></div>`;
 }
 
-function startPage({ relay, name }) {
+function startPage({ relay, name }: { relay: string; name: string }): string {
   return `<div class="dev">
     <h1 class="ih"><span class="logo">${use('person-plus', 36, 36)}</span>Your team</h1>
     <p class="lede">Make a team and send the link, or open a link a lead sent you.</p>
@@ -386,7 +414,7 @@ function startPage({ relay, name }) {
 
 /** The team page's body for one state. view: the team client's view() or null. join: a read invite the dev opened,
  *  or null. projects: [{ id, title, threads }]. shared: this dev's shared project ids. t3: { ok }. */
-export function teamBody({ lost = '', view = null, join = null, links = [], projects = [], shared = [], t3 = { ok: false }, relay = DEFAULT_RELAY, now = Date.now(), name = '' } = {}) {
+export function teamBody({ lost = '', view = null, join = null, links = [], projects = [], shared = [], t3 = { ok: false }, relay = DEFAULT_RELAY, now = Date.now(), name = '' }: PageOptions = {}): string {
   if (lost) {
     return `<div class="wait"><span class="logo">${use('person-plus', 36, 36)}</span><h1>Your team: not checked</h1><p class="lede">Yes Chef could not read the team saved on this Mac (${e(lost)}). It is still there, untouched. Quit Yes Chef and start it again; macOS may ask to let Yes Chef use its Keychain key.</p></div>`;
   }
@@ -403,22 +431,23 @@ export function teamBody({ lost = '', view = null, join = null, links = [], proj
 
 // The page script. It runs in the page, so it is written here as a function and sent as its source: no template-literal
 // escapes to get wrong (server.mjs's page script has that trap).
-function pageScript() {
-  var data = JSON.parse(document.getElementById('yc-team-data').textContent);
-  var $ = function (s, r) { return (r || document).querySelector(s); };
-  var busy = false, dragging = null, queued = null;
-  function post(body) {
+function pageScript(): void {
+  var data: PageData = JSON.parse(document.getElementById('yc-team-data')!.textContent!);
+  // The page has each element it asks for: the screens above draw them.
+  var $ = function <E extends Element = HTMLElement>(s: string, r?: ParentNode | null): E { return (r || document).querySelector(s) as E; };
+  var busy = false, dragging: string | null = null, queued: Fields | null = null;
+  function post(body: string): Promise<[number, string]> {
     if (window.yeschef && typeof window.yeschef.act === 'function') return window.yeschef.act(body);
-    return fetch('/act', { method: 'POST', body: body }).then(function (r) { return r.text().then(function (t) { return [r.status, t]; }); });
+    return fetch('/act', { method: 'POST', body: body }).then(function (r) { return r.text().then(function (t): [number, string] { return [r.status, t]; }); });
   }
-  function say(text) { var el = $('.err'); if (el) el.textContent = text || ''; else if (text) alert(text); }
+  function say(text?: string): void { var el = $('.err'); if (el) el.textContent = text || ''; else if (text) alert(text); }
   // A sharing change made while another action runs is kept (the latest one) and sent next (PR-Agent r1 on #8).
-  function next() { var q = queued; queued = null; return q ? act(q) : null; }
-  function act(fields) {
+  function next(): Promise<unknown> | null { var q = queued; queued = null; return q ? act(q) : null; }
+  function act(fields: Fields): Promise<unknown> {
     if (busy) { if (fields.op === 'share') queued = fields; return Promise.resolve(); }
     busy = true; seq++; say('');
     var q = new URLSearchParams({ kind: 'team' });
-    Object.keys(fields).forEach(function (k) { if (fields[k] != null) q.append(k, Array.isArray(fields[k]) ? fields[k].join(',') : String(fields[k])); });
+    Object.keys(fields).forEach(function (k) { if (fields[k] != null) q.append(k, Array.isArray(fields[k]) ? (fields[k] as unknown[]).join(',') : String(fields[k])); });
     return post(q.toString()).then(function (r) {
       busy = false;
       if (r[0] !== 200) { say(r[1] || 'Not done.'); return next() || false; }
@@ -426,31 +455,31 @@ function pageScript() {
     }, function () { busy = false; say('Not done: Yes Chef did not answer.'); return next() || false; });
   }
   // A read-only field (the invite link, focused to copy it) is not an edit: the asks keep coming (PR-Agent r2 on #8).
-  function editing() {
-    var ed = document.activeElement;
-    return busy || dragging || (dlg && dlg.open) || ed && /INPUT|SELECT/.test(ed.tagName) && !ed.readOnly || !!$('details[open]');
+  function editing(): boolean {
+    var ed = document.activeElement as HTMLInputElement | null;
+    return !!(busy || dragging || (dlg && dlg.open) || ed && /INPUT|SELECT/.test(ed.tagName) && !ed.readOnly || !!$('details[open]'));
   }
   // Each refresh and action takes a number: a page fetched before a newer one, or before an edit began, is dropped
   // when it arrives (PR-Agent r3 on #8).
   var seq = 0;
-  function refresh(force) {
+  function refresh(force?: boolean): Promise<unknown> {
     if (!force && editing()) return Promise.resolve();
     var mine = ++seq;
     return fetch('/team' + location.search, { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : null; }).then(function (h) {
       if (!h || mine !== seq || (!force && editing())) return;
       var doc = new DOMParser().parseFromString(h, 'text/html');
       var next = doc.getElementById('yc-team'), d = doc.getElementById('yc-team-data');
-      if (next) document.getElementById('yc-team').replaceWith(next);
-      if (d) data = JSON.parse(d.textContent);
+      if (next) document.getElementById('yc-team')!.replaceWith(next);
+      if (d) data = JSON.parse(d.textContent!);
       return true;
     }, function () {});
   }
   setInterval(refresh, 2500);
 
   // The role dialog: opened by a drop, a click on an ask, or a click on a member.
-  var dlg = $('#role-dlg');
-  var pick = null; // { m, ask: bool, role, area }
-  function boxes(role, perms) {
+  var dlg = $<HTMLDialogElement>('#role-dlg');
+  var pick: { m: string; ask: boolean; role: string; area: string | null } = null!; // { m, ask: bool, role, area }
+  function boxes(role: string, perms?: string[] | null): void {
     var on = new Set(perms || data.defaults[role] || ['see']);
     $('.checks', dlg).innerHTML = data.perms.map(function (p) {
       var locked = p.key === 'see';
@@ -458,12 +487,12 @@ function pageScript() {
     }).join('');
   }
   // Also quotes: esc() feeds attribute values too (PR-Agent r1 on #8).
-  function esc(s) { var d = document.createElement('div'); d.textContent = String(s == null ? '' : s); return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
-  function setRole(role, perms) {
+  function esc(s: unknown): string { var d = document.createElement('div'); d.textContent = String(s == null ? '' : s); return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+  function setRole(role: string, perms?: string[] | null): void {
     pick.role = role;
-    Array.prototype.forEach.call(dlg.querySelectorAll('.roles button'), function (b) { b.setAttribute('aria-pressed', String(b.dataset.role === role)); });
+    Array.prototype.forEach.call(dlg.querySelectorAll('.roles button'), function (b: HTMLElement) { b.setAttribute('aria-pressed', String(b.dataset.role === role)); });
     boxes(role, perms);
-    var ap = $('.area-pick', dlg), sel = $('select', ap);
+    var ap = $('.area-pick', dlg), sel = $<HTMLSelectElement>('select', ap);
     var inArea = (role === 'owner' || role === 'engineer') && data.areas.length;
     ap.hidden = !inArea;
     // The options follow the latest data: an area added since the page loaded is there (PR-Agent r1 on #8).
@@ -472,11 +501,11 @@ function pageScript() {
     data.areas.forEach(function (a) { sel.appendChild(new Option(a.name, a.id)); });
     if (inArea) sel.value = pick.area && data.areas.some(function (a) { return a.id === pick.area; }) ? pick.area : '';
   }
-  function open(m, role, area) {
+  function open(m: string, role?: string, area?: string | null): void {
     var ask = data.pending.filter(function (a) { return a.m === m; })[0];
     var person = data.people.filter(function (p) { return p.id === m; })[0];
     if (!ask && !person) return;
-    var who = ask || person;
+    var who = (ask || person)!;
     pick = { m: m, ask: !!ask, role: role || (person ? person.role : 'engineer'), area: area != null ? area : (person ? person.area : '') };
     var her = who.name.split(/\s+/)[0];
     $('.av', dlg).className = 'av lg ' + (document.querySelector('[data-ask="' + m + '"] .av, [data-member="' + m + '"] .av') || { className: 'av c1' }).className.split(' ').filter(function (c) { return /^c\d$/.test(c); }).join(' ');
@@ -484,7 +513,7 @@ function pageScript() {
     $('h2', dlg).textContent = ask ? 'Add ' + who.name + ' to ' + data.teamName + '?' : who.name + "'s role";
     $('.sub', dlg).textContent = ask
       ? (ask.projects.length ? her + ' shares ' + ask.projects.length + (ask.projects.length === 1 ? ' project' : ' projects') + ' from their Mac: ' + ask.projects.join(', ') + '.' : her + ' named no projects to share yet.')
-      : 'On ' + data.teamName + ' as ' + (data.roleNames[person.role] || 'Not checked') + '.';
+      : 'On ' + data.teamName + ' as ' + (data.roleNames[person!.role] || 'Not checked') + '.';
     var ck = $('.check', dlg);
     ck.hidden = !ask;
     if (ask) $('.code', ck).textContent = ask.code;
@@ -498,17 +527,18 @@ function pageScript() {
   }
   if (dlg) {
     dlg.addEventListener('click', function (ev) {
-      var r = ev.target.closest('.roles button');
-      if (r) { setRole(r.dataset.role); return; }
-      if (ev.target.closest('[data-cancel]')) { dlg.close(); return; }
-      if (ev.target.closest('.btns .left')) {
+      var t = ev.target as Element;
+      var r = t.closest<HTMLElement>('.roles button');
+      if (r) { setRole(r.dataset.role!); return; }
+      if (t.closest('[data-cancel]')) { dlg.close(); return; }
+      if (t.closest('.btns .left')) {
         var gone = pick.ask ? { op: 'decline', m: pick.m } : { op: 'remove', m: pick.m };
         if (!pick.ask && !confirm('Take this person off the team? Their Yes Chef stops sharing and drops the team key.')) return;
         dlg.close(); act(gone); return;
       }
-      if (ev.target.closest('[data-go]')) {
-        var perms = Array.prototype.filter.call(dlg.querySelectorAll('.checks input'), function (i) { return i.checked; }).map(function (i) { return i.value; });
-        var area = $('.area-pick', dlg).hidden ? '' : $('.area-pick select', dlg).value;
+      if (t.closest('[data-go]')) {
+        var perms = Array.prototype.filter.call(dlg.querySelectorAll('.checks input'), function (i: HTMLInputElement) { return i.checked; }).map(function (i: HTMLInputElement) { return i.value; });
+        var area = $('.area-pick', dlg).hidden ? '' : $<HTMLSelectElement>('.area-pick select', dlg).value;
         dlg.close();
         act({ op: pick.ask ? 'approve' : 'setRole', m: pick.m, role: pick.role, perms: perms, area: area });
       }
@@ -517,47 +547,51 @@ function pageScript() {
 
   // Drag an ask or a member onto a slot; or click one to open the dialog.
   document.addEventListener('dragstart', function (ev) {
-    var c = ev.target.closest && ev.target.closest('[data-ask],[data-member]');
+    var t = ev.target as Element;
+    var c = t.closest && t.closest<HTMLElement>('[data-ask],[data-member]');
     if (!c) return;
-    dragging = c.dataset.ask || c.dataset.member;
-    ev.dataTransfer.setData('text/plain', dragging);
-    ev.dataTransfer.effectAllowed = 'move';
-    setTimeout(function () { c.classList.add('lifted'); }, 0);
+    dragging = c.dataset.ask || c.dataset.member!;
+    ev.dataTransfer!.setData('text/plain', dragging);
+    ev.dataTransfer!.effectAllowed = 'move';
+    setTimeout(function () { c!.classList.add('lifted'); }, 0);
   });
   document.addEventListener('dragend', function (ev) {
-    var c = ev.target.closest && ev.target.closest('[data-ask],[data-member]');
+    var t = ev.target as Element;
+    var c = t.closest && t.closest('[data-ask],[data-member]');
     if (c) c.classList.remove('lifted');
     dragging = null;
-    Array.prototype.forEach.call(document.querySelectorAll('.drop.over'), function (d) { d.classList.remove('over'); });
+    Array.prototype.forEach.call(document.querySelectorAll('.drop.over'), function (d: Element) { d.classList.remove('over'); });
   });
   document.addEventListener('dragover', function (ev) {
-    var d = ev.target.closest && ev.target.closest('[data-drop]');
+    var t = ev.target as Element;
+    var d = t.closest && t.closest('[data-drop]');
     if (!d || !dragging) return;
     ev.preventDefault();
-    ev.dataTransfer.dropEffect = 'move';
-    Array.prototype.forEach.call(document.querySelectorAll('.drop.over'), function (x) { if (x !== d) x.classList.remove('over'); });
+    ev.dataTransfer!.dropEffect = 'move';
+    Array.prototype.forEach.call(document.querySelectorAll('.drop.over'), function (x: Element) { if (x !== d) x.classList.remove('over'); });
     d.classList.add('over');
   });
-  document.addEventListener('dragleave', function (ev) { var d = ev.target.closest && ev.target.closest('[data-drop]'); if (d && !d.contains(ev.relatedTarget)) d.classList.remove('over'); });
+  document.addEventListener('dragleave', function (ev) { var t = ev.target as Element; var d = t.closest && t.closest('[data-drop]'); if (d && !d.contains(ev.relatedTarget as Node | null)) d.classList.remove('over'); });
   document.addEventListener('drop', function (ev) {
-    var d = ev.target.closest && ev.target.closest('[data-drop]');
+    var t = ev.target as Element;
+    var d = t.closest && t.closest<HTMLElement>('[data-drop]');
     if (!d) return;
     ev.preventDefault();
     d.classList.remove('over');
-    var m = ev.dataTransfer.getData('text/plain') || dragging;
+    var m = ev.dataTransfer!.getData('text/plain') || dragging!;
     dragging = null;
     open(m, d.dataset.drop, d.dataset.area || '');
   });
 
   document.addEventListener('click', function (ev) {
-    var t = ev.target;
-    var c = t.closest('[data-ask],[data-member]');
-    if (c) { open(c.dataset.ask || c.dataset.member); return; }
-    var cp = t.closest('[data-copy]');
+    var t = ev.target as Element;
+    var c = t.closest<HTMLElement>('[data-ask],[data-member]');
+    if (c) { open(c.dataset.ask || c.dataset.member!); return; }
+    var cp = t.closest<HTMLElement>('[data-copy]');
     if (cp) {
-      var f = $(cp.dataset.copy);
+      var f = $<HTMLInputElement>(cp.dataset.copy!);
       f.select();
-      (navigator.clipboard ? navigator.clipboard.writeText(f.value) : Promise.reject()).then(function () { cp.textContent = 'Copied'; setTimeout(function () { cp.textContent = 'Copy link'; }, 1500); }, function () { document.execCommand('copy'); });
+      (navigator.clipboard ? navigator.clipboard.writeText(f.value) : Promise.reject()).then(function () { cp!.textContent = 'Copied'; setTimeout(function () { cp!.textContent = 'Copy link'; }, 1500); }, function () { document.execCommand('copy'); });
       return;
     }
     var na = t.closest('[data-new-area]');
@@ -566,18 +600,18 @@ function pageScript() {
       $('[data-form=addArea] input').focus();
       return;
     }
-    var rn = t.closest('[data-rename]');
+    var rn = t.closest<HTMLElement>('[data-rename]');
     if (rn) {
-      var a = data.areas.filter(function (x) { return x.id === rn.dataset.rename; })[0];
-      var head = rn.closest('.ah');
+      var a = data.areas.filter(function (x) { return x.id === rn!.dataset.rename; })[0]!;
+      var head = rn.closest('.ah')!;
       head.innerHTML = '<form data-form="renameArea" style="display:grid;gap:6px;width:100%"><input type="hidden" name="id" value="' + esc(a.id) + '"><input type="text" name="name" maxlength="40" value="' + esc(a.name) + '" aria-label="Area name" required><button class="btn sm primary">Rename</button></form>';
       $('input[name=name]', head).focus();
       return;
     }
-    var op = t.closest('[data-op]');
+    var op = t.closest<HTMLElement>('[data-op]');
     if (op) {
       if (op.dataset.confirm && !confirm(op.dataset.confirm)) return;
-      var f2 = { op: op.dataset.op };
+      var f2: Fields = { op: op.dataset.op };
       if (op.dataset.id) f2.id = op.dataset.id;
       if (f2.op === 'share') f2.shared = [];
       act(f2).then(function (ok) { if (ok && f2.op === 'forgetLink') location.href = '/team'; });
@@ -585,27 +619,27 @@ function pageScript() {
   });
 
   document.addEventListener('submit', function (ev) {
-    var f = ev.target.closest('[data-form]');
+    var f = (ev.target as Element).closest<HTMLFormElement>('[data-form]');
     if (!f) return;
     ev.preventDefault();
-    var fd = new FormData(f), out = { op: f.dataset.form };
+    var fd = new FormData(f), out: Fields = { op: f.dataset.form };
     fd.forEach(function (v, k) { if (k === 'share') return; out[k] = v; });
     if (f.dataset.form === 'join') out.shared = fd.getAll('share');
-    if (f.dataset.form === 'openLink') { location.href = '/team?join=' + encodeURIComponent(String(out.link).split('#')[1] || out.link); return; }
+    if (f.dataset.form === 'openLink') { location.href = '/team?join=' + encodeURIComponent(String(out.link).split('#')[1] || out.link as string); return; }
     act(out);
   });
   // A switch on the joined screen saves at once.
   document.addEventListener('change', function (ev) {
-    var f = ev.target.closest('[data-form=share]');
+    var f = (ev.target as Element).closest<HTMLFormElement>('[data-form=share]');
     if (!f) return;
     act({ op: 'share', shared: new FormData(f).getAll('share') });
   });
 }
 
 /** The whole team page. data: what the dialog needs (asks, people, areas, the boxes). */
-export function teamPage(opts = {}) {
+export function teamPage(opts: PageOptions = {}): string {
   const v = opts.view;
-  const data = {
+  const data: PageData = {
     teamName: v?.teamName || '', pending: v?.pending || [], areas: v?.areas || [],
     people: (v?.people || []).map(({ id, name, role, perms, area }) => ({ id, name, role, perms, area })),
     perms: PERMS.map(({ key, label, hint }) => ({ key, label, hint: hint || '' })), defaults: DEFAULTS, roleNames: ROLE_NAMES,
@@ -613,7 +647,7 @@ export function teamPage(opts = {}) {
   const dialog = `<dialog class="dlg" id="role-dlg" aria-labelledby="role-h">
     <div class="hd"><span class="av lg c1"></span><div><h2 id="role-h"></h2><p class="sub"></p></div></div>
     <div class="check">Their code<span class="code"></span>Check it matches their screen.</div>
-    <div class="roles" role="group" aria-label="Role">${['deputy', 'owner', 'engineer', 'viewer'].map((r) => `<button type="button" data-role="${r}" aria-pressed="false">${ROLE_NAMES[r]}</button>`).join('')}</div>
+    <div class="roles" role="group" aria-label="Role">${(['deputy', 'owner', 'engineer', 'viewer'] as Role[]).map((r) => `<button type="button" data-role="${r}" aria-pressed="false">${ROLE_NAMES[r]}</button>`).join('')}</div>
     <div class="checks"></div>
     <label class="area-pick" hidden>Area<select><option value="">No area</option>${(v?.areas || []).map((a) => `<option value="${e(a.id)}">${e(a.name)}</option>`).join('')}</select></label>
     <p class="seen"></p>

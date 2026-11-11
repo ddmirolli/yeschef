@@ -1,6 +1,6 @@
 # The team relay
 
-**Status:** v0.1, 2026-11-10. Built in `relay/`, `client/seal.ts`, `client/team.mjs` and `client/roles.mjs`. The screens and the Keychain come in a later PR. **Ruling:** Dan, 2026-11-10, "A": one Yes Chef relay on Cloudflare, free with a cap, and teams can host their own past it. Dan pays the bill. The cap's number waits for usage numbers.
+**Status:** v0.1, 2026-11-10. Built in `relay/`, `client/seal.ts`, `client/team.ts` and `client/roles.ts`. The screens and the Keychain come in a later PR. **Ruling:** Dan, 2026-11-10, "A": one Yes Chef relay on Cloudflare, free with a cap, and teams can host their own past it. Dan pays the bill. The cap's number waits for usage numbers.
 
 ## What it is
 
@@ -59,7 +59,7 @@ The relay checks only who may change the team. What a role may do to a dev's thr
 
 ## The app
 
-`client/team.mjs` is one dev's Yes Chef on the relay; `client/roles.mjs` holds the roles. One `Team` has four parts behind it: the connection (`team-connection.mjs`), the roster (`team-roster.mjs`), the inbox (`team-inbox.mjs`) and the summaries (`team-summaries.mjs`). `client/teamhost.mjs` keeps the team alive in the board server and answers `/team` and the `kind=team` actions; `client/teamui.mjs` draws the screens.
+`client/team.ts` is one dev's Yes Chef on the relay; `client/roles.ts` holds the roles. One `Team` has four parts behind it: the connection (`team-connection.ts`), the roster (`team-roster.ts`), the inbox (`team-inbox.ts`) and the summaries (`team-summaries.ts`). `client/teamhost.ts` keeps the team alive in the board server and answers `/team` and the `kind=team` actions; `client/teamui.ts` draws the screens.
 
 **The screens** (mock v1, Dan's picks of 2026-11-10). ⌘K, Invite your team, opens `/team`. With no team: Make a team (team name, your name, the relay, `https://relay.yeschef.codes` by default) or open a link. The lead's page: the asks drawer at the top left, the link with Copy link and New link, and the chart: the lead, the Deputies, the areas with their Area owners and Engineers, Add area, and the Viewers aside. Dragging an ask (or a member) onto a slot opens the role dialog with that role and area; clicking one opens it too, for the keyboard. The dialog shows the dev's code, the role, the boxes (See is locked on) and the area, then Add to team or Decline. The dev's side: Join (name, T3 Code, the projects to share, what the team sees), the waiting screen with the code in large type, and the joined screen with the role, who can act on their threads, and the sharing switches. Declined, removed and deleted each have their own screen.
 

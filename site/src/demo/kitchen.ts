@@ -215,7 +215,7 @@ export function createKitchen({ now = Date.now, where, shot, onChange = () => {}
         call: latest && calls.length ? { key: callKey(latest.itemId, calls), itemId: latest.itemId, text: latest.text, calls } : null, cut: false });
     }
     const qs = new Map([...questions].map(([id, list]) => [id, list.map((q) => ({ ...q }))]));
-    // Newest move first: the order client/server.mjs reads them in from the live stream (client/shells.mjs boardThreads).
+    // Newest move first: the order client/server.mjs reads them in from the live stream (client/shells.ts boardThreads).
     const moved = (x: DemoThread) => Date.parse(x.updatedAt) || 0;
     const ordered = [...threads].sort((a, b) => moved(b) - moved(a) || String(b.threadId).localeCompare(String(a.threadId)));
     // Run times for the threads that ran today, as client/server.mjs runTimes() reads them.

@@ -1,7 +1,7 @@
 // Open kitchen, the Your team view (step 4): the calls each Mac derives from its teammates' sealed summaries, who they
 // reach, and in what order. No I/O: the screens (client/board.ts) draw what this returns.
 //
-// Input: the team as client/team.mjs Team.view() gives it (3b). The summary fields this reads beyond 3b's v1
+// Input: the team as client/team.ts Team.view() gives it (3b). The summary fields this reads beyond 3b's v1
 // (bases, seen, and per ticket startedAt, last, ask, changes, prs[].mergedAt/size/checks/draft) are PROPOSED: agreed
 // with 3b and landing in its PR 4. The board (PR B) proposes two more: prs[].readyAt (when a PR was marked ready for
 // review) and changes.at (when its changed files were read). Every one is optional. Whatever a summary lacks is "Not checked": no call is raised
@@ -15,7 +15,7 @@ type Raw = Record<string, unknown>;
 /** A line range on the base side: [start, end]; a pure insertion is [n + 1, n]. */
 export type Range = [number, number, ...unknown[]];
 
-/** Me, as client/team.mjs Team.view() gives me: my role and my boxes. */
+/** Me, as client/team.ts Team.view() gives me: my role and my boxes. */
 export interface Me { id?: string | null; name?: unknown; role?: string | null; perms?: unknown; area?: unknown; under?: unknown }
 /** A teammate as Team.view() gives them: who they are, whether their Mac is online, and their last sealed summary. */
 export interface Teammate { id?: unknown; name?: unknown; role?: unknown; perms?: unknown; area?: unknown; under?: unknown;
@@ -360,7 +360,7 @@ export function sortCalls<C extends Pick<Detected, 'id' | 'kind' | 'holds' | 'si
     || (b.holds - a.holds) || ((a.since ?? Infinity) - (b.since ?? Infinity)) || a.id.localeCompare(b.id));
 }
 
-// What a role may do from Your team, by its boxes (3b's client/roles.mjs NEEDS, which step 4 reads once that lands):
+// What a role may do from Your team, by its boxes (3b's client/roles.ts NEEDS, which step 4 reads once that lands):
 // Reply needs "reply"; Request changes, Hold, an answer and a roll back need "merge". Settle clears the call from your
 // own Pass only, so every role that sees it may. An Engineer starts at See only (Dan, 2026-11-10).
 const NEED: Readonly<Record<string, string>> = { reply: 'reply', rebase: 'reply', refire: 'merge', hold: 'merge', answer: 'merge', rollback: 'merge', settle: 'see' };

@@ -235,7 +235,7 @@ export async function proofMatches(proof: unknown, verifier: unknown): Promise<b
 /** A new invite. `link` goes to the dev; `record` goes to the relay. The link names the lead's key, so the dev's
  *  Yes Chef accepts only rosters that lead signed. */
 export async function newInvite({ site = 'https://yeschef.codes', relay, team, lead, leadName = '', teamName = '', now = Date.now(), days = INVITE_DAYS }: {
-  site?: string; relay: string; team: string; lead: Pick<Member, 'signPub'>; leadName?: string; teamName?: string; now?: number; days?: number;
+  site?: string | undefined; relay: string; team: string; lead: Pick<Member, 'signPub'>; leadName?: string; teamName?: string; now?: number; days?: number;
 }): Promise<{ link: string; record: { invite: string; verifier: string; until: number }; secret: string }> {
   const invite = newId();
   const secret = b64u(globalThis.crypto.getRandomValues(new Uint8Array(32)));
@@ -245,7 +245,7 @@ export async function newInvite({ site = 'https://yeschef.codes', relay, team, l
 }
 /** An invite's link, from its parts: the lead's Yes Chef shows it again for any open invite it holds the secret of. */
 export function inviteLink({ site = 'https://yeschef.codes', relay, team, invite, secret, leadSignPub, until, leadName = '', teamName = '' }:
-  Omit<Invite, 'leadName' | 'teamName'> & { site?: string; leadName?: string; teamName?: string }): string {
+  Omit<Invite, 'leadName' | 'teamName'> & { site?: string | undefined; leadName?: string; teamName?: string }): string {
   const payload = { v: VERSION, r: relay, t: team, i: invite, k: secret, l: leadSignPub, u: until, n: leadName, tn: teamName };
   return `${site.replace(/\/$/, '')}/join#${b64u(utf8.encode(JSON.stringify(payload)))}`;
 }
