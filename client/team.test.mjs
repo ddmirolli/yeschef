@@ -109,7 +109,7 @@ test('summarize keeps only shared projects, no coordinators, waiting tickets fir
   const s = summarize(boardNow(now), [P]);
   assert.deepEqual(s.tickets.map((k) => k.thread), ['th-parser', 'th-docs']);
   assert.equal(s.tickets[0].atPass, true);
-  assert.deepEqual(s.tickets[0].prs, [{ repo: 'acme/app', n: 12, state: 'open', url: 'https://github.com/acme/app/pull/12', base: null, draft: false, mergedAt: null }]);
+  assert.deepEqual(s.tickets[0].prs, [{ repo: 'acme/app', n: 12, state: 'open', url: 'https://github.com/acme/app/pull/12', base: null, draft: null, mergedAt: null }]);
   assert.doesNotMatch(JSON.stringify(s), /Private work|ATC/);
   assert.equal(summarize(boardNow(now), []).tickets.length, 0);
   const many = { tickets: Array.from({ length: 300 }, (_, i) => ({ thread: { threadId: `t${i}`, projectId: P, title: 'x'.repeat(150) }, project: 'app', place: 'In review', atPass: false, working: 0, asks: [], call: null, prs: [], updatedAt: '' })) };
@@ -1828,6 +1828,10 @@ test('a PR carries T3\'s target branch, draft and merge time, and GitHub\'s size
   assert.deepEqual([sized.draft, sized.base, sized.size], [false, 'release', { files: 4, added: 900, removed: 10, at: AT }]);
   assert.equal(summaryPr(link, { state: 'checked', at: AT, draft: false, base: 'main', size: null }).size, null, 'a partial file list: size not checked');
   assert.equal(summaryPr({ ...link, state: 'merged', mergedAt: '2026-11-11T08:00:00Z' }, null).mergedAt, Date.UTC(2026, 10, 11, 8));
+  // Draft unknown stays unknown: T3 gave none and GitHub was not read, or GitHub's answer had none (PR-Agent r1 on #27).
+  assert.equal(summaryPr({ ...link, draft: null }, null).draft, null);
+  assert.equal(summaryPr({ ...link, draft: null }, { state: 'not-checked', why: 'no gh', at: AT }).draft, null);
+  assert.equal(summaryPr({ ...link, draft: true }, { state: 'checked', at: AT, base: 'main', size: null }).draft, true);
 });
 
 test('the open question: a T3 question first, else the hand-back\'s call, cut to size (3b PR 4)', () => {

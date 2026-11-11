@@ -300,9 +300,10 @@ export function summaryChanges(r) {
  *  the board server read it (client/github.mjs readPrSize). `size` is null when GitHub's file list was partial. */
 export function summaryPr(p, read) {
   const out = { repo: clean(p.repository, 100), n: p.number, state: p.state, url: typeof p.url === 'string' && /^https:\/\//.test(p.url) ? p.url.slice(0, 300) : null,
-    base: name(p.base, 100), draft: p.draft === true, mergedAt: time(p.mergedAt) };
+    base: name(p.base, 100), draft: typeof p.draft === 'boolean' ? p.draft : null, mergedAt: time(p.mergedAt) };
+  // Draft unknown stays null, never "not a draft" (PR-Agent r1 on #27).
   if (read?.state === 'checked') {
-    out.draft = read.draft === true;
+    if (typeof read.draft === 'boolean') out.draft = read.draft;
     if (name(read.base, 100)) out.base = name(read.base, 100);
     out.size = read.size ? { files: count(read.size.files), added: count(read.size.added), removed: count(read.size.removed), at: time(read.at) } : null;
   }
