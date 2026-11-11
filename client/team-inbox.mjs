@@ -77,6 +77,7 @@ export const inbox = {
     const later = this.later; this.later = [];
     for (const msg of later) await this.handle(msg);
     this.emit('welcome');
+    this.publish();
     this.flush();
     return { commit: true };
   },
