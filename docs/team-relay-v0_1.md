@@ -21,6 +21,7 @@ The relay is the only server Yes Chef runs. It passes sealed team data between e
 | Open invites: a hash of each invite's proof, its end, its secret | The secret sealed with the team key | 7 days at most |
 | Asks to join | Sealed with the invite's key; the public keys plain | Until the lead answers or the invite ends |
 | Messages between members: actions, results, the welcome, a member's ask for the key | Sealed and signed | Until the receiver takes them, 15 minutes by default, 7 days at most |
+| When each member's last socket closed | Plain time, on the relay's clock | Replaced at each close; goes when the member is removed |
 | Usage per UTC day: requests, messages, rows written, bytes in | Plain counts | 90 days |
 
 It keeps no code, no diffs, no T3 Code tokens and no history. A team id that nobody made gets no tables: a stray request writes nothing.
@@ -64,7 +65,7 @@ The relay checks only who may change the team. What a role may do to a dev's thr
 
 **The summary.** Only from the projects the dev shares, and nothing from coordinator threads. Per ticket: the thread id and title, the project, the stage, whether it waits on a person, agents working, open questions, whether the agent asked a decision, up to five PRs (repository, number, state, link), and the last update. No messages, no code. At most 100 tickets, waiting ones first, cut to fit 64 KiB. It carries the time the board was read (`at`) and the board's health: `{ ok, since }`, where `since` is when the last read started to work or to fail. Summaries are events, as T3 Code's `AgentAwarenessRelay` publishes: one goes only when its content changed, never on a timer. Read times (any key named `at`) are not a change, so they ride along with a real one. A health flip is a change. After a restart, before this Mac's first board read, its health is unknown (`ok: null`): the summary the relay kept goes again with that health, so a teammate keeps the tickets but does not read them as live. It goes at most once per the relay's limit, always the newest, and is cut again if its sealed size is over the limit. A Viewer sends none, and a dev made a Viewer sends a forget. Sharing nothing sends a forget. Dropping a project rebuilds the waiting summary at once, so the dropped project's tickets never go out, even when a summary was being sealed at that moment. A summary the relay refuses is dropped; a relay that does not answer is tried again after 20 seconds, then 40, up to 5 minutes. An older summary never replaces a newer one: each carries a revision that only goes up, saved before it is sent.
 
-**Live.** A teammate reads as live while this Mac and the teammate are online (the relay's presence) and their summary's health is ok. Nothing compares two Macs' clocks. Otherwise the screen says "Not checked since" the earlier of the times that apply: the health's `since` when their board fails, and when the relay last saw them when they are offline. With no time known it says "Not checked". (The relay sends the time it last saw a member from its next version, on `presence` and in the hello. Until then an offline teammate whose board reads reads "Not checked".) While this Mac is offline, a teammate it last saw online counts from when this Mac lost the relay.
+**Live.** A teammate reads as live while this Mac and the teammate are online (the relay's presence) and their summary's health is ok. Nothing compares two Macs' clocks. Otherwise the screen says "Not checked since" the earlier of the times that apply: the health's `since` when their board fails, and when the relay last saw them when they are offline. With no time known it says "Not checked". While this Mac is offline, a teammate it last saw online counts from when this Mac lost the relay.
 
 **Roles.** The words Dan approved on 2026-11-10. The Deputy's boxes are the ones Dan approved. Engineer = See only is Dan's ruling of 2026-11-10. The Area owner and Viewer defaults are proposed.
 
@@ -138,10 +139,10 @@ JSON text frames. A message from the app carries an `id`; the reply carries the 
 
 | From the relay | Means |
 |---|---|
-| `hello` | On connect. A member gets the roster, every summary, its waiting messages, who is online, and (for inviters) the open invites and asks. A dev who waits gets `role: "pending"` only. |
+| `hello` | On connect. A member gets the roster, every summary, its waiting messages, who is online, when the relay last saw each member who is not (`seen`: id to time), and (for inviters) the open invites and asks. A dev who waits gets `role: "pending"` only. |
 | `summary`, `gone` | A member's new summary; a summary dropped. |
 | `inbox` | A sealed message for this member. |
-| `roster`, `presence` | The team changed; a member came online or went offline. |
+| `roster`, `presence` | The team changed; a member came online or went offline. Going offline carries the relay's time (`at`). |
 | `pending`, `pending-gone`, `invite` | Asks and invites, for inviters. |
 | `declined` | To a waiting dev: the ask was refused or its invite revoked. |
 

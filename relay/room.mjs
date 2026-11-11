@@ -38,6 +38,9 @@ const SCHEMA = [
   'CREATE TABLE IF NOT EXISTS invite (id TEXT PRIMARY KEY, verifier TEXT NOT NULL, box TEXT NOT NULL, until INTEGER NOT NULL, by TEXT NOT NULL) WITHOUT ROWID',
   'CREATE TABLE IF NOT EXISTS pending (m TEXT PRIMARY KEY, invite TEXT NOT NULL, sign TEXT NOT NULL, dh TEXT NOT NULL, blob TEXT NOT NULL, sig TEXT NOT NULL, at INTEGER NOT NULL) WITHOUT ROWID',
   'CREATE TABLE IF NOT EXISTS inbox (to_m TEXT NOT NULL, item TEXT NOT NULL, from_m TEXT NOT NULL, blob TEXT NOT NULL, at INTEGER NOT NULL, until INTEGER NOT NULL, PRIMARY KEY (to_m, item)) WITHOUT ROWID',
+  // When the relay last saw each member, on the relay's clock: set when their last socket closes, so a teammate's Mac can
+  // say "Not checked since" without reading another Mac's clock.
+  'CREATE TABLE IF NOT EXISTS seen (m TEXT PRIMARY KEY, at INTEGER NOT NULL) WITHOUT ROWID',
   'CREATE TABLE IF NOT EXISTS usage (day TEXT PRIMARY KEY, requests INTEGER NOT NULL, messages INTEGER NOT NULL, rows_written INTEGER NOT NULL, bytes_in INTEGER NOT NULL, refused INTEGER NOT NULL DEFAULT 0) WITHOUT ROWID',
 ];
 
@@ -46,7 +49,7 @@ const fail = (status, text) => json(status, { error: text });
 const isKey = (s) => typeof s === 'string' && /^[A-Za-z0-9_-]{87}$/.test(s); // a raw P-256 point (65 bytes)
 const isBlob = (s, max) => typeof s === 'string' && s.length > 0 && s.length <= max && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(s);
 const MAX_BODY = 65536;
-const TABLES = ['team', 'summary', 'invite', 'pending', 'inbox', 'usage'];
+const TABLES = ['team', 'summary', 'invite', 'pending', 'inbox', 'seen', 'usage'];
 
 export class Room {
   constructor({ sql, sockets, env = {}, now = () => Date.now(), onCreate = null, onDelete = null, wakeAt = null }) {
@@ -364,8 +367,11 @@ export class Room {
     if (a.role !== 'member') { this.send(ws, { t: 'hello', me: a.m, role: 'pending' }); return; }
     const inviter = this.canInvite(a.m);
     const online = [...new Set(this.socketsOf().map((s) => this.sockets.info(s).m))];
+    // When the relay last saw each member who is offline now. A member never seen since this relay kept times is left out.
+    const here = new Set(online);
+    const seen = Object.fromEntries(this.rows('SELECT m, at FROM seen').filter((r) => !here.has(r.m) && this.member(r.m)).map((r) => [r.m, r.at]));
     this.send(ws, {
-      t: 'hello', me: a.m, role: 'member', ver: this.team.ver, roster: JSON.parse(this.team.roster), online,
+      t: 'hello', me: a.m, role: 'member', ver: this.team.ver, roster: JSON.parse(this.team.roster), online, seen,
       summaries: this.rows('SELECT m, blob, at FROM summary WHERE blob IS NOT NULL'),
       inbox: this.rows('SELECT item, from_m AS "from", blob, at FROM inbox WHERE to_m = ? AND until >= ?', a.m, this.now()),
       invites: inviter ? this.rows('SELECT id, box, until, by FROM invite') : [],
@@ -381,7 +387,11 @@ export class Room {
     if (!this.teamRow()) return;
     const a = this.sockets.info(ws);
     if (!a || a.role !== 'member') return;
-    if (!this.socketsOf(a.m).some((s) => s !== ws)) this.broadcast({ t: 'presence', m: a.m, on: false }, { except: a.m });
+    if (this.socketsOf(a.m).some((s) => s !== ws)) return;
+    // The last socket: the time goes with the news, and is kept for the hellos of members who come online later.
+    const at = this.now();
+    if (this.member(a.m)) this.rows('INSERT INTO seen (m, at) VALUES (?, ?) ON CONFLICT(m) DO UPDATE SET at = excluded.at', a.m, at);
+    this.broadcast({ t: 'presence', m: a.m, on: false, at }, { except: a.m });
   }
 
   async message(ws, data) {
@@ -528,6 +538,7 @@ export class Room {
     for (const id of removed) {
       this.rows('DELETE FROM summary WHERE m = ?', id);
       this.rows('DELETE FROM inbox WHERE to_m = ? OR from_m = ?', id, id);
+      this.rows('DELETE FROM seen WHERE m = ?', id);
       for (const ws of this.sockets.list(id)) this.sockets.close(ws, 4003, 'You were removed from the team.');
     }
     for (const id of added) {
