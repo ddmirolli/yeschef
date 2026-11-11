@@ -1675,3 +1675,24 @@ test('after a clock is set right, fresh actions keep running: a saved high time 
   assert.equal(ran.length, 3);
   lead.stop(); dev.stop();
 });
+
+test('after a restart, the summary the relay kept is not live until this Mac reads its board', async () => {
+  const { relay, net, timers, lead, dev } = await crew();
+  dev.board(boardNow(relay.now()));
+  await until(() => lead.summaries.get(dev.meId)?.body.health?.ok === true, 'the healthy summary');
+  dev.stop();
+  await until(() => !lead.online.has(dev.meId), 'the dev offline');
+  const again = new Team({ state: structuredClone(dev.state), net, now: () => relay.now(), timers, random: () => 1 });
+  again.start();
+  await until(() => again.link === 'online' && lead.online.has(dev.meId), 'the dev back');
+  await timers.advance(10000);
+  await until(() => lead.summaries.get(dev.meId)?.body.health?.ok === null, 'the unknown health at the lead');
+  const p = lead.view().people.find((x) => x.id === dev.meId);
+  assert.equal(p.live, false);
+  assert.equal(p.notCheckedSince, null, 'no time known: "Not checked"');
+  assert.deepEqual(p.summary.tickets.map((k) => k.title), ['Fix the parser', 'Write the docs'], 'the tickets it kept stay');
+  again.board(boardNow(relay.now()));
+  await timers.advance(10000);
+  await until(() => lead.view().people.find((x) => x.id === dev.meId).live === true, 'live after the first read');
+  lead.stop(); again.stop();
+});

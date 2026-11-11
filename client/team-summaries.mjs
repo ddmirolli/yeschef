@@ -66,6 +66,16 @@ export const summaries = {
     this.emit('team');
   },
 
+  /** The summary the relay kept from this Mac before a restart, opened with this Mac's own key, so the first summary
+   *  after the restart can carry its tickets with the health still unknown. */
+  async takeHeld(blob) {
+    if (this.lastBoard || !blob) return;
+    try {
+      const me = await this.member();
+      this.heldBody = await openSigned(await this.teamKey(), blob, aad.summary(this.state.team, me.id), me.signPub);
+    } catch { this.heldBody = null; }
+  },
+
   /** Who the hello says is online, and when the relay last saw each of the rest (`seen`: member id -> time). */
   takeHelloPresence(msg) {
     this.online = new Set(msg.online || []);
@@ -103,7 +113,9 @@ export const summaries = {
 
   /** Queue this dev's summary as it is now, if it differs from the one the relay took. */
   publish() {
-    if (this.state.status !== 'member' || !(this.me && shares(this.me.role)) || !this.state.shared?.length || this.healthOk == null) return;
+    if (this.state.status !== 'member' || !(this.me && shares(this.me.role)) || !this.state.shared?.length) return;
+    // No board read yet and nothing kept on the relay: there is nothing to say, or to correct.
+    if (this.healthOk == null && !this.heldBody) return;
     const body = this.summaryBody();
     const id = identity(body);
     if (!this.flushing && id === this.sentId && !this.state.dropped) { this.next = null; return; }
@@ -113,11 +125,15 @@ export const summaries = {
     this.flush();
   },
 
-  /** The summary of the last board read, with this Mac's board health. No board read yet, and failing: no tickets, so a
-   *  copy the relay kept from before a restart is not shown as current. */
+  /** The summary of the last board read, with this Mac's board health: ok true or false, or null before the first read
+   *  since this Mac started. Before that read, the tickets are the ones the relay kept from before the restart, so a
+   *  teammate keeps them but reads them as not checked. */
   summaryBody() {
-    const health = { ok: this.healthOk === true, since: this.healthSince };
-    if (!this.lastBoard) return { v: 1, tickets: [], more: 0, health };
+    const health = { ok: this.healthOk ?? null, since: this.healthSince };
+    if (!this.lastBoard) {
+      const held = this.heldBody;
+      return { v: 1, tickets: Array.isArray(held?.tickets) ? held.tickets : [], more: Number(held?.more) || 0, health };
+    }
     return { ...summarize(this.lastBoard, this.state.shared, this.limits.summaryMax), at: this.lastBoardAt, health };
   },
 
