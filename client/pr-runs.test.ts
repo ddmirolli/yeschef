@@ -203,3 +203,27 @@ test("a base commit missing a required check is passed over, never taken for gre
   const red = await readBaseRed({ repo: 'acme/app', branch: 'main', head: h(4), names: ['test', 'lint'] }, { get: fake({ commits, runs }), memo: new Map() });
   assert.equal(red.redSha, h(2));
 });
+
+// ----- Every reply is read through a Schema (Effect PR, step 5): a reply GitHub would never send is not checked, never a guess -----
+test('a commit\'s checks: a check-runs reply that is not GitHub\'s is not checked, not "no checks"', async () => {
+  const get: Get = async (path) => (/check-runs/.test(path) ? { message: 'not a list of check runs' } : { total_count: 0, statuses: [] });
+  assert.equal(await commitChecks(get, 'github.com', 'acme/app', h(1), { memo: new Map() }), null);
+  const odd: Get = async (path) => (/check-runs/.test(path) ? { total_count: 1, check_runs: [{ name: 'ci', status: 'completed', conclusion: 1 }] } : { total_count: 0, statuses: [] });
+  assert.equal(await commitChecks(odd, 'github.com', 'acme/app', h(1), { memo: new Map() }), null);
+});
+
+test('the ready time: an events page that is not GitHub\'s is not checked, never the time the PR opened', async () => {
+  const g = fake({ pr: { state: 'open', draft: false, merged: false, created_at: iso(0), commits: 1, head: { sha: h(1) } }, commits: [{ sha: h(1), min: 0 }], runs: { [h(1)]: [ok()] } });
+  const get: Get = async (path, opts) => (/\/events\?/.test(path) ? { message: 'not a list of events' } : g(path, opts));
+  const r = await readPrRuns({ repo: 'acme/app', number: 7 }, { get, now: () => AT, memo: new Map(), merges: new Map() });
+  assert.equal(r.state, 'checked');
+  assert.equal(r.state === 'checked' && r.readyAt, null);
+  assert.equal(r.state === 'checked' && r.checks?.result, 'passing', 'the rest of the read stands');
+});
+
+test('a pull request reply that is not GitHub\'s is not checked, never "checked" with nothing in it', async () => {
+  for (const pr of [null, [], { head: { sha: 7 } }]) {
+    const r = await readPrRuns({ repo: 'acme/app', number: 7 }, { get: async () => pr, now: () => AT, memo: new Map(), merges: new Map() });
+    assert.deepEqual(r, { state: 'not-checked', why: 'GitHub sent a pull request the Pass cannot read', at: AT }, JSON.stringify(pr));
+  }
+});

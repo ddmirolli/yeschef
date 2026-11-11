@@ -181,7 +181,7 @@ test('base checks: protection read but rulesets not is not known; an unprotected
 });
 
 test('a branch name is one path segment, whatever it holds', async () => {
-  const gh = routes([[/branches\/release%2F%28next%29%21$/, { ...BRANCH, protection: undefined }], [/check-runs/, { check_runs: [] }], [/\/status\?/, { statuses: [] }], [/rules\/branches/, []]]);
+  const gh = routes([[/branches\/release%2F%28next%29%21$/, { ...BRANCH, protection: undefined }], [/check-runs/, { total_count: 0, check_runs: [] }], [/\/status\?/, { total_count: 0, statuses: [] }], [/rules\/branches/, []]]);
   const r = checked(await readBaseChecks({ repo: 'o/r', branch: "release/(next)!" }, { get: gh.get, memo: new Map() }));
   assert.equal(r.state, 'checked');
   assert.equal(segment("it's(*)"), 'it%27s%28%2A%29');
@@ -486,4 +486,27 @@ test('base checks: a commit status\'s context is matched without case, as GitHub
   ]);
   const m = checked(await readBaseChecks({ repo: 'o/r', branch: 'main' }, { get: moved.get, now: () => 1, memo: new Map() }));
   assert.deepEqual([m.truncated, m.result], [true, null]);
+});
+
+// ----- Every reply is read through a Schema (Effect PR, step 5): a reply GitHub would never send is not checked, never a guess -----
+test('base checks: a check-runs page that is not GitHub\'s judges nothing, so the statuses alone never pass the branch', async () => {
+  const gh = routes([
+    [/^repos\/o\/r\/branches\/main$/, BRANCH],
+    [/check-runs/, {}],
+    [/\/status\?/, { total_count: 1, statuses: [{ context: 'test', state: 'success' }] }],
+    [/rules\/branches/, []],
+  ]);
+  const why = whyOf(await readBaseChecks({ repo: 'o/r', branch: 'main' }, { get: gh.get, now: () => 7, memo: new Map() }));
+  assert.equal(why, 'GitHub sent check runs the Pass cannot read');
+});
+
+test('PR size: a file list that is not GitHub\'s leaves the size unknown, never a sum of strings', async () => {
+  const gh = routes([
+    [/pulls\/7$/, { number: 7, state: 'open', merged: false, draft: false, additions: 7, deletions: 1, changed_files: 2, head: { sha: 'h1' }, base: { ref: 'main', sha: 'b1' } }],
+    [/pulls\/7\/files\?per_page=100&page=1$/, [{ filename: 'a.ts', additions: '5', deletions: 1 }, { filename: 'b.ts', additions: 2, deletions: 0 }]],
+  ]);
+  const r = checked(await readPrSize({ repo: 'o/r', number: 7 }, { get: gh.get, memo: new Map() }));
+  assert.deepEqual([r.additions, r.deletions, r.changedFiles], [7, 1, 2], 'GitHub\'s own totals stand');
+  assert.equal(r.size, null);
+  assert.equal(r.lockfiles, null);
 });
