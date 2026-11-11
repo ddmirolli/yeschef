@@ -1919,3 +1919,19 @@ test('a reader\'s news republishes the summary, and an opened call goes out as S
   await until(() => got().seen?.['stuck:th-docs:1'], 'Seen');
   lead.stop(); dev.stop();
 });
+
+test('Seen keeps the newest calls within 8 KiB, so even long ids leave the summary under the limit (PR-Agent r2 on #27)', () => {
+  const now = Date.UTC(2026, 10, 10, 12);
+  const seen = Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`stuck:${String(i).padStart(3, '0')}:${'é'.repeat(290)}`, now - i * 1000]));
+  const kept = keepSeen(seen, now);
+  assert.ok(new TextEncoder().encode(JSON.stringify(kept)).length <= 8192);
+  assert.ok(Object.keys(kept).length > 0 && Object.keys(kept).every((id) => id.startsWith('stuck:0')), 'the newest kept');
+  assert.ok(Object.keys(kept).includes(Object.keys(seen)[0]));
+  const s = summarize(boardNow(now), [P], 65536, { seen, now });
+  assert.equal(s.tickets.length, 2, 'no ticket cut for Seen');
+  assert.ok((new TextEncoder().encode(JSON.stringify(s)).length * 4) / 3 + 600 <= 65536);
+  // A limit far below the relay's: the base branches go last, and the summary still fits.
+  const base = { state: 'checked', at: now, repo: 'acme/app', branch: 'main', sha: 'c'.repeat(40), title: 'x'.repeat(120), checks: [] };
+  const tiny = summarize(boardNow(now), [P], 900, { base: () => base, now });
+  assert.ok((new TextEncoder().encode(JSON.stringify(tiny)).length * 4) / 3 + 600 <= 900);
+});

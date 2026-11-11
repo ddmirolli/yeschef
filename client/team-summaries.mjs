@@ -255,7 +255,7 @@ export const summaries = {
 };
 
 // ---- the summary's fields (3b PR 4, agreed with step 4: client/open-kitchen.mjs cleanTicket and cleanBase read them) ----
-const FILES_MAX = 150, RANGES_MAX = 24, BASES_MAX = 10, SEEN_MAX = 100, SEEN_MS = 24 * 3600000;
+const FILES_MAX = 150, RANGES_MAX = 24, BASES_MAX = 10, SEEN_MAX = 100, SEEN_MS = 24 * 3600000, SEEN_BYTES = 8192;
 // A time as epoch ms, or null. T3 and GitHub give ISO strings; the summary sends numbers.
 const time = (v) => { const t = typeof v === 'number' ? v : typeof v === 'string' ? Date.parse(v) : NaN; return Number.isFinite(t) ? t : null; };
 const sha = (v) => (typeof v === 'string' && /^[0-9a-f]{7,64}$/i.test(v) ? v.toLowerCase() : null);
@@ -334,12 +334,20 @@ export function summaryBase(b) {
     at: time(b.at) };
 }
 
-/** The calls this dev opened on their own Pass in the last day, at most 100, the newest kept. */
+/** The calls this dev opened on their own Pass in the last day, at most 100 and 8 KiB as UTF-8, the newest kept: the
+ *  summary's other fields keep their room under the relay's limit (PR-Agent r2 on #27). */
 export function keepSeen(seen, now) {
   const list = Object.entries(seen && typeof seen === 'object' ? seen : {})
     .filter(([id, at]) => typeof id === 'string' && id.length <= 300 && Number.isFinite(at) && at <= now + 60000 && now - at < SEEN_MS)
     .sort((a, b) => b[1] - a[1]).slice(0, SEEN_MAX);
-  return Object.fromEntries(list);
+  const out = [];
+  let used = 2;
+  for (const [id, at] of list) {
+    used += new TextEncoder().encode(JSON.stringify(id)).length + String(at).length + 2;
+    if (used > SEEN_BYTES) break;
+    out.push([id, at]);
+  }
+  return Object.fromEntries(out);
 }
 
 /** This dev's summary for the team: the tickets in the projects they share, newest first, the ones waiting on a person
@@ -384,5 +392,7 @@ export function summarize(board, shared, max = 65536, readers = {}) {
     .sort((a, b) => String(tickets[a].updatedAt || '').localeCompare(String(tickets[b].updatedAt || '')) || b - a);
   for (const i of byAge) { if (fits()) break; delete tickets[i].changes; }
   while (n > 0 && !fits()) n = Math.floor(n / 2);
+  // Last, and only for a limit far below the relay's: the base branches go too, so the summary always fits.
+  while (top.bases.length && !fits()) top.bases.pop();
   return { v: 1, tickets: tickets.slice(0, n), more: tickets.length - n, ...top };
 }
