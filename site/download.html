@@ -32,17 +32,14 @@
   <main id="main">
     <section class="dl-page" id="download-page" data-channel="stable" aria-labelledby="dl-title">
       <div class="container dl-inner">
-        <img class="dl-mark" src="/assets/yeschef-icon.svg" alt="" width="96" height="96">
+        <span class="dl-mark" aria-hidden="true"><img class="dl-mark-stable" src="/assets/yeschef-icon.svg" alt="" width="96" height="96"><img class="dl-mark-nightly" src="/assets/yeschef-icon-nightly.svg" alt="" width="96" height="96"></span>
         <h1 id="dl-title" class="display dl-title">Download Yes Chef</h1>
         <div class="dl-seg" role="group" aria-label="Channel">
           <button type="button" data-channel-pick="stable" aria-pressed="true">Stable</button>
           <button type="button" data-channel-pick="nightly" aria-pressed="false">Nightly</button>
         </div>
         <p class="dl-version" data-dl-version aria-live="polite" hidden></p>
-        <a class="dl-card" data-dl-card href="https://github.com/ddmirolli/yeschef/releases">
-          <span class="dl-card-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg></span>
-          <span class="dl-card-text"><span class="dl-card-arch">Apple silicon (arm64)</span><span class="dl-card-format">.dmg</span></span>
-        </a>
+        <a class="btn btn-primary btn-lg dl-btn" data-dl-card href="https://github.com/ddmirolli/yeschef/releases"><svg class="btn-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span>Download for Mac</span></a>
         <div class="dl-notes">
           <p>Every build is on <a href="https://github.com/ddmirolli/yeschef/releases" target="_blank" rel="noopener noreferrer">GitHub Releases</a>.</p>
         </div>
