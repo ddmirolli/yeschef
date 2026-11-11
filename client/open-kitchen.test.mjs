@@ -764,3 +764,14 @@ test('r13: a merge is credited to the person whose copy says merged, not the fir
   v.people.splice(1, 0, ...v.people.splice(i, 1));
   assert.equal(board(v).base.merges.find((m) => m.n === 431).person, 'ravi');
 });
+
+// ---- PR B, PR-Agent round 14 ----
+test('r14: a lockfile two live threads change stays in the files list, not compared and with no call', () => {
+  const v = viewL();
+  const a = ticket(v, 'ada'), other = v.people.flatMap((p) => p.summary?.tickets ?? []).find((t) => t !== a && t.changes && t.changes.repo === a.changes.repo && t.changes.base === a.changes.base && t.place !== 'Merged');
+  for (const t of [a, other]) t.changes.files.push({ p: 'pnpm-lock.yaml', r: [[1, 40]], a: 30, d: 2, x: true });
+  const row = board(v).files.rows.find((f) => f.path === 'pnpm-lock.yaml');
+  assert.ok(row, 'the shared lockfile is listed');
+  assert.deepEqual([row.state, row.call], ['gen', null]);
+  assert.ok(!board(v).files.rows.slice(0, -1).some((f, i, rs) => f.state === 'gen' && rs[i + 1] && rs[i + 1].state !== 'gen'), 'generated files sort last');
+});

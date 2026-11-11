@@ -479,29 +479,32 @@ export function kitchenBoard(ok, { now, want = null }) {
   for (const { k, person, live } of all) {
     if (!readable(k, live)) continue;
     for (const f of k.changes.files) {
-      if (f.x || typeof f.p !== 'string' || !f.p) continue;
+      if (typeof f.p !== 'string' || !f.p) continue;
       const key = `${k.changes.repo.toLowerCase()}\n${k.changes.base}\n${f.p}`;
       if (!byFile.has(key)) byFile.set(key, { path: f.p, repo: k.changes.repo, sides: [] });
-      byFile.get(key).sides.push({ person, thread: k.thread, r: f.r, at: k.changes.at, mb: k.changes.mergeBase });
+      byFile.get(key).sides.push({ person, thread: k.thread, r: f.r, x: f.x, at: k.changes.at, mb: k.changes.mergeBase });
     }
   }
   const overlapCalls = calls.filter(({ c }) => c.kind === 'overlap');
   const files = [];
   for (const f of byFile.values()) {
     if (new Set(f.sides.map((s) => s.thread)).size < 2) continue;
-    const call = overlapCalls.find(({ c }) => c.facts.files.some((x) => x.path === f.path) && c.facts.sides.every((s) => f.sides.some((x) => x.thread === s.ticket.thread)));
+    // A lockfile or generated file two threads change stays in the list, so it never reads as no shared file, but its
+    // lines are not compared and it raises no call.
+    const gen = f.sides.some((s) => s.x);
+    const call = gen ? undefined : overlapCalls.find(({ c }) => c.facts.files.some((x) => x.path === f.path) && c.facts.sides.every((s) => f.sides.some((x) => x.thread === s.ticket.thread)));
     // Lines compare only from one merge base: from two, "different lines" could be the same code moved.
     const oneBase = f.sides.every((s) => s.mb && s.mb === f.sides[0].mb);
-    const read = oneBase && f.sides.every((s) => Array.isArray(s.r));
+    const read = !gen && oneBase && f.sides.every((s) => Array.isArray(s.r));
     let same = false;
     for (let i = 0; i < f.sides.length && read; i++) for (let j = i + 1; j < f.sides.length; j++) {
       if (f.sides[i].r.some((x) => f.sides[j].r.some((y) => overlaps(span(x), span(y))))) same = true;
     }
-    const state = call || same ? 'same' : read ? 'different' : 'nc';
+    const state = gen ? 'gen' : call || same ? 'same' : read ? 'different' : 'nc';
     files.push({ path: f.path, repo: f.repo, near: new Set(f.sides.map((s) => s.mb).filter(Boolean)).size > 1, people: [...new Set(f.sides.map((s) => s.person))], state, call: call ? { id: call.c.id, mine: call.mine } : null,
       at: f.sides.every((s) => s.at !== null) ? Math.min(...f.sides.map((s) => s.at)) : null });
   }
-  const RANKF = { same: 0, nc: 1, different: 2 };
+  const RANKF = { same: 0, nc: 1, different: 2, gen: 3 };
   files.sort((a, z) => RANKF[a.state] - RANKF[z.state] || a.path.localeCompare(z.path));
   // When the list was read: the oldest read among the threads it compares.
   const reads = all.filter(({ k, live }) => readable(k, live)).map(({ k }) => k.changes.at);

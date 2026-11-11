@@ -860,7 +860,7 @@ function boardOf({ ok, now, want, name, people, plateOf }) {
 
   // Files two live threads change.
   const F = B.files;
-  const FS = { same: ['Same lines. In The Pass', 'red'], different: ['Different lines. Fine', ''], nc: ['Lines not checked', 'gray'] };
+  const FS = { same: ['Same lines. In The Pass', 'red'], different: ['Different lines. Fine', ''], nc: ['Lines not checked', 'gray'], gen: ['Lockfile or generated. Not compared', 'gray'] };
   const frow = (f) => {
     const [word, tone] = f.state === 'same' && !(f.call && f.call.mine) ? ['Same lines', 'red'] : f.state === 'nc' && f.near ? ['Lines not checked: two merge bases', 'gray'] : FS[f.state];
     const open = f.call && f.call.mine ? plateOf(f.call.id) : null;
