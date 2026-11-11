@@ -226,3 +226,45 @@ test('the page script escapes quotes for attributes, rebuilds the area options, 
   assert.match(src, /data\.areas\.forEach\(function \(a\) \{ sel\.appendChild\(new Option\(a\.name, a\.id\)\)/);
   assert.match(src, /if \(fields\.op === 'share'\) queued = fields/);
 });
+
+test('Not saved never says restart, and Save again saves (PR-Agent r2 on #8)', async () => {
+  const relay = fakeRelay();
+  let fail = true;
+  const store = { saved: [], load: () => null, save(s) { if (fail) return Promise.reject(new Error('no')); this.saved.push(s); } };
+  const { h, page } = host(relay, fakeNet(relay), store);
+  const err = console.error; console.error = () => {};
+  assert.equal((await h.act({ op: 'create', teamName: 'Fernpay', name: 'Sam', relay: 'https://relay.test' })).status, 503);
+  const banner = body(page()).match(/<p class="unsaved"[\s\S]*?<\/p>/)[0];
+  assert.doesNotMatch(banner, /restart/i);
+  assert.match(banner, /Keep Yes Chef open[\s\S]*data-op="saveAgain">Save again/);
+  assert.equal((await h.act({ op: 'saveAgain' })).status, 503);
+  fail = false;
+  assert.equal((await h.act({ op: 'saveAgain' })).status, 200);
+  console.error = err;
+  assert.equal(store.saved.at(-1).teamName, 'Fernpay');
+  assert.doesNotMatch(body(page()), /class="unsaved"/);
+  h.stop();
+});
+
+test('Forget this ask says done only once the saved team is gone from disk (PR-Agent r2 on #8)', async () => {
+  const relay = fakeRelay();
+  let fail = false;
+  const store = { saved: [], load: () => null, save(s) { if (fail && s === null) return Promise.reject(new Error('disk')); this.saved.push(s); } };
+  const { h } = host(relay, fakeNet(relay), store);
+  await h.act({ op: 'create', teamName: 'Fernpay', name: 'Sam', relay: 'https://relay.test' });
+  fail = true;
+  const err = console.error; console.error = () => {};
+  const r = await h.act({ op: 'leave' });
+  console.error = err;
+  assert.equal(r.status, 503);
+  assert.equal(h.view().teamName, 'Fernpay', 'still on the team, so it can try again');
+  fail = false;
+  assert.equal((await h.act({ op: 'leave' })).status, 200);
+  assert.equal(store.saved.at(-1), null);
+  assert.equal(h.view(), null);
+});
+
+test('a focused read-only field does not stop the refresh (PR-Agent r2 on #8)', () => {
+  const src = teamPage({}).match(/<script>\(([\s\S]*?)\)\(\);<\/script>/)[1];
+  assert.match(src, /\/INPUT\|SELECT\/\.test\(ed\.tagName\) && !ed\.readOnly/);
+});

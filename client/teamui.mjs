@@ -395,7 +395,8 @@ export function teamBody({ lost = '', view = null, join = null, links = [], proj
   if (view.status !== 'member') return endedPage(view);
   // The team's last change did not reach the disk: after a restart this Mac could read an older team (PR-Agent r4 on
   // public #7). Said above the page, in plain words.
-  const warn = view.unsaved ? `<p class="unsaved" role="alert">Not saved: Yes Chef could not save the team's latest change on this Mac. It is in use now; check the disk and the Keychain, then restart Yes Chef.</p>` : '';
+  // Never "restart": the only copy of a new team's keys may be in memory (PR-Agent r2 on #8).
+  const warn = view.unsaved ? `<p class="unsaved" role="alert">Not saved: Yes Chef could not save the team's latest change on this Mac. It is in use now. Keep Yes Chef open, check the disk and the Keychain, then save again. <button type="button" class="btn sm" data-op="saveAgain">Save again</button></p>` : '';
   if (view.lead || (view.me.perms || []).includes('invite')) return warn + leadPage(view, links, now, ownSharing(view, projects, shared));
   return warn + joinedPage(view, projects, shared);
 }
@@ -425,7 +426,9 @@ function pageScript() {
     }, function () { busy = false; say('Not done: Yes Chef did not answer.'); return next() || false; });
   }
   function refresh(force) {
-    if (!force && (busy || dragging || (dlg && dlg.open) || document.activeElement && /INPUT|SELECT/.test(document.activeElement.tagName) || $('details[open]'))) return Promise.resolve();
+    // A read-only field (the invite link, focused to copy it) is not an edit: the asks keep coming (PR-Agent r2 on #8).
+    var ed = document.activeElement;
+    if (!force && (busy || dragging || (dlg && dlg.open) || ed && /INPUT|SELECT/.test(ed.tagName) && !ed.readOnly || $('details[open]'))) return Promise.resolve();
     return fetch('/team' + location.search, { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : null; }).then(function (h) {
       if (!h) return;
       var doc = new DOMParser().parseFromString(h, 'text/html');

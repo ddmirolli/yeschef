@@ -106,7 +106,17 @@ export function teamHost({ store, run, boardOf, projectsOf = () => [], t3Ok = ()
     }
     if (op === 'forgetLink') return ok();
     if (!team) return no('This Mac is not on a team.', 409);
-    if (op === 'leave') { team.stop(); live(null); save(null); return ok('Left.'); }
+    if (op === 'leave') {
+      // Forgotten only once the saved team is gone from disk: else a restart would bring the ask back (PR-Agent r2 on #8).
+      const was = state;
+      try { await save(null); } catch { state = was; return no('Not done: Yes Chef could not forget the team on this Mac. It is still saved; try again.', 503); }
+      live(null);
+      return ok('Left.');
+    }
+    if (op === 'saveAgain') {
+      if (await team.saveNow()) return ok('Saved.');
+      return no('Not saved: Yes Chef still could not save the team on this Mac. Keep Yes Chef open and try again.', 503);
+    }
     if (op === 'share') {
       if (!(await team.share(list(input.shared)))) return no('Not saved: Yes Chef could not save the shared projects on this Mac. They are in use now; try again shortly.', 503);
       return ok('Saved.');
