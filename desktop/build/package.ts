@@ -38,11 +38,11 @@ import builder from 'electron-builder';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, relative } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CHANNELS, FEED, channelOf, isReleaseVersion } from '../channels.ts';
 import { buildPreload } from './preload.ts';
-import { ARCH, FUSES, MIN_MACOS, TEAM_ID, checkApp, checkBuild, checkDmg, checkFeed, pickIdentity, report, rewriteFeed, runningFrom, sha512, targetsFor, teamOf } from './release.ts';
+import { ARCH, FUSES, MIN_MACOS, TEAM_ID, checkApp, checkBuild, checkDmg, checkFeed, pickIdentity, report, rewriteFeed, runningFrom, runtimePackages, sha512, targetsFor, teamOf } from './release.ts';
 import type { Expected, Result } from './release.ts';
 
 const { build, Platform, Arch } = builder;
@@ -101,17 +101,19 @@ for (const f of readdirSync(join(REPO, 'client'))) {
   const code = f.endsWith('.ts') && !f.endsWith('.test.ts');
   if (code || f === 'pass.css') cpSync(join(REPO, 'client', f), join(STAGE, 'client', f));
 }
-// The one runtime library, electron-updater, and what it needs: copied from desktop/node_modules as `npm ci` installed
-// them from package-lock.json, so the app ships the files the tests ran against. Each package is copied without its
-// own node_modules; npm lists the nested ones separately.
-const listed = spawnSync('npm', ['ls', '--omit=dev', '--all', '--parseable'], { cwd: DESKTOP, encoding: 'utf8' });
-if (listed.status !== 0) fail(`npm ls failed. Run npm ci in desktop/ first.\n${listed.stderr}`);
-const MODULES = join(DESKTOP, 'node_modules');
-const runtime = listed.stdout.split('\n').filter((p) => p.startsWith(`${MODULES}/`));
-if (!runtime.some((p) => p === join(MODULES, 'electron-updater'))) fail('electron-updater is not installed. Run npm ci in desktop/ first.');
+// The one runtime library, electron-updater, and what it needs, as the workspace's `vp install` installed them from
+// pnpm-lock.yaml, so the app ships the files the tests ran against. pnpm links each package to its real folder in
+// node_modules/.pnpm; runtimePackages follows the links and lays the packages out flat, as npm did (build/release.ts),
+// in the stage's own node_modules. electron-builder leaves every node_modules out of the app's files and copies the
+// modules its collector lists, searching the stage first: with a full tree there, it ships exactly this one. In the
+// app, desktop/main.ts finds them one folder up, as Node does.
+let runtime: ReturnType<typeof runtimePackages> = [];
+try { runtime = runtimePackages(DESKTOP); } catch (e) { fail((e as Error).message); }
+if (!runtime.some((p) => p.to === 'node_modules/electron-updater')) fail('electron-updater is not installed. Run vp install at the repo root first.');
 for (const p of runtime) {
-  cpSync(p, join(STAGE, relative(DESKTOP, p)), { recursive: true, filter: (src) => src !== join(p, 'node_modules') && !src.startsWith(`${join(p, 'node_modules')}/`) });
+  cpSync(p.from, join(STAGE, p.to), { recursive: true, filter: (src) => src !== join(p.from, 'node_modules') && !src.startsWith(`${join(p.from, 'node_modules')}/`) });
 }
+console.log(`Runtime packages: ${runtime.map((p) => `${p.name}@${p.version}`).join(', ')}.`);
 // The bundle's name, version and feed come from here: electron-builder names the updater's cache after `name`.
 writeFileSync(join(STAGE, 'package.json'), JSON.stringify({
   name: C.pkg, productName: C.name, version: VERSION, description: pkg.description,

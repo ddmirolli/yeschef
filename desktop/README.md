@@ -12,16 +12,19 @@ The Pass in its own window, signed in to the T3 Code on this Mac.
 ## Install or update
 
 ```sh
-cd ~/Developer/yeschef/desktop
-npm install
+cd ~/Developer/yeschef
+vp install
+cd desktop
 npm run app -- --install
 ```
+
+`desktop/` is a package of the repo's pnpm workspace, as T3 Code's desktop app is: `vp install` at the root installs it from `pnpm-lock.yaml`.
 
 This builds `Yes Chef.app` with electron-builder and puts it in `/Applications`. Quit Yes Chef first; the script refuses to replace a running copy. Open it from Applications, then right-click its Dock icon and choose Options → Keep in Dock.
 
 Every build is built the way a release is (`docs/desktop-release-plan-v0_1.md`, sections 2 and 3):
 
-- The app is one `app.asar`: `desktop/` without its tests and build scripts, and `client/` without its tests (its `pass.css` is the board's base stylesheet).
+- The app is one `app.asar`: `desktop/` without its tests and build scripts, and `client/` without its tests (its `pass.css` is the board's base stylesheet), and electron-updater with its dependencies. pnpm links each package to its folder in `node_modules/.pnpm`; the build follows the links and stages the same files, laid out flat as npm would (`runtimePackages` in `build/release.ts`), where electron-builder's module collector finds them.
 - The fuses are flipped before signing: no `ELECTRON_RUN_AS_NODE`, no `NODE_OPTIONS`, no `--inspect`, cookies encrypted, and the app loads only from its asar, which is checked against the hash in `Info.plist`.
 - Every helper, framework and the app are signed inside out with the hardened runtime. The only entitlement is `allow-jit`, for V8 (`build/entitlements.mac.plist`).
 - The build then runs the checks in `build/release.ts` and stops if one fails.
@@ -78,7 +81,7 @@ Releases build in GitHub Actions (`.github/workflows/release.yml`), as T3 Code's
 - **Dry run**: every pull request that touches the app, or channel `dry-run`. Unsigned, never published.
 - **Signing check**: channel `signing-check`. Reads the signing secrets, asks Apple whether it accepts the notarization key, builds nothing.
 
-A run plans (the version and the commit), builds on a macOS arm64 runner (a clean copy of the commit, `npm ci`, then `npm run dist` with `--version`: build, notarize and staple the app and the DMG, the feed rewrite, the checks and the hidden start), then publishes (a draft release with the DMG, the ZIP, its blockmap and the feed, every file checked by name and size, then published, Nightly as a prerelease and Stable as latest, and the feed read back the way the app reads it).
+A run plans (the version and the commit), builds on a macOS arm64 runner (a clean copy of the commit, `vp install --frozen-lockfile` at its root, or `npm ci` in `desktop/` for a commit from before `desktop/` joined the pnpm workspace, then `npm run dist` with `--version`: build, notarize and staple the app and the DMG, the feed rewrite, the checks and the hidden start), then publishes (a draft release with the DMG, the ZIP, its blockmap and the feed, every file checked by name and size, then published, Nightly as a prerelease and Stable as latest, and the feed read back the way the app reads it).
 
 The signing secrets live only in the "Yes Chef Release" 1Password vault. A read-only service account reads them, and GitHub holds only its token, in the `release` Environment, which runs from main only. Agents never approve a Stable.
 
@@ -125,7 +128,7 @@ Answer, Merge, Request changes, Reply, Hold and Settle travel from the board win
 
 - `npm start` runs the app from the repo (closing its Terminal quits it).
 - The desktop code is strict TypeScript (`tsconfig.json`, on the repo's `tsconfig.base.json`). Electron's Node runs the `.ts` files with the types stripped, as Node 24 does, so the app's own code has no build step. The one exception is the window's preload: a sandboxed preload must be one CommonJS file, so `build/preload.ts` strips the types from `preload.cts` into `preload.cjs` (not tracked). `npm start`, `npm run capture` and every build make it first.
-- `npm run typecheck` checks the types with `@effect/tsgo`, and `npm test` runs the desktop tests with vitest. Both use the workspace's tools, so run `vp install` at the repo root first, and `npm install` here. The tests: `t3.ts`; `build/release.ts` (the certificate choice, the fuses, the feed rewrite, the update settings); `build/publish.ts` (the release's version, commit, notes and files); `updates.ts` with `channels.ts` (the schedule, the cards and menu, the channels and versions, the file handoff); `keybindings.ts`; and the preload. `feed.test.ts` runs electron-updater's own GitHub provider, set up as the app sets it up, against a stubbed github.com: Nightly takes only Nightly releases, even when a Stable release is newer, and Stable takes only the release GitHub marks latest. The client's tests run from the repo root (`AGENTS.md`, "Verify"); the build leaves every test file out of the app.
+- `npm run typecheck` checks the types with `@effect/tsgo`, and `npm test` runs the desktop tests with vitest. Both use the workspace's tools, so run `vp install` at the repo root first. The tests: `t3.ts`; `build/release.ts` (the certificate choice, the fuses, the feed rewrite, the update settings); `build/publish.ts` (the release's version, commit, notes and files); `updates.ts` with `channels.ts` (the schedule, the cards and menu, the channels and versions, the file handoff); `keybindings.ts`; and the preload. `feed.test.ts` runs electron-updater's own GitHub provider, set up as the app sets it up, against a stubbed github.com: Nightly takes only Nightly releases, even when a Stable release is newer, and Stable takes only the release GitHub marks latest. The client's tests run from the repo root (`AGENTS.md`, "Verify"); the build leaves every test file out of the app.
 - `npm run capture` runs a hidden window, saves `out/board.png`, checks the action path with a ticket that cannot exist, and quits. It never reads or saves a sign-in unless `YESCHEF_USER_DATA` points it at another data folder, and it never starts one: with no saved sign-in it saves `out/no-sign-in.png` and quits. With T3 Code not running, it saves `out/no-t3.png` instead and quits. Updates are off in a capture.
 
 ### The update drill

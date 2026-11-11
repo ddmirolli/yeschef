@@ -1,14 +1,14 @@
 // The release build's rules (build/release.ts): which certificate signs, which fuses ship, and the feed rewrite.
 import { test } from 'vite-plus/test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { spawn, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { FUSES, FUSE_WIRE, TEAM_ID, appUpdateProblems, checkApp, checkDmg, entitlementKeys, feedProblems, fuseProblems, identities, literalPattern, machOFiles, pickIdentity, resultLine, rewriteFeed, runningFrom, targetsFor, topLevel, writesAppUpdate } from './build/release.ts';
-import { assetProblems, changelogEntry, distArgs, ghArgs, newestNightly, nightlyDue, parseArgs, pickRelease, releaseFiles, releaseNotes, releaseTitle, settle, trustedPlan } from './build/publish.ts';
+import { FUSES, FUSE_WIRE, TEAM_ID, appUpdateProblems, checkApp, checkDmg, entitlementKeys, feedProblems, findPackage, fuseProblems, identities, literalPattern, machOFiles, pickIdentity, resultLine, rewriteFeed, runningFrom, runtimePackages, targetsFor, topLevel, writesAppUpdate } from './build/release.ts';
+import { assetProblems, changelogEntry, distArgs, ghArgs, installStep, newestNightly, nightlyDue, parseArgs, pickRelease, releaseFiles, releaseNotes, releaseTitle, settle, trustedPlan } from './build/publish.ts';
 import { nth } from '../client/test/expect.ts';
 
 /** x, or the test fails. */
@@ -112,6 +112,69 @@ test('machOFiles finds Mach-O files by their magic number and skips symlinks', (
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+/** A package folder: its package.json from `m`. */
+function pkgAt(dir: string, m: Record<string, unknown>) { mkdirSync(dir, { recursive: true }); writeFileSync(join(dir, 'package.json'), JSON.stringify(m)); }
+
+test('runtimePackages follows pnpm\'s links to the real folders and lays the runtime packages out as npm did', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'yeschef-runtime-'));
+  try {
+    // pnpm's layout: desktop/node_modules/<name> links into node_modules/.pnpm/<id>/node_modules/<name>, whose
+    // dependencies are its siblings there. A dev dependency, an optional peer and a missing optional dependency.
+    const store = (id: string, name: string) => join(dir, 'node_modules', '.pnpm', id, 'node_modules', name);
+    const desktop = join(dir, 'desktop');
+    pkgAt(desktop, { name: 'yeschef-desktop', dependencies: { updater: '1.0.0' }, devDependencies: { builder: '2.0.0' } });
+    pkgAt(store('updater@1.0.0', 'updater'), { name: 'updater', version: '1.0.0', dependencies: { util: '^3', semver: '7' }, optionalDependencies: { 'not-here': '1' } });
+    pkgAt(store('util@3.1.0', 'util'), { name: 'util', version: '3.1.0', dependencies: { debug: '4' } });
+    pkgAt(store('debug@4.4.3', 'debug'), { name: 'debug', version: '4.4.3', peerDependencies: { 'supports-color': '*' }, peerDependenciesMeta: { 'supports-color': { optional: true } } });
+    pkgAt(store('supports-color@7.2.0', 'supports-color'), { name: 'supports-color', version: '7.2.0' });
+    pkgAt(store('semver@7.7.4', 'semver'), { name: 'semver', version: '7.7.4' });
+    pkgAt(store('builder@2.0.0', 'builder'), { name: 'builder', version: '2.0.0', dependencies: { semver: '6' } });
+    pkgAt(store('semver@6.3.1', 'semver'), { name: 'semver', version: '6.3.1' });
+    const link = (from: string, to: string) => { mkdirSync(join(from, '..'), { recursive: true }); symlinkSync(to, from); };
+    link(join(desktop, 'node_modules', 'updater'), store('updater@1.0.0', 'updater'));
+    link(join(desktop, 'node_modules', 'builder'), store('builder@2.0.0', 'builder'));
+    link(store('updater@1.0.0', 'util'), store('util@3.1.0', 'util'));
+    link(store('updater@1.0.0', 'semver'), store('semver@7.7.4', 'semver'));
+    link(store('util@3.1.0', 'debug'), store('debug@4.4.3', 'debug'));
+    link(store('debug@4.4.3', 'supports-color'), store('supports-color@7.2.0', 'supports-color'));
+    link(store('builder@2.0.0', 'semver'), store('semver@6.3.1', 'semver'));
+    // From the real folder of updater, its own sibling semver, not builder's.
+    assert.equal(findPackage(store('updater@1.0.0', 'updater'), 'semver'), realpathSync(store('semver@7.7.4', 'semver')));
+    assert.equal(findPackage(desktop, 'semver'), null);
+    const got = runtimePackages(desktop).map((p) => [p.to, p.version, p.from === realpathSync(store(`${p.name}@${p.version}`, p.name))]);
+    assert.deepEqual(got, [
+      ['node_modules/updater', '1.0.0', true], ['node_modules/util', '3.1.0', true], ['node_modules/semver', '7.7.4', true], ['node_modules/debug', '4.4.3', true],
+    ]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('runtimePackages nests a second version under its dependent, so each package loads the version it was installed with', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'yeschef-runtime-'));
+  try {
+    // npm's flat layout, with one nested copy, as desktop/node_modules held before the pnpm workspace.
+    const nm = join(dir, 'node_modules');
+    pkgAt(dir, { name: 'yeschef-desktop', dependencies: { a: '1', b: '1' } });
+    pkgAt(join(nm, 'a'), { name: 'a', version: '1.0.0', dependencies: { c: '1' } });
+    pkgAt(join(nm, 'b'), { name: 'b', version: '1.0.0', dependencies: { c: '2' } });
+    pkgAt(join(nm, 'c'), { name: 'c', version: '1.0.0' });
+    pkgAt(join(nm, 'b', 'node_modules', 'c'), { name: 'c', version: '2.0.0' });
+    assert.deepEqual(runtimePackages(dir).map((p) => `${p.to}@${p.version}`), ['node_modules/a@1.0.0', 'node_modules/b@1.0.0', 'node_modules/c@1.0.0', 'node_modules/b/node_modules/c@2.0.0']);
+    // A missing dependency stops the build with the command that installs it.
+    pkgAt(join(nm, 'a'), { name: 'a', version: '1.0.0', dependencies: { c: '1', gone: '1' } });
+    assert.throws(() => runtimePackages(dir), /gone, which a needs, is not installed\. Run vp install at the repo root first\./);
+    // b's nested c@2 needs d@2 while a's c@1 placed d@1 first, and b itself needs d@1: d@2 lands under c@2 and both
+    // still load the right one. The check resolves every edge again from where it landed.
+    pkgAt(join(nm, 'a'), { name: 'a', version: '1.0.0', dependencies: { c: '1' } });
+    pkgAt(join(nm, 'c'), { name: 'c', version: '1.0.0', dependencies: { d: '1' } });
+    pkgAt(join(nm, 'd'), { name: 'd', version: '1.0.0' });
+    pkgAt(join(nm, 'b'), { name: 'b', version: '1.0.0', dependencies: { c: '2', d: '1' } });
+    pkgAt(join(nm, 'b', 'node_modules', 'c'), { name: 'c', version: '2.0.0', dependencies: { d: '2' } });
+    pkgAt(join(nm, 'b', 'node_modules', 'c', 'node_modules', 'd'), { name: 'd', version: '2.0.0' });
+    assert.deepEqual(runtimePackages(dir).map((p) => `${p.to}@${p.version}`).sort(),
+      ['node_modules/a@1.0.0', 'node_modules/b/node_modules/c/node_modules/d@2.0.0', 'node_modules/b/node_modules/c@2.0.0', 'node_modules/b@1.0.0', 'node_modules/c@1.0.0', 'node_modules/d@1.0.0']);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('entitlementKeys reads every key in codesign\'s XML', () => {
   const xml = '<plist><dict><key>com.apple.security.cs.allow-jit</key><true/><key>com.apple.security.cs.disable-library-validation</key><true/></dict></plist>';
   assert.deepEqual(entitlementKeys(xml), ['com.apple.security.cs.allow-jit', 'com.apple.security.cs.disable-library-validation']);
@@ -152,7 +215,9 @@ test('every build, npm run app too, gets app-update.yml: electron-builder writes
   assert.ok(writesAppUpdate(targetsFor({ dist: false })), 'npm run app must build a target that writes the updater settings');
   assert.ok(!writesAppUpdate(['dir']), 'a dir build has no app-update.yml, so its updates are off');
   // The rule, as the pinned electron-builder has it. If an upgrade changes it, check writesAppUpdate again.
-  const source = readFileSync(createRequire(import.meta.url).resolve('app-builder-lib/out/publish/PublishManager.js'), 'utf8');
+  // app-builder-lib is electron-builder's dependency, not ours: pnpm links it beside electron-builder's real folder.
+  const builder = createRequire(createRequire(import.meta.url).resolve('electron-builder'));
+  const source = readFileSync(builder.resolve('app-builder-lib/out/publish/PublishManager.js'), 'utf8');
   assert.match(source, /if \(!event\.targets\.some\(it => it\.name === "dmg" \|\| it\.name === "zip"\)\) \{\s*return;/);
 });
 
@@ -303,6 +368,19 @@ test("the build step builds the archived commit with that commit's own npm run d
   const source = readFileSync(join(HERE, 'build', 'publish.ts'), 'utf8');
   assert.match(source, /run\('npm', distArgs\(p\)\);/);
   assert.doesNotMatch(source, /run\('node', \['build\//, 'the build step names no build file from main');
+});
+
+test("the build step installs the archived commit from that commit's own lockfile: the workspace's, or an older tree's npm lock", () => {
+  // Since desktop/ joined the pnpm workspace there is no desktop/package-lock.json: install the workspace at the root.
+  assert.deepEqual(installStep(false), { cmd: 'vp', args: ['install', '--frozen-lockfile'], in: 'root' });
+  // A Stable may promote a Nightly built before that, whose desktop/ kept its own npm lockfile.
+  assert.deepEqual(installStep(true), { cmd: 'npm', args: ['ci'], in: 'desktop' });
+  const source = readFileSync(join(HERE, 'build', 'publish.ts'), 'utf8');
+  assert.match(source, /installStep\(existsSync\(join\(desktop, 'package-lock\.json'\)\)\)/);
+  assert.doesNotMatch(source, /run\('npm', \['ci'\]\)/, 'no unconditional npm ci');
+  // This tree is the new kind: no npm lockfile in desktop/, and desktop/ is a workspace package.
+  assert.equal(existsSync(join(HERE, 'package-lock.json')), false);
+  assert.match(readFileSync(join(HERE, '..', 'pnpm-workspace.yaml'), 'utf8'), /\npackages:\n(?: {2}- \S+\n)*? {2}- desktop\n/);
 });
 
 test('settle asks again until a check passes, then gives the last problems', async () => {

@@ -1,10 +1,16 @@
 # The workspace, as T3 Code sets it up (Dan, 2026-11-10, "1. C": T3's TypeScript and tools).
-# desktop/ keeps its own npm install for the release workflow; site/ keeps its own for the Cloudflare build.
+# site/ keeps its own npm install for the Cloudflare build.
 packages:
   - client
+  - desktop
   - relay
   - spikes
   - tools
+
+# Build scripts pnpm may run, as in T3 Code. electron-winstaller is electron-builder's Windows installer, which Yes Chef
+# never builds. Electron 45 has no install script: it downloads its binary on first start (npm start or capture).
+allowBuilds:
+  electron-winstaller: false
 
 catalog:
   "@cloudflare/workers-types": 4.20260702.1

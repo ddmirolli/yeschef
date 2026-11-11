@@ -5,7 +5,7 @@
 #   plan     Linux, no secrets. Picks the version and the commit, or decides the scheduled Nightly has nothing to do.
 #   approve  A Stable only: waits for Dan's approval in the `stable` Environment (Dan, 2026-11-10). No secrets, no code.
 #   build    macOS arm64. The one job that loads the signing secrets (desktop/build/ci-signing.sh load), and the only
-#            one with code from npm. It can read the repo, not write to it.
+#            one with code from the npm registry (vp install). It can read the repo, not write to it.
 #   publish  Linux, no signing secrets. The one job that can write: a draft release, every file checked, then published.
 #
 # The signing secrets live only in the "Yes Chef Release" 1Password vault (Dan, 2026-11-10). GitHub holds one secret,
@@ -39,6 +39,9 @@ on:
     paths:
       - "desktop/**"
       - "client/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
       - ".github/workflows/release.yml"
 
 # One release at a time, in order. queue: max keeps every waiting run; GitHub's default keeps one waiting run per
@@ -158,15 +161,22 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Set up Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      # Vite+ brings Node (engines.node in package.json) and pnpm (packageManager): publish.ts build installs the
+      # commit it builds with `vp install --frozen-lockfile`, or with npm ci for a commit from before desktop/ joined
+      # the pnpm workspace (installStep).
+      - name: Set up Vite+
+        uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1
+        env:
+          VP_DOWNLOAD_TIMEOUT: '120'
         with:
-          node-version: 24
+          node-version-file: package.json
+          cache: false
+          run-install: false
 
       - name: Runner
         run: |
           # sed reads to the end: head would close the pipe early, and xcodebuild crashes on the broken pipe.
-          echo "macOS $(sw_vers -productVersion) ($(uname -m)), $(xcodebuild -version | sed -n 1p), Node $(node --version)"
+          echo "macOS $(sw_vers -productVersion) ($(uname -m)), $(xcodebuild -version | sed -n 1p), Node $(node --version), vp $(vp --version | sed -n 1p)"
           echo "Gatekeeper: $(spctl --status 2>&1 || true)"
           echo "notarytool: $(xcrun notarytool --version 2>&1 | sed -n 1p)"
 
@@ -236,7 +246,7 @@ jobs:
           path: ${{ runner.temp }}/release
 
       # What is released comes from the Plan job, the plan the Stable gate saw. The artifact comes from the build job,
-      # which runs npm's install scripts: publish.ts takes only its time and files, and stops on any other change.
+      # which runs install scripts: publish.ts takes only its time and files, and stops on any other change.
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}

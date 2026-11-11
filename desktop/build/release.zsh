@@ -12,8 +12,9 @@
 #    Developer ID certificate is here, and the version and commit to build. Dan says yes before Touch ID.
 # 2. One Touch ID approval: the App Store Connect key from the "Yes Chef Release" vault, written to a private temp
 #    folder (mktemp -d) and deleted on exit. Nothing prints a secret.
-# 3. The build (publish.ts build): a clean copy of the commit, npm ci, then its npm run dist, which notarizes
-#    and staples the app and the DMG, rewrites the feed and runs the checks and a hidden start.
+# 3. The build (publish.ts build): a clean copy of the commit, installed (vp install, or npm ci before the pnpm
+#    workspace), then its npm run dist, which notarizes and staples the app and the DMG, rewrites the feed and runs
+#    the checks and a hidden start.
 # 4. The key is deleted. Lock 1Password then: publishing needs no key.
 # 5. The release (publish.ts publish): a draft, every file attached and checked, then published, then the feed read
 #    back the way the app reads it.

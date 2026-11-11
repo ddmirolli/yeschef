@@ -1,5 +1,5 @@
 // Which release each channel takes from GitHub: electron-updater's own GitHubProvider (the pinned version in
-// node_modules, so run `npm install` in desktop/ first), set up as updates.ts sets up the app's updater, against a
+// node_modules, so run `vp install` at the repo root first), set up as updates.ts sets up the app's updater, against a
 // stubbed github.com. A Stable release published after a Nightly sits at the top of the releases feed; Nightly must
 // still take only Nightly releases (PR-Agent r4 on #66).
 import { test } from 'vite-plus/test';
