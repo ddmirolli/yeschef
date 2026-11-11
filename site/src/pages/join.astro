@@ -1,0 +1,28 @@
+---
+import SiteLayout from '../layouts/SiteLayout.astro';
+---
+<SiteLayout title="Join a team on Yes Chef" description="Open a Yes Chef team invite in the Yes Chef app.">
+  <Fragment slot="head">
+    <meta name="referrer" content="no-referrer">
+    <meta name="robots" content="noindex">
+  </Fragment>
+  <main id="main">
+    <section class="dl-page" id="join-page" aria-labelledby="join-title">
+      <div class="container dl-inner">
+        <span class="dl-mark" aria-hidden="true"><img class="dl-mark-stable" src="/assets/yeschef-icon.svg" alt="" width="96" height="96"></span>
+        <h1 id="join-title" class="display dl-title">Join a team</h1>
+        <p class="lede">Someone invited you to their team on Yes Chef. Open the invite in the app, connect your own T3 Code, and pick the projects to share. Nothing is shared until the lead adds you.</p>
+        <a class="btn btn-primary btn-lg dl-btn" data-join-open href="#" hidden><span>Open in Yes Chef</span></a>
+        <div class="dl-notes">
+          <p data-join-missing hidden>This link has no invite in it. Ask the lead to send the whole link again.</p>
+          <p>No Yes Chef yet? <a href="/download">Download it</a>, then open this link again.</p>
+          <p>The invite stays in this page's address after the #. It never goes to this site's server.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script>
+    import { initializeJoin } from '../scripts/join';
+    initializeJoin();
+  </script>
+</SiteLayout>
