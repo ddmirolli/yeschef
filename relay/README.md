@@ -26,7 +26,7 @@ To serve it on your own domain, add a route to `relay/wrangler.jsonc`, as `deplo
 
 ## Point Yes Chef at it
 
-The lead sets the relay's address before making the team. The invite link carries it, so devs who join need no setting. (Not built yet: the app's team client and its relay setting come in the next pull requests.)
+The lead sets the relay's address before making the team. The invite link carries it, so devs who join need no setting. (Not built yet: the app's relay setting and team screens come in the next pull request.)
 
 ## Settings
 
