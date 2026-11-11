@@ -1639,3 +1639,22 @@ test('a key ask that does not reach the disk is not acked, so the relay keeps it
   assert.deepEqual(done, ['k1']);
   lead.stop(); dev.stop();
 });
+
+test('a board failure reported before the roster loads still goes out once the team is up', async () => {
+  const { relay, net, timers, lead, dev } = await crew();
+  dev.board(boardNow(relay.now()));
+  await until(() => lead.summaries.get(dev.meId)?.body.health?.ok === true, 'the healthy summary');
+  dev.stop();
+  await until(() => !lead.online.has(dev.meId), 'the dev offline');
+  const again = new Team({ state: structuredClone(dev.state), net, now: () => relay.now(), timers, random: () => 1 });
+  const failedAt = relay.now();
+  again.health(false);
+  again.start();
+  await until(() => again.link === 'online', 'the dev back');
+  await timers.advance(10000);
+  await until(() => lead.summaries.get(dev.meId)?.body.health?.ok === false, 'the failing health at the lead');
+  const p = lead.view().people.find((x) => x.id === dev.meId);
+  assert.equal(p.live, false);
+  assert.equal(p.notCheckedSince, failedAt);
+  lead.stop(); again.stop();
+});

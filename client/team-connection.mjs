@@ -261,6 +261,7 @@ export const connection = {
     const held = (msg.summaries || []).some((s) => s.m === this.meId);
     if (held && (!(this.me && shares(this.me.role)) || !this.state.shared?.length)) this.unshare();
     else if (held && this.state.dropped && !this.next) this.shareNow(new Set([null]));
-    else this.flush();
+    // A board read or failure reported before the roster loaded goes now: it was held until this Mac knew its role.
+    else { this.publish(); this.flush(); }
   },
 };
