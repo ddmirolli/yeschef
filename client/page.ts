@@ -81,6 +81,8 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   function $<E extends Element = HTMLElement>(sel: string, el?: ParentNode | null): E | null { return (el || document).querySelector<E>(sel); }
   function $$<E extends Element = HTMLElement>(sel: string, el?: ParentNode | null): E[] { return Array.prototype.slice.call((el || document).querySelectorAll<E>(sel)); }
   function focusView(){ return state.view === 'pass'; }
+  // A Too big card's Expand all says what it will do next, as T3 Code's does.
+  function cfAll(b: Element, open: boolean): void { var w = (open ? 'Collapse' : 'Expand') + ' all folders'; b.setAttribute('aria-expanded', String(open)); b.setAttribute('aria-label', w); b.setAttribute('title', w); }
 
   // ----- Views -----
   function setView(v: string): void {
@@ -580,6 +582,11 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
         plateSrc.set(p, now);
         var s = $('.plate-scroll', mounted), d = $('.dock', mounted), top = s ? s.scrollTop : 0, dtop = d ? d.scrollTop : 0;
         $$<HTMLDetailsElement>('details.more', mounted).forEach(function(x, i){ var y = $$<HTMLDetailsElement>('details.more', p)[i]; if (y) y.open = x.open; });
+        // So do a Too big card's folders, each by its path, so a folder that comes or goes moves no other one's state
+        // (PR-Agent r1 on #63), and its Expand all.
+        var cfOpen = new Set($$<HTMLDetailsElement>('details.cfd', mounted).filter(function(x){ return x.open; }).map(function(x){ return x.dataset.cf; }));
+        $$<HTMLDetailsElement>('details.cfd', p).forEach(function(y){ y.open = cfOpen.has(y.dataset.cf); });
+        $$('[data-cf-all]', mounted).forEach(function(x, i){ var y = $$('[data-cf-all]', p)[i]; if (y) cfAll(y, x.getAttribute('aria-expanded') === 'true'); });
         // The question card you were reading stays in front through a refresh.
         $$('form.act', mounted).forEach(function(x, i){ var y = $$('form.act', p)[i]; if (y && qAt(x) > 0) qShow(y, qAt(x)); });
         mounted.replaceWith(p); mounted = p;
@@ -1594,6 +1601,9 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     if (pk) { pickProject(pk); return; }
     var sc = t.closest<HTMLElement>('.vmenu .seg [data-scope]');
     if (sc) { setScope(sc.dataset.scope!); return; }
+    // Too big: Expand all opens every folder of T3 Code's changed-files card, and Collapse all closes them.
+    var cfa = t.closest<HTMLElement>('.tv [data-cf-all]'), cfc = cfa && cfa.closest('.cf');
+    if (cfa && cfc) { var cfo = cfa.getAttribute('aria-expanded') !== 'true'; $$<HTMLDetailsElement>('details.cfd', cfc).forEach(function(d){ d.open = cfo; }); cfAll(cfa, cfo); return; }
     // The chart: a project opens its threads, ‹ All projects goes back. A thread's band carries data-plate, so a click
     // on it opens the ticket below, as its card does.
     // Your team, expanded: a sub-lead's name folds their team into one row and back.

@@ -1370,16 +1370,48 @@ html.s-team .bar .stats{display:none}
 .tv .raxis{display:flex;justify-content:space-between;margin-top:6px;font-size:11.5px;color:var(--label2);font-variant-numeric:tabular-nums}
 .tv .wlg{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:8px;font-size:11.5px;color:var(--label2)}
 .tv .wlg span{display:inline-flex;align-items:center;gap:6px}
-.tv .wlg i{display:inline-block;width:14px;height:8px;border-radius:2px;background:var(--green)}
+.tv .wlg i{display:inline-block;width:14px;height:8px;border-radius:2px;background:var(--fx-a1)}
 .tv .wlg i.r{background:var(--red)}.tv .wlg i.a{background:none;box-shadow:inset 0 0 0 1.5px var(--red)}
 .tv .tmore{margin:10px 0 0;font-size:12.5px;color:var(--label2)}
-/* Main broken: the team's merges today, red at the break, then the PRs that wait. */
+/* Main broken: the team's merges today, gray, red at the break (Dan, 2026-11-11: gray at rest, colour for the alarm), then the PRs that wait. */
 .tv .ribbon{display:flex;flex-wrap:wrap;gap:3px;align-items:flex-end}
-.tv .ribbon i{width:14px;height:22px;border-radius:3px;background:var(--green);opacity:.85}
+.tv .ribbon i{width:14px;height:22px;border-radius:3px;background:var(--fx-a1)}
 .tv .ribbon i.r{background:var(--red);opacity:1;height:30px}
 .tv .ribbon i.a{background:none;box-shadow:inset 0 0 0 1.5px var(--red);opacity:1}
 .tv .tprs{display:flex;flex-wrap:wrap;gap:6px}
 .tv .tpr{display:inline-flex;align-items:center;gap:6px;padding:3px 9px 3px 4px;border-radius:999px;background:var(--bg);box-shadow:inset 0 0 0 .5px var(--sep);font-size:12.5px;font-weight:600}
+/* Failing: T3 Code's checks list, one red run a row. Stuck: the agent's last message. */
+.tv .truns{list-style:none;margin:0;padding:0}
+.tv .truns li{display:grid;grid-template-columns:14px minmax(0,1fr) auto auto;gap:10px;align-items:center;min-height:28px;font-size:13px}
+.tv .truns .ic{width:14px;height:14px;color:var(--red)}
+.tv .truns span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tv .truns code{font:11.5px var(--mono);color:var(--label2)}
+.tv .truns time{min-width:5ch;text-align:right;font-size:12px;color:var(--label2);font-variant-numeric:tabular-nums}
+.tv .tmsg{margin:0;font-size:14px;line-height:1.5}
+.tv :is(.truns span,.tmsg).nc{color:var(--label2)}
+/* Too big: T3 Code's changed-files card. Folders start closed; Expand all opens them (page script). */
+.tv .tvis.cf{padding:8px}
+.tv .cfh{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:0 0 4px 8px}
+.tv .cfh .n{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;font-size:12px;font-weight:500}
+.tv .dst{display:inline-flex;gap:4px;font:11px var(--mono);font-variant-numeric:tabular-nums}
+.tv .dst .a{color:var(--green)}.tv .dst .d{color:var(--red)}
+.tv .cfb{display:flex;flex:none;gap:2px}
+.tv .cfb>*{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--label2);font:500 12px/1 var(--sans);text-decoration:none;cursor:pointer}
+.tv .cfb>:hover{background:var(--fill);color:var(--label)}
+.tv .cf .ic{flex:none;width:13px;height:13px}
+.tv .cfa[aria-expanded="true"] .up,.tv .cfa:not([aria-expanded="true"]) .dn{display:none}
+.tv .cfr{display:flex;align-items:center;gap:8px;height:28px;padding-right:8px;border-radius:6px;font:12px var(--mono);color:var(--label2);list-style:none}
+.tv summary.cfr{cursor:pointer}.tv summary.cfr::-webkit-details-marker{display:none}
+.tv summary.cfr:hover{background:var(--fill);color:var(--label)}
+.tv .cfr.f{color:var(--label)}.tv .cfr.x{opacity:.45}
+.tv .cfr .nm{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tv .cfr .sp{flex:none;width:13px}
+.tv .cfr .dst{flex:none;display:inline-grid;grid-template-columns:5ch 5ch;gap:8px;text-align:right}
+.tv .cfd>summary .cv{transition:transform .15s}.tv .cfd[open]>summary .cv{transform:rotate(90deg)}
+.tv .cfd[open]>summary .fc,.tv .cfd:not([open])>summary .fo{display:none}
+.tv .cfm{display:inline-flex;align-items:center;height:24px;margin:4px 0 0 8px;padding:0 8px;border-radius:6px;font-size:12px;font-weight:500;color:var(--label2);text-decoration:none}
+.tv .cfm:hover{background:var(--fill);color:var(--label)}
+.tv .cfn{margin:4px 8px;font-size:12.5px;color:var(--label2)}
 /* Overlap: the two threads, then the file's line map with the shared lines boxed. */
 .tv .duo{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
 .tv .tcard{padding:12px 14px;border-radius:12px;background:var(--card)}

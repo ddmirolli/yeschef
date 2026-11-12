@@ -16,7 +16,7 @@ export function fixtureView(now = Date.UTC(2026, 10, 10, 14, 3)): TeamView & { p
   const t = (thread: string, project: string, place: string, title: string, more: Fields = {}) => ({ thread, title, project, place, atPass: false, working: 1, asks: 0, call: false, prs: [],
     updatedAt: iso(ago(3)), startedAt: iso(ago(240)), ...more });
   const pr = (repo: string, n: number, state: string, more: Fields = {}) => ({ repo, n, state, url: `https://github.com/${repo}/pull/${n}`, base: 'main', draft: false, mergedAt: null, size: null, checks: null, ...more });
-  const runs = (greens: number, reds: number, from: number, every = 14) => [...Array(greens + reds)].map((_, i) => ({ at: ago(from - i * every), sha: `c${i}`, title: `run ${i + 1}`, result: i < greens ? 'passing' : 'failing' }));
+  const runs = (greens: number, reds: number, from: number, every = 14) => [...Array(greens + reds)].map((_, i) => ({ at: ago(from - i * every), sha: `c0ffee${i}`, title: `run ${i + 1}`, result: i < greens ? 'passing' : 'failing' }));
   const ch = (repo: string, files: Fields[], more: Fields = {}) => ({ state: 'checked', at: ago(1), repo, base: 'main', mergeBase: 'b0', files, head: 'h1', headAt: iso(ago(30)), more: 0, size: null, ...more });
 
   const nina = t('mcp:nina-1', 'Quillo', 'In review', 'Tray icon states', { working: 2, prs: [pr('acme/quillo', 428, 'open', { readyAt: iso(ago(236)), checks: { result: 'failing', redRuns: 6, at: ago(5), runs: runs(4, 6, 233, 20) } })] });
