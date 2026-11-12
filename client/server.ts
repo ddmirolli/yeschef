@@ -1088,7 +1088,7 @@ textarea{resize:none!important}
   :is(.v-pass,.v-kitchen) .nav-foot{display:flex;flex-direction:column;gap:10px;margin:auto 0 0;padding-top:12px}
   :is(.v-pass,.v-kitchen) .nav-foot .pmenu{margin:0}
   :is(.v-pass,.v-kitchen) .nav-foot .pmenu summary{width:100%}
-  :is(.v-pass,.v-kitchen) .nav-foot .pmenu summary>span:first-of-type{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  :is(.v-pass,.v-kitchen) .nav-foot .pmenu summary>span:first-of-type:not(.vi){flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* The stage list scrolls in a short window, so its project menu is a fixed layer that placeNavMenu sets by its button. */
   :is(.v-pass,.v-kitchen) .nav-foot .pmenu-l{position:fixed;top:auto;right:auto;bottom:auto;left:auto;overflow-y:auto;overscroll-behavior:contain}
   /* Live and Settings: two equal boxes on one line (Dan, 2026-11-08). */
@@ -1404,19 +1404,18 @@ html .plate .dock .q-set{max-width:640px}
   .you .tray{max-height:none}
   .you .tray-b{flex:none;overflow:visible}
 }
-/* The footer chip and its menu (Dan, 2026-11-10, view menu mock a). The chip: the person and You, or the toque and
-   Team, then All projects or the picked projects' icons fanned like cards. The menu: check boxes, then the toggle. */
+/* The footer chip and its menu (Dan, 2026-11-10, view menu mock a). The chip: the person, or the toque for Team, then
+   All projects or the picked projects' icons fanned like cards. The menu: check boxes, then the toggle. No "You" or
+   "Team" word in the chip or the toggle (Dan, 2026-11-11): the icon's tooltip and hidden label carry it. */
 .vmenu{--cbon:#007AFF;--cboff:#FFFFFF;--cbline:rgba(0,0,0,.26);--segon:var(--card)}
 @media (prefers-color-scheme:dark){.vmenu{--cbon:#0A84FF;--cboff:rgba(255,255,255,.07);--cbline:rgba(255,255,255,.32);--segon:#636366}}
 .vmenu summary .ic.who{width:24px;height:24px}
-.vmenu .vl-team,html.s-team .vmenu .vl-you,.vmenu .vi-team,html.s-team .vmenu .vi-you{display:none}
-html.s-team .vmenu .vl-team{display:inline}
-html.s-team .vmenu .vi-team{display:block}
-.vmenu summary .vl,:is(.v-pass,.v-kitchen) .nav-foot .vmenu summary>span.vl{flex:none}
-.vmenu summary .vdot{flex:none;margin:0 -3px;color:var(--label2)}
+.vmenu summary .vi{display:flex;flex:none}
+.vmenu summary .vi-team,html.s-team .vmenu summary .vi-you{display:none}
+html.s-team .vmenu summary .vi-team{display:flex}
 .vmenu summary .vp{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* The fan: each card steps right and turns a little more, and both shrink as the count grows, so ten still fit.
-   When the chip is short of room ("Team" is wider than "You"), the fan gives way and its cards step by the width it
+   When the chip is short of room, the fan gives way and its cards step by the width it
    has (100cqw), so the dot and the chevron keep their places. */
 .vmenu .fan{--adv:min(12px,calc(40px / max(var(--n) - 1,1)));--step:min(8deg,calc(34deg / max(var(--n) - 1,1)));--mid:calc((var(--n) - 1) / 2);
   container-type:inline-size;position:relative;flex:0 1 auto;min-width:0;margin-right:auto;width:calc(40px + (var(--n) - 1) * var(--adv));height:26px}
@@ -1454,13 +1453,27 @@ html.s-team .vmenu .pmenu-l .seg::before{transform:translateX(100%)}
 .vmenu .pmenu-l .seg button:hover{background:none;color:var(--label)}
 .vmenu .pmenu-l .seg [aria-checked=true]{color:var(--label)}
 .vmenu .pmenu-l .seg .ic{flex:none;width:24px;height:24px}
+/* The expanded view's header is its picker (Dan, 2026-11-11): the view's icon, then All projects or the fan a size up,
+   then the chevron, with no fill until hovered. The menu drops below it. The rail's chip goes in the expanded view. */
+.v-kitchen :is(.bar,.nav-foot) .vmenu{display:none}
+.vhead{margin:0}
+.vhead summary{gap:8px;min-height:38px;margin-left:-8px;padding:3px 10px 3px 8px;border-radius:9px;background:none;font-size:20px;font-weight:700;letter-spacing:-.01em}
+.vhead summary:hover,.vhead[open] summary{background:var(--fill)}
+.vhead summary .ic.who{color:var(--label2)}
+.vhead summary>.ic:last-child{flex:none;width:16px;height:16px;color:var(--label3)}
+.vhead summary .vp{flex:0 1 auto}
+.vhead .fan{--adv:min(15px,calc(52px / max(var(--n) - 1,1)));flex:none;margin-right:0;width:calc(34px + (var(--n) - 1) * var(--adv));height:32px}
+.vhead .fan .card{left:calc(4px + var(--i) * var(--adv));top:3px;width:26px;height:26px;border-radius:7px}
+.vhead .fan .card .pm{width:26px;height:26px;border-radius:7px;font-size:13px}
+.vhead .pmenu-l{top:46px;right:auto;left:-8px}
 @media (prefers-reduced-motion:reduce){.vmenu .pmenu-l .seg::before,.vmenu .cb .tick,.vmenu .fan .card{transition:none}}
 @media (max-width:760px){.vmenu .pmenu-l .pk{min-height:44px}.vmenu .pmenu-l{max-height:calc(100dvh - 72px);overflow-y:auto;overscroll-behavior:contain}}
 html.s-team .you{display:none}
 /* The Pass follows the view: in Your team it says what it cannot show yet, and none of your own calls. */
 .team-pass,html.s-team .head-b>.folder,html.s-team .head .badge,html.s-team .head-h>.muted{display:none}
 html.s-team .head-b>.team-pass{display:flex}
-html.s-team.v-kitchen .team-wait{display:block;padding:16px 18px;border-radius:16px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--sep)}
+html.s-team.v-kitchen .team-wait{display:block}
+.team-wait .tw-b{padding:16px 18px;border-radius:16px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--sep)}
 /* Your team, Open kitchen (step 4; mock v2, round 2, Dan 2026-11-10). The team's card replaces yours in the rail, and
    The Pass holds the team's calls with a quiet line under them. Phones show The Pass only (Dan's 1a). */
 .team-card,.tpn{display:none}
@@ -1532,13 +1545,8 @@ html.s-team .bar .stats{display:none}
 .av.sm{width:18px;height:18px;font-size:8px}
 /* Your team's instruments and panels. You, expanded no longer draws them (#14), so they live here, scoped to the team
    board: a bare .ph would also style the action bar's phone rows (.mi.ph). */
-.tboard .you-h{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 14px;padding:6px 2px 14px}
-.tboard .you-h h2{margin:0;font-size:20px;font-weight:700;letter-spacing:-.01em}
-/* One line: the projects shorten first, so no dot ever starts a line. */
-.tboard .you-sub{flex:1 1 auto;display:flex;gap:8px;min-width:0;margin:0;font-size:14px;white-space:nowrap;color:var(--label2)}
-.tboard .you-sub>*{flex:none}
-.tboard .you-sub>:first-child{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.tboard .you-sub>*+*::before{content:"·";margin-right:8px}
+/* The header (You and Your team, expanded): the picker alone. */
+:is(.you,.tboard,.team-wait)>.you-h{display:flex;flex:none;align-items:center;padding:6px 2px 14px}
 .tboard .you-b{display:flex;flex-direction:column;gap:12px;container-type:inline-size}
 .tboard .you-b>*{min-width:0}
 .tboard .inst{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}

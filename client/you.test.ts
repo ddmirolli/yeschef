@@ -206,16 +206,17 @@ test('the rail opens with the person and one bar piece per thread on the line, B
 
 const youOf = (html: string) => grab(html, /<section class="you"[\s\S]*?<\/div><\/div><\/div><\/section>/);
 
-test('You, expanded is the six stage columns alone (Dan, 2026-11-10)', () => {
+test('You, expanded is the header picker and the six stage columns alone (Dan, 2026-11-10 and 2026-11-11)', () => {
   const you = youOf(page());
-  assert.match(you, /^<section class="you" aria-label="Your threads by stage"><div class="you-b"><div class="rail-wrap"><div class="rail"><section class="tray/);
+  // The header is the project picker and nothing else (Dan, 2026-11-11): the person, All projects, the chevron.
+  assert.match(you, /^<section class="you" aria-label="Your threads by stage"><header class="you-h"><details class="pmenu vmenu vhead"><summary><span class="vi" title="You"><svg class="ic who"[^>]*><circle cx="12" cy="8\.25"[\s\S]*?<span class="vh">You<\/span><\/span><span class="vp">All projects<\/span><svg class="ic"[\s\S]*?<\/details><\/header><div class="you-b"><div class="rail-wrap"><div class="rail"><section class="tray/);
   assert.deepEqual([...you.matchAll(/<section class="tray[^"]*" data-stage="([^"]+)"/g)].map((m) => m[1]), ['Backlog', 'Planned', 'In progress', 'In review', 'Ready to merge', 'Merged']);
   // Each thread on the line once, in its column.
   for (const [id, stage] of [['backlog', 'Backlog'], ['planned', 'Planned'], ['cooking', 'In progress'], ['review', 'In review'], ['merged', 'Merged']]) {
     assert.match(you, new RegExp(`data-stage="${stage}"[^]*?<div class="tray-b">(?:(?!</section>)[^])*data-thread="${id}"`));
   }
   // Dan cut the header line, the four cards, the "At The Pass" key and the panels under the board.
-  for (const gone of [/class="you-h"/, /class="you-sub"/, /class="inst"/, /Agents running/, /Merged today/, /Checks on open PRs/, /Your agents wait on you/,
+  for (const gone of [/class="you-sub"/, /class="inst"/, /Agents running/, /Merged today/, /Checks on open PRs/, /Your agents wait on you/,
     /At The Pass/, /Merged, last 7 days/, /Agent time today/, /class="held"/, /class="pnl/]) assert.doesNotMatch(you, gone);
   // Verified and on hold stay one click away in the stage list.
   assert.match(page(), /<button type="button" class="nf" data-folder="Verified">[\s\S]*?<span class="n">1<\/span><\/button><button type="button" class="nf" data-folder="On hold">/);
@@ -351,28 +352,31 @@ test('switching to Your team forgets the ticket the Pass kept, even with none op
 const menuOf = (html: string) => grab(html, /<details class="pmenu vmenu">[\s\S]*?<\/details>/);
 const summaryOf = (html: string) => grab(menuOf(html), /<summary>[\s\S]*?<\/summary>/);
 
-test('no reports: the person and You, the project check boxes, and no toggle (Dan, 2026-11-10)', () => {
+test('no reports: the person, the project check boxes, and no toggle (Dan, 2026-11-10)', () => {
   const html = page();
   const summary = summaryOf(html);
-  assert.match(summary, /^<summary><svg class="ic who"[^>]*><circle cx="12" cy="8\.25"[\s\S]*?<span class="vl">You<\/span><span class="vdot" aria-hidden="true">·<\/span><span class="vp">All projects<\/span>/);
+  // No "You" in sight (Dan, 2026-11-11): the person's tooltip and a hidden label say it.
+  assert.match(summary, /^<summary><span class="vi" title="You"><svg class="ic who"[^>]*><circle cx="12" cy="8\.25"[\s\S]*?<\/svg><span class="vh">You<\/span><\/span><span class="vp">All projects<\/span>/);
+  assert.doesNotMatch(summary, /class="vl|vdot|<span>You<\/span>/);
   const menu = menuOf(html);
   assert.match(menu, /<button type="button" class="pk all" role="checkbox" aria-checked="true">/);
   assert.match(menu, /<button type="button" class="pk" role="checkbox" data-p="Fernpay" aria-checked="true">/);
   assert.doesNotMatch(html, /data-scope|class="seg"|id="yc-team"|Your team|vi-team/);
 });
 
-test('with reports: the person and You or the toque and Team, never the team or mode name, and the toggle last', () => {
+test('with reports: the person or the toque, never a word, the team or the mode name, and the toggle last', () => {
   for (const mode of ['brigade', 'open', null]) {
     const html = page({ team: { name: 'Platform', below: 6, mode } });
     const summary = summaryOf(html);
     // The toque means Team in both modes; the chip never names the team or its mode.
-    assert.match(summary, /class="ic who vi-you"[^>]*><circle cx="12" cy="8\.25"/);
-    assert.match(summary, /class="ic who vi-team"[^>]*><path d="M7\.6 16\.1/);
-    assert.match(summary, /<span class="vl"><span class="vl-you">You<\/span><span class="vl-team">Team<\/span><\/span>/);
-    assert.doesNotMatch(summary, /Platform|French Brigade|Open kitchen|Your team/);
-    // One line at the bottom of the menu: person and You, toque and Team.
+    // Icons only (Dan, 2026-11-11): each carries its word as a tooltip and a hidden label.
+    assert.match(summary, /<span class="vi vi-you" title="You"><svg class="ic who"[^>]*><circle cx="12" cy="8\.25"[\s\S]*?<\/svg><span class="vh">You<\/span><\/span>/);
+    assert.match(summary, /<span class="vi vi-team" title="Team"><svg class="ic who"[^>]*><path d="M7\.6 16\.1[\s\S]*?<\/svg><span class="vh">Team<\/span><\/span>/);
+    assert.doesNotMatch(summary, /Platform|French Brigade|Open kitchen|Your team|class="vl|vdot/);
+    // One line at the bottom of the menu: the person and the toque, named for a screen reader and the tooltip.
     const menu = menuOf(html);
-    assert.match(menu, /<hr><div class="seg" role="radiogroup" aria-label="View"><button type="button" role="radio" aria-checked="false" data-scope="you"><svg class="ic"[^>]*><circle cx="12" cy="8\.25"[\s\S]*?<span>You<\/span><\/button><button type="button" role="radio" aria-checked="false" data-scope="team"><svg class="ic"[^>]*><path d="M7\.6 16\.1[\s\S]*?<span>Team<\/span><\/button><\/div><\/nav><\/details>$/);
+    assert.match(menu, /<hr><div class="seg" role="radiogroup" aria-label="View"><button type="button" role="radio" aria-checked="false" data-scope="you" aria-label="You" title="You"><svg class="ic"[^>]*><circle cx="12" cy="8\.25"[\s\S]*?<\/svg><\/button><button type="button" role="radio" aria-checked="false" data-scope="team" aria-label="Team" title="Team"><svg class="ic"[^>]*><path d="M7\.6 16\.1[\s\S]*?<\/svg><\/button><\/div><\/nav><\/details>$/);
+    assert.doesNotMatch(menu, /<span>(You|Team)<\/span>/);
   }
   const html = page({ team: { name: 'Platform', below: 6, mode: 'brigade' } });
   assert.match(html, /<script type="application\/json" id="yc-team">\{"name":"Platform","below":6,"mode":"brigade"\}<\/script>/);
