@@ -30,6 +30,9 @@ export const DEMO_RULES = { all: { reviewer: 'coderabbit', browser: 'browserbase
 export function createKitchen({ now = Date.now, where, shot, onChange = () => {}, later = setTimeout, team = null }: DemoOptions): DemoKitchen {
   // The team demo: Dana (the visitor) leads a made-up team on these same projects (client/demo-team.ts).
   let mode: DemoMode | null = team;
+  // Made once, as the threads below are: a call's id carries its start time, and the page keeps a call open only while
+  // its id is still there, so a team made again at each 3 s tick closed every call you opened. Ages still grow.
+  const crew = team ? demoTeam(now()) : null;
   const ago = (min: number) => new Date(now() - min * 60000).toISOString();
   const projects = [['p-pay', 'Fernpay', 'fernpay'], ['p-loop', 'Loopline', 'loopline'], ['p-quill', 'Quillo', 'quillo']]
     .map(([id, title, dir]) => ({ id, title, ...where(dir) }));
@@ -249,7 +252,7 @@ export function createKitchen({ now = Date.now, where, shot, onChange = () => {}
       // As client/server.ts route() reads them, plus the team a real Mac gets from its team connection.
       return renderApp({ board, picked, link: () => 'https://t3.codes/', status: { ok: true, at: now(), ms: 4 },
         origin: 'https://t3.codes', answered, projects, rules: { ...rules, rev }, fit: fitFrom(params),
-        ...(mode ? { team: { view: demoTeam(now()), now: now(), mode }, fold: params.getAll('fold'), who: params.get('who') } : {}) })
+        ...(mode && crew ? { team: { view: crew, now: now(), mode }, fold: params.getAll('fold'), who: params.get('who') } : {}) })
         .replace(/\/img\/([0-9a-f]{20})/g, (all, id) => (SHOTS.has(id) ? shot(SHOTS.get(id) ?? id) : all));
     },
     mode(next?: DemoMode) {

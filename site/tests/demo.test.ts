@@ -87,3 +87,20 @@ test('the team demo draws the made-up team in Your team, and the mode cards swit
   assert.equal(kitchen().mode('brigade'), null);
   assert.doesNotMatch(kitchen().page(), /id="yc-team"/);
 });
+
+test('a team call stays open across the demo ticks: its id keeps while the clock moves', () => {
+  // The page redraws every 3 s (shim.ts) and keeps the open call only while its id is still on the page. A call's id
+  // carries its start time, so the made-up team is made once; ages still grow with the clock.
+  let clock = new Date('2026-11-10T15:00:00Z').getTime();
+  const demo = createKitchen({ now: () => clock, where: (directory) => ({ icon: `icons/${directory}.svg` }),
+    shot: (name) => `img/${name}-dark.png`, later: null, team: 'open' });
+  const ids = (html: string) => [...html.matchAll(/class="plate team-plate" id="([^"]+)"/g)].map((m) => m[1]);
+  const first = ids(demo.page());
+  assert.equal(first.length, 6);
+  clock += 3000;
+  assert.deepEqual(ids(demo.page()), first);
+  clock += 2 * 60000;
+  const later = demo.page();
+  assert.deepEqual(ids(later), first);
+  assert.match(later, /Main broken/);
+});
