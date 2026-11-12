@@ -116,30 +116,29 @@ const MODE_SIZES = '(min-width: 1024px) 760px, calc(100vw - 32px)';
             </div>
           </div>
           <!-- One frame and a toggle (Dan, 1C, 2026-11-12), as the I run toggle: the toggle heads the text, so the mode's name
-               shows once. Text and picture cross-fade in place. A click on a picture opens it larger. -->
+               shows once. Text and picture cross-fade in place. A click on a picture opens it larger. The picture comes before
+               the words, so a phone shows it first (Dan, 2026-11-12); the grid puts it on the right on a wide screen. -->
           <div class="modes" data-swap="team" data-mode="open">
-            <div class="mode-side">
-              <div class="dl-seg mode-seg" role="group" aria-label="Mode">
-                <span class="dl-seg-thumb" aria-hidden="true"></span>
-                <button type="button" data-mode-pick="open" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#ic-skillet"/></svg>Open kitchen</button>
-                <button type="button" data-mode-pick="brigade" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#ic-toque"/></svg>French Brigade</button>
-              </div>
-              <div class="mode-stack">
-                <div class="mode-text mode-pane" data-pane="open">
-                  <p>Each dev merges under your repo’s own rules. You see who is on what, and only the exceptions reach your Pass.</p>
-                  <ul class="mode-pts"><li>Every person’s agents, by code area.</li><li>Two people in one file show red, linked.</li><li>What each person merged today.</li><li>Fold a lead’s team into one row.</li></ul>
-                  <button type="button" class="demo-link" data-demo-mode="open">Run the demo as an Open kitchen</button>
-                </div>
-                <div class="mode-text mode-pane" data-pane="brigade" inert>
-                  <p>Work moves up your team. Each thread runs left to right, from In progress through each lead who signs it off, to the lead who merges it.</p>
-                  <ul class="mode-pts"><li>A thread passes a lead once their GitHub approval is in.</li><li>Open a team for its people, a person for each of their threads.</li></ul>
-                  <button type="button" class="demo-link" data-demo-mode="brigade">Run the demo as a French Brigade</button>
-                </div>
-              </div>
+            <div class="dl-seg mode-seg" role="group" aria-label="Mode">
+              <span class="dl-seg-thumb" aria-hidden="true"></span>
+              <button type="button" data-mode-pick="open" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#ic-skillet"/></svg>Open kitchen</button>
+              <button type="button" data-mode-pick="brigade" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#ic-toque"/></svg>French Brigade</button>
             </div>
-            <div class="mode-stack">
+            <div class="mode-stack mode-shots">
               <button type="button" class="mode-shot mode-pane" data-pane="open" data-zoom aria-label="Open kitchen, expanded: open a larger view"><picture><source media="(prefers-color-scheme: light)" srcset={modeShots.open.light.srcSet.attribute} sizes={MODE_SIZES} /><img src={modeShots.open.dark.src} srcset={modeShots.open.dark.srcSet.attribute} sizes={MODE_SIZES} alt={modeShots.open.alt} width="1440" height="900" loading="lazy" decoding="async" /></picture></button>
               <button type="button" class="mode-shot mode-pane" data-pane="brigade" data-zoom inert aria-label="French Brigade, expanded: open a larger view"><picture><source media="(prefers-color-scheme: light)" srcset={modeShots.brigade.light.srcSet.attribute} sizes={MODE_SIZES} /><img src={modeShots.brigade.dark.src} srcset={modeShots.brigade.dark.srcSet.attribute} sizes={MODE_SIZES} alt={modeShots.brigade.alt} width="1440" height="900" loading="lazy" decoding="async" /></picture></button>
+            </div>
+            <div class="mode-stack mode-texts">
+              <div class="mode-text mode-pane" data-pane="open">
+                <p>Each dev merges under your repo’s own rules. You see who is on what, and only the exceptions reach your Pass.</p>
+                <ul class="mode-pts"><li>Every person’s agents, by code area.</li><li>Two people in one file show red, linked.</li><li>What each person merged today.</li><li>Fold a lead’s team into one row.</li></ul>
+                <button type="button" class="demo-link" data-demo-mode="open">Run the demo as an Open kitchen</button>
+              </div>
+              <div class="mode-text mode-pane" data-pane="brigade" inert>
+                <p>Work moves up your team. Each thread runs left to right, from In progress through each lead who signs it off, to the lead who merges it.</p>
+                <ul class="mode-pts"><li>A thread passes a lead once their GitHub approval is in.</li><li>Open a team for its people, a person for each of their threads.</li></ul>
+                <button type="button" class="demo-link" data-demo-mode="brigade">Run the demo as a French Brigade</button>
+              </div>
             </div>
             <p class="reach"><span>Both modes bring you</span><b class="flag f-nc">Main broken</b><b class="flag f-nc">Overlap</b><b class="flag f-coll">Failing</b><b class="flag f-coll">Too big</b><b class="flag f-coll">Stuck</b><b class="flag f-coll">Waiting</b><b class="flag f-hb">Not reporting</b></p>
           </div>

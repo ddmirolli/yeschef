@@ -496,9 +496,12 @@ html.persona-docked .persona-nav {
 .brief-pre .bp-i { padding-left: 2ch; text-indent: -2ch; }
 /* Modes, devs (Dan, 1C, 2026-11-12): one frame, a toggle between the two, as the I run toggle (it shares the .dl-seg
    rules above). The toggle heads the text column, the picture takes the rest. Both modes stay mounted and cross-fade
-   in place (.mode-stack), so the section never changes height. */
-.modes-swap > .modes { display: grid; grid-template-columns: minmax(0, 4.5fr) minmax(0, 7.5fr); gap: 32px 40px; align-items: start; }
-.mode-side { display: flex; flex-direction: column; gap: 28px; min-width: 0; }
+   in place (.mode-stack), so the section never changes height. The picture comes first in the page, so a phone shows it
+   above the words (Dan, 2026-11-12); a wide screen puts it on the right, beside the toggle and the words. */
+.modes-swap > .modes { display: grid; grid-template-columns: minmax(0, 4.5fr) minmax(0, 7.5fr); grid-template-rows: auto 1fr auto; gap: 28px 40px; align-items: start; }
+.mode-seg { grid-column: 1; grid-row: 1; }
+.mode-shots { grid-column: 2; grid-row: 1 / 3; }
+.mode-texts { grid-column: 1; grid-row: 2; }
 .mode-seg button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; padding: 9px 14px; white-space: nowrap; }
 .mode-seg button svg { width: 22px; height: 22px; flex: none; }
 .modes[data-mode="brigade"] .dl-seg-thumb { transform: translateX(100%); }
@@ -515,9 +518,12 @@ html.persona-docked .persona-nav {
 .mode-shot { display: block; width: 100%; padding: 0; border: 1px solid var(--border-strong); border-radius: 12px; background: none; overflow: hidden; cursor: zoom-in; }
 .mode-shot img { display: block; width: 100%; height: auto; }
 .mode-shot:focus-visible { outline: 2px solid var(--pass); outline-offset: 3px; }
-.reach { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-bottom: 6px; font-size: 14px; color: var(--fg-muted); }
+.reach { grid-column: 1 / -1; grid-row: 3; margin-top: 4px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-bottom: 6px; font-size: 14px; color: var(--fg-muted); }
 .reach > span { margin-right: 6px; }
-@media (max-width: 860px) { .modes-swap > .modes { grid-template-columns: minmax(0, 1fr); gap: 24px; } .mode-side { gap: 22px; } }
+@media (max-width: 860px) {
+  .modes-swap > .modes { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; gap: 22px; }
+  .mode-seg, .mode-shots, .mode-texts, .reach { grid-column: 1; grid-row: auto; }
+}
 @media (max-width: 420px) { .mode-seg button svg { display: none; } .mode-seg button { padding: 8px 14px; } }
 @media (prefers-reduced-motion: reduce) { .mode-pane, .modes .mode-pane { filter: none; transition: opacity 150ms linear, visibility 0s linear 150ms; } }
 
