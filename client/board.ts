@@ -562,8 +562,8 @@ function bars(vals: readonly number[], label: string): string {
  *  checked", and the "At The Pass" key sat over one column at random. With them gone the columns move up and run the
  *  full height, so the panels that sat under them went too: Merged, last 7 days only ever said "Not checked", Verified
  *  and on hold are rows in the rail, and Agent time today was the one panel with its own numbers. */
-function youView({ trays }: { trays: string }): string {
-  return `<section class="you" aria-label="Your threads by stage"><div class="you-b"><div class="rail-wrap"><div class="rail">${trays}</div></div></div></section>`;
+function youView({ trays, head }: { trays: string; head: string }): string {
+  return `<section class="you" aria-label="Your threads by stage"><header class="you-h">${head}</header><div class="you-b"><div class="rail-wrap"><div class="rail">${trays}</div></div></div></section>`;
 }
 
 // ---------- Your team, Open kitchen (step 4) ----------
@@ -756,18 +756,17 @@ function teamDock(c: TeamCall, w: Words, me: Me | null | undefined, id: string):
 
 /** Your team, expanded (mock v2, approved 2026-11-10): a header, four instruments, Who's on what and the files two live
  *  threads change. Its numbers come from client/open-kitchen.ts kitchenBoard; what no summary says reads "Not checked". */
-function boardOf({ ok, now, want, name, people, plateOf }: { ok: OpenKitchen; now: number; want: ReadonlySet<string> | null; name: Namer;
-  people: ReadonlyMap<string, Person>; plateOf: (id: string) => string | null }): string {
-  const at = new Date(now);
-  const time = `<time datetime="${at.toISOString()}">${hm(now)}</time>`;
+function boardOf({ ok, now, want, name, people, plateOf, menu }: { ok: OpenKitchen; now: number; want: ReadonlySet<string> | null; name: Namer;
+  people: ReadonlyMap<string, Person>; plateOf: (id: string) => string | null; menu: string }): string {
   const title = want ? [...want].sort((a, b) => a.localeCompare(b)).join(', ') : 'All projects';
-  const head = (sub: string) => `<header class="you-h"><h2 id="tb-t">${e(title)}</h2><p class="you-sub">${sub}</p></header>`;
+  // The header is the project picker, with no count line under it (Dan, 2026-11-11): people want what is slow, stuck
+  // and worth their focus, which the board below shows. The heading stays for a screen reader.
+  const top = `<header class="you-h"><h2 id="tb-t" class="vh">Open kitchen, ${e(title)}</h2>${menu}</header>`;
   const B = kitchenBoard(ok, { now, want });
   if (!B) {
     const why = ok.why === 'offline' ? 'Yes Chef’s team connection is down.' : 'No one on your team has reported yet.';
-    return `<section class="tboard" aria-labelledby="tb-t">${head('<span>Open kitchen</span><span>Not checked</span>')}<div class="you-b"><p class="nc-l"><b>Not checked</b> ${e(why)}</p></div></section>`;
+    return `<section class="tboard" aria-labelledby="tb-t">${top}<div class="you-b"><p class="nc-l"><b>Not checked</b> ${e(why)}</p></div></section>`;
   }
-  const sub = ['Open kitchen', plural(B.people, 'person', 'people'), plural(B.threads, 'live thread')].map((x) => `<span>${e(x)}</span>`).join('') + time;
   const ins = (label: string, v: string, extra = '') => `<div class="ins" role="listitem"><p class="l">${e(label)}</p><p class="v">${v}</p>${extra}</div>`;
   const ago = (t: number) => span(Math.max(0, Math.round((now - t) / 60000)));
   const short = (repo: unknown) => String(repo).split('/').pop()!;
@@ -874,11 +873,11 @@ function boardOf({ ok, now, want, name, people, plateOf }: { ok: OpenKitchen; no
     : F.rows.length ? `<div class="sfl" role="list">${F.rows.slice(0, 8).map(frow).join('')}</div>${F.rows.length > 8 ? `<p class="tmore">And ${plural(F.rows.length - 8, 'more file')}.</p>` : ''}${out ? `<p class="tmore">${e(out)}</p>` : ''}`
     : out ? `<p class="nc-l">No file is changed by two of the ${plural(F.compared, 'thread')} read. ${e(out)}</p>` : `<p class="nc-l">No file is changed by two live threads.</p>`;
   const files = `<section class="pnl" aria-labelledby="tb-f"><header class="ph"><h3 id="tb-f">Files two live threads change</h3><span>${F.at !== null ? `checked ${hm(F.at)}` : 'check time not checked'}</span></header>${fbody}</section>`;
-  return `<section class="tboard" aria-labelledby="tb-t">${head(sub)}<div class="you-b">${inst}${who}${files}</div></section>`;
+  return `<section class="tboard" aria-labelledby="tb-t">${top}<div class="you-b">${inst}${who}${files}</div></section>`;
 }
 
 /** Everything Your team draws when the page has a team reading. ctx: { icons } from the board, for project marks. */
-function teamParts(team: TeamInput, view: TeamView, icons: ReadonlyMap<string, string | null>, want: ReadonlySet<string> | null = null) {
+function teamParts(team: TeamInput, view: TeamView, icons: ReadonlyMap<string, string | null>, want: ReadonlySet<string> | null = null, menu = '') {
   const now = typeof team.now === 'number' && Number.isFinite(team.now) ? team.now : Date.now();
   const ok = openKitchen(view, { now });
   const me = view.me;
@@ -938,7 +937,7 @@ function teamParts(team: TeamInput, view: TeamView, icons: ReadonlyMap<string, s
   const col = calls.length ? `<div class="tcol" role="list" aria-label="Your team’s calls">${calls.map(xcard).join('')}</div>` : '';
   const pass = !live ? `<div class="clear team-pass">${svg('cloche')}<p><b>${NC_V}</b></p><p class="muted">${e(why)} Your team’s calls show once it is back.</p></div>`
     : `<div class="team-pass tp-live"><div class="folder" data-folder="team">${calls.map(tile).join('')}</div>${col}${calm}</div>`;
-  const board = boardOf({ ok, now, want, name, people, plateOf: (id) => (calls.some((x) => x.c.id === id) ? teamPlateId({ id }) : null) });
+  const board = boardOf({ ok, now, want, name, people, menu, plateOf: (id) => (calls.some((x) => x.c.id === id) ? teamPlateId({ id }) : null) });
   return {
     ok, card, pass, board, count: live ? calls.length : '–',
     plates: calls.map(plateOf).join(''),
@@ -958,16 +957,22 @@ const CB = '<span class="cb" aria-hidden="true"><svg viewBox="0 0 18 18"><path c
 // A mark in the chip's fan has no tooltip of its own: the fan's tooltip names every picked project.
 const fanMark = (name: string, icon: string | null | undefined): string => mark(name, icon).replace(/ title="[^"]*"/, '');
 
-/** The rail's footer chip and the menu it opens (Dan, 2026-11-10, view menu mock a). The chip: the person and "You",
- *  or the toque and "Team", then "All projects" or the picked projects' icons fanned like a hand of cards. It never
- *  names the team or its mode. The menu, top to bottom: All projects as a tri-state check box, one check box per
+/** The rail's footer chip and the menu it opens (Dan, 2026-11-10, view menu mock a). The chip: the person, or the
+ *  toque for Team, then "All projects" or the picked projects' icons fanned like a hand of cards. Since 2026-11-11 (Dan)
+ *  neither the chip nor the toggle says "You" or "Team": the icon does, and the word rides on its tooltip and, for a
+ *  screen reader, a hidden label. It never names the team or its mode. head: the expanded view's copy, which is that
+ *  view's header (Dan, 2026-11-11): the view's own icon (the person in You, the skillet in Open kitchen, the toque in
+ *  French Brigade), then All projects or the fan, a size up. The menu, top to bottom: All projects as a tri-state check box, one check box per
  *  project, and, only for a user with reports, a sliding You | Team toggle on one line. The toque means Team in both
  *  modes. projs: [name, mark html, on the board] in menu order; picked: the names picked, or null for All projects.
  *  ok: the board was read, so the project list is current; without it the list says "not checked". */
 /** A project in the menu: its name, its mark and whether it has a ticket on the board now. */
 type MenuProject = [name: string, mark: string, here: boolean];
-function viewMenu({ team, projs, picked, icons, ok }: { team: TeamInput | null; projs: readonly MenuProject[]; picked: readonly string[] | null;
-  icons: ReadonlyMap<string, string | null>; ok: boolean }): string {
+/** The icon an expanded view's header starts with, and what it says. */
+type HeadIcon = 'person' | 'skillet' | 'toque';
+const HEAD_WORD: Record<HeadIcon, string> = { person: 'You', skillet: 'Team, Open kitchen', toque: 'Team, French Brigade' };
+function viewMenu({ team, projs, picked, icons, ok, head = null }: { team: TeamInput | null; projs: readonly MenuProject[]; picked: readonly string[] | null;
+  icons: ReadonlyMap<string, string | null>; ok: boolean; head?: HeadIcon | null }): string {
   const sel = new Set(picked || projs.map(([nm]) => nm));
   // Picking exactly the board's projects is All projects. A pick with no ticket now stays a pick, and so does any pick
   // without a board: then the list is unknown.
@@ -976,14 +981,14 @@ function viewMenu({ team, projs, picked, icons, ok }: { team: TeamInput | null; 
   const names = e(on.join(', '));
   const which = every ? '<span class="vp">All projects</span>'
     : `<span class="fan" style="--n:${on.length}" title="${names}">${on.map((nm, i) => `<span class="card" style="--i:${i}">${fanMark(nm, icons.get(nm))}</span>`).join('')}<span class="vh">${names}</span></span>`;
-  const who = team ? `${svg('person', 'ic who vi-you')}${svg('toque', 'ic who vi-team')}<span class="vl"><span class="vl-you">You</span><span class="vl-team">Team</span></span>`
-    : `${svg('person', 'ic who')}<span class="vl">You</span>`;
+  const icon = (n: IconName, word: string, cls = '') => `<span class="vi${cls}" title="${e(word)}">${svg(n, 'ic who')}<span class="vh">${e(word)}</span></span>`;
+  const who = head ? icon(head, HEAD_WORD[head]) : team ? icon('person', 'You', ' vi-you') + icon('toque', 'Team', ' vi-team') : icon('person', 'You');
   // data-gone: a pick with no ticket now. The page script counts All projects as every box but these.
   const box = ([nm, m, here]: MenuProject) => `<button type="button" class="pk" role="checkbox" data-p="${e(nm)}"${here ? '' : ' data-gone'} aria-checked="${sel.has(nm)}">${CB}${m}<span class="vn">${e(nm)}</span></button>`;
   const seg = team ? `<hr><div class="seg" role="radiogroup" aria-label="View">`
-    + `<button type="button" role="radio" aria-checked="false" data-scope="you">${svg('person')}<span>You</span></button>`
-    + `<button type="button" role="radio" aria-checked="false" data-scope="team">${svg('toque')}<span>Team</span></button></div>` : '';
-  return `<details class="pmenu vmenu"><summary>${who}<span class="vdot" aria-hidden="true">·</span>${which}${svg('chev')}</summary>`
+    + `<button type="button" role="radio" aria-checked="false" data-scope="you" aria-label="You" title="You">${svg('person')}</button>`
+    + `<button type="button" role="radio" aria-checked="false" data-scope="team" aria-label="Team" title="Team">${svg('toque')}</button></div>` : '';
+  return `<details class="pmenu vmenu${head ? ' vhead' : ''}"><summary>${who}${which}${svg('chev')}</summary>`
     + `<nav class="pmenu-l" aria-label="${team ? 'Projects and view' : 'Projects'}"${ok ? '' : ' data-nc'}>`
     + `<button type="button" class="pk all" role="checkbox" aria-checked="${every ? 'true' : 'mixed'}">${CB}<span class="vn">All projects</span></button><hr>`
     + projs.map(box).join('')
@@ -1024,7 +1029,7 @@ export function renderApp({ board, picked = null, link, status, origin, answered
   // The rail's footer chip and its menu, and its stand-in in the top bar (phones). The toggle needs reports.
   const footMenu = viewMenu({ team, projs, picked: want ? [...want] : null, icons, ok: status.ok });
   // Your team, from a team reading (team.view, client/team.ts's shape). Without one it says "Not checked".
-  const T = team?.view ? teamParts(team, team.view, icons, want) : null;
+  const T = team?.view ? teamParts(team, team.view, icons, want, viewMenu({ team, projs, picked: want ? [...want] : null, icons, ok: status.ok, head: 'skillet' })) : null;
   const active = STAGES.reduce((x, s) => x + (spots[s] || []).length, 0), held = HELD.reduce((x, s) => x + (spots[s] || []).length, 0);
   // Unknown is not zero: without a good poll the counts read "not checked".
   const n = (v: number | string) => (status.ok ? v : 'not checked');
@@ -1066,7 +1071,7 @@ export function renderApp({ board, picked = null, link, status, origin, answered
     // Your team, expanded: the column says how many calls need you (mock v2).
     + `${T && T.ok.status === 'live' ? `<p class="muted tpm">${T.count ? `${T.count} need you, most urgent first.` : 'Nothing from your team needs you.'}</p>` : ''}</header><div class="head-b">${lists}</div>`
     + `</section>`;
-  const you = youView({ trays });
+  const you = youView({ trays, head: viewMenu({ team, projs, picked: want ? [...want] : null, icons, ok: status.ok, head: 'person' }) });
   // Your team is not built yet (Dan, 2026-11-10): with reports, its view says so instead of showing anything made up.
   const teamWait = team ? `<section class="team-wait" aria-label="Your team"><p><b>${e(team.name || 'Your team')}</b></p><p class="muted">Not checked. Your team's view needs the team connection, which Yes Chef does not have yet.</p></section>` : '';
   const lamp = status.ok ? 'ok' : 'bad';

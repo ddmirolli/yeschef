@@ -516,6 +516,17 @@ test('expanded: a picked project narrows the board', () => {
   assert.equal(B.files.rows.length, 0);
 });
 
+test('expanded: the header is the picker, with the skillet and no count line (Dan, 2026-11-11)', () => {
+  const html = page({ view: viewL(), now: NOWL });
+  const top = (html.match(/<section class="tboard" aria-labelledby="tb-t"><header class="you-h">[\s\S]*?<\/header>/) || [''])[0];
+  assert.match(top, /<h2 id="tb-t" class="vh">Open kitchen, All projects<\/h2><details class="pmenu vmenu vhead"><summary><span class="vi" title="Team, Open kitchen"><svg class="ic who"/);
+  assert.match(top, /<span class="vp">All projects<\/span>/);
+  // The same menu as the chip's: All projects, the projects, then the toggle.
+  assert.match(top, /class="pk all" role="checkbox"[\s\S]*?data-scope="you"[\s\S]*?data-scope="team"/);
+  // No count line: people, live threads and the time it was read are gone.
+  assert.doesNotMatch(top, /you-sub|people|live thread|<time/);
+});
+
 test('expanded: the page draws the board and The Pass as a column; each opens a call that is in the page', () => {
   const html = page({ view: viewL(), now: NOWL });
   assert.match(html, /<section class="tboard"/);
