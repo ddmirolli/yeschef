@@ -123,6 +123,24 @@ test('a lead\'s approval passes a thread only when it is on every open PR of the
   assert.match(svg, /Approved: Sam · Reviews on #450 not checked/);
 });
 
+test('no node or band falls below the chart, from any lead\'s seat and at any height the page gives', () => {
+  for (const me of ['me', 'kai', 'maya', 'priya', 'sam']) {
+    const v: Wire = brigadeView(NOW);
+    const p = one<Wire>(v.people, (x: Wire) => x.id === me);
+    v.me = { ...v.me, id: me, name: p.name };
+    // Two people under one lead, each with work waiting there and work merged past it (PR-Agent r2 on #56).
+    for (const x of v.people) if (x.summary && x.under === me) x.summary.tickets.push(
+      { thread: `mcp:${x.id}-r`, title: 'Waits', project: 'Quillo', place: 'In review', atPass: false, working: 1, asks: 0, call: false, updatedAt: new Date(NOW - 60000).toISOString(), prs: [] },
+      { thread: `mcp:${x.id}-m`, title: 'Merged', project: 'Quillo', place: 'Merged', atPass: false, working: 0, asks: 0, call: false, updatedAt: new Date(NOW - 60000).toISOString(), prs: [] });
+    const { tree, items } = setup(v);
+    for (const fitH of [undefined, 300, 700, 1600]) for (const drill of [null, ...new Set(items.map((t) => `p:${t.author}`))]) {
+      const L = brigadeLayout(items, tree, NOW, drill, fitH);
+      for (const d of L.nodes) if (d.h) assert.ok(d.y + d.h <= L.H + 1e-6, `${me} ${fitH} ${drill}: ${d.key} ends at ${d.y + d.h} past ${L.H}`);
+      for (const b of L.bands) for (const y of [b.y0, ...Object.values(b.y)]) assert.ok(y >= 0 && y + b.h <= L.H + 1e-6, `${me} ${fitH} ${drill}: band ${b.id}`);
+    }
+  }
+});
+
 test('a PR whose reviewers were not read says so in its tooltip', () => {
   const { tree, items } = setup();
   const svg = drawBrigade(items, tree, NOW, { drill: 'f:sam' });

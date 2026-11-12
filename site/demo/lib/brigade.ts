@@ -209,12 +209,15 @@ export function brigadeLayout(items: readonly FbItem[], tree: Tree, now: number,
     .sort((a, z) => RANK[a.stage] - RANK[z.stage] || (z.age ?? -1) - (a.age ?? -1) || a.id.localeCompare(z.id));
   const heights = names.map((g) => stack(mine(g), XG));
   const leftH = heights.reduce((a, h) => a + h, 0) + sepG * Math.max(0, n - 1);
-  // Each node's height, and each column's, before any is placed: the chart is as tall as the tallest.
+  // Each column's height before any is placed: the chart is as tall as the tallest. A node's bands are ordered only as
+  // they are placed (by where they arrive), so this counts a gap between every two of them, the most they can need
+  // (PR-Agent r2 on #56).
   const placed = used.map((d) => ({ ...d, x: xOf(d), y: 0, h: 0 }));
   const xs = [...new Set(placed.map((d) => d.x))].sort((a, z) => a - z);
   const colH = (x: number) => {
     const here = placed.filter((d) => d.x === x);
-    return here.reduce((h, d) => h + stack(bands.filter((b) => b.stops.includes(d.key)), x), 0) + NG * Math.max(0, here.length - 1);
+    return here.reduce((h, d) => { const list = bands.filter((b) => b.stops.includes(d.key)); return h + list.reduce((s, b) => s + b.h, 0) + sepAt(x) * Math.max(0, list.length - 1); }, 0)
+      + NG * Math.max(0, here.length - 1);
   };
   const span = Math.max(room, leftH, ...xs.map((x) => colH(x) + 14));
   const H = TOP + span + FOOT;
@@ -239,7 +242,8 @@ export function brigadeLayout(items: readonly FbItem[], tree: Tree, now: number,
       list.sort((a, z) => Number(last(a)) - Number(last(z)) || prior(a, d.key) - prior(z, d.key));
       return { d, list, at: list.reduce((s, b) => s + prior(b, d.key), 0) / Math.max(1, list.length) };
     }).sort((a, z) => a.at - z.at || a.d.key.localeCompare(z.d.key));
-    let acc = mid(colH(x), 14);
+    // Centred by the height it really takes, once its bands are in order.
+    let acc = mid(here.reduce((h, { list }) => h + stack(list, x), 0) + NG * Math.max(0, here.length - 1), 14);
     for (const { d, list } of here) {
       d.y = acc; d.h = stack(list, x);
       let yy = acc;
