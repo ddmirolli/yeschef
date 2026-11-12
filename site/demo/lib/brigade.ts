@@ -303,7 +303,7 @@ export function drawBrigade(items: readonly FbItem[], tree: Tree, now: number, {
   const names = new Map<string, string>();
   for (const id of new Set([tree.me, ...all.flatMap((t) => [t.author, ...tree.up(t.author)])])) { const l = tree.login(id); if (l) names.set(l.toLowerCase(), id === tree.me ? 'You' : tree.name(id)); }
   let out = `<svg class="fx okr fbr"${fit ? ` data-fit="${fit.w}x${fit.h}"` : ''} viewBox="0 0 ${W} ${f1(L.H)}" role="img" aria-label="${e(`French Brigade: ${plural(all.length, 'thread')} from start to merge, by person`)}">`;
-  out += `<defs><pattern id="fb-dots" width="14" height="14" patternUnits="userSpaceOnUse"><circle cx="7" cy="7" r="1" class="dot"/></pattern></defs><rect width="${W}" height="100%" fill="url(#fb-dots)"/>`;
+  out += `<defs><pattern id="fb-dots" width="14" height="14" patternUnits="userSpaceOnUse"><circle cx="7" cy="7" r="1" class="dot"/></pattern></defs><clipPath id="fb-ttl"><rect x="0" y="0" width="${END_PROG - 6}" height="100%"/></clipPath><rect width="${W}" height="100%" fill="url(#fb-dots)"/>`;
   zones.forEach(([name, n], i) => {
     const x0 = ZONE_X[i] ?? 0, x1 = ZONE_X[i + 1] ?? W;
     out += `<rect class="zone z${i % 2}" x="${x0}" y="0" width="${x1 - x0}" height="100%"/>`;
@@ -333,7 +333,8 @@ export function drawBrigade(items: readonly FbItem[], tree: Tree, now: number, {
     const act = !one ? ` data-who="${e(b.group)}"` : plate ? ` data-team-open="${e(plate)}" tabindex="0" role="button" aria-label="${e(t0!.title)}"` : '';
     // A person opened: each thread carries its title at its start, so every band is a thread you can name, not one
     // of many alike (Dan, 3A, 2026-11-12: "show the full threads"). Drawn right after its band, so it lights with it.
-    const ttl = one && t0 && b.items.length === 1 && b.h >= 12 ? `<text class="ttl ${ageCls(b.age)}" x="${xs + 8}" y="${f1(b.y0 + b.h / 2)}" dominant-baseline="central">${e(clip(t0.title, TTL_CH))}</text>` : '';
+    // Clipped to In progress, since characters differ in width (a CJK title runs wider than 32 Latin ones; PR-Agent r1 on #60).
+    const ttl = one && t0 && b.items.length === 1 && b.h >= 12 ? `<text class="ttl ${ageCls(b.age)}" clip-path="url(#fb-ttl)" x="${xs + 8}" y="${f1(b.y0 + b.h / 2)}" dominant-baseline="central">${e(clip(t0.title, TTL_CH))}</text>` : '';
     bands += `<path class="band ${ageCls(b.age)}"${hov(k, f, tip)}${act} d="${ribbon(pts, b.h)}"/>${ttl}${strands(pts, b.h, b.items.length)}`;
   }
   // The names: each person (or folded team) at the left, each sign-off node over its pile. Leads above you are outlined.

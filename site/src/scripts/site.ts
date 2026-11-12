@@ -237,8 +237,9 @@ type View = 'solo' | 'team';
       var pic = shot.querySelector("picture");
       if (!pic) return;
       var copy = pic.cloneNode(true) as HTMLElement;
-      // The whole window: the browser picks the largest width it needs.
-      copy.querySelectorAll("source, img").forEach(function (el) { el.setAttribute("sizes", "100vw"); el.removeAttribute("loading"); });
+      // The size it opens at: the whole window, or 960 px on a phone, where it pans (global.css .zoom-pic), so the
+      // browser picks a picture sharp at that width (PR-Agent r1 on #60).
+      copy.querySelectorAll("source, img").forEach(function (el) { el.setAttribute("sizes", "(max-width: 860px) 960px, 100vw"); el.removeAttribute("loading"); });
       holder.replaceChildren(copy);
       opener = shot;
       zoom.showModal();

@@ -233,6 +233,9 @@ test('a long thread title is cut to fit In progress', () => {
   const ts = [...fitted(v, 'p:jon').matchAll(/<text class="ttl a\d"[^>]*>([^<]*)<\/text>/g)].map((m) => nth(m, 1));
   assert.ok(ts.length > 0);
   for (const t of ts) assert.ok(t.length <= 32 && t.endsWith('…'), t);
+  // A title of wider characters is clipped to In progress, never into In review.
+  assert.match(fitted(v, 'p:jon'), /<clipPath id="fb-ttl"><rect x="0" y="0" width="208" height="100%"\/><\/clipPath>/);
+  assert.ok(ts.length && [...fitted(v, 'p:jon').matchAll(/<text class="ttl[^>]*>/g)].every((m) => m[0].includes('clip-path="url(#fb-ttl)"')));
 });
 
 test('every signer\'s name sits on a chip, so a crossing band never runs through it (Dan, 5A, 2026-11-12)', () => {
