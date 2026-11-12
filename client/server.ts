@@ -1192,8 +1192,8 @@ html .plate .dock .q-set{max-width:640px}
 /* You, expanded (Dan, 2026-11-11, flow mock v3.3): the header picker over the solo Sankey (client/flow.ts), which took
    the place of the stage columns. The chart keeps its size and scrolls inside the view when the window is narrow or the
    line is long. Gray steps are time since the last change; dark mode inverts them, so old is bright. One hover colour:
-   the logo's blue in light, white in dark. No red, orange or yellow: a thread that waits on you keeps its gray and
-   carries The Pass's cloche, in The Pass's colour, as its card does. */
+   the logo's blue in light, white in dark. No red, orange or yellow, and no mark at rest for what waits on you: The
+   Pass lists it, and hover links each card to its thread (Dan, 2026-11-12). */
 :root{--fx-a0:#D6D6DB;--fx-a1:#A6A6AB;--fx-a2:#636366;--fx-hov:#0071E3;--fx-zone-a:rgba(118,118,128,.035);--fx-zone-b:rgba(118,118,128,.085);--fx-dot:rgba(60,60,67,.2)}
 @media (prefers-color-scheme:dark){:root{--fx-a0:#48484A;--fx-a1:#7C7C80;--fx-a2:#C7C7CC;--fx-hov:#FFFFFF;--fx-zone-a:rgba(255,255,255,.015);--fx-zone-b:rgba(255,255,255,.05);--fx-dot:rgba(235,235,245,.16)}}
 .you,.team-wait{display:none}
@@ -1216,9 +1216,6 @@ html .plate .dock .q-set{max-width:640px}
 .fx .band.anc{fill:none;stroke:var(--fx-a1);stroke-dasharray:3 2}
 .fx .band.lit{fill:var(--fx-hov)}
 .fx-focus .fx .band:not(.lit){opacity:.5}
-.fx .atp{color:var(--pass);pointer-events:none}
-.fx .atp circle{fill:var(--bg)}
-.fx .atp path{stroke-width:2.4}
 .fx [data-drill],.fx .band[data-plate]{cursor:pointer}
 .fx [tabindex]{outline:none}
 .fx [tabindex]:focus-visible{outline:2px solid var(--fx-hov);outline-offset:2px}
@@ -1236,7 +1233,7 @@ html .plate .dock .q-set{max-width:640px}
 .fx-tip{position:absolute;z-index:5;max-width:260px;padding:8px 10px;border-radius:8px;background:var(--card);box-shadow:0 0 0 .5px var(--sep),0 8px 24px rgba(0,0,0,.18);font-size:12px;line-height:1.4;color:var(--label);pointer-events:none}
 .fx-tip .m{color:var(--label2)}
 .fx-tip .alarm{display:flex;align-items:center;gap:5px;font-weight:600}
-.fx-tip .alarm .ic,.fx-key .atp-k{width:14px;height:14px;color:var(--pass);stroke-width:2.2}
+.fx-tip .alarm .ic{width:14px;height:14px;color:var(--pass);stroke-width:2.2}
 .fx-key{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;padding:10px 4px 2px;font-size:12px;color:var(--label)}
 .fx-key .m{color:var(--label2)}
 .fx-chip{display:inline-flex;align-items:center;gap:6px}

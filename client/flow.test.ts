@@ -74,23 +74,24 @@ test('stages read left to right: a band\'s path only moves right, and the stubs 
   assert.match(svg, /<text class="zcount" x="\d+" y="34">not checked<\/text>/);
 });
 
-test('no red, orange or yellow: bands are gray steps, and a thread that waits on you carries the cloche and the words', () => {
+test('no red, orange or yellow, and no mark at rest: a thread that waits on you keeps its gray; its tooltip says so (Dan, 2026-11-12)', () => {
   const svg = drawFlow(layout(LINE, NOW), NOW);
   const cls = [...svg.matchAll(/<path class="band ([^"]+)"/g)].map((m) => m[1]!);
   assert.ok(cls.length);
   for (const c of cls) assert.match(c, /^(a0|a1|a2|anc)( wait)?$/);
   assert.equal(cls.filter((c) => c.endsWith(' wait')).length, 1);
   assert.doesNotMatch(svg, /fill="#|style="[^"]*(?:fill|stroke)/);
-  // One cloche per waiting thread, the same paths as its card's.
-  assert.equal([...svg.matchAll(/<g class="atp"/g)].length, 1);
+  // The Pass lists what waits on you, so the chart draws nothing extra for it.
+  assert.doesNotMatch(svg, /class="atp"|class="marks"/);
+  // The tooltip's icon is the cloche its card carries.
   assert.ok(readFileSync(new URL('./board.ts', import.meta.url), 'utf8').includes(`cloche: '${CLOCHE}'`));
-  // The chart's CSS has no red, orange or yellow at all; the cloche takes The Pass's colour.
+  // The chart's CSS has no red, orange or yellow at all, and nothing styles a waiting band apart.
   const css = grab(servedSource(), /\/\* You, expanded \(Dan, 2026-11-11[\s\S]*?\.fx-empty\{[^}]*\}/);
   assert.doesNotMatch(css, /--(?:red|orange|yellow|amber)\b/);
-  assert.match(css, /\.fx \.atp\{color:var\(--pass\);pointer-events:none\}/);
+  assert.doesNotMatch(css, /\.wait\b|\.atp\b/);
   // The alarm says so in words beside the icon.
   assert.match(svg, /&lt;div class=&quot;alarm&quot;&gt;&lt;svg[^]*?&lt;\/svg&gt;Waiting on you/);
-  assert.match(FLOW_KEY, /<svg class="ic atp-k"[^]*?<\/svg>Waiting on you<\/span>/);
+  assert.doesNotMatch(FLOW_KEY, /Waiting on you/);
 });
 
 test('a thread with no time is drawn dashed and says "not checked"', () => {

@@ -2,9 +2,9 @@
 // own layout in strict TypeScript, no chart library). This file is You's Sankey (flow mock v3.3, locked 2026-11-11):
 // your threads run left to right from their project, through checks and review, to you, then to the branch they merged
 // into. Width is threads. Gray is how long since a thread last changed, in three labelled steps (dark mode inverts it, so
-// old is bright). No red, orange or yellow fills: an alarm is words plus an icon. A thread that waits on you keeps its
-// gray and carries The Pass's cloche at its end, as its card does. Hover lights one thing in one colour, and a band
-// and its Pass card light each other (the page script reads data-k, data-f and data-tip). Click a project to open its threads, one band each, with a hairline per subagent at the left.
+// old is bright). No red, orange or yellow fills. What waits on you is The Pass's job (Dan, 2026-11-12): its threads
+// keep their gray here, with no mark at rest, and hover links each one to its card both ways, in one colour (the page
+// script reads data-k, data-f and data-tip). Their tooltip says "Waiting on you". Click a project to open its threads, one band each, with a hairline per subagent at the left.
 // The release trains (Nightly, Stable) are "not checked": Yes Chef does not read a project's releases.
 
 /** The stages a thread on the line can be in (client/board.ts STAGES). */
@@ -184,7 +184,7 @@ export function drawFlow(L: Layout, now: number): string {
   out += `<text class="tierh" x="${NODE_X.review + NW / 2}" y="${TOP - 22}" text-anchor="middle">Checks and review</text>`;
   out += `<text class="tierh" x="${NODE_X.you + NW / 2}" y="${TOP - 22}" text-anchor="middle">You merge</text>`;
 
-  let bands = '', fans = '', marks = '';
+  let bands = '', fans = '';
   for (const b of L.bands) {
     const ts = b.items.map((t) => `t:${t.id}`);
     const k = [`fl:${b.id}`, gk(b.group), ...ts, ...b.path.map((s) => `n:${s}`)], f = [`fl:${b.id}`, ...ts];
@@ -217,14 +217,8 @@ export function drawFlow(L: Layout, now: number): string {
     const act = L.drill === null ? ` data-drill="${e(b.group)}"`
       : t0 ? ` data-plate="${e(t0.id)}" tabindex="0" role="button" aria-label="${e(`${t0.title}, ${t0.stage}${t0.waits ? ', waiting on you' : ''}`)}"` : '';
     bands += `<path class="${cls}"${attrs}${act} d="${segs.join('')}"/>`;
-    // Waiting on you: the cloche just inside the band's end, where the thread stopped.
-    if (b.waits) {
-      const last = b.path[b.path.length - 1];
-      const x = last ? NODE_X[last] : (end ?? XG + NW), y = (last ? (b.yIn[last] ?? 0) : b.y0) + b.h / 2;
-      marks += `<g class="atp" transform="translate(${f1(x - 15)},${f1(y - 6)})"><circle cx="6" cy="6" r="6.5"/><svg class="ic" x="0" y="0" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">${CLOCHE}</svg></g>`;
-    }
   }
-  out += `<g class="bands">${bands}</g><g class="fans">${fans}</g><g class="marks">${marks}</g>`;
+  out += `<g class="bands">${bands}</g><g class="fans">${fans}</g>`;
 
   // The projects' nodes and, with every project open, their names.
   for (const g of L.groups) {
@@ -269,5 +263,4 @@ export function youFlow(items: readonly FlowItem[], now: number): string {
 /** Under the chart: what gray means, and how to read it. */
 export const FLOW_KEY = '<div class="fx-key"><span class="m">Gray is time since the last change:</span>'
   + AGE_WORD.map((w, i) => `<span class="fx-chip"><i class="sw a${i}"></i>${w}</span>`).join('')
-  + `<span class="fx-chip">${clocheIc('ic atp-k')}Waiting on you</span>`
   + '<span class="m fx-how">Width = threads. Checks and review, then you merge. <span class="fx-top">Click a project to open its threads.</span><span class="fx-in">Click a thread to open it. Hairlines at the left are subagents.</span></span></div>';
