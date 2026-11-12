@@ -371,10 +371,10 @@ test('hover lights the chart and The Pass both ways; a project click picks that 
   run(`flowFocus(null)`);
   assert.ok(!board.cls.has('fx-focus') && !band.cls.has('lit') && !card.cls.has('lit') && !xc.cls.has('lit'));
   // A click on a project picks it alone, as the header picker does, and the picker goes back.
-  assert.match(src, /closest\s*(?:<Element>)?\s*\('\.you \[data-drill\]'\)[\s\S]{0,200}pickOnly\(dr\.getAttribute\('data-drill'\)/);
+  assert.match(src, /closest\s*(?:<Element>)?\s*\(':is\(\.you, \.tboard\) \[data-drill\]'\)[\s\S]{0,200}pickOnly\(dr\.getAttribute\('data-drill'\)/);
   assert.match(grab(src, /function pickOnly[\s\S]*?\n {2}\}/), /drawPicked\(\[name\]\);[\s\S]*?history\.pushState\(\{ fxPick: 1 \}, '', location\.pathname \+ q\); state\.sel = null; wake\(\);/);
   // Back goes where the click came from, else to every project.
-  assert.match(src, /closest\('\.you \[data-unpick\]'\)\) \{ unpick\(\); return; \}/);
+  assert.match(src, /closest\(':is\(\.you, \.tboard\) \[data-unpick\]'\)\) \{ unpick\(\); return; \}/);
   assert.match(grab(src, /function unpick[\s\S]*?\n {2}\}/), /history\.state && history\.state\.fxPick\) \{ history\.back\(\); return; \}[\s\S]*?drawPicked\(null\);[\s\S]*?u\.delete\('p'\)/);
   // Every refresh carries the chart's size.
   assert.equal(src.match(/fetch\(appUrl\(q\)/g)?.length, 2);

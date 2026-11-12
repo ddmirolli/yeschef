@@ -1385,35 +1385,25 @@ html.s-team .bar .stats{display:none}
 /* Faces: initials on a colour from the name. */
 .av{display:inline-grid;place-items:center;flex:none;width:22px;height:22px;border-radius:50%;background:hsl(var(--h) 52% 46%);font:700 9.5px/1 var(--sans);color:#fff;letter-spacing:.02em}
 .av.sm{width:18px;height:18px;font-size:8px}
-/* Your team's instruments and panels. You, expanded no longer draws them (#14), so they live here, scoped to the team
-   board: a bare .ph would also style the action bar's narrow rows (.mi.ph). */
+/* Your team, expanded: the rows' panel, scoped to the team board. */
 /* The header (You and Your team, expanded): the picker alone. */
 :is(.you,.tboard,.team-wait)>.you-h{display:flex;flex:none;align-items:center;padding:6px 2px 14px}
 .tboard .you-b{display:flex;flex-direction:column;gap:12px;container-type:inline-size}
 .tboard .you-b>*{min-width:0}
-.tboard .inst{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
-.tboard .ins{min-width:0;padding:12px 14px;border-radius:16px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--sep)}
-.tboard .ins .l{margin:0;font-size:12px;font-weight:600;color:var(--label2)}
-.tboard .ins .v{display:flex;align-items:baseline;flex-wrap:wrap;gap:0 6px;margin:4px 0 0}
-.tboard .ins .v b{font-size:24px;font-weight:700;line-height:1.2;font-variant-numeric:tabular-nums}
-.tboard .ins .v span{font-size:12px;color:var(--label2)}
-.tboard .ins .v .nc{display:block;width:100%;font-size:16px;font-weight:600;line-height:1.75;color:var(--label2)}
-.tboard .ins svg{display:block;width:100%;height:28px;margin-top:8px}
-.tboard .vbars rect{fill:var(--pass);opacity:.6}
-.tboard .ins .cap{display:flex;justify-content:space-between;margin-top:4px;font-size:12px;color:var(--label2)}
 .tboard .pnl{min-width:0;padding:12px 14px 14px;border-radius:16px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--sep)}
-.tboard .ph{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px;margin:0 0 10px;font-size:12px;color:var(--label2)}
-.tboard .ph h3{margin:0;font-size:14px;font-weight:600;color:var(--label)}
-.tboard .ph .lg{display:inline-flex;align-items:center;gap:6px;margin-left:auto}
+/* The rows fill the column down to The Pass's foot (Dan, 2026-11-12), the key at their foot as in the mock. */
+.tboard .ok-p{display:flex;flex:1 0 auto;flex-direction:column}
+.ok-foot{display:flex;flex-direction:column;gap:6px;margin-top:auto;padding-top:10px;font-size:12px;color:var(--label2)}
+.ok-foot .lg{display:flex;flex-wrap:wrap;gap:4px 14px;margin:0;font-weight:500}
+.ok-foot .lg>span{display:inline-flex;align-items:center;gap:5px}
 .tboard .nc-l{margin:0;font-size:14px;line-height:1.45;color:var(--label2)}
 .tboard .nc-l b{font-weight:600;color:var(--label)}
-@container (max-width:760px){ .tboard .inst{grid-template-columns:repeat(2,minmax(0,1fr))} }
 /* Your team, expanded (step 4 PR B; mock v2, approved 2026-11-10): the board in the middle, The Pass as a column of
    cards on the right, each with its suggestion and Open. */
 .tboard,.tcol,.head-h>.tpm{display:none}
 html.s-team.v-kitchen .head-h>.muted.tpm{display:block}
 html.s-team.v-kitchen .tboard{display:flex;flex-direction:column;grid-area:you;min-width:0;min-height:0}
-@media (min-width:761px){html.s-team.v-kitchen .tboard .you-b{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 2px 12px}}
+@media (min-width:761px){html.s-team.v-kitchen .tboard .you-b{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 2px}}
 html.v-kitchen .tp-live .folder[data-folder=team]{display:none}
 html.v-kitchen .tp-live .tcol{display:flex;flex-direction:column;gap:8px}
 .xc{padding:11px 13px 12px;border-radius:14px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--sep);cursor:pointer}
@@ -1428,18 +1418,9 @@ html.v-kitchen .tp-live .tcol{display:flex;flex-direction:column;gap:8px}
 .xb:hover{background:var(--fill2)}
 .xb.fill{background:var(--accent);color:#fff}
 .xb.fill:hover{background:#0068D1}
-/* The instruments: the base's merges as a ribbon, merges by hour in purple. */
-.ins .v b.red{color:var(--red)}.ins .v b.green{color:var(--green)}
-.vbars.mg rect{fill:var(--merged);opacity:.75}
-.kribbon{display:flex;gap:2px;align-items:flex-end;height:28px;margin-top:8px}
-.kribbon i{flex:1 1 0;max-width:16px;height:18px;border-radius:2px;background:var(--merged);opacity:.75}
-.kribbon i.r{height:26px;background:var(--red);opacity:1}
-.ins .cap .red{font-weight:600;color:var(--red)}
 /* Open kitchen's rows (flow mock round 3.3): agents as squares, code areas as cells, merged today. Red and amber are
    calls and nothing else; gray steps count agents, and dark mode turns them so more is brighter. */
 .sw{display:inline-block;width:14px;height:8px;border-radius:2px;background:var(--fill2)}
-.ok-p .ph .lg{display:flex;flex-wrap:wrap;gap:4px 12px;font-weight:500}
-.ok-p .ph .lg>span{display:inline-flex;align-items:center;gap:5px}
 .ok-box{position:relative}.ok-wrap{overflow-x:auto;overscroll-behavior-x:contain}
 .okr{display:block;width:100%;min-width:640px;height:auto;font-size:12px}
 .okr .dot{fill:var(--fx-dot)}
@@ -1449,7 +1430,8 @@ html.v-kitchen .tp-live .tcol{display:flex;flex-direction:column;gap:8px}
 .okr .pjrule{stroke:var(--sep);stroke-width:1}
 .okr .rowname{font-size:12.5px;font-weight:600;fill:var(--label)}
 .okr .rowname.strong{font-weight:700}.okr .rowname.muted{fill:var(--label2)}
-.okr [data-fold],.okr [data-team-open]{cursor:pointer}
+.okr [data-fold],.okr [data-team-open],.okr [data-drill]{cursor:pointer}
+.okr .need{font-weight:600;fill:var(--red)}
 .okr .podband{fill:var(--fx-zone-b)}
 .okr .mnum{font-size:11.5px;fill:var(--label2);font-variant-numeric:tabular-nums}
 .okr .mnum.strong{fill:var(--label);font-weight:600}
@@ -1472,18 +1454,6 @@ html.v-kitchen .tp-live .tcol{display:flex;flex-direction:column;gap:8px}
 .okk .sq.red{background:var(--red)}.okk .sq.amber{background:var(--orange)}.okk .sq.out{border:1.5px dashed var(--fx-a1)}
 .okk .sq.n1{background:var(--fx-a0)}.okk .sq.n2{background:var(--fx-a1)}.okk .sq.n3{background:var(--fx-a2)}
 .tcol .xc.lit{outline:1.5px solid var(--fx-hov);outline-offset:-1.5px}
-/* Files two live threads change: the path, the faces, a state word. */
-.sfl{display:flex;flex-direction:column}
-.sf{display:grid;grid-template-columns:minmax(0,1.4fr) 64px minmax(0,1fr);align-items:center;gap:12px;width:100%;min-height:34px;margin:0;padding:0;border:0;border-top:.5px solid var(--sep);background:none;font:inherit;font-size:13px;color:var(--label);text-align:left}
-.sf:first-child{border-top:0}
-button.sf{cursor:pointer}
-button.sf:hover .s{text-decoration:underline}
-.sf .f{overflow:hidden;font:12px var(--mono);text-overflow:ellipsis;white-space:nowrap}
-.sf .fc{display:flex}
-.sf .fc .av+.av{margin-left:-5px;box-shadow:0 0 0 1.5px var(--card)}
-.sf .s{overflow:hidden;color:var(--label2);text-overflow:ellipsis;white-space:nowrap}
-.sf .s.red{font-weight:600;color:var(--red)}
-.tboard .tmore{margin:8px 0 0;font-size:12.5px;color:var(--label2)}
 `;
 // Appearance (theme.ts): every dark and light rule also answers to the html element's data-theme.
 // The pictures in Settings → Layout and the ⌘K bar's Appearance and Density steps (theme.ts).

@@ -464,63 +464,6 @@ export function kitchenBoard(ok: OpenKitchen | null | undefined, { now, want = n
   }
   merges.sort((a, z) => a.at - z.at || a.n - z.n);
 
-  // The base instrument: the bases Macs online now read, narrowed to the picked projects' repos.
-  const repos = new Set(all.flatMap(({ k }) => [...k.prs.map((pr) => pr.repo), k.changes?.repo].filter((r): r is string => !!r).map((r) => r.toLowerCase())));
-  // Bases come from liveBases, so each names its repo and branch.
-  const bases = (ok.bases as (Base & { repo: string; branch: string })[]).filter((b) => !want || repos.has(b.repo.toLowerCase()));
-  const red = bases.filter((b) => b.requiredResult === 'failing');
-  const baseOf = (m: (typeof merges)[number]) => (m.branch ? bases.find((b) => b.repo.toLowerCase() === m.repo.toLowerCase() && b.branch === m.branch) || null : null);
-  // Each merge's mark: red when it is in the base's current run of red (the first red commit, or a merge after it
-  // while the base is still red). Anything else is a plain merge: the base's result now says nothing about how it
-  // stood at an earlier merge, so no merge is ever called green.
-  const tone = (m: (typeof merges)[number]) => {
-    const b = baseOf(m);
-    if (!b || b.requiredResult !== 'failing') return 'merged';
-    if (m.sha && m.sha === b.redSha) return 'red';
-    return b.redSince !== null && m.at >= b.redSince ? 'red' : 'merged';
-  };
-  const base = {
-    branches: [...new Set(bases.map((b) => b.branch))], count: bases.length, repos: bases.map((b) => b.repo),
-    state: !bases.length ? null : red.length ? 'red' : bases.every((b) => b.requiredResult === 'passing') ? 'green' : null,
-    red: red.map((b) => ({ repo: b.repo, branch: b.branch, since: b.redSince })),
-    since: red.length && red.every((b) => b.redSince !== null) ? Math.min(...red.map((b) => b.redSince!)) : null,
-    merges: merges.map((m) => ({ n: m.n, repo: m.repo, at: m.at, person: m.person, tone: tone(m) })),
-  };
-
-  // What the team counts cannot see: Macs not reporting, and reporting Macs whose summary left threads out. In a picked
-  // project, a Mac out counts when its old summary has work there, sent none, or left threads out (they may be there).
-  const away = ok.people.filter((p) => p.reporting !== true && (!want || !okSummary(p.summary) || (num(p.summary.more) ?? 0) > 0 || all.some((t) => t.person === p.id))).length;
-  const capped = ok.people.filter((p) => p.reporting === true && (num(obj(p.summary)?.more) ?? 0) > 0).length;
-  const gap = { away, capped };
-
-  // Merged today, by hour: from the first merge's hour (or six hours back) to now.
-  const hNow = new Date(now).getHours();
-  const h0 = Math.max(0, Math.min(hNow - 5, ...merges.map((m) => new Date(m.at).getHours())));
-  const hours = Array.from({ length: hNow - h0 + 1 }, (_, i) => h0 + i);
-  const merged = { count: merges.length, untimed: untimed.size, gap, from: h0, byHour: hours.map((h) => merges.filter((m) => new Date(m.at).getHours() === h).length), usual: null };
-
-  // Waiting for review: open PRs, not drafts, on live threads In review. Their age needs the time each was marked ready
-  // (proposed `pr.readyAt`); with any one missing, the ages say not checked rather than a part of them.
-  // A PR that any summary, live or old, reports merged (`done`, above) never waits, whatever another copy says.
-  // The ready time is settled per PR over every copy first: one copy that left it out never hides another's. Two
-  // copies that differ take the later time, since a PR put back to draft and readied again waits from then.
-  const readyAt = new Map<string, number>();
-  for (const { k } of ok.tickets) for (const pr of k.prs) if (pr.readyAt !== null) {
-    const key = prKey(pr.repo, pr.n);
-    readyAt.set(key, Math.max(readyAt.get(key) ?? pr.readyAt, pr.readyAt));
-  }
-  const rv = new Map<string, { n: number; repo: string; person: string; at: number | null }>();
-  for (const { k, person, live } of all) if (live && k.place === 'In review') for (const pr of k.prs) {
-    const key = prKey(pr.repo, pr.n);
-    if (pr.state === 'open' && !pr.draft && !done.has(key) && !rv.has(key)) rv.set(key, { n: pr.n, repo: pr.repo, person, at: readyAt.get(key) ?? null });
-  }
-  const ready = [...rv.values()];
-  const review = { count: ready.length, gap, ages: ready.length && ready.every((r) => r.at !== null) ? ready.map((r) => Math.max(0, now - r.at!)).sort((a, z) => z - a) : null };
-
-  // Agents running: from reporting Macs only, since a quiet Mac's count is old.
-  const liveTickets = all.filter(({ k, live }) => live && Object.hasOwn(STAGE_RANK, k.place ?? '') && k.place !== 'Merged');
-  const agents = { count: liveTickets.reduce((n, { k }) => n + k.working, 0), threads: liveTickets.filter(({ k }) => k.working > 0).length, gap };
-
   // The rows (Dan, 2A on the flow mock, locked 2026-11-11 as round 3.3): one fixed row per person, their agents as
   // squares, the code areas those agents touch as cells, and merged today. Rows and columns never move: people sort by
   // name under their sub-lead, areas by name under their project. Every agent shows, in any project: one working outside
@@ -579,52 +522,5 @@ export function kitchenBoard(ok: OpenKitchen | null | undefined, { now, want = n
   });
   const rows = { people, pods, columns, links, labs: null };
 
-  // Files two live threads change: one row per file, in one repo and base. Same lines is the Overlap call; different
-  // lines are fine; a side with no ranges read is not checked.
-  // Files compare within one repo and base branch: a read that leaves out either is not checked, never matched.
-  const readable = (k: TeamTicket, live: boolean): k is TeamTicket & { changes: TeamChanges & { repo: string; base: string } } => comparable(k, live) && !!k.changes.repo && !!k.changes.base;
-  const byFile = new Map<string, { path: string; repo: string; sides: { person: string; thread: string; r: Range[] | null; x: boolean; at: number | null; mb: string | null }[] }>();
-  for (const { k, person, live } of all) {
-    if (!readable(k, live)) continue;
-    for (const f of k.changes.files) {
-      if (typeof f.p !== 'string' || !f.p) continue;
-      const key = `${k.changes.repo.toLowerCase()}\n${k.changes.base}\n${f.p}`;
-      if (!byFile.has(key)) byFile.set(key, { path: f.p, repo: k.changes.repo, sides: [] });
-      byFile.get(key)!.sides.push({ person, thread: k.thread, r: f.r, x: f.x, at: k.changes.at, mb: k.changes.mergeBase });
-    }
-  }
-  const overlapCalls = calls.flatMap(({ c, mine }) => (c.kind === 'overlap' ? [{ c, mine }] : []));
-  const files: { path: string; repo: string; near: boolean; people: string[]; state: 'same' | 'different' | 'nc' | 'gen'; call: { id: string; mine: boolean } | null; at: number | null }[] = [];
-  for (const f of byFile.values()) {
-    if (new Set(f.sides.map((s) => s.thread)).size < 2) continue;
-    // A lockfile or generated file two threads change stays in the list, so it never reads as no shared file, but its
-    // lines are not compared and it raises no call.
-    const gen = f.sides.some((s) => s.x);
-    const call = gen ? undefined : overlapCalls.find(({ c }) => c.facts.files.some((x) => x.path === f.path) && c.facts.sides.every((s) => f.sides.some((x) => x.thread === s.ticket.thread)));
-    // Lines compare only from one merge base: from two, "different lines" could be the same code moved.
-    const oneBase = f.sides.every((s) => s.mb && s.mb === f.sides[0]!.mb);
-    const read = !gen && oneBase && f.sides.every((s) => Array.isArray(s.r));
-    let same = false;
-    for (let i = 0; i < f.sides.length && read; i++) for (let j = i + 1; j < f.sides.length; j++) {
-      if (f.sides[i]!.r!.some((x) => f.sides[j]!.r!.some((y) => overlaps(span(x), span(y))))) same = true;
-    }
-    const state = gen ? 'gen' : call || same ? 'same' : read ? 'different' : 'nc';
-    files.push({ path: f.path, repo: f.repo, near: new Set(f.sides.map((s) => s.mb).filter(Boolean)).size > 1, people: [...new Set(f.sides.map((s) => s.person))], state, call: call ? { id: call.c.id, mine: call.mine } : null,
-      at: f.sides.every((s) => s.at !== null) ? Math.min(...f.sides.map((s) => s.at!)) : null });
-  }
-  const RANKF = { same: 0, nc: 1, different: 2, gen: 3 } as const;
-  files.sort((a, z) => RANKF[a.state] - RANKF[z.state] || a.path.localeCompare(z.path));
-  // When the list was read: the oldest read among the threads it compares.
-  const reads = all.flatMap(({ k, live }) => (readable(k, live) ? [k.changes.at] : []));
-  // Not checked: a live thread at work whose files were not sent, or were sent with no repo or base to compare them in.
-  const unread = all.filter(({ k, live }) => live && Object.hasOwn(STAGE_RANK, k.place ?? '') && k.place !== 'Merged' && !readable(k, live)).length;
-  const partial = all.filter(({ k, live }) => readable(k, live) && (k.changes.more ?? 0) > 0).length;
-  const filesAt = reads.length && reads.every((t) => t !== null) ? Math.min(...reads as number[]) : null;
-
-  return {
-    people: people.length, threads: liveTickets.length,
-    base, merged, review, agents,
-    rows,
-    files: { rows: files, at: filesAt, compared: reads.length, unread, partial, capped: gap.capped },
-  };
+  return { rows };
 }
