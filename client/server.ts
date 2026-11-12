@@ -1470,7 +1470,8 @@ button.tlb{cursor:pointer}
 .tltag.red{background:var(--red);color:#fff}.tltag.amber{background:var(--orange);color:#1D1D1F}
 .tlx{position:absolute;right:0;top:50%;padding-left:6px;background:var(--card);font-size:10.5px;color:var(--label2);transform:translateY(-50%)}
 .tl .now{position:absolute;bottom:0;width:0;border-left:1.5px solid var(--pass);pointer-events:none}
-.tl .now span{position:absolute;top:0;left:4px;font-size:10.5px;font-weight:700;color:var(--pass)}
+/* The now label sits left of its line: to the right it ran past the chart's edge and was clipped to "nov" (2026-11-12). */
+.tl .now span{position:absolute;top:0;right:4px;font-size:10.5px;font-weight:700;color:var(--pass);white-space:nowrap}
 .tl .conn{position:absolute;width:0;border-left:2px solid var(--red)}
 .tl .conn button{all:unset;cursor:pointer}
 .tl .conn span{position:absolute;left:6px;top:50%;padding:1px 4px;border-radius:3px;background:var(--card);box-shadow:inset 0 0 0 1px var(--red);font:600 10.5px var(--mono);color:var(--red);white-space:nowrap;transform:translateY(-50%)}
