@@ -24,6 +24,8 @@ const setup = (v: Wire = brigadeView(NOW)) => {
 const item = (items: readonly FbItem[], id: string): FbItem => one(items, (t) => t.id === id, id);
 const page = (view: TeamView, who: string | null = null) => renderApp({ board: { tickets: [], runsChecked: false }, link: () => 'x', status: { ok: true, at: NOW, ms: 1 },
   origin: 'https://t3.example', team: { view, now: NOW, mode: 'brigade' }, who });
+const fitted = (view: TeamView, who: string | null) => renderApp({ board: { tickets: [], runsChecked: false }, link: () => 'x', status: { ok: true, at: NOW, ms: 1 },
+  origin: 'https://t3.example', team: { view, now: NOW, mode: 'brigade' }, who, fit: { w: 860, h: 700 } });
 /** The data-k keys of each band, as hover reads them. */
 const bandKeys = (svg: string): string[][] => [...svg.matchAll(/<path class="band[^"]*" data-k="([^"]*)"/g)].map((m) => nth(m, 1).split(' '));
 
@@ -205,6 +207,40 @@ test('?who opens a folded team as its people, and a person as their threads one 
     assert.doesNotMatch(none, /data-unwho/, k);
     assert.match(none, /data-who="f:priya"/, k);
   }
+});
+
+test('opened, the header names who, and each of a person\'s threads carries its title (Dan, 3A, 2026-11-12)', () => {
+  const v = brigadeView(NOW);
+  const { items } = setup(v);
+  const head = (h: string) => grab(h, /<section class="tboard"[^>]*><header class="you-h">[\s\S]*?<\/header>/);
+  assert.doesNotMatch(head(page(v)), /you-who/, 'everyone: no name');
+  assert.match(head(page(v, 'f:priya')), /data-unwho[^]*<\/button><span class="you-who" aria-hidden="true">Priya&#39;s team<\/span>/);
+  // The page sends its size, as the app does (fx=WxH): the bands are then tall enough for a title.
+  const jon = fitted(v, 'p:jon');
+  assert.match(head(jon), /<span class="you-who" aria-hidden="true">Jon<\/span><\/header>/);
+  const jsvg = grab(jon, /<svg class="fx okr fbr"[\s\S]*?<\/svg>/);
+  const titles = [...jsvg.matchAll(/<text class="ttl a\d"[^>]*>([^<]*)<\/text>/g)].map((m) => nth(m, 1));
+  assert.deepEqual(titles.sort(), items.filter((t) => t.author === 'jon').map((t) => t.title.replace(/'/g, '&#39;')).sort());
+  // Each title follows its own band, so hover lights them together (.band.lit+.ttl).
+  assert.equal(jsvg.match(/"\/><text class="ttl/g)?.length, titles.length);
+  assert.doesNotMatch(grab(fitted(v, null), /<svg class="fx okr fbr"[\s\S]*?<\/svg>/), /class="ttl/, 'everyone: bands carry no titles');
+});
+
+test('a long thread title is cut to fit In progress', () => {
+  const v: Wire = brigadeView(NOW);
+  const jon = v.people.find((p: Wire) => p.id === 'jon');
+  for (const t of jon.summary.tickets) t.title = 'A very long thread title that runs well past the In progress column';
+  const ts = [...fitted(v, 'p:jon').matchAll(/<text class="ttl a\d"[^>]*>([^<]*)<\/text>/g)].map((m) => nth(m, 1));
+  assert.ok(ts.length > 0);
+  for (const t of ts) assert.ok(t.length <= 32 && t.endsWith('…'), t);
+});
+
+test('every signer\'s name sits on a chip, so a crossing band never runs through it (Dan, 5A, 2026-11-12)', () => {
+  const { tree, items } = setup();
+  const svg = drawBrigade(items, tree, NOW);
+  const gs = [...svg.matchAll(/<g class="fbn r-([a-z]+)"[^>]*>([\s\S]*?)<\/g>/g)];
+  assert.ok(gs.some((m) => m[1] !== 'above'), 'a signer');
+  for (const m of gs) assert.match(nth(m, 2), /^<rect [^>]*\/><text /, `${m[1]}: a chip, then the name`);
 });
 
 test('French Brigade says not checked while the team link is down, and nothing in flight when no one below you has work', () => {

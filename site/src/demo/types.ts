@@ -35,7 +35,7 @@ export interface DemoKitchen {
   board(): DemoBoard;
   page(search?: string): string;
   act(body: string): Promise<[number, string]>;
-  /** The team demo's mode, which the site's mode cards set; null in the solo demo. */
+  /** The team demo's mode, which the home page's modes section sets; null in the solo demo. */
   mode(next?: DemoMode): DemoMode | null;
 }
 

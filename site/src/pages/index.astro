@@ -6,6 +6,10 @@ import soloLight from '../assets/app-solo-light.png';
 import soloDark from '../assets/app-solo-dark.png';
 import teamLight from '../assets/app-team-light.png';
 import teamDark from '../assets/app-team-dark.png';
+import openLight from '../assets/mode-open-light.png';
+import openDark from '../assets/mode-open-dark.png';
+import brigadeLight from '../assets/mode-brigade-light.png';
+import brigadeDark from '../assets/mode-brigade-dark.png';
 const firstPaint = inlineScript('src/scripts/first-paint.ts');
 // Phones get a screenshot of the app instead of the live demo, as t3.codes does (Dan, 2026-11-11): the demo at
 // 1440x900, shot at 2x on Browserbase (site/README, "Phone screenshots").
@@ -15,6 +19,14 @@ const shots = {
   team: { light: await shot(teamLight), dark: await shot(teamDark), alt: 'Yes Chef with a made-up team: The Pass with a main-broken call open' },
 };
 const SIZES = 'calc(100vw - 32px)';
+// The modes section (Dan, 1C, 2026-11-12): each mode's expanded view in the team demo, 1440x900 at 2x. A click opens it
+// larger, so the widths run to the full 2880.
+const big = (src: ImageMetadata) => getImage({ src, widths: [800, 1200, 1600, 2880], format: 'webp', quality: 90 });
+const modeShots = {
+  open: { light: await big(openLight), dark: await big(openDark), alt: 'Open kitchen, expanded: one row per person, their agents as squares, the code areas they touch, and what each merged today, beside The Pass' },
+  brigade: { light: await big(brigadeLight), dark: await big(brigadeDark), alt: 'French Brigade, expanded: every thread by person, left to right from In progress through the leads who sign it off to Merged, beside The Pass' },
+};
+const MODE_SIZES = '(min-width: 1024px) 760px, calc(100vw - 32px)';
 ---
 <SiteLayout
   home
@@ -86,8 +98,8 @@ const SIZES = 'calc(100vw - 32px)';
       </svg>
       <div class="container">
         <div class="section-head">
-          <h2 id="modes-title" class="display swap"><span data-swap="solo">Your rules go out with every thread.</span><span data-swap="team">Choose what waits for your Go.</span></h2>
-          <p class="lede swap"><span data-swap="solo">Settings, Rules: how agents ask you, which bot reviews their pull requests, which tools they use. Set them for all projects or one. <strong>The Pass checks the calls that come back.</strong></span><span data-swap="team">A kitchen runs in one of two modes. You pick one when you open it, and switch in Settings, Rules, for all projects or one. <strong>Shared code waits for a Go in both.</strong></span></p>
+          <h2 id="modes-title" class="display swap"><span data-swap="solo">Your rules go out with every thread.</span><span data-swap="team">Two ways to see your team’s work.</span></h2>
+          <p class="lede swap"><span data-swap="solo">Settings, Rules: how agents ask you, which bot reviews their pull requests, which tools they use. Set them for all projects or one. <strong>The Pass checks the calls that come back.</strong></span><span data-swap="team">Open kitchen shows who is on what, by code area. French Brigade follows every thread up your team to whoever merges it. <strong>Either way, The Pass holds the calls that need you.</strong></span></p>
         </div>
         <div class="swap modes-swap">
           <div class="rules-spot" data-swap="solo">
@@ -103,19 +115,34 @@ const SIZES = 'calc(100vw - 32px)';
               <button type="button" class="demo-link" data-demo-rules>Open Rules in the demo</button>
             </div>
           </div>
-          <div class="modes" data-swap="team">
-            <div class="mode-card">
-              <h3><span class="mode-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#ic-skillet"/></svg></span>Open kitchen</h3>
-              <p>Each dev ships under your repo’s own rules, and Plating on their tickets is their own look. Only the exceptions reach your pass.</p>
-              <p class="reach"><b class="flag f-coll">Collision</b><b class="flag f-shared">Shared code</b><b class="flag f-unpl">Unplanned</b><b class="flag f-nc">Not checked</b></p>
-              <button type="button" class="demo-link" data-demo-mode="open">Run the demo as an Open kitchen</button>
+          <!-- One frame and a toggle (Dan, 1C, 2026-11-12), as the I run toggle. A click on a picture opens it larger. -->
+          <div class="modes" data-swap="team" data-mode="open">
+            <div class="dl-seg mode-seg" role="group" aria-label="Mode">
+              <span class="dl-seg-thumb" aria-hidden="true"></span>
+              <button type="button" data-mode-pick="open" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#ic-skillet"/></svg>Open kitchen</button>
+              <button type="button" data-mode-pick="brigade" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#ic-toque"/></svg>French Brigade</button>
             </div>
-            <div class="mode-card">
-              <h3><span class="mode-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#ic-toque"/></svg></span>French Brigade</h3>
-              <p>Every ticket also waits at Plating for a Go from you or a sous chef you allow. Same board, one more kind of card.</p>
-              <p class="reach"><b class="flag f-coll">Collision</b><b class="flag f-shared">Shared code</b><b class="flag f-unpl">Unplanned</b><b class="flag f-nc">Not checked</b><b class="flag f-plate">Plating</b></p>
-              <button type="button" class="demo-link" data-demo-mode="brigade">Run the demo as a French Brigade</button>
+            <div class="mode-panes">
+              <div class="mode-pane" data-pane="open">
+                <div class="mode-text">
+                  <h3><span class="mode-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#ic-skillet"/></svg></span>Open kitchen</h3>
+                  <p>Each dev merges under your repo’s own rules. You see who is on what, and only the exceptions reach your Pass.</p>
+                  <ul class="mode-pts"><li>Every person’s agents, by code area.</li><li>Two people in one file show red, linked.</li><li>What each person merged today.</li><li>Fold a lead’s team into one row.</li></ul>
+                  <button type="button" class="demo-link" data-demo-mode="open">Run the demo as an Open kitchen</button>
+                </div>
+                <button type="button" class="mode-shot" data-zoom aria-label="Open kitchen, expanded: open a larger view"><picture><source media="(prefers-color-scheme: light)" srcset={modeShots.open.light.srcSet.attribute} sizes={MODE_SIZES} /><img src={modeShots.open.dark.src} srcset={modeShots.open.dark.srcSet.attribute} sizes={MODE_SIZES} alt={modeShots.open.alt} width="1440" height="900" loading="lazy" decoding="async" /></picture></button>
+              </div>
+              <div class="mode-pane" data-pane="brigade" inert>
+                <div class="mode-text">
+                  <h3><span class="mode-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#ic-toque"/></svg></span>French Brigade</h3>
+                  <p>Work moves up your team. Each thread runs left to right, from In progress through each lead who signs it off, to the lead who merges it.</p>
+                  <ul class="mode-pts"><li>Every thread, by person, left to right.</li><li>A thread passes a lead once their GitHub approval is in.</li><li>Open a team for its people, a person for each thread.</li></ul>
+                  <button type="button" class="demo-link" data-demo-mode="brigade">Run the demo as a French Brigade</button>
+                </div>
+                <button type="button" class="mode-shot" data-zoom aria-label="French Brigade, expanded: open a larger view"><picture><source media="(prefers-color-scheme: light)" srcset={modeShots.brigade.light.srcSet.attribute} sizes={MODE_SIZES} /><img src={modeShots.brigade.dark.src} srcset={modeShots.brigade.dark.srcSet.attribute} sizes={MODE_SIZES} alt={modeShots.brigade.alt} width="1440" height="900" loading="lazy" decoding="async" /></picture></button>
+              </div>
             </div>
+            <p class="reach"><span>Both modes bring you</span><b class="flag f-nc">Main broken</b><b class="flag f-nc">Overlap</b><b class="flag f-coll">Failing</b><b class="flag f-coll">Too big</b><b class="flag f-coll">Stuck</b><b class="flag f-coll">Waiting</b><b class="flag f-hb">Not reporting</b></p>
           </div>
         </div>
       </div>
@@ -368,6 +395,7 @@ const SIZES = 'calc(100vw - 32px)';
         <a class="btn btn-primary btn-lg" href="/download" data-dl><svg class="btn-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span>Download for Mac</span></a>
       </div>
     </section>
+    <dialog class="zoom" aria-label="Larger view"><button type="button" class="zoom-x" aria-label="Close">×</button><div class="zoom-pic"></div></dialog>
   </main>
   <script>
     import '../scripts/site';

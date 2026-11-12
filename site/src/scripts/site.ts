@@ -204,6 +204,49 @@ type View = 'solo' | 'team';
     });
   });
 
+  // The modes section (Dan, 1C, 2026-11-12): one frame, a toggle between Open kitchen and French Brigade. The hidden
+  // pane is inert, so its buttons stay out of the tab order.
+  function showMode(modes: Element, mode: string) {
+    modes.setAttribute("data-mode", mode);
+    modes.querySelectorAll("[data-mode-pick]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute("data-mode-pick") === mode)); });
+    modes.querySelectorAll<HTMLElement>("[data-pane]").forEach(function (p) { p.inert = p.getAttribute("data-pane") !== mode; });
+  }
+  document.addEventListener("click", function (event) {
+    var b = event.target instanceof Element && event.target.closest("[data-mode-pick]");
+    var modes = b && b.closest(".modes");
+    if (b && modes) showMode(modes, b.getAttribute("data-mode-pick") === "brigade" ? "brigade" : "open");
+  });
+  document.addEventListener("keydown", function (event) {
+    var b = event.target instanceof Element && event.target.closest("[data-mode-pick]");
+    var modes = b && b.closest(".modes");
+    if (!b || !modes || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
+    var mode = event.key === "ArrowLeft" ? "open" : "brigade";
+    showMode(modes, mode);
+    modes.querySelector<HTMLButtonElement>('[data-mode-pick="' + mode + '"]')?.focus();
+    event.preventDefault();
+  });
+
+  // A click on a mode's picture opens it larger, over the page; a click anywhere, Escape or × closes it.
+  const zoom = document.querySelector<HTMLDialogElement>("dialog.zoom");
+  if (zoom) {
+    const holder = zoom.querySelector(".zoom-pic");
+    var opener: HTMLElement | null = null;
+    document.addEventListener("click", function (event) {
+      var shot = event.target instanceof Element && event.target.closest<HTMLElement>("[data-zoom]");
+      if (!shot || !holder) return;
+      var pic = shot.querySelector("picture");
+      if (!pic) return;
+      var copy = pic.cloneNode(true) as HTMLElement;
+      // The whole window: the browser picks the largest width it needs.
+      copy.querySelectorAll("source, img").forEach(function (el) { el.setAttribute("sizes", "100vw"); el.removeAttribute("loading"); });
+      holder.replaceChildren(copy);
+      opener = shot;
+      zoom.showModal();
+    });
+    zoom.addEventListener("click", function () { zoom.close(); });
+    zoom.addEventListener("close", function () { holder?.replaceChildren(); opener?.focus(); opener = null; });
+  }
+
   // The nav's toggle shows once the hero's toggle has scrolled up under the nav (rulings 2B and 3C).
   // Checked on scroll, once a frame: a jump from above the toggle to below it never crosses the
   // viewport, so an IntersectionObserver would not fire.

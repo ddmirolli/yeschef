@@ -108,6 +108,9 @@ const TOP = 58, FOOT = 18, NG = 20, XN = 96, XB = 104, XG = 136;
 /** The stage zones: In progress, In review (the ladder), Ready to merge (who merges), Merged, Staging, Release. */
 const ZONE_X = [0, 236, 546, 640, 716, 788, W] as const;
 const X_MERGE = 593, END_PROG = 214, END_REVIEW = 276, END_MERGED = 690;
+/** A thread's title, opened: as many characters as fit in In progress at 11 px (about 6 units each). */
+const TTL_CH = 32;
+const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
 /** Who signs a thread off, nearest first, and who merges it, from its author's line. */
 function ladder(tree: Tree, author: string): { signers: string[]; merger: string | null } {
@@ -328,7 +331,10 @@ export function drawBrigade(items: readonly FbItem[], tree: Tree, now: number, {
     // Every person shown: a click opens their threads. Opened: a thread with a call opens it in The Pass.
     const plate = t0?.calls[0]?.slice(2);
     const act = !one ? ` data-who="${e(b.group)}"` : plate ? ` data-team-open="${e(plate)}" tabindex="0" role="button" aria-label="${e(t0!.title)}"` : '';
-    bands += `<path class="band ${ageCls(b.age)}"${hov(k, f, tip)}${act} d="${ribbon(pts, b.h)}"/>${strands(pts, b.h, b.items.length)}`;
+    // A person opened: each thread carries its title at its start, so every band is a thread you can name, not one
+    // of many alike (Dan, 3A, 2026-11-12: "show the full threads"). Drawn right after its band, so it lights with it.
+    const ttl = one && t0 && b.items.length === 1 && b.h >= 12 ? `<text class="ttl ${ageCls(b.age)}" x="${xs + 8}" y="${f1(b.y0 + b.h / 2)}" dominant-baseline="central">${e(clip(t0.title, TTL_CH))}</text>` : '';
+    bands += `<path class="band ${ageCls(b.age)}"${hov(k, f, tip)}${act} d="${ribbon(pts, b.h)}"/>${ttl}${strands(pts, b.h, b.items.length)}`;
   }
   // The names: each person (or folded team) at the left, each sign-off node over its pile. Leads above you are outlined.
   if (!L.drill?.startsWith('p:')) for (const g of L.groups) {
@@ -347,7 +353,9 @@ export function drawBrigade(items: readonly FbItem[], tree: Tree, now: number, {
       + (d.role === 'above' ? '<div class="m">Only your team’s work shows here.</div>' : '');
     const ty = d.y - 6, w = Math.max(30, d.label.length * 6.6 + 12);
     labels += `<g class="fbn r-${d.role}"${hov([d.key, ...here.flatMap((b) => b.items.flatMap((t) => t.calls))], [d.key], tip)}>`
-      + (d.role === 'above' ? `<rect x="${f1(d.x - w / 2)}" y="${f1(ty - 11)}" width="${f1(w)}" height="16" rx="5"/>` : '')
+      // Every name sits on a chip: the card's colour for a signer, so a band crossing under it never runs through the
+      // name (Dan, 5A, 2026-11-12); an outline for a lead above you.
+      + `<rect x="${f1(d.x - w / 2)}" y="${f1(ty - 11)}" width="${f1(w)}" height="16" rx="5"/>`
       + `<text x="${f1(d.x)}" y="${f1(ty)}" text-anchor="middle">${e(d.label)}</text></g>`;
   }
   out += `<g class="bands">${bands}</g><g class="fx-names">${labels}</g></svg>`;

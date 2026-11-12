@@ -162,7 +162,16 @@ try {
   await page.locator('[data-demo-mode="open"]').click();
   await team.locator('.tboard .ok-p').first().waitFor({ state: 'attached' });
   assert.equal(await team.locator('.tboard .fx-wrap:not(.ok-box)').count(), 0);
-  report.teamActions = 'The mode cards switch the team demo between French Brigade and Open kitchen'
+  report.teamActions = 'The mode buttons switch the team demo between French Brigade and Open kitchen'
+  // The modes section's toggle, and a picture opened larger (Dan, 1C, 2026-11-12).
+  await page.locator('[data-mode-pick="brigade"]').click();
+  assert.equal(await page.locator('.modes').getAttribute('data-mode'), 'brigade');
+  await page.locator('.mode-pane[data-pane="brigade"] [data-zoom]').click();
+  assert.equal(await page.locator('dialog.zoom[open] .zoom-pic img').count(), 1);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('dialog.zoom[open]').count(), 0);
+  await page.locator('[data-mode-pick="open"]').click();
+  report.modes = 'The modes toggle switches the pane, and a picture opens larger and closes on Escape';
 
   const widths = [1440, 1366, 1280, 1200, 1100, 1024, 980, 900, 820, 768, 700, 600, 540, 480, 430, 390, 360, 320];
   for (const width of widths) {

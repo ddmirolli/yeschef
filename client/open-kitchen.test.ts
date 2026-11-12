@@ -812,9 +812,13 @@ test('the rows fill the size the page sends, up to a cap, and keep their own hei
   assert.match(svgOf(tall), /data-fit="860x1000"/);
   assert.equal(H(tall), 1000);
   assert.ok(pitch(tall) > 48 && pitch(tall) <= 72, String(pitch(tall)));
-  // A short column: rows never shrink below their own height, and the column scrolls.
+  // A column too short for 48 a row: the rows shrink to share it, so the chart and the key under it stay in view.
+  const snug = page({ view: viewL(), now: NOWL }, { fit: { w: 860, h: 560 } });
+  assert.ok(pitch(snug) >= 28 && pitch(snug) < 48, String(pitch(snug)));
+  assert.equal(H(snug), 560);
+  // Shorter still: rows stop at 28 and the column scrolls.
   const short = page({ view: viewL(), now: NOWL }, { fit: { w: 860, h: 300 } });
-  assert.equal(pitch(short), 48);
+  assert.equal(pitch(short), 28);
   assert.ok(H(short) > 300);
   // Far more room than the rows need: they stop at the cap and the dotted field runs to the foot.
   const v = viewL();
