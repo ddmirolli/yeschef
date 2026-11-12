@@ -33,4 +33,10 @@ test('the modes section is a full-width title, then a toggle over the text besid
   assert.doesNotMatch(modes, /class="lede|<h3/);
   for (const m of ['open', 'brigade']) assert.match(modes, new RegExp(`data-demo-mode="${m}"`));
   assert.match(html, /<dialog class="zoom"/);
+  // A phone shows the picture above the words: the page order is toggle, pictures, words (Dan, 2026-11-12).
+  const at = (s: string) => modes.indexOf(s);
+  assert.ok(at('class="dl-seg mode-seg"') > 0);
+  assert.ok(at('class="dl-seg mode-seg"') < at('class="mode-stack mode-shots"'));
+  assert.ok(at('class="mode-stack mode-shots"') < at('class="mode-stack mode-texts"'));
+  assert.ok(at('class="mode-stack mode-texts"') < at('class="reach"'));
 });
