@@ -1451,6 +1451,11 @@ html.v-kitchen .tp-live .tcol{display:flex;flex-direction:column;gap:8px}
 .fbr .fbn.lit text{fill:var(--fx-hov)}
 .fbr .fbn text{paint-order:stroke;stroke:var(--card);stroke-width:3px;stroke-linejoin:round}
 .fbr .fbn.r-above text{fill:var(--label2)}.fbr .fbn.r-above rect{fill:none;stroke:var(--label3,var(--label2));stroke-width:1}
+.fbr .fbn:not(.r-above) rect{fill:var(--card);stroke:var(--sep);stroke-width:1}
+/* A person opened: one band per thread, packed, so the line between two threads is the same 1 px hairline the
+   full chart draws inside a bundle (.strand). */
+.fb-one .band{stroke-width:1px;vector-effect:non-scaling-stroke}
+.you-who{margin-left:10px;font-size:17px;font-weight:600;color:var(--label);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fbr .band[data-who],.fbr [data-team-open]{cursor:pointer}
 .fx-chip .sw.up{background:none;box-shadow:inset 0 0 0 1px var(--label2)}
 .okr .podband{fill:var(--fx-zone-b)}

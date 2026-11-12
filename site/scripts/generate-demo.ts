@@ -137,7 +137,7 @@ export function createLive({ onChange }) {
   writeFileSync(join(DEMO, 'app.html'), html);
   console.log(`site/demo/app.html: ${html.length} bytes, ${browser.board().tickets.length} tickets`);
 
-  // 5. The team demo (Dan, 2026-11-12): the same page, Dana's team below her in Open kitchen. The site's mode cards
+  // 5. The team demo (Dan, 2026-11-12): the same page, Dana's team below her in Open kitchen. The modes section's buttons on the home page
   // switch it to French Brigade (site/src/pages/demo/team.astro).
   const teamKitchen = createKitchen({ where: (dir) => ({ icon: `icons/${dir}.svg` }), shot: (name) => `img/${name}-dark.png`, later: null, team: 'open' });
   const main = html.indexOf('<main id="app">') + 15, end = html.indexOf('</main>');

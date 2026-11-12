@@ -147,8 +147,10 @@ export function brigadeLayout(items: readonly FbItem[], tree: Tree, now: number,
     if (!nodes.has(n.key)) nodes.set(n.key, n);
     return n.key;
   };
-  // Opened: a person's threads one band each (p:<id>), or a folded team as its people, bundled as the full chart is
-  // (f:<id>), so a team of any size reads the same way one level down (Dan's scale check, 2026-11-12).
+  // Opened: a person's threads one band each (p:<id>), packed into one bundle with a hairline between threads, as a
+  // person's bundle reads in the full chart, never as loose strands apart (Dan, 2026-11-12: "detailed threads with
+  // texture rather than the linguini"). Or a folded team as its people, bundled as the full chart is (f:<id>), so a
+  // team of any size reads the same way one level down (Dan's scale check, 2026-11-12).
   const one = !!drill?.startsWith('p:');
   const pick = drill === null ? items : items.filter((t) => (one ? t.author === drill.slice(2) : groupOf(t.author).key === drill));
   const rowOf = (id: string) => (drill?.startsWith('f:') ? { key: `p:${id}`, label: tree.name(id) } : groupOf(id));
@@ -168,15 +170,14 @@ export function brigadeLayout(items: readonly FbItem[], tree: Tree, now: number,
     const age = ageOf(t.since, now), g = rowOf(t.author);
     const key = one || t.calls.length ? `t|${t.id}` : `${g.key}|${t.stage}|${age}|${stops.join('>')}|${signed}`;
     let b = map.get(key);
-    if (!b) map.set(key, b = { id: '', group: one ? `t:${t.id}` : g.key, stage: t.stage, age, items: [], stops, h: 0, y0: 0, y: {}, signed });
+    if (!b) map.set(key, b = { id: '', group: one && drill ? drill : g.key, stage: t.stage, age, items: [], stops, h: 0, y0: 0, y: {}, signed });
     b.items.push(t);
   }
   const bands = [...map.values()];
   bands.forEach((b, i) => { b.id = String(i); });
   const labels = new Map(pick.map((t) => [rowOf(t.author).key, rowOf(t.author).label]));
-  // People in name order; opened, threads by stage, furthest first.
-  const stageOf = (g: string) => RANK[bands.find((b) => b.group === g)!.stage];
-  const names = [...new Set(bands.map((b) => b.group))].sort((a, z) => (!one ? (labels.get(a) ?? a).localeCompare(labels.get(z) ?? z) : stageOf(a) - stageOf(z)) || a.localeCompare(z));
+  // People in name order. Within each, threads by stage, furthest first (mine, below).
+  const names = [...new Set(bands.map((b) => b.group))].sort((a, z) => (labels.get(a) ?? a).localeCompare(labels.get(z) ?? z) || a.localeCompare(z));
   const total = pick.length, n = names.length;
 
   // Columns: review levels deepest first (left), then who merges.
@@ -186,8 +187,8 @@ export function brigadeLayout(items: readonly FbItem[], tree: Tree, now: number,
   const cols = levels.map((_, i) => REV0 + ((REV1 - REV0) * (i + 0.5)) / levels.length);
   const xOf = (d: Node): number => (d.merge ? X_MERGE : cols[levels.indexOf(d.level)] ?? X_MERGE);
 
-  let gap = 6, laneGap = 5;
-  let u = one ? 11 : Math.max(3, Math.min(12, (440 - gap * Math.max(0, n - 1)) / Math.max(1, total)));
+  let gap = 6;
+  let u = one ? clamp(440 / Math.max(1, total), 3, 24) : Math.max(3, Math.min(12, (440 - gap * Math.max(0, n - 1)) / Math.max(1, total)));
   let room = 200;
   if (fitH !== undefined && Number.isFinite(fitH)) {
     room = Math.max(200, fitH - TOP - FOOT);
@@ -196,16 +197,13 @@ export function brigadeLayout(items: readonly FbItem[], tree: Tree, now: number,
     if (!one) {
       u = clamp((avail - 14 * Math.max(0, n - 1)) / Math.max(1, total), 1, 30);
       if (n > 1) gap = Math.max(6, (avail - total * u) / (n - 1));
-    } else {
-      u = clamp((avail - 5 * Math.max(0, total - 1)) / Math.max(1, total), 2, 24);
-      if (total > 1) laneGap = clamp((avail - total * u) / (total - 1), 1, 60);
-    }
+    } else u = clamp(avail / Math.max(1, total), 1, 30);
   }
   for (const b of bands) b.h = b.items.length * u;
   // A name needs about 14 px: a person with one thin band keeps that much room.
   const gh = (g: string) => bands.filter((b) => b.group === g).reduce((h, b) => h + b.h, 0);
   if (!one && n > 1) gap = Math.max(gap, 14 - Math.min(...names.map(gh)));
-  const sepG = one ? laneGap : gap;
+  const sepG = gap;
   // Separation tightens left to right (Dan, 2026-11-12), down to touching at the merge.
   const sepAt = (x: number): number => sepG * clamp((X_MERGE - x) / (X_MERGE - XG), 0, 1);
   const sep = (a: FbBand, b: FbBand, x: number): number => (a.group !== b.group ? sepAt(x) : 0);
@@ -299,7 +297,7 @@ export function drawBrigade(items: readonly FbItem[], tree: Tree, now: number, {
   // GitHub login to the teammate's name, for the reviewers in a tooltip.
   const names = new Map<string, string>();
   for (const id of new Set([tree.me, ...all.flatMap((t) => [t.author, ...tree.up(t.author)])])) { const l = tree.login(id); if (l) names.set(l.toLowerCase(), id === tree.me ? 'You' : tree.name(id)); }
-  let out = `<svg class="fx okr fbr"${fit ? ` data-fit="${fit.w}x${fit.h}"` : ''} viewBox="0 0 ${W} ${f1(L.H)}" role="img" aria-label="${e(`French Brigade: ${plural(all.length, 'thread')} from start to merge, by person`)}">`;
+  let out = `<svg class="fx okr fbr${L.drill?.startsWith('p:') ? ' fb-one' : ''}"${fit ? ` data-fit="${fit.w}x${fit.h}"` : ''} viewBox="0 0 ${W} ${f1(L.H)}" role="img" aria-label="${e(`French Brigade: ${plural(all.length, 'thread')} from start to merge, by person`)}">`;
   out += `<defs><pattern id="fb-dots" width="14" height="14" patternUnits="userSpaceOnUse"><circle cx="7" cy="7" r="1" class="dot"/></pattern></defs><rect width="${W}" height="100%" fill="url(#fb-dots)"/>`;
   zones.forEach(([name, n], i) => {
     const x0 = ZONE_X[i] ?? 0, x1 = ZONE_X[i + 1] ?? W;
@@ -347,7 +345,9 @@ export function drawBrigade(items: readonly FbItem[], tree: Tree, now: number, {
       + (d.role === 'above' ? '<div class="m">Only your team’s work shows here.</div>' : '');
     const ty = d.y - 6, w = Math.max(30, d.label.length * 6.6 + 12);
     labels += `<g class="fbn r-${d.role}"${hov([d.key, ...here.flatMap((b) => b.items.flatMap((t) => t.calls))], [d.key], tip)}>`
-      + (d.role === 'above' ? `<rect x="${f1(d.x - w / 2)}" y="${f1(ty - 11)}" width="${f1(w)}" height="16" rx="5"/>` : '')
+      // Every name sits on a chip: the card's colour for a signer, so a band crossing under it never runs through the
+      // name (Dan, 5A, 2026-11-12); an outline for a lead above you.
+      + `<rect x="${f1(d.x - w / 2)}" y="${f1(ty - 11)}" width="${f1(w)}" height="16" rx="5"/>`
       + `<text x="${f1(d.x)}" y="${f1(ty)}" text-anchor="middle">${e(d.label)}</text></g>`;
   }
   out += `<g class="bands">${bands}</g><g class="fx-names">${labels}</g></svg>`;

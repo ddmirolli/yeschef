@@ -134,8 +134,8 @@ try {
       const name = `${view}-${scheme}-${width}`;
       await ready(before, `http://before.local/?view=${view}`);
       await ready(after, `http://after.local/?view=${view}`);
-      const frame = after.frameLocator(`.demo [data-swap="${view}"] iframe`);
-      await frame.locator('#app .tile:visible').first().waitFor();
+      // Under 1024 px the hero shows a picture, not the demo (Dan, 2026-11-11), so there is no frame to wait for.
+      if (width >= 1024) await after.frameLocator(`.demo [data-swap="${view}"] iframe`).locator('#app .tile:visible').first().waitFor();
       assert.deepEqual(await geometry(after), await geometry(before), `${name}: section layout changed`);
       const beforePixels = await before.screenshot({ fullPage: true, mask: [before.locator('iframe')] });
       const afterPixels = await after.screenshot({ fullPage: true, mask: [after.locator('iframe')] });
@@ -156,13 +156,25 @@ try {
   await page.locator('.hero button[data-view="solo"]').press('ArrowRight');
   assert.equal(await page.locator('html').getAttribute('data-view'), 'team');
   assert.equal(await page.locator('button[data-view="team"][aria-pressed="true"]').count(), 2);
+  // Each mode's demo button sits in its own pane of the modes section, so the toggle picks the pane first.
+  await page.locator('[data-mode-pick="brigade"]').click();
   await page.locator('[data-demo-mode="brigade"]').click();
   const team = page.frameLocator('.demo [data-swap="team"] iframe');
   await team.locator('.tboard .fx-wrap:not(.ok-box)').first().waitFor({ state: 'attached' });
+  await page.locator('[data-mode-pick="open"]').click();
   await page.locator('[data-demo-mode="open"]').click();
   await team.locator('.tboard .ok-p').first().waitFor({ state: 'attached' });
   assert.equal(await team.locator('.tboard .fx-wrap:not(.ok-box)').count(), 0);
-  report.teamActions = 'The mode cards switch the team demo between French Brigade and Open kitchen'
+  report.teamActions = 'The mode buttons switch the team demo between French Brigade and Open kitchen'
+  // The modes section's toggle, and a picture opened larger (Dan, 1C, 2026-11-12).
+  await page.locator('[data-mode-pick="brigade"]').click();
+  assert.equal(await page.locator('.modes').getAttribute('data-mode'), 'brigade');
+  await page.locator('[data-zoom][data-pane="brigade"]').click();
+  assert.equal(await page.locator('dialog.zoom[open] .zoom-pic img').count(), 1);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('dialog.zoom[open]').count(), 0);
+  await page.locator('[data-mode-pick="open"]').click();
+  report.modes = 'The modes toggle switches the pane, and a picture opens larger and closes on Escape';
 
   const widths = [1440, 1366, 1280, 1200, 1100, 1024, 980, 900, 820, 768, 700, 600, 540, 480, 430, 390, 360, 320];
   for (const width of widths) {

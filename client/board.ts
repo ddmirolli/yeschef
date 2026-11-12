@@ -784,7 +784,10 @@ function brigadeOf({ ok, view, now, want, who, menu, menuBare, fit, plateOf }: {
   const back = open ? `<button type="button" class="fx-back" data-unwho aria-label="Back to everyone" title="Back to everyone">${svg('chev')}</button>`
     : want && want.size === 1 ? `<button type="button" class="fx-back" data-unpick aria-label="Back to all projects" title="Back to all projects">${svg('chev')}</button>` : '';
   const whoName = open && tree ? (open.startsWith('f:') ? `${tree.name(open.slice(2))}'s team` : tree.name(open.slice(2))) : '';
-  const top = `<header class="you-h"><h2 id="tb-t" class="vh">French Brigade, ${e(title)}${whoName ? `, ${e(whoName)}` : ''}</h2>${open ? menuBare : menu}${back}</header>`;
+  // Opened, the header names who (Dan, 3A, 2026-11-12): after the back button, where you are. The heading says it for a
+  // screen reader, so the name on screen is hidden from one.
+  const shown = whoName ? `<span class="you-who" aria-hidden="true">${e(whoName)}</span>` : '';
+  const top = `<header class="you-h"><h2 id="tb-t" class="vh">French Brigade, ${e(title)}${whoName ? `, ${e(whoName)}` : ''}</h2>${open ? menuBare : menu}${back}${shown}</header>`;
   const body = ok.status !== 'live' || !tree
     ? `<p class="nc-l"><b>Not checked</b> ${e(ok.why === 'offline' ? 'Yes Chef’s team connection is down.' : 'No one on your team has reported yet.')}</p>`
     // No threads is "nothing in flight" only when everyone below you is reporting; else their work is not checked.
@@ -835,12 +838,15 @@ function okRows({ R, now, want, fold, name, people, plateOf, fit }: { R: Rows; n
   }
   // The rows fill the column down to the foot of The Pass (Dan, 2026-11-12): the page sends the size it has (fx=WxH,
   // client/page.ts fitFlow), and the rows grow to share it, up to a cap; past the cap the dotted field runs to the foot.
-  // Without a size, or with more rows than fit, each row keeps its own height and the column scrolls.
+  // With a size, rows also shrink, down to 28, so a big team still fits the window and the key at the foot stays in
+  // view (Dan, 2026-11-12: 17 rows at 48 ran past the window, which cut the key and squared the panel's foot).
+  // Without a size, or with more rows than fit even at 28, each row keeps its own height and the column scrolls.
   const HF = fit ? (fit.h * W) / fit.w : 0;
-  const ROW = Math.max(48, Math.min(72, Math.floor((HF - Y0 - 6) / Math.max(1, lines.length))));
+  const ROW = Math.max(fit ? 28 : 48, Math.min(72, Math.floor((HF - Y0 - 6) / Math.max(1, lines.length))));
   const H = Math.max(Y0 + lines.length * ROW + 6, Math.floor(HF));
-  // Every mark in a row sits on its middle line; cells keep the mock's height however tall the row grows.
-  const CH = Math.min(ROW - 16, 34), PH = CH - 8;
+  // Every mark in a row sits on its middle line; cells keep the mock's height however tall the row grows, and keep
+  // two thirds of a short row.
+  const CH = Math.min(34, Math.round(Math.max(ROW - 16, (ROW * 2) / 3))), PH = CH - 8;
   const mid = (i: number) => Y0 + i * ROW + ROW / 2;
   const maxM = Math.max(1, ...R.people.map((r) => r.merged ?? 0));
   // A Mac quiet since an earlier day says the day, never an hour that reads as today's.

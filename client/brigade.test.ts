@@ -24,6 +24,10 @@ const setup = (v: Wire = brigadeView(NOW)) => {
 const item = (items: readonly FbItem[], id: string): FbItem => one(items, (t) => t.id === id, id);
 const page = (view: TeamView, who: string | null = null) => renderApp({ board: { tickets: [], runsChecked: false }, link: () => 'x', status: { ok: true, at: NOW, ms: 1 },
   origin: 'https://t3.example', team: { view, now: NOW, mode: 'brigade' }, who });
+const fitted = (view: TeamView, who: string | null) => renderApp({ board: { tickets: [], runsChecked: false }, link: () => 'x', status: { ok: true, at: NOW, ms: 1 },
+  origin: 'https://t3.example', team: { view, now: NOW, mode: 'brigade' }, who, fit: { w: 860, h: 700 } });
+/** Where a band sits at a node. */
+const b0 = (b: { y: Record<string, number>; y0: number }, key: string): number => b.y[key] ?? b.y0;
 /** The data-k keys of each band, as hover reads them. */
 const bandKeys = (svg: string): string[][] => [...svg.matchAll(/<path class="band[^"]*" data-k="([^"]*)"/g)].map((m) => nth(m, 1).split(' '));
 
@@ -196,7 +200,7 @@ test('?who opens a folded team as its people, and a person as their threads one 
 
   const jon = page(v, 'p:jon');
   assert.match(jon, /data-unwho/, 'Jon, reached from Priya\'s team, opens');
-  const jsvg = grab(jon, /<svg class="fx okr fbr"[\s\S]*?<\/svg>/);
+  const jsvg = grab(jon, /<svg class="fx okr fbr[^"]*"[\s\S]*?<\/svg>/);
   assert.doesNotMatch(jsvg, /data-who=/, 'a person opened: no further drill');
   assert.equal(bandKeys(jsvg).length, items.filter((t) => t.author === 'jon').length, 'one band per thread');
 
@@ -205,6 +209,41 @@ test('?who opens a folded team as its people, and a person as their threads one 
     assert.doesNotMatch(none, /data-unwho/, k);
     assert.match(none, /data-who="f:priya"/, k);
   }
+});
+
+test('opened, the header names who, and a person\'s threads pack into one bundle, a hairline apart (Dan, 2026-11-12)', () => {
+  const v = brigadeView(NOW);
+  const { tree, items } = setup(v);
+  const head = (h: string) => grab(h, /<section class="tboard"[^>]*><header class="you-h">[\s\S]*?<\/header>/);
+  assert.doesNotMatch(head(page(v)), /you-who/, 'everyone: no name');
+  assert.match(head(page(v, 'f:priya')), /data-unwho[^]*<\/button><span class="you-who" aria-hidden="true">Priya&#39;s team<\/span>/);
+  const jon = fitted(v, 'p:jon');
+  assert.match(head(jon), /<span class="you-who" aria-hidden="true">Jon<\/span><\/header>/);
+  // "Detailed threads with texture rather than the linguini": no gap between two threads, at the left or at any node.
+  const mine = items.filter((t) => t.author === 'jon');
+  for (const fitH of [undefined, 500, 900]) {
+    const L = brigadeLayout(items, tree, NOW, 'p:jon', fitH);
+    assert.equal(L.bands.length, mine.length, 'one band per thread');
+    assert.equal(new Set(L.bands.map((b) => b.group)).size, 1, 'one bundle');
+    const left = [...L.bands].sort((a, z) => a.y0 - z.y0);
+    left.forEach((b, i) => { if (i) assert.ok(Math.abs(b.y0 - (left[i - 1]!.y0 + left[i - 1]!.h)) < 1e-6, `${fitH}: thread ${b.id} touches the one above`); });
+    for (const d of L.nodes) {
+      const at = L.bands.filter((b) => b.stops.includes(d.key)).sort((a, z) => b0(a, d.key) - b0(z, d.key));
+      at.forEach((b, i) => { if (i) assert.ok(Math.abs(b0(b, d.key) - (b0(at[i - 1]!, d.key) + at[i - 1]!.h)) < 1e-6, `${fitH}: at ${d.label}`); });
+    }
+  }
+  // The line between two threads is the full chart's 1 px hairline, and no thread carries a title.
+  const jsvg = grab(jon, /<svg class="fx okr fbr fb-one"[\s\S]*?<\/svg>/);
+  assert.doesNotMatch(jsvg, /<text class="ttl|clipPath/);
+  assert.doesNotMatch(grab(fitted(v, null), /<svg class="fx okr fbr"[\s\S]*?<\/svg>/), /fb-one/);
+});
+
+test('every signer\'s name sits on a chip, so a crossing band never runs through it (Dan, 5A, 2026-11-12)', () => {
+  const { tree, items } = setup();
+  const svg = drawBrigade(items, tree, NOW);
+  const gs = [...svg.matchAll(/<g class="fbn r-([a-z]+)"[^>]*>([\s\S]*?)<\/g>/g)];
+  assert.ok(gs.some((m) => m[1] !== 'above'), 'a signer');
+  for (const m of gs) assert.match(nth(m, 2), /^<rect [^>]*\/><text /, `${m[1]}: a chip, then the name`);
 });
 
 test('French Brigade says not checked while the team link is down, and nothing in flight when no one below you has work', () => {

@@ -1,5 +1,5 @@
 // Starts the made-up kitchen for the site demo (see shim.js): the app's own modules, in this page. The team demo
-// (demo/team.html, <html data-team="open">, or "brigade" to start there) adds the made-up team below you, and the site's mode cards switch its mode.
+// (demo/team.html, <html data-team="open">, or "brigade" to start there) adds the made-up team below you, and the buttons in the home page's modes section switch its mode.
 import { createKitchen } from './kitchen.ts';
 
 const dark = matchMedia('(prefers-color-scheme: dark)');

@@ -20,3 +20,17 @@ test('the download CTA keeps its label and has no requirements line', () => {
   assert.doesNotMatch(html, /dl-meta|Needs T3 Code on the same Mac/);
   assert.match(html, /<span>Download for Mac<\/span><\/a>\s*<a class="hero-source"/);
 });
+
+test('the modes section is a full-width title, then a toggle over the text beside a picture that opens larger, and no unbuilt promise (Dan, 1C, 2026-11-12)', () => {
+  const modes = html.slice(html.indexOf('<section id="modes"'), html.indexOf('<section id="problem"'));
+  assert.doesNotMatch(modes, /Choose what waits for your Go|Plating|sous chef|mode-card/);
+  assert.match(modes, /<div class="modes" data-swap="team" data-mode="open">/);
+  assert.match(modes, /data-mode-pick="open" aria-pressed="true"[^]*data-mode-pick="brigade" aria-pressed="false"/);
+  assert.match(modes, /<div class="mode-text mode-pane" data-pane="brigade" inert>/);
+  assert.equal(modes.match(/<button type="button" class="mode-shot mode-pane" data-pane="(open|brigade)" data-zoom/g)?.length, 2);
+  // The title spans the section with no lede, and the toggle is the only place the mode's name shows (Dan, 2026-11-12).
+  assert.match(modes, /<div class="section-head wide">\s*<h2 id="modes-title"[^]*?<\/h2>\s*<\/div>/);
+  assert.doesNotMatch(modes, /class="lede|<h3/);
+  for (const m of ['open', 'brigade']) assert.match(modes, new RegExp(`data-demo-mode="${m}"`));
+  assert.match(html, /<dialog class="zoom"/);
+});
