@@ -69,3 +69,21 @@ test('the demo kitchen runs one run per thread at a time, and its answered quest
   // The cards run began 80 minutes before the kitchen opened and asked at 18; the answer came 5 minutes after it opened.
   assert.equal(timeToday(run, clock).ms, 62 * min);
 });
+
+test('the team demo draws the made-up team in Your team, and the mode cards switch it', () => {
+  let changed = 0;
+  const demo = createKitchen({ now: () => new Date('2026-11-10T15:00:00Z').getTime(), where: (directory) => ({ icon: `icons/${directory}.svg` }),
+    shot: (name) => `img/${name}-dark.png`, later: null, team: 'open', onChange: () => { changed++; } });
+  const open = demo.page();
+  assert.match(open, /id="yc-team"/);
+  assert.match(open, /"mode":"open"/);
+  assert.match(open, /Main broken/);
+  assert.equal(demo.mode('brigade'), 'brigade');
+  assert.equal(changed, 1);
+  assert.match(demo.page(), /"mode":"brigade"/);
+  assert.equal(demo.mode('brigade'), 'brigade');
+  assert.equal(changed, 1, 'the same mode does not redraw');
+  // The solo demo has no team and no mode to switch.
+  assert.equal(kitchen().mode('brigade'), null);
+  assert.doesNotMatch(kitchen().page(), /id="yc-team"/);
+});

@@ -103,16 +103,11 @@ function pixels(before: Buffer, after: Buffer): number {
 
 try {
   const accessible = await pageFor(1440, 'light');
+  // The team demo opens on Your team, in Open kitchen, with the made-up team's calls at the pass.
   await ready(accessible, 'http://after.local/demo/team.html');
-  assert.equal(await accessible.locator('.card[aria-current="true"]').count(), 1);
-  await accessible.locator('.ri[data-staff]').first().click();
-  assert.equal(await accessible.locator('.ri[data-staff].on').getAttribute('aria-pressed'), 'true');
-  assert.equal(await accessible.locator('.passbtn[data-go="kitchen"]').getAttribute('aria-pressed'), 'true');
-  await accessible.locator('.fchip:not([data-course=""])').first().click();
-  assert.equal(await accessible.locator('.fchip.on').getAttribute('aria-pressed'), 'true');
-  assert.equal(await accessible.locator('.fchip:not(.on)[aria-pressed="false"]').count(), await accessible.locator('.fchip:not(.on)').count());
-  await accessible.locator('.passbtn[data-go="pass"]:visible').first().click();
-  assert.equal(await accessible.locator('.passbtn[data-go="kitchen"]').getAttribute('aria-pressed'), 'false');
+  await accessible.locator('html.s-team').waitFor({ state: 'attached' });
+  await accessible.locator('#app .tile:visible').first().waitFor();
+  assert.equal(await accessible.locator('.vmenu .seg [data-scope="team"]').first().getAttribute('aria-checked'), 'true');
   await ready(accessible, 'http://after.local/demo/app.html');
   await accessible.locator('#app .tile:visible').first().waitFor();
   assert.equal(await accessible.evaluate(() => {
@@ -140,7 +135,7 @@ try {
       await ready(before, `http://before.local/?view=${view}`);
       await ready(after, `http://after.local/?view=${view}`);
       const frame = after.frameLocator(`.demo [data-swap="${view}"] iframe`);
-      await frame.locator(view === 'team' ? '#list .card' : '#app .tile:visible').first().waitFor();
+      await frame.locator('#app .tile:visible').first().waitFor();
       assert.deepEqual(await geometry(after), await geometry(before), `${name}: section layout changed`);
       const beforePixels = await before.screenshot({ fullPage: true, mask: [before.locator('iframe')] });
       const afterPixels = await after.screenshot({ fullPage: true, mask: [after.locator('iframe')] });
@@ -163,14 +158,11 @@ try {
   assert.equal(await page.locator('button[data-view="team"][aria-pressed="true"]').count(), 2);
   await page.locator('[data-demo-mode="brigade"]').click();
   const team = page.frameLocator('.demo [data-swap="team"] iframe');
-  await team.locator('[data-mode-name]').filter({ hasText: 'Brigade' }).first().waitFor();
-  await team.locator('[data-open="shared"]').click();
-  await team.locator('[data-act="1"]').first().click();
-  await team.locator('textarea').fill('Keep the existing stream contract.');
-  await team.locator('[data-send="refire"]').click();
-  await team.locator('[data-undo]').click();
-  assert.equal(await team.locator('textarea').inputValue(), 'Keep the existing stream contract.');
-  report.teamActions = 'Brigade mode, request changes, and Undo preserve the draft';
+  await team.locator('.tboard .fx-wrap:not(.ok-box)').first().waitFor({ state: 'attached' });
+  await page.locator('[data-demo-mode="open"]').click();
+  await team.locator('.tboard .ok-p').first().waitFor({ state: 'attached' });
+  assert.equal(await team.locator('.tboard .fx-wrap:not(.ok-box)').count(), 0);
+  report.teamActions = 'The mode cards switch the team demo between French Brigade and Open kitchen'
 
   const widths = [1440, 1366, 1280, 1200, 1100, 1024, 980, 900, 820, 768, 700, 600, 540, 480, 430, 390, 360, 320];
   for (const width of widths) {

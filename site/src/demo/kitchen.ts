@@ -1,4 +1,4 @@
-import type { DemoKitchen, DemoOptions, DemoPr, DemoThread, DemoItem, DemoQuestion, DemoRun, DemoToolArgs } from './types.ts';
+import type { DemoKitchen, DemoMode, DemoOptions, DemoPr, DemoThread, DemoItem, DemoQuestion, DemoRun, DemoToolArgs } from './types.ts';
 // The made-up kitchen behind the site's hero demo (agents view). It plays T3 Code for the app's own modules
 // (lib/board.ts, lib/actions.ts, copied unchanged from client/), so the demo is the real app UI.
 // Three made-up products: Fernpay, Loopline, Quillo. Nothing here reaches T3 Code or any server.
@@ -10,6 +10,7 @@ import { parseCalls, callKey, imageId } from '../../demo/lib/calls.ts';
 import { act } from '../../demo/lib/actions.ts';
 import { normalize, change } from '../../demo/lib/kitchen.ts';
 import { readRuns, dayStart, trackWaits, mayRunToday } from '../../demo/lib/you.ts';
+import { demoTeam } from '../../demo/lib/demo-team.ts';
 import type { RunsEntry, WaitEntry } from '../../demo/lib/you.ts';
 
 function requiredThread(thread: DemoThread | undefined): DemoThread {
@@ -26,7 +27,9 @@ const decision = (title: string) => `**Decision for you**\n1. ${title}: merge it
 // it saves starts with them too.
 export const DEMO_RULES = { all: { reviewer: 'coderabbit', browser: 'browserbase' } };
 
-export function createKitchen({ now = Date.now, where, shot, onChange = () => {}, later = setTimeout }: DemoOptions): DemoKitchen {
+export function createKitchen({ now = Date.now, where, shot, onChange = () => {}, later = setTimeout, team = null }: DemoOptions): DemoKitchen {
+  // The team demo: Dana (the visitor) leads a made-up team on these same projects (client/demo-team.ts).
+  let mode: DemoMode | null = team;
   const ago = (min: number) => new Date(now() - min * 60000).toISOString();
   const projects = [['p-pay', 'Fernpay', 'fernpay'], ['p-loop', 'Loopline', 'loopline'], ['p-quill', 'Quillo', 'quillo']]
     .map(([id, title, dir]) => ({ id, title, ...where(dir) }));
@@ -243,9 +246,15 @@ export function createKitchen({ now = Date.now, where, shot, onChange = () => {}
     page(search = '') {
       board = snapshot();
       const params = new URLSearchParams(search), picked = pickedFrom(params);
+      // As client/server.ts route() reads them, plus the team a real Mac gets from its team connection.
       return renderApp({ board, picked, link: () => 'https://t3.codes/', status: { ok: true, at: now(), ms: 4 },
-        origin: 'https://t3.codes', answered, projects, rules: { ...rules, rev }, fit: fitFrom(params) })
+        origin: 'https://t3.codes', answered, projects, rules: { ...rules, rev }, fit: fitFrom(params),
+        ...(mode ? { team: { view: demoTeam(now()), now: now(), mode }, fold: params.getAll('fold'), who: params.get('who') } : {}) })
         .replace(/\/img\/([0-9a-f]{20})/g, (all, id) => (SHOTS.has(id) ? shot(SHOTS.get(id) ?? id) : all));
+    },
+    mode(next?: DemoMode) {
+      if (mode && next && next !== mode) { mode = next; onChange(); }
+      return mode;
     },
     /** The app's /act, as client/server.ts runAct() handles it, for the desktop hook window.yeschef.act. */
     async act(body: string): Promise<[number, string]> {

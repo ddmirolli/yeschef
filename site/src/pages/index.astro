@@ -12,7 +12,7 @@ const firstPaint = inlineScript('src/scripts/first-paint.ts');
 const shot = (src: ImageMetadata) => getImage({ src, widths: [800, 1200, 1600], format: 'webp', quality: 90 });
 const shots = {
   solo: { light: await shot(soloLight), dark: await shot(soloDark), alt: 'Yes Chef on a made-up kitchen: The Pass with a ticket open' },
-  team: { light: await shot(teamLight), dark: await shot(teamDark), alt: 'Yes Chef Teams: a lead’s Pass with an overlap open' },
+  team: { light: await shot(teamLight), dark: await shot(teamDark), alt: 'Yes Chef with a made-up team: The Pass with a main-broken call open' },
 };
 const SIZES = 'calc(100vw - 32px)';
 ---
@@ -61,7 +61,8 @@ const SIZES = 'calc(100vw - 32px)';
         </div>
 
         <!-- The live demo (Dan, 2026-11-09): the agents view runs the app itself on a made-up kitchen (demo/app.html,
-             built by site/scripts/generate-demo.ts); the devs view is a clickable mock of a lead's Pass (demo/team.html).
+             built by site/scripts/generate-demo.ts); the devs view runs it too, with a made-up team below you (demo/team.html,
+             client/demo-team.ts; Dan, 2026-11-12).
              site.ts loads the frame for the view on screen, and the other one on the first flip. -->
         <div class="demo swap" data-rise style="--d:520ms">
           <figure class="board demo-fig" data-swap="solo">
@@ -70,9 +71,9 @@ const SIZES = 'calc(100vw - 32px)';
             <figcaption>The app itself, on a made-up kitchen. Pick a ticket, answer it, send it out or refire it. The agents answer in a few seconds.</figcaption>
           </figure>
           <figure class="board demo-fig" data-swap="team">
-            <div class="board-frame demo-frame"><iframe data-src="/demo/team.html" title="Teams demo: a lead’s Pass, a clickable mock"></iframe></div>
+            <div class="board-frame demo-frame"><iframe data-src="/demo/team.html" title="Yes Chef demo: the app with a made-up team"></iframe></div>
             <div class="board-frame demo-shot"><picture><source media="(prefers-color-scheme: light)" srcset={shots.team.light.srcSet.attribute} sizes={SIZES} /><img src={shots.team.dark.src} srcset={shots.team.dark.srcSet.attribute} sizes={SIZES} alt={shots.team.alt} width="1440" height="900" loading="lazy" decoding="async" /></picture></div>
-            <figcaption>Teams is in design. This is a clickable mock of a lead’s Pass: handle a card, open the kitchen, switch the mode.</figcaption>
+            <figcaption>The app itself, with a made-up team below you. Open a call, flip to the expanded view, switch the mode.</figcaption>
           </figure>
         </div>
       </div>
