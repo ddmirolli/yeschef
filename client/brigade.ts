@@ -40,7 +40,8 @@ export function treeOf(view: TeamView | null | undefined): Tree | null {
   if (!me) return null;
   const people = (Array.isArray(view?.people) ? view.people : []).filter((p): p is Raw & { id: string } => !!p && typeof p === 'object' && typeof (p as Raw).id === 'string');
   const byId = new Map(people.map((p) => [p.id, p]));
-  const flat = !people.some((p) => typeof p.under === 'string' && byId.has(p.under));
+  // Flat only when no one names a lead: an `under` naming someone not on the roster ends that line instead.
+  const flat = !people.some((p) => p.under); // as client/open-kitchen.ts below()
   const parent = (id: string): string | null => {
     if (flat) return id !== me && view?.lead ? me : null;
     const u = byId.get(id)?.under;
@@ -115,8 +116,9 @@ function ladder(tree: Tree, author: string): { signers: string[]; merger: string
 }
 /** Whether this lead's approval of the thread's open PR is read. */
 function approved(tree: Tree, lead: string, t: FbItem): boolean {
-  const login = tree.login(lead)?.toLowerCase();
-  return !!login && t.prs.some((p) => p.state === 'open' && !!p.reviewers?.some((r) => !r.team && r.state === 'approved' && r.who.toLowerCase() === login));
+  // Every open PR on the thread needs it: one approved PR beside an unread or unapproved one has not passed the lead.
+  const login = tree.login(lead)?.toLowerCase(), open = t.prs.filter((p) => p.state === 'open');
+  return !!login && open.length > 0 && open.every((p) => !!p.reviewers?.some((r) => !r.team && r.state === 'approved' && r.who.toLowerCase() === login));
 }
 
 // You see the two tiers below you by name; deeper tiers fold into the person two levels down.
@@ -253,7 +255,7 @@ const WHERE = (b: FbBand, L: FbLayout): string => {
   if (b.stage === 'Merged') return ' · merged';
   if (!at) return b.stage === 'In review' ? ' · waiting on review' : '';
   if (b.signed) return ' · signed off, waiting on checks or review';
-  const who = at.role === 'you' ? 'you' : at.label;
+  const who = at.role === 'you' ? 'you' : e(at.label);
   return b.stage === 'Ready to merge' ? ` · waiting on ${who} to merge` : ` · waiting on ${who}`;
 };
 /** The open PR's reviewers, named as the team knows them. */
@@ -266,7 +268,9 @@ function reviewWords(t: FbItem, names: ReadonlyMap<string, string>): string {
   const by = (s: string) => [...new Set(rs.filter((r) => r.state === s).map((r) => nm(r.who)))];
   const parts = [['Approved', by('approved')], ['Changes asked', by('changes')], ['Asked', by('requested')]] as const;
   const line = parts.filter(([, w]) => w.length).map(([k, w]) => `${k}: ${e(w.join(', '))}`).join(' · ');
-  return `<div class="m">${line || 'No reviews yet'}</div>`;
+  // A PR whose reviews were not read says so, beside the ones that were.
+  const unread = open.filter((p) => p.reviewers === null).map((p) => `#${p.n}`);
+  return `<div class="m">${line || 'No reviews yet'}${unread.length ? ` · Reviews on ${unread.join(', ')} not checked` : ''}</div>`;
 }
 
 /** The chart as one panel, the way Open kitchen's rows sit (client/board.ts okRows): the page sends the size it has

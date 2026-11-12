@@ -777,6 +777,7 @@ function brigadeOf({ ok, view, now, want, who, menu, fit, plateOf }: { ok: OpenK
   const title = want ? [...want].sort((a, b) => a.localeCompare(b)).join(', ') : 'All projects';
   const tree = treeOf(view);
   const items = tree && ok.status === 'live' ? brigadeItems(ok, tree, { want, plateOf }) : [];
+  const quiet = ok.people.filter((p) => p.reporting !== true).length;
   // Opened: only a group the chart draws (a person, or a folded team); else every person.
   const open = who && tree && items.some((t) => groupOfIn(tree, t.author).key === who) ? who : null;
   const back = open ? `<button type="button" class="fx-back" data-unwho aria-label="Back to everyone" title="Back to everyone">${svg('chev')}</button>`
@@ -785,7 +786,9 @@ function brigadeOf({ ok, view, now, want, who, menu, fit, plateOf }: { ok: OpenK
   const top = `<header class="you-h"><h2 id="tb-t" class="vh">French Brigade, ${e(title)}${whoName ? `, ${e(whoName)}` : ''}</h2>${menu}${back}</header>`;
   const body = ok.status !== 'live' || !tree
     ? `<p class="nc-l"><b>Not checked</b> ${e(ok.why === 'offline' ? 'Yes Chef’s team connection is down.' : 'No one on your team has reported yet.')}</p>`
-    : !items.length ? '<p class="nc-l"><b>Nothing in flight</b> No one below you has a thread from In progress to Merged.</p>'
+    // No threads is "nothing in flight" only when everyone below you is reporting; else their work is not checked.
+    : !items.length ? (quiet ? `<p class="nc-l"><b>Not checked</b> ${quiet === 1 ? '1 teammate is' : `${quiet} teammates are`} not reporting.</p>`
+      : '<p class="nc-l"><b>Nothing in flight</b> No one below you has a thread from In progress to Merged.</p>')
     : drawBrigade(items, tree, now, { drill: open, fit });
   return `<section class="tboard" aria-labelledby="tb-t">${top}<div class="you-b">${body}</div></section>`;
 }

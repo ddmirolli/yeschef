@@ -38,6 +38,12 @@ test('the ladder comes from the roster: ancestors nearest first, a flat team und
   assert.deepEqual(flat.up('jon'), ['me'], 'no under on anyone: everyone sits directly under the lead');
 });
 
+test('a roster whose every lead is unknown is not flat: each line ends there', () => {
+  const v: Wire = brigadeView(NOW);
+  for (const p of v.people) if (p.under) p.under = 'ghost';
+  assert.deepEqual(treeOf(v)?.up('jon'), []);
+});
+
 test('a loop or an unknown lead in the roster ends the line, never hangs', () => {
   const v: Wire = brigadeView(NOW);
   for (const p of v.people) if (p.id === 'kai') p.under = 'jon';
@@ -106,6 +112,17 @@ test('in review passes a lead only on their read approval, and waits at the firs
   assert.equal(one(L2.bands, (b) => b.items.some((t) => t.id === 'mcp:iris-1')).signed, false);
 });
 
+test('a lead\'s approval passes a thread only when it is on every open PR of the thread', () => {
+  const v: Wire = brigadeView(NOW);
+  const iris = v.people.find((p: Wire) => p.id === 'iris').summary.tickets[0];
+  iris.prs.push({ ...iris.prs[0], n: 450, url: 'https://github.com/acme/quillo/pull/450', reviewers: null });
+  const { tree, items } = setup(v);
+  const band = one(brigadeLayout(items, tree, NOW).bands, (b) => b.items.some((t) => t.id === 'mcp:iris-1'));
+  assert.equal(band.signed, false, 'the second PR\'s reviews are not read');
+  const svg = drawBrigade(items, tree, NOW, { drill: 'f:sam' });
+  assert.match(svg, /Approved: Sam · Reviews on #450 not checked/);
+});
+
 test('a PR whose reviewers were not read says so in its tooltip', () => {
   const { tree, items } = setup();
   const svg = drawBrigade(items, tree, NOW, { drill: 'f:sam' });
@@ -149,6 +166,9 @@ test('French Brigade says not checked while the team link is down, and nothing i
   const idle: Wire = brigadeView(NOW);
   for (const p of idle.people) if (p.summary) p.summary.tickets = [];
   assert.match(page(idle), /<b>Nothing in flight<\/b>/);
+  const lee = one<Wire>(idle.people, (p: Wire) => p.id === 'lee');
+  lee.summary = null;
+  assert.match(page(idle), /<b>Not checked<\/b> 1 teammate is not reporting/, 'Lee has sent nothing: no threads is not nothing in flight');
 });
 
 test('the summary sends this Mac\'s GitHub login, or null when it was not read', () => {
