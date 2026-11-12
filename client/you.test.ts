@@ -323,14 +323,17 @@ test('hover lights the chart and The Pass both ways; a project click picks that 
   };
   const board = el();
   const band = el({ k: 'fl:0 g:Fernpay t:p-1 t:p-2 n:review' }), other = el({ k: 'fl:1 g:Fernpay t:p-3' }), card = el({ plate: 'p-2' }), card3 = el({ plate: 'p-9' });
+  // The project's logo holds every thread's key, p-9's too (Dan, 2026-11-12: any of its threads lights it).
+  const logo = el({ k: 'g:Fernpay t:p-1 t:p-2 t:p-3 t:p-9' }); logo.cls.add('glogo');
   const one: Record<string, El> = { '.board': board };
-  const many: Record<string, El[]> = { '.you .fx-view:not([hidden]) [data-k]': [band, other], '.head-b .folder[data-folder="pass"] .call-tile[data-plate]': [card, card3] };
+  const many: Record<string, El[]> = { '.you .fx-view:not([hidden]) [data-k]': [band, other, logo], '.head-b .folder[data-folder="pass"] .call-tile[data-plate]': [card, card3] };
   const ctx = vm.createContext({ window: {}, $: (s: string) => one[s] ?? null, $$: (s: string) => many[s] ?? [] });
   vm.runInContext(fns, ctx);
   const run = (code: string) => vm.runInContext(code, ctx);
-  // A band lights itself and its threads' cards; the band beside it steps back.
+  // A band lights itself, its project's logo and its threads' cards; the band beside it steps back. The logo lights no
+  // card of its own (p-9 stays dark).
   run(`flowFocus(['fl:0', 't:p-1', 't:p-2'])`);
-  assert.ok(board.cls.has('fx-focus') && band.cls.has('lit') && !other.cls.has('lit'));
+  assert.ok(board.cls.has('fx-focus') && band.cls.has('lit') && !other.cls.has('lit') && logo.cls.has('lit'));
   assert.ok(card.cls.has('lit') && !card3.cls.has('lit'));
   // A card lights its thread's band.
   run(`flowFocus(['t:p-3'])`);

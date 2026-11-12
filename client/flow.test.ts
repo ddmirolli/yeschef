@@ -125,7 +125,7 @@ test('opening a project: one band per thread, each opening its ticket, with a ha
   assert.equal([...many.matchAll(/<path class="fanl /g)].length, 8);
 });
 
-test('every project: a band or a project picks the project; one project shows its threads, named over its node', () => {
+test('every project: a band or a project\'s logo picks the project; one project shows its threads, with no node and no name (the header names it)', () => {
   const html = youFlow(LINE, NOW);
   assert.equal([...html.matchAll(/<div class="fx-view">/g)].length, 1);
   assert.doesNotMatch(html, /data-view=| hidden/);
@@ -133,12 +133,17 @@ test('every project: a band or a project picks the project; one project shows it
   assert.doesNotMatch(top, /data-plate=/);
   assert.match(top, /<path class="band [^"]+"[^>]*data-drill="Yes Chef"/);
   assert.match(top, /<rect class="node"[^>]*data-drill="Fernpay"/);
-  assert.match(top, /<text class="gname"[^>]*data-drill="Fernpay"[^>]*>Fernpay<\/text>/);
-  // One project (picked in the header, or clicked here) is its threads, and its name sits over its node.
+  assert.match(top, /<g class="glogo"[^>]*data-drill="Fernpay"[^>]*>/);
+  // Dan, 2026-11-12: a logo where the name was, never the name in words.
+  assert.doesNotMatch(top, />Fernpay<|>Yes Chef</);
+  // One project (picked in the header, or clicked here) is its threads: no project node, no logo, no name.
   const one = youFlow(LINE.filter((t) => t.project === 'Fernpay'), NOW);
   assert.match(one, /data-plate=/);
-  assert.doesNotMatch(one, /data-drill=/);
-  assert.match(one, /<text class="gname strong"[^>]*data-dy="-7" text-anchor="middle">Fernpay<\/text>/);
+  assert.doesNotMatch(one, /data-drill=|glogo|>Fernpay<|<rect class="node" x="150"/);
+  const L = layout(LINE, NOW, 'Fernpay');
+  assert.equal(drawFlow(L, NOW).match(/<rect class="node/g)?.length, 3);
+  // Each thread runs straight from its lane: it leaves where it starts.
+  assert.ok(L.bands.every((b) => b.lane === b.y0));
   // No second line of labels over the columns: each node is named on its own.
   assert.doesNotMatch(html + one, /tierh|Checks and review<|You merge</);
 });
@@ -151,6 +156,21 @@ test('hover keys split on spaces: a project name with spaces is one key, and eac
   assert.ok(k.includes('t:y1'));
   assert.ok(k.includes('n:review') && k.includes('n:you') && !k.includes('n:main'));
   assert.deepEqual(grab(band, /data-f="([^"]+)"/, 1).split(' ').slice(1), ['t:y1']);
+});
+
+test('each project is its logo, gray at rest, in colour when its work lights, from either side (Dan, 2026-11-12)', () => {
+  const items = LINE.map((t) => (t.project === 'Fernpay' ? { ...t, icon: '/icon/fp' } : { ...t, hue: 210 }));
+  const svg = drawFlow(layout(items, NOW), NOW);
+  const fern = grab(svg, /<g class="glogo"[^>]*data-drill="Fernpay"[\s\S]*?<\/g>/);
+  assert.match(fern, /<image href="\/icon\/fp" width="22" height="22"/);
+  const yc = grab(svg, /<g class="glogo"[^>]*data-drill="Yes Chef"[\s\S]*?<\/g>/);
+  assert.match(yc, /<rect width="22" height="22" rx="6" fill="hsl\(210 48% 42%\)"\/><text class="pml"[^>]*>Y<\/text>/);
+  // Its keys are its project and each of its threads, so a band (or the thread's Pass card) lights it; it lights its project.
+  assert.deepEqual(grab(yc, /data-k="([^"]+)"/, 1).split(' '), ['g:Yes%20Chef', 't:y1', 't:m2']);
+  assert.equal(grab(yc, /data-f="([^"]+)"/, 1), 'g:Yes%20Chef');
+  const css = servedSource();
+  assert.match(css, /\.fx \.glogo\{filter:grayscale\(1\)/);
+  assert.match(css, /\.fx \.glogo\.lit\{filter:none;opacity:1\}/);
 });
 
 test('names and titles are escaped everywhere', () => {
@@ -190,7 +210,7 @@ test('every thread keeps a positive width, even with more projects than the char
 
 test('a keyboard reaches every project by its name and, opened, every thread (PR-Agent r1 on #49)', () => {
   const top = drawFlow(layout(LINE, NOW), NOW);
-  assert.deepEqual([...top.matchAll(/<text class="gname"[^>]*tabindex="0" role="button" aria-label="([^"]+)"/g)].map((m) => m[1]), ['Open Fernpay: 6 threads', 'Open Yes Chef: 2 threads']);
+  assert.deepEqual([...top.matchAll(/<g class="glogo"[^>]*tabindex="0" role="button" aria-label="([^"]+)"/g)].map((m) => m[1]), ['Open Fernpay: 6 threads', 'Open Yes Chef: 2 threads']);
   assert.doesNotMatch(grab(top, /<g class="bands">[\s\S]*?<\/g>/), /tabindex/);
   const yc = drawFlow(layout(LINE, NOW, 'Yes Chef'), NOW);
   assert.match(yc, /<path class="band a0 wait"[^>]*data-plate="y1" tabindex="0" role="button" aria-label="y1, Ready to merge, waiting on you"/);
@@ -203,7 +223,7 @@ test('the chart fills the height the page gives it', () => {
   assert.match(svg, /<rect class="zone z0" x="0" y="0" width="262" height="100%"\/>/);
   assert.match(svg, /<line class="zline"[^>]*y2="100%"\/>/);
   assert.match(svg, /<g class="fx-body" data-top="58" data-span="[\d.]+"><g class="bands">/);
-  assert.match(svg, /<\/g><g class="fx-names"><text class="gname"[^>]*data-y="[\d.]+"/);
+  assert.match(svg, /<\/g><g class="fx-names"><g class="glogo"[^>]*><svg [^>]*data-y="[\d.]+" data-dy="-11"/);
 });
 
 const left0 = (L: ReturnType<typeof layout>): (readonly [number, number])[] =>
@@ -229,7 +249,7 @@ test('given the room the page has, the river spreads to fill it with matching ma
       const widest = (ys: (readonly [number, number])[]) => { const r = [...ys].sort((a, b) => a[0] - b[0]); return r.length < 2 ? null : Math.max(0, ...r.slice(1).map((v, i) => v[0] - r[i]![1])); };
       const at = (s: 'review' | 'you' | 'main') => widest(L.bands.filter((b) => b.path.includes(s)).map((b) => [b.yIn[s]!, b.yIn[s]! + b.h] as const));
       const main = at('main');
-      const steps = [widest(left0(L)), ...(drill === null ? [] : [widest(L.bands.map((b) => [b.y0, b.y0 + b.h] as const))]), at('review'), at('you')]
+      const steps = [widest(left0(L)), at('review'), at('you')]
         .filter((v): v is number => v !== null);
       assert.ok(steps.length >= 2);
       for (let i = 1; i < steps.length; i++) assert.ok(steps[i]! < steps[i - 1]! && steps[i]! > 0, `${drill} ${fitH}: ${steps.join(' > ')}`);

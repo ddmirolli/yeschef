@@ -4,7 +4,8 @@
 // into. Width is threads. Gray is how long since a thread last changed, in three labelled steps (dark mode inverts it, so
 // old is bright). No red, orange or yellow fills. What waits on you is The Pass's job (Dan, 2026-11-12): its threads
 // keep their gray here, with no mark at rest, and hover links each one to its card both ways, in one colour (the page
-// script reads data-k, data-f and data-tip). Their tooltip says "Waiting on you". Click a project to open its threads, one band each, with a hairline per subagent at the left.
+// script reads data-k, data-f and data-tip). Their tooltip says "Waiting on you". Each project is its logo, gray until
+// its work lights. Click one to open its threads, one band each, with a hairline per subagent at the left.
 // The release trains (Nightly, Stable) are "not checked": Yes Chef does not read a project's releases.
 
 /** The stages a thread on the line can be in (client/board.ts STAGES). */
@@ -15,6 +16,8 @@ export type FlowStage = 'Backlog' | 'Planned' | 'In progress' | 'In review' | 'R
 export interface FlowItem {
   id: string; title: string; project: string; stage: FlowStage; since: number; subs: number; waits: boolean;
   pr: number | null; base?: string | null | undefined;
+  /** The project's logo (client/board.ts mark): its icon's URL when T3's machine has one, else a lettered tile in hue. */
+  icon?: string | null | undefined; hue?: number | undefined;
 }
 /** How long since the thread last changed: under 1 day, 1 to 3 days, over 3 days, or not checked. */
 export type Age = 0 | 1 | 2 | null;
@@ -67,6 +70,12 @@ const ago = (since: number, now: number): string => {
 /** A project's hover key: its name with no spaces, so the page can split keys on spaces. */
 const gk = (name: string): string => `g:${encodeURIComponent(name)}`;
 
+/** A project's logo in the chart, as its mark on a card (client/board.ts mark): the icon, else its initial on its hue. */
+const LOGO = 22;
+const logo = (name: string, t: FlowItem | undefined): string => (t?.icon
+  ? `<image href="${e(t.icon)}" width="${LOGO}" height="${LOGO}" preserveAspectRatio="xMidYMid meet"/>`
+  : `<rect width="${LOGO}" height="${LOGO}" rx="6" fill="hsl(${t?.hue ?? 0} 48% 42%)"/><text class="pml" x="${LOGO / 2}" y="${LOGO / 2}" text-anchor="middle" dominant-baseline="central">${e(name.slice(0, 1).toUpperCase())}</text>`);
+
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 /** Where every band and node sits. drill: a project's name to open its threads, one band each; null for every project.
  *  fitH: the height (in viewBox units) the page has free for the chart. With it the river spreads to fill that height
@@ -118,7 +127,7 @@ export function layout(items: readonly FlowItem[], now: number, drill: string | 
   // Separation tightens left to right (Dan, 2026-11-12): the space between projects (opened: between threads) at the
   // left shrinks at each stop in step with how far right it is, until the branch they merged into holds them touching.
   // In every project view, a project's own bands touch from its node on; opened, each thread is its own.
-  const x0 = drill !== null ? XFAN : XG, x1 = NODE_X.main;
+  const x0 = XG, x1 = NODE_X.main;
   const sepAt = (x: number): number => (drill !== null ? laneGap : gap) * clamp((x1 - x) / (x1 - x0), 0, 1);
   const sep = (a: Band, b: Band, x: number): number => (drill !== null || a.group !== b.group ? sepAt(x) : 0);
   /** Bands stacked at x: their heights and the space between neighbours. */
@@ -155,7 +164,8 @@ export function layout(items: readonly FlowItem[], now: number, drill: string | 
     let acc = node.y;
     order.forEach((b, i) => { if (i) acc += sep(order[i - 1]!, b, NODE_X[s]); b.yIn[s] = acc; b.yOut[s] = acc; acc += b.h; });
   }
-  // Drilled in, each thread starts in its own lane at the left.
+  // Drilled in, each thread starts in its own lane at the left and runs straight to XG: one project has no node to gather
+  // at (Dan, 2026-11-12: the header names it), so its lane is where it leaves.
   if (drill !== null) {
     let acc = mid(leftH);
     for (const b of [...bands].sort((a, b) => a.y0 - b.y0)) { b.lane = acc; acc += b.h + laneGap; }
@@ -163,10 +173,10 @@ export function layout(items: readonly FlowItem[], now: number, drill: string | 
   return { H, span, drill, groups, nodes, bands };
 }
 
-/** A ribbon h high from (x0, y0) to (x1, y1), curved like a Sankey link. */
-const link = (x0: number, y0: number, x1: number, y1: number, h: number): string => {
+/** A ribbon h high from (x0, y0) to (x1, y1), curved like a Sankey link; from xs, it runs straight to x0 first. */
+const link = (x0: number, y0: number, x1: number, y1: number, h: number, xs = x0): string => {
   const m = (x0 + x1) / 2;
-  return `M${f1(x0)},${f1(y0)}C${f1(m)},${f1(y0)} ${f1(m)},${f1(y1)} ${f1(x1)},${f1(y1)}L${f1(x1)},${f1(y1 + h)}C${f1(m)},${f1(y1 + h)} ${f1(m)},${f1(y0 + h)} ${f1(x0)},${f1(y0 + h)}Z`;
+  return `M${f1(xs)},${f1(y0)}${xs !== x0 ? `L${f1(x0)},${f1(y0)}` : ''}C${f1(m)},${f1(y0)} ${f1(m)},${f1(y1)} ${f1(x1)},${f1(y1)}L${f1(x1)},${f1(y1 + h)}C${f1(m)},${f1(y1 + h)} ${f1(m)},${f1(y0 + h)} ${f1(x0)},${f1(y0 + h)}${xs !== x0 ? `L${f1(xs)},${f1(y0 + h)}` : ''}Z`;
 };
 /** A straight ribbon that ends in a round cap: a thread that stopped short of review. */
 const stub = (x0: number, x1: number, y: number, h: number): string =>
@@ -216,10 +226,10 @@ export function drawFlow(L: Layout, now: number): string {
     const cls = `band ${ageCls(b.age)}${b.waits ? ' wait' : ''}`;
     const segs: string[] = [];
     const [t0] = b.items;
+    // Opened, a thread's lane is one ribbon from the left to its first stop (no node, so no seam where one was).
+    const lead = L.drill !== null && b.lane !== null ? (!t0 || !t0.subs ? X0 + 30 : XFAN) : null;
     if (L.drill !== null && b.lane !== null) {
-      segs.push(link(XFAN, b.lane, XG, b.y0, b.h));
-      if (!t0 || !t0.subs) segs.push(rect(X0 + 30, XFAN + 1, b.lane, b.h));
-      else {
+      if (t0 && t0.subs) {
         // One hairline per subagent (up to 8), fanning into the thread's lane.
         const m = Math.min(8, t0.subs), cy = b.lane + b.h / 2;
         fans += `<rect class="fanhit"${attrs} x="${X0}" y="${f1(b.lane - 2)}" width="${XFAN - X0}" height="${f1(b.h + 4)}"/>`;
@@ -230,10 +240,10 @@ export function drawFlow(L: Layout, now: number): string {
       }
     } else segs.push(rect(XB, XG, b.y0, b.h));
     const end = STUB[b.stage];
-    if (end !== undefined) segs.push(stub(XG + NW, end, b.y0, b.h));
+    if (end !== undefined) segs.push(stub(lead ?? XG + NW, end, b.y0, b.h));
     let px = XG + NW, py = b.y0;
     for (const s of b.path) {
-      segs.push(link(px, py, NODE_X[s], b.yIn[s] ?? 0, b.h));
+      segs.push(link(px, py, NODE_X[s], b.yIn[s] ?? 0, b.h, px === XG + NW && lead !== null ? lead : px));
       px = NODE_X[s] + NW; py = b.yOut[s] ?? 0;
     }
     // Every project open: a click opens the project. One project open: a click opens the thread, as its card does.
@@ -247,18 +257,20 @@ export function drawFlow(L: Layout, now: number): string {
   let names = '';
   out += `<g class="fx-body" data-top="${TOP}" data-span="${f1(L.span)}"><g class="bands">${bands}</g><g class="fans">${fans}</g>`;
 
-  // The projects' nodes and, with every project open, their names.
-  for (const g of L.groups) {
+  // Every project open: each project's node, and its logo where its name was (Dan, 2026-11-12). The logo is gray at
+  // rest and takes its colour when anything of its project lights: its own threads' keys are on it. One project open
+  // has no node and no logo: the header names it, and its threads run straight in from the left.
+  if (L.drill === null) for (const g of L.groups) {
     const mine = all.filter((t) => t.project === g.name);
     const subs = mine.reduce((s, t) => s + t.subs, 0);
     const tip = `<b>${e(g.name)}</b><div>${plural(mine.length, 'thread')}${subs ? ` · ${plural(subs, 'subagent')}` : ''}</div>`
       + `<div class="m">${mine.filter((t) => t.stage === 'Merged').length} merged · ${mine.filter((t) => t.stage === 'In review').length} in review</div>`
-      + (L.drill === null ? '<div class="m">Click to open its threads</div>' : '');
-    const dr = L.drill === null ? ` data-drill="${e(g.name)}"` : '';
+      + '<div class="m">Click to open its threads</div>';
+    const dr = ` data-drill="${e(g.name)}"`;
     out += `<rect class="node"${hov([gk(g.name)], [gk(g.name)], tip)}${dr} x="${XG}" y="${f1(g.y)}" width="${NW}" height="${f1(Math.max(1, g.h))}" rx="1.5"/>`;
-    // Opened, the project's name sits over its node, as each stop's name sits over its node.
-    if (L.drill !== null) names += `<text class="gname strong"${hov([gk(g.name)], [gk(g.name)], tip)} x="${XG + NW / 2}" y="${f1(g.y - 7)}" data-y="${f1(g.y)}" data-dy="-7" text-anchor="middle">${e(cut(g.name, 24))}</text>`;
-    if (L.drill === null) names += `<text class="gname"${hov([gk(g.name)], [gk(g.name)], tip)}${dr} tabindex="0" role="button" aria-label="${e(`Open ${g.name}: ${plural(mine.length, 'thread')}`)}" x="${XB - 8}" y="${f1(g.y + g.h / 2)}" data-y="${f1(g.y + g.h / 2)}" text-anchor="end" dominant-baseline="central">${e(cut(g.name, 16))}</text>`;
+    const lk = [gk(g.name), ...mine.map((t) => `t:${t.id}`)];
+    names += `<g class="glogo"${hov(lk, [gk(g.name)], tip)}${dr} tabindex="0" role="button" aria-label="${e(`Open ${g.name}: ${plural(mine.length, 'thread')}`)}">`
+      + `<svg x="${XB - 8 - LOGO}" y="${f1(g.y + g.h / 2 - LOGO / 2)}" data-y="${f1(g.y + g.h / 2)}" data-dy="${-LOGO / 2}" width="${LOGO}" height="${LOGO}" viewBox="0 0 ${LOGO} ${LOGO}" overflow="visible">${logo(g.name, mine[0])}</svg></g>`;
   }
   // The stops. A node's queue is the threads that end there.
   const ends = (s: Stop) => L.bands.filter((b) => b.path[b.path.length - 1] === s).flatMap((b) => b.items);

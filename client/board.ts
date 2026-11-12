@@ -1048,7 +1048,7 @@ export function renderApp({ board, picked = null, link, status, origin, answered
   const chart = !status.ok ? `<div class="fx-empty"><p><b>Not checked</b></p><p class="muted">T3 did not answer, so the chart cannot say where your threads are.</p></div>`
     : !onLine.length ? `<div class="fx-empty"><p><b>Nothing on the line</b></p><p class="muted">Threads show here from Backlog to Merged.</p></div>`
     : youFlow(onLine.map((k): FlowItem => ({ id: plateId(k), title: k.thread.title || 'Untitled thread', project: k.project, stage: k.place as FlowStage,
-      since: Date.parse(k.updatedAt), subs: k.stations, waits: k.atPass, pr: (k.open[0] || k.merged[0])?.number ?? null,
+      since: Date.parse(k.updatedAt), subs: k.stations, waits: k.atPass, icon: k.icon, hue: hue(k.project), pr: (k.open[0] || k.merged[0])?.number ?? null,
       base: k.merged.length && !k.open.length ? (k.merged.every((p) => p.base && p.base === k.merged[0]!.base) ? k.merged[0]!.base : null) : null })), status.at, fit);
   const back = !!want && status.ok && new Set(onLine.map((k) => k.project)).size === 1;
   // The focused view's left list: the pass first, then each stage, then Verified and On hold.

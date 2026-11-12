@@ -322,7 +322,8 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     $$('.you .fx-view:not([hidden]) [data-k]').forEach(function(n){
       var mine = (n.dataset.k || '').split(' '), on = !!keys && keys.some(function(k){ return mine.indexOf(k) >= 0; });
       n.classList.toggle('lit', on);
-      if (on) mine.forEach(function(k){ if (k.indexOf('t:') === 0) lit[k.slice(2)] = true; });
+      // A project's logo carries every thread's key so any of them lights it; it never lights their cards in turn.
+      if (on && !n.classList.contains('glogo')) mine.forEach(function(k){ if (k.indexOf('t:') === 0) lit[k.slice(2)] = true; });
     });
     if (keys) keys.forEach(function(k){ if (k.indexOf('t:') === 0) lit[k.slice(2)] = true; });
     $$('.head-b .folder[data-folder="pass"] .call-tile[data-plate]').forEach(function(t){ t.classList.toggle('lit', !!keys && !!lit[t.dataset.plate!]); });
