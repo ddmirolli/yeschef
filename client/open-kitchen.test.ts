@@ -728,7 +728,9 @@ test('r5: a merged thread with one PR of no merge time has no known end, so it i
   const maya = who(v, 'maya').summary.tickets.find((k: Wire) => k.place === 'Merged');
   assert.equal(one(board(v).rows.people, (r) => r.person === 'maya', 'maya').merged, 1);
   maya.prs.push({ ...maya.prs[0], n: 999, mergedAt: null });
-  assert.equal(one(board(v).rows.people, (r) => r.person === 'maya', 'maya').merged, 1, 'the timed merge still counts; the untimed one is not credited');
+  const maya2 = one(board(v).rows.people, (r) => r.person === 'maya', 'maya');
+  assert.deepEqual([maya2.merged, maya2.floor], [1, true], 'the timed merge counts; the untimed one makes it at least (PR-Agent r3 on #53)');
+  assert.match(grab(page({ view: v, now: NOWL }), /<svg class="fx okr"[^]*?<\/svg>/), />at least 1</);
 });
 
 
@@ -975,4 +977,20 @@ test('rows r2: a pick keeps the folds; the rows’ tip sits outside their scroll
   const src = readFileSync(new URL('./page.ts', import.meta.url), 'utf8');
   assert.equal((src.match(/withPicked\(/g) || []).length, 3, 'defined once, used by the menu and the chart click');
   assert.match(page({ view: viewL(), now: NOWL }), /<div class="fx-wrap ok-box"><div class="ok-wrap"><div class="fx-view"><svg[^]*?<\/svg><\/div><\/div><div class="fx-tip" hidden><\/div><\/div>/);
+});
+
+// ---- Open kitchen rows, PR-Agent round 3 (#53) ----
+test('rows r3: a team with a member not checked counts at least; the longest merged label stays on the chart', () => {
+  const v = viewL();
+  for (const p of v.people) p.under = p.id === 'sam' ? 'kai' : v.me.id;
+  Object.assign(who(v, 'sam'), { summary: null, at: null, lastSeen: null });
+  const svg = grab(page({ view: v, now: NOWL }), /<svg class="fx okr"[^]*?<\/svg>/);
+  assert.match(svg, />at least 1 agent · 1 call</);
+  assert.match(svg, /working, and a Mac not checked/);
+  // A quiet Mac with the most merges: its bar leaves room for "at least 2" inside the 860 view.
+  const w = viewL();
+  Object.assign(who(w, 'sam'), { online: false, lastSeen: agoL(60), at: agoL(60) });
+  const s2 = grab(page({ view: w, now: NOWL }), /<svg class="fx okr"[^]*?<\/svg>/);
+  const x = Number(grab(s2, /<text class="mnum" x="([0-9.]+)"[^>]*>at least 2</).match(/x="([0-9.]+)"/)![1]);
+  assert.ok(x + 'at least 2'.length * 6.2 <= 860, `label ends at ${x + 62}`);
 });

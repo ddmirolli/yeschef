@@ -452,12 +452,12 @@ export function kitchenBoard(ok: OpenKitchen | null | undefined, { now, want = n
     if (d && d.base === null && pr.base) d.base = pr.base;
   }
   const merges: { n: number; repo: string; branch: string | null; at: number; sha: string | null; person: string; thread: string }[] = [];
-  const seenPr = new Set<string>(), untimed = new Set<string>();
+  const seenPr = new Set<string>(), untimed = new Set<string>(), untimedBy = new Set<string>();
   for (const { k } of all) for (const pr of k.prs) {
     const key = prKey(pr.repo, pr.n);
     if (!done.has(key)) continue;
     const { at, base, sha, person: by, thread } = done.get(key)!;
-    if (at === null) { untimed.add(key); continue; }
+    if (at === null) { untimed.add(key); untimedBy.add(by); continue; }
     if (at < d0 || at > now || seenPr.has(key)) continue;
     seenPr.add(key);
     merges.push({ n: pr.n, repo: pr.repo, branch: base, at, sha, person: by, thread });
@@ -561,7 +561,7 @@ export function kitchenBoard(ok: OpenKitchen | null | undefined, { now, want = n
     // Every call on this person, so a call with no agent at work (a merge that broke main) still has a row to light.
     const own = calls.flatMap(({ c, mine }) => (c.who.includes(p.id) ? [{ id: c.id, kind: c.kind, mine }] : []));
     return { person: p.id, pod, state: p.state, known, quiet: p.reporting === false ? { since: quietAt } : null, agents: known ? agentsOf(p.id) : [],
-      merged: known ? mergedBy.get(p.id) ?? 0 : null, floor: p.reporting === false, calls: own };
+      merged: known ? mergedBy.get(p.id) ?? 0 : null, floor: p.reporting === false || untimedBy.has(p.id), calls: own };
   });
   people.sort((a, z) => nm(a.pod ?? a.person).localeCompare(nm(z.pod ?? z.person)) || String(a.pod ?? a.person).localeCompare(String(z.pod ?? z.person))
     || Number(z.person === z.pod) - Number(a.person === a.pod) || nm(a.person).localeCompare(nm(z.person)) || a.person.localeCompare(z.person));

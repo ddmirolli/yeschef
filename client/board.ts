@@ -896,12 +896,14 @@ function okRows({ R, now, want, fold, name, people, plateOf }: { R: Rows; now: n
       const rs = R.people.filter((r) => l.members.includes(r.person)), ag = rs.flatMap((r) => r.agents);
       // One Overlap is one call, though two of the team's agents are in it.
       const calls = new Set(ag.flatMap((a) => (a.call && !a.out ? [a.call.id] : []))).size;
+      // A member Yes Chef cannot read adds no agents it knows of: the team's count is then at least (PR-Agent r3 on #53).
+      const some = rs.some((r) => !r.known) ? 'at least ' : '';
       const m = rs.some((r) => r.merged === null) ? null : rs.reduce((s, r) => s + r.merged!, 0), floor = rs.some((r) => r.floor);
       // The team's name carries every call of its people, so a folded team still lights their cards and they light it.
       const k = [`pod:${l.lead}`, ...new Set([...ag.flatMap((a) => (a.out ? [] : callKey(a.call))), ...rs.flatMap((r) => r.calls.flatMap(callKey))])];
       rows += `<rect class="podband" x="0" y="${y - 4}" width="${W}" height="${ROW}"/>`;
-      rows += `<text class="rowname strong" role="button" tabindex="0" data-fold="${e(l.lead)}" aria-expanded="${!l.folded}"${att(k, k[0]!, `<b>${e(name(l.lead))}’s team</b><div>${e(l.members.map(name).join(', '))}</div><div class="m">${ag.filter((a) => a.working).length} of ${plural(ag.length, 'agent')} working · ${e(mWords(m, floor))} merged today</div>`)} x="0" y="${y + 16}" dominant-baseline="central">${l.folded ? '▸' : '▾'} ${e(name(l.lead))}’s team</text>`;
-      rows += `<text class="mnum" x="${XA}" y="${y + 16}" dominant-baseline="central">${plural(ag.length, 'agent')}${calls ? ` · ${plural(calls, 'call')}` : ''}</text>`;
+      rows += `<text class="rowname strong" role="button" tabindex="0" data-fold="${e(l.lead)}" aria-expanded="${!l.folded}"${att(k, k[0]!, `<b>${e(name(l.lead))}’s team</b><div>${e(l.members.map(name).join(', '))}</div><div class="m">${ag.filter((a) => a.working).length} of ${plural(ag.length, 'agent')} working${some ? ', and a Mac not checked' : ''} · ${e(mWords(m, floor))} merged today</div>`)} x="0" y="${y + 16}" dominant-baseline="central">${l.folded ? '▸' : '▾'} ${e(name(l.lead))}’s team</text>`;
+      rows += `<text class="mnum" x="${XA}" y="${y + 16}" dominant-baseline="central">${some}${plural(ag.length, 'agent')}${calls ? ` · ${plural(calls, 'call')}` : ''}</text>`;
       cols.forEach((_, c) => {
         const here = ag.filter((a) => busyIn(a) && inCol(a, c));
         if (!here.length) return;
@@ -952,7 +954,8 @@ function okRows({ R, now, want, fold, name, people, plateOf }: { R: Rows; now: n
       const files = here.flatMap((a) => (a.files ?? []).filter((f) => cols[c]!.of.some((o) => o.project === a.project && areaOf(f) === o.area)).slice(0, 3).map((f) => `<div class="m mono">${e(f)}</div>`));
       rows += `<rect class="cell ${hot ? 'red' : `n${Math.min(3, here.length)}`}"${att(ks, `c:${r.person}:${c}`, `<b>${e(name(r.person))} · ${e(cols[c]!.area)}</b><div>${plural(here.length, 'agent')}</div>${files.join('')}${hot ? '<div class="m red">Overlap</div>' : ''}`)} x="${XM + c * CW}" y="${y}" width="${CW - 6}" height="${ROW - 16}" rx="4"/>`;
     });
-    const bw = ((r.merged ?? 0) / maxM) * (W - XT - 30);
+    // Room for the longest label after the bar ("at least 12"), so a count never runs off the chart (PR-Agent r3 on #53).
+    const bw = ((r.merged ?? 0) / maxM) * (W - XT - 74);
     if (r.merged) rows += `<rect class="mbar"${att(d, d[0]!, dt)} x="${XT}" y="${y + 10}" width="${bw.toFixed(1)}" height="12" rx="3"/>`;
     rows += `<text class="mnum" x="${(XT + bw + (r.merged ? 6 : 0)).toFixed(1)}" y="${y + 16}" dominant-baseline="central">${e(mWords(r.merged, r.floor, true))}</text>`;
   });
