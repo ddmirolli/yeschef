@@ -300,7 +300,8 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   // the size sent; the panel's padding and the key at its foot take the rest. The panel itself stretches to the foot,
   // so what is free is measured from its parts, never from its own height.
   function fitRows(): boolean {
-    var sc = $('.tboard .you-b'), svg = $('.tboard svg.okr'), box = svg && svg.closest('.ok-p');
+    // Open kitchen's rows sit in a panel (.ok-p); French Brigade's Sankey sits edge to edge, as You's (.fx-wrap).
+    var sc = $('.tboard .you-b'), svg = $('.tboard svg.okr'), box = svg && (svg.closest('.ok-p') || svg.closest('.fx-wrap'));
     if (!sc || !svg || !box) return false;
     var w = svg.getBoundingClientRect().width;
     if (!w) return false;

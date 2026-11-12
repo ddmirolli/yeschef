@@ -326,11 +326,8 @@ export function drawBrigade(items: readonly FbItem[], tree: Tree, now: number, {
       + `<div class="m">${STAGES.map((s) => [s, mineB.filter((b) => b.stage === s).reduce((c, b) => c + b.items.length, 0)] as const).filter(([, c]) => c).map(([s, c]) => `${c} ${s.toLowerCase()}`).join(' · ')}</div><div class="m">Click to open their threads</div>`;
     labels += `<text class="rowname fbg" x="${XN}" y="${f1(g.y + g.h / 2)}" dominant-baseline="central" text-anchor="end"${hov([`g:${g.key}`, ...mineB.flatMap((b) => b.items.flatMap((t) => t.calls))], [`g:${g.key}`], tip)} data-who="${e(g.key)}" tabindex="0" role="button" aria-label="${e(`Open ${g.label}: ${plural(n, 'thread')}`)}">${e(g.label)}</text>`;
   }
-  if (L.drill !== null) {
-    const id = L.drill.slice(2), title = L.drill.startsWith('f:') ? `${tree.name(id)}'s team` : tree.name(id);
-    labels += `<text class="rowname strong" x="${L.drill.startsWith('f:') ? XN : 10}" y="${TOP - 12}" text-anchor="${L.drill.startsWith('f:') ? 'end' : 'start'}">${e(title)}</text>`;
-    if (L.drill.startsWith('f:')) for (const b of L.bands) { const t0 = b.items[0]; if (t0) labels += `<text class="rowname muted" x="${XN}" y="${f1(b.y0 + b.h / 2)}" dominant-baseline="central" text-anchor="end">${e(tree.name(t0.author))}</text>`; }
-  }
+  // A folded team opened: each thread keeps its author's name at the left, as people's names sit on the full chart.
+  if (L.drill?.startsWith('f:')) for (const b of L.bands) { const t0 = b.items[0]; if (t0) labels += `<text class="rowname" x="${XN}" y="${f1(b.y0 + b.h / 2)}" dominant-baseline="central" text-anchor="end">${e(tree.name(t0.author))}</text>`; }
   for (const d of L.nodes) {
     // Waiting here: its last stop, and not merged (a merged thread passed through). Past it: signed off, or merged.
     const here = L.bands.filter((b) => b.stops.includes(d.key)), n = (f: (b: FbBand) => boolean) => here.filter(f).reduce((s, b) => s + b.items.length, 0);
@@ -346,7 +343,9 @@ export function drawBrigade(items: readonly FbItem[], tree: Tree, now: number, {
   }
   out += `<g class="bands">${bands}</g><g class="fx-names">${labels}</g></svg>`;
   const above = L.nodes.some((d) => d.role === 'above');
-  const key = `<p class="lg fbk">${AGE_WORD.map((w, i) => `<span class="fx-chip"><i class="sw a${i}"></i>${w}</span>`).join('')}${above ? '<span class="fx-chip"><i class="sw up"></i>above you</span>' : ''}</p>`;
-  return `<section class="pnl ok-p fb-p" aria-label="French Brigade">`
-    + `<div class="fx-wrap ok-box"><div class="ok-wrap"><div class="fx-view">${out}</div></div><div class="fx-tip" hidden></div></div><footer class="ok-foot">${key}</footer></section>`;
+  // The key in the chart's bottom-right corner, as You's (client/flow.ts FLOW_KEY), with leads above you when shown.
+  const key = `<div class="fx-key" title="Time since the last change"><span class="vh">Time since the last change:</span>`
+    + `${AGE_WORD.map((w, i) => `<span class="fx-chip"><i class="sw a${i}"></i>${w}</span>`).join('')}${above ? '<span class="fx-chip"><i class="sw up"></i>above you</span>' : ''}</div>`;
+  // The same shell as You's chart (client/board.ts youView): the chart edge to edge, the key and the tooltip over it.
+  return `<div class="fx-wrap"><div class="fx-view">${out}</div>${key}<div class="fx-tip" role="tooltip" hidden></div></div>`;
 }

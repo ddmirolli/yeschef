@@ -1451,7 +1451,7 @@ html.v-kitchen .tp-live .tcol{display:flex;flex-direction:column;gap:8px}
 .fbr .fbn text{paint-order:stroke;stroke:var(--card);stroke-width:3px;stroke-linejoin:round}
 .fbr .fbn.r-above text{fill:var(--label2)}.fbr .fbn.r-above rect{fill:none;stroke:var(--label3,var(--label2));stroke-width:1}
 .fbr .band[data-who],.fbr [data-team-open]{cursor:pointer}
-.fbk .sw.up{background:none;box-shadow:inset 0 0 0 1px var(--label2)}
+.fx-chip .sw.up{background:none;box-shadow:inset 0 0 0 1px var(--label2)}
 .okr .podband{fill:var(--fx-zone-b)}
 .okr .mnum{font-size:11.5px;fill:var(--label2);font-variant-numeric:tabular-nums}
 .okr .mnum.strong{fill:var(--label);font-weight:600}
