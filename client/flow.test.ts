@@ -97,6 +97,8 @@ test('no red, orange or yellow, and no mark at rest: a thread that waits on you 
 test('a thread with no time is drawn dashed and says "not checked"', () => {
   const svg = drawFlow(layout([I('x', 'P', 'In review', 0, { since: Number.NaN })], NOW), NOW);
   assert.match(svg, /<path class="band anc"/);
+  // Its whole ribbon answers hover and click, not only the dashes (PR-Agent r3 on #49).
+  assert.match(servedSource(), /\.fx \.band\.anc\{fill:none;[^}]*pointer-events:all\}/);
   assert.match(svg, /Last change not checked ago|Last change not checked/);
 });
 

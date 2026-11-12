@@ -1213,7 +1213,8 @@ html .plate .dock .q-set{max-width:640px}
 .fx .tierh{font-size:11px;font-weight:600;fill:var(--label2)}
 .fx .band{stroke:var(--bg);stroke-width:.6;transition:fill .15s,opacity .15s}
 .fx .band.a0{fill:var(--fx-a0)}.fx .band.a1{fill:var(--fx-a1)}.fx .band.a2{fill:var(--fx-a2)}
-.fx .band.anc{fill:none;stroke:var(--fx-a1);stroke-dasharray:3 2}
+/* Dashed, with no fill, yet its whole ribbon answers the pointer (PR-Agent r3 on #49). */
+.fx .band.anc{fill:none;stroke:var(--fx-a1);stroke-dasharray:3 2;pointer-events:all}
 .fx .band.lit{fill:var(--fx-hov)}
 .fx-focus .fx .band:not(.lit){opacity:.5}
 .fx [data-drill],.fx .band[data-plate]{cursor:pointer}
