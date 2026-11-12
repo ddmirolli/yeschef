@@ -277,13 +277,42 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   var fxSize = '', fxAsked = '', fxTimer: ReturnType<typeof setTimeout> | undefined;
   /** /app for a query, with the chart's size once the page has measured it. */
   function appUrl(q: string): string { return '/app' + q + (fxSize ? (q ? '&' : '?') + 'fx=' + fxSize : ''); }
-  var flowRO = window.ResizeObserver ? new ResizeObserver(function(){ fitFlow(); }) : null, flowWatched: Element | null = null;
+  var flowRO = window.ResizeObserver ? new ResizeObserver(function(){ fitFlow(); }) : null, flowWatched: Element | null = null, rowsWatched: Element | null = null;
   function watchFlow(): void {
-    var sc = $('.you .you-b');
-    if (flowRO && sc !== flowWatched) { flowRO.disconnect(); flowWatched = sc || null; if (sc) flowRO.observe(sc); }
+    var sc = $('.you .you-b'), tb = $('.tboard .you-b');
+    if (flowRO && (sc !== flowWatched || tb !== rowsWatched)) {
+      flowRO.disconnect(); flowWatched = sc || null; rowsWatched = tb || null;
+      if (sc) flowRO.observe(sc);
+      if (tb) flowRO.observe(tb);
+    }
     fitFlow();
   }
+  /** Asks the server for the chart laid out at w×h (fx=WxH on /app): once per size, and not while the size still moves. */
+  function askFit(svg: Element, w: number, h: number): void {
+    var had = (svg.getAttribute('data-fit') || '').split('x');
+    var near = had.length === 2 && Math.abs(+had[0]! - w) <= 3 && Math.abs(+had[1]! - h) <= 3, ask = w + 'x' + h;
+    if (!near && ask !== fxAsked) {
+      fxSize = ask; clearTimeout(fxTimer);
+      fxTimer = setTimeout(function(){ fxAsked = ask; wake(); }, 150);
+    }
+  }
+  // Your team, expanded: the rows fill their column the same way (Dan, 2026-11-12). The server sets the rows' height for
+  // the size sent; the panel's padding and the key at its foot take the rest. The panel itself stretches to the foot,
+  // so what is free is measured from its parts, never from its own height.
+  function fitRows(): boolean {
+    var sc = $('.tboard .you-b'), svg = $('.tboard svg.okr'), box = svg && svg.closest('.ok-p');
+    if (!sc || !svg || !box) return false;
+    var w = svg.getBoundingClientRect().width;
+    if (!w) return false;
+    var px = function(el: Element, a: 'paddingTop' | 'paddingBottom'): number { return parseFloat(getComputedStyle(el)[a]) || 0; };
+    var wrap = svg.closest('.ok-box'), foot = box.querySelector('.ok-foot');
+    var rest = (wrap ? wrap.getBoundingClientRect().height - svg.getBoundingClientRect().height : 0) + (foot ? foot.getBoundingClientRect().height : 0)
+      + px(box, 'paddingTop') + px(box, 'paddingBottom') + px(sc, 'paddingTop') + px(sc, 'paddingBottom');
+    askFit(svg, Math.round(w), Math.max(150, Math.floor(sc.clientHeight - rest) - 1));
+    return true;
+  }
   function fitFlow(): void {
+    if (fitRows()) return;
     var sc = $('.you .you-b'), svg = $('.you .fx-view:not([hidden]) svg.fx') as SVGSVGElement | null;
     var body = svg && svg.querySelector<SVGGElement>('.fx-body');
     if (!sc || !svg || !body || !svg.viewBox || !svg.viewBox.baseVal) return;
@@ -295,12 +324,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     var free = Math.floor(sc.clientHeight - rest) - 1;
     // The server lays the river out for this size (fx=WxH on /app), so it spreads to fill it; until then the stretch
     // below stands in. It asks once per size, and not while the size still moves.
-    var want = [Math.round(w), Math.max(150, free)], had = (svg.getAttribute('data-fit') || '').split('x');
-    var near = had.length === 2 && Math.abs(+had[0]! - want[0]!) <= 3 && Math.abs(+had[1]! - want[1]!) <= 3, ask = want.join('x');
-    if (!near && ask !== fxAsked) {
-      fxSize = ask; clearTimeout(fxTimer);
-      fxTimer = setTimeout(function(){ fxAsked = ask; wake(); }, 150);
-    }
+    askFit(svg, Math.round(w), Math.max(150, free));
     var vh = Math.max(own, free * vw / w), k = (vh - top - foot) / span;
     svg.setAttribute('viewBox', '0 0 ' + vw + ' ' + vh.toFixed(1));
     if (k > 1.001) body.setAttribute('transform', 'translate(0 ' + top + ') scale(1 ' + k.toFixed(4) + ') translate(0 ' + (-top) + ')');
@@ -1560,9 +1584,10 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     // Your team, expanded: a sub-lead's name folds their team into one row and back.
     var fo = t.closest<Element>('.tboard [data-fold]');
     if (fo) { toggleFold(fo.getAttribute('data-fold') || ''); return; }
-    var dr = t.closest<Element>('.you [data-drill]');
-    if (dr) { var tp = $('.you .fx-tip'); if (tp) tp.hidden = true; pickOnly(dr.getAttribute('data-drill') || ''); return; }
-    if (t.closest('.you [data-unpick]')) { unpick(); return; }
+    // Your team, expanded does the same: a project's name opens it, and the back button beside its picker returns.
+    var dr = t.closest<Element>(':is(.you, .tboard) [data-drill]');
+    if (dr) { $$('.fx-tip').forEach(function(tp){ tp.hidden = true; }); pickOnly(dr.getAttribute('data-drill') || ''); return; }
+    if (t.closest(':is(.you, .tboard) [data-unpick]')) { unpick(); return; }
     var nf = t.closest<HTMLElement>('.nf[data-folder]');
     // In You, expanded, a stage row opens that stage's list in the pass view, with no ticket open.
     if (nf && !focusView()) { state.passFolder = nf.dataset.folder!; state.passSel = null; toggleView(); return; }

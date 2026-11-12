@@ -217,7 +217,7 @@ test('the thresholds are the brief’s defaults', () => {
 });
 
 // ---- The screens ----
-const page = (team: TeamInput | null, more: { picked?: string[]; fold?: string[] } = {}) => renderApp({ board: { tickets: [], runsChecked: false }, link: () => 'x', status: { ok: true, at: NOW, ms: 1 }, origin: 'https://t3.example', team, ...more });
+const page = (team: TeamInput | null, more: { picked?: string[]; fold?: string[]; fit?: { w: number; h: number } } = {}) => renderApp({ board: { tickets: [], runsChecked: false }, link: () => 'x', status: { ok: true, at: NOW, ms: 1 }, origin: 'https://t3.example', team, ...more });
 
 test('Your team draws The Pass’s calls, the rail card, the quiet line and a reader for each', () => {
   const html = page({ view: viewL(), now: NOWL });
@@ -444,21 +444,26 @@ const board = (v: TeamView, want: ReadonlySet<string> | null = null) => {
   assert.ok(b, 'the team reading is live');
   return b;
 };
+/** A person's merged today on their row, and whether it is a floor (at least). */
+const mergedOf = (B: NonNullable<ReturnType<typeof kitchenBoard>>, id: string) => {
+  const r = one(B.rows.people, (x) => x.person === id, id);
+  return [r.merged, r.floor] as const;
+};
 const hmOf = (t: number) => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
-test('expanded: the instruments from the made-up team', () => {
+test('expanded: the board is the rows alone, beside the team’s Pass (Dan, 2026-11-12, "1. B-ish")', () => {
   const B = board(viewL());
-  assert.equal(B.people, 14);
-  assert.equal(B.base.state, 'red');
-  assert.equal(B.base.since, agoL(141));
-  assert.deepEqual(B.base.merges.map((m) => `${m.n}:${m.tone}`), ['425:merged', '427:merged', '429:merged', '430:merged', '431:red']);
-  // One mark per merge it counts, so the base and Merged today agree (brief, departure 1).
-  assert.equal(B.merged.count, B.base.merges.length);
-  assert.equal(B.merged.byHour.reduce((a, n) => a + n, 0), 5);
-  assert.equal(B.merged.usual, null, 'no merge history is sent, so usual by now is not checked');
-  assert.deepEqual(B.review, { count: 3, gap: { away: 1, capped: 0 }, ages: [236, 128, 44].map((m) => m * MIN) });
-  // Lee is not reporting, so their thread's agent is not counted as running now; Tom's planned thread runs none.
-  assert.deepEqual(B.agents, { count: 20, threads: 12, gap: { away: 1, capped: 0 } });
+  assert.deepEqual(Object.keys(B), ['rows']);
+  // The day's five merges, each on the row of the person whose copy says merged.
+  assert.equal(B.rows.people.reduce((n, r) => n + (r.merged ?? 0), 0), 5);
+  const html = page({ view: viewL(), now: NOWL });
+  const tb = grab(html, /<section class="tboard"[^]*?<\/section><\/div><\/section>/);
+  // No instruments, no files list, no title over the chart: the header picker names what it shows.
+  assert.doesNotMatch(tb, /class="inst"|class="ins"|Files two live threads|<h3/);
+  assert.match(tb, /^<section class="tboard" aria-labelledby="tb-t"><header class="you-h">[^]*?<\/header><div class="you-b"><section class="pnl ok-p" aria-label="Who’s on what"><div class="fx-wrap ok-box">/);
+  // The key sits at the foot, under the rows, with no line that explains how to read them.
+  assert.match(tb, /<\/div><footer class="ok-foot"><p class="lg okk">[^]*?<\/p><p class="lg okl">Agents by lab: not checked<\/p><\/footer><\/section><\/div><\/section>$/);
+  assert.doesNotMatch(tb, /Hover for|Click a team|darker with more/);
 });
 
 test('expanded: Who’s on what is one row per person: their live agents, a quiet Mac, the Overlap link', () => {
@@ -509,7 +514,7 @@ test('expanded: the rows draw a square per agent, cells per area, and no line bu
     assert.ok(k!.split(' ').includes(`p:${id}`));
     assert.ok(html.includes(`<div class="xc" role="listitem" data-team-open="${id}">`), id);
   }
-  assert.ok(html.includes('<span>Agents by lab: not checked</span>'));
+  assert.ok(html.includes('<p class="lg okl">Agents by lab: not checked</p>'));
 });
 
 test('expanded: a sub-lead’s team folds into one row, and the rows keep their places', () => {
@@ -521,7 +526,7 @@ test('expanded: a sub-lead’s team folds into one row, and the rows keep their 
   const open = page({ view: v, now: NOWL }), shut = page({ view: v, now: NOWL }, { fold: ['kai'] });
   const svgOf = (h: string) => grab(h, /<svg class="fx okr"[^]*?<\/svg>/);
   assert.match(svgOf(open), /data-fold="kai" aria-expanded="true"/);
-  assert.match(svgOf(open), />3 agents · 1 call</, 'Kai and Jon share one Overlap: one call');
+  assert.match(svgOf(open), />3 agents · <tspan class="need">1 needs you<\/tspan></, 'Kai and Jon share one Overlap: one call waits on you');
   assert.match(svgOf(shut), /data-fold="kai" aria-expanded="false"/);
   const names = (h: string) => [...svgOf(h).matchAll(/<text class="rowname[^"]*"[^>]*>([^<]+)</g)].map((m) => m[1]);
   // The team sits where its lead's name sorts: the lead first, then the rest by name, each indented.
@@ -532,30 +537,9 @@ test('expanded: a sub-lead’s team folds into one row, and the rows keep their 
   assert.ok(!svgOf(shut).includes('class="olink'));
 });
 
-
-test('expanded: files two live threads change, same lines first', () => {
-  const F = board(viewL()).files;
-  assert.deepEqual(F.rows.map((f) => [f.path, f.state, f.people.join('+')]), [['contracts/src/orchestration.ts', 'same', 'kai+jon'], ['web/src/sidebar.tsx', 'different', 'kai+ada']]);
-  assert.ok(F.rows[0]?.call?.mine);
-  assert.equal(F.at, agoL(1));
-});
-
 test('expanded: what no summary says stays not checked, never a guess', () => {
-  let v = viewL();
-  delete ticket(v, 'kai').prs[0].readyAt;
-  assert.equal(board(v).review.ages, null, 'one PR with no ready time leaves the ages not checked');
-  v = viewL();
-  who(v, 'ravi').summary.bases = [];
-  assert.equal(board(v).base.state, null);
-  v = viewL();
-  delete ticket(v, 'ada').changes.files[0].r;
-  const F = board(v).files;
-  assert.equal(one(F.rows, (f) => f.path === 'web/src/sidebar.tsx', 'web/src/sidebar.tsx').state, 'nc');
-  v = viewL();
-  delete ticket(v, 'kai').changes.at;
-  assert.equal(board(v).files.at, null);
   // A thread with no start time is counted, not drawn; work merged before today is not drawn at all.
-  v = viewL();
+  let v = viewL();
   delete ticket(v, 'tom').startedAt;
   assert.equal(one(board(v).rows.people, (r) => r.person === 'tom', 'tom').agents.length, 1, 'an agent needs no start time');
   v = viewL();
@@ -571,9 +555,7 @@ test('expanded: a picked project narrows the board', () => {
   assert.deepEqual(B.rows.people.flatMap((r) => r.agents.filter((a) => !a.out).map(() => r.person)).sort(), ['elena', 'nina', 'tom']);
   assert.deepEqual(B.rows.columns, []);
   assert.ok(page({ view: viewL(), now: NOWL }, { picked: ['Quillo'] }).includes('Other projects'));
-  assert.equal(B.base.state, null, 'the red base is in another project’s repo');
-  assert.equal(B.merged.count, 0);
-  assert.equal(B.files.rows.length, 0);
+  assert.equal(B.rows.people.reduce((n, r) => n + (r.merged ?? 0), 0), 0, 'the day’s merges are all in Fernpay');
 });
 
 test('expanded: the header is the picker, with the skillet and no count line (Dan, 2026-11-11)', () => {
@@ -605,8 +587,6 @@ test('expanded: the page draws the board and The Pass as a column; each opens a 
   for (const id of new Set(opens)) assert.ok(html.includes(`<article class="plate team-plate" id="${id}"`), id);
   // Every colour carries a word: the legend says what red and amber mean.
   for (const w of ['Working', 'Idle', 'Act now', 'Decide soon', 'Not reporting', 'Merged today']) assert.ok(html.includes(w), w);
-  // Lee's Mac is not reporting, so Merged today may be low: it says at least, and why.
-  assert.ok(html.includes('<b>5</b><span>at least</span>'));
   assert.ok(html.includes(`Not reporting since ${hmOf(agoL(122))}`));
   assert.ok(html.includes('6 need you, most urgent first.'));
   // The suggestion button is the call's first action, and only for a role that may take it.
@@ -616,70 +596,17 @@ test('expanded: the page draws the board and The Pass as a column; each opens a 
 });
 
 // ---- PR B, PR-Agent round 1 ----
-test('r1: a merge is red only in the base’s current run of red; no merge is ever called green', () => {
-  let v = viewL();
-  who(v, 'ravi').summary.bases[0].requiredResult = 'passing';
-  assert.ok(board(v).base.merges.every((m) => m.tone === 'merged'), 'a green base now says nothing about earlier merges');
-  v = viewL();
-  who(v, 'ravi').summary.bases[0].redSince = null;
-  assert.deepEqual(board(v).base.merges.map((m) => m.tone), ['merged', 'merged', 'merged', 'merged', 'red'], 'the red commit itself is still red');
-  const html = page({ view: viewL(), now: NOWL });
-  assert.ok(!html.includes('merged while green'));
-});
-
-test('r1: lines from two merge bases are not checked, never Different lines. Fine', () => {
-  const v = viewL();
-  ticket(v, 'ada').changes.mergeBase = 'b1';
-  const f = one(board(v).files.rows, (r) => r.path === 'web/src/sidebar.tsx', 'web/src/sidebar.tsx');
-  assert.deepEqual([f.state, f.near], ['nc', true]);
-  assert.ok(page({ view: v, now: NOWL }).includes('Lines not checked: two merge bases'));
-});
-
-test('r1: live threads whose files were not sent are counted, so an empty list is never an all clear', () => {
-  const v = viewL();
-  const F0 = board(v).files;
-  const before = F0.unread;
-  delete ticket(v, 'ada').changes;
-  const F = board(v).files;
-  assert.equal(F.unread, before + 1);
-  assert.equal(F.compared, F0.compared - 1);
-  assert.match(page({ view: v, now: NOWL }), new RegExp(`${F.unread} live threads? not checked`));
-});
 
 test('r1: a merged PR with no time makes the count a floor, never dropped', () => {
   const v = viewL();
-  const n = board(v).merged.count;
+  const [n] = mergedOf(board(v), 'kai');
   ticket(v, 'kai').prs[0].state = 'merged';
   ticket(v, 'kai').prs[0].mergedAt = null;
-  const M = board(v).merged;
-  assert.deepEqual([M.count, M.untimed], [n, 1]);
-  assert.ok(page({ view: v, now: NOWL }).includes('Not counted: 1 merge with no time, 1 Mac not reporting'));
+  assert.deepEqual(mergedOf(board(v), 'kai'), [n, true]);
+  assert.match(grab(page({ view: v, now: NOWL }), /<svg class="fx okr"[^]*?<\/svg>/), /data-f="d:kai" data-tip="[^"]*not checked merged today/, 'a floor of 0 says nothing');
 });
-
 
 // ---- PR B, PR-Agent round 2 ----
-test('r2: a thread that sent only part of its files is counted, so a clear list says so', () => {
-  const v = viewL();
-  ticket(v, 'ada').changes.more = 12;
-  const F = board(v).files;
-  assert.equal(F.partial, 1);
-  assert.ok(page({ view: v, now: NOWL }).includes('1 thread sent only part of its files.'));
-  assert.equal(board(viewL()).files.partial, 0);
-});
-
-test('r2: a Mac that is not reporting makes Waiting for review and Agents running say so, never a bare 0', () => {
-  const html = page({ view: viewL(), now: NOWL });
-  assert.equal((html.match(/<span class="cap"><span>Not counted: 1 Mac not reporting<\/span><\/span>/g) || []).length, 3, 'under Merged today, Waiting for review and Agents running');
-  // With no live PR in review and a Mac out, the count is not checked.
-  const v = viewL();
-  for (const id of ['kai', 'nina', 'iris']) ticket(v, id).place = 'In progress';
-  const B = board(v);
-  assert.deepEqual([B.review.count, B.review.gap.away], [0, 1]);
-  assert.match(page({ view: v, now: NOWL }), /<b class="nc">Not checked<\/b><span>1 Mac not reporting<\/span>/);
-  // A picked project counts only the Macs out that may have work in it.
-  assert.equal(board(viewL(), new Set(['Fernpay'])).review.gap.away, 0);
-  assert.equal(board(viewL(), new Set(['Quillo'])).review.gap.away, 1);
-});
 
 test('r2: a Mac quiet since an earlier day says the day, never an hour that reads as today', () => {
   const v = viewL();
@@ -687,39 +614,6 @@ test('r2: a Mac quiet since an earlier day says the day, never an hour that read
   lee.lastSeen = NOWL - 20 * 60 * MIN;
   lee.at = lee.lastSeen;
   assert.ok(page({ view: v, now: NOWL }).includes(`Not reporting since ${new Date(NOWL - 20 * 60 * MIN).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`));
-});
-
-
-// ---- PR B, PR-Agent round 3 ----
-test('r3: a summary that left threads out makes every team count say so', () => {
-  const v = viewL();
-  who(v, 'kai').summary.more = 4;
-  const B = board(v);
-  for (const g of [B.merged.gap, B.review.gap, B.agents.gap]) assert.deepEqual(g, { away: 1, capped: 1 });
-  assert.equal((page({ view: v, now: NOWL }).match(/Not counted: 1 Mac not reporting, 1 Mac that sent part of its threads/g) || []).length, 3);
-  // Lee alone, with no capped summary and Lee back: no caption, and Merged today is a plain count.
-  const w = viewL();
-  Object.assign(who(w, 'lee'), { online: true, lastSeen: null, at: agoL(1) });
-  const html = page({ view: w, now: NOWL });
-  assert.ok(!html.includes('Not counted:'));
-  assert.ok(html.includes('usual by now: not checked'));
-});
-
-test('r3: a PR any summary reports merged never waits for review', () => {
-  const v = viewL();
-  const n = board(v).review.count;
-  // Ravi's thread also holds Kai's #412, and reports it merged; Kai's copy still says open.
-  who(v, 'ravi').summary.tickets[0].prs.push({ ...ticket(v, 'kai').prs[0], state: 'merged', mergedAt: new Date(agoL(5)).toISOString() });
-  assert.equal(board(v).review.count, n - 1);
-});
-
-// ---- PR B, PR-Agent round 4 ----
-test('r4: a Mac whose summary left threads out qualifies the shared files list too', () => {
-  const v = viewL();
-  who(v, 'kai').summary.more = 4;
-  assert.equal(board(v).files.capped, 1);
-  assert.ok(page({ view: v, now: NOWL }).includes('1 Mac sent only part of its threads.'));
-  assert.equal(board(viewL()).files.capped, 0);
 });
 
 // ---- PR B, PR-Agent round 5 ----
@@ -733,33 +627,19 @@ test('r5: a merged thread with one PR of no merge time has no known end, so it i
   assert.match(grab(page({ view: v, now: NOWL }), /<svg class="fx okr"[^]*?<\/svg>/), />at least 1</);
 });
 
-
-test('r5: checked changes with no repo are not checked, never counted as read', () => {
-  const v = viewL();
-  const B0 = board(v).files;
-  ticket(v, 'ada').changes.repo = null;
-  const F = board(v).files;
-  assert.deepEqual([F.compared, F.unread], [B0.compared - 1, B0.unread + 1]);
-  assert.ok(!F.rows.some((f) => f.path === 'web/src/sidebar.tsx'));
-});
-
 // ---- PR B, PR-Agent round 6 ----
-test('r6: in a picked project, a Mac out whose summary left threads out still counts as not counted', () => {
-  const v = viewL();
-  assert.equal(board(v, new Set(['Fernpay'])).review.gap.away, 0, 'Lee works in Quillo only');
-  who(v, 'lee').summary.more = 3;
-  assert.equal(board(v, new Set(['Fernpay'])).review.gap.away, 1);
-});
 
 test('r6: a merge with a known time in any copy is never counted as having no time', () => {
   const v = viewL();
   const merged = who(v, 'maya').summary.tickets.find((k: Wire) => k.place === 'Merged');
   // Kai's thread holds a copy of Maya's PR with no time; Maya's copy has one.
   ticket(v, 'kai').prs.push({ ...merged.prs[0], mergedAt: null });
-  assert.equal(board(v).merged.untimed, 0);
+  const floors = () => board(v).rows.people.filter((r) => r.floor).map((r) => r.person);
+  assert.deepEqual(floors(), ['lee'], 'only the quiet Mac’s count is a floor');
   // Moved before today, the known copy still settles it: not today's, and not untimed.
   merged.prs[0].mergedAt = new Date(NOWL - 30 * 60 * MIN).toISOString();
-  assert.equal(board(v).merged.untimed, 0);
+  assert.deepEqual(floors(), ['lee']);
+  assert.deepEqual(mergedOf(board(v), 'maya'), [0, false]);
 });
 
 // ---- PR B, PR-Agent round 7 ----
@@ -768,23 +648,10 @@ test('r7: in a picked project, a merge whose time is in another project’s copy
   const merged = who(v, 'maya').summary.tickets.find((k: Wire) => k.place === 'Merged');
   // Tom's Quillo thread holds a copy of Maya's Fernpay PR with no time; Maya's own copy (Fernpay) has today's time.
   who(v, 'tom').summary.tickets[0].prs = [{ ...merged.prs[0], mergedAt: null }];
-  const M = board(v, new Set(['Quillo'])).merged;
-  assert.deepEqual([M.count, M.untimed], [1, 0]);
+  assert.deepEqual(mergedOf(board(v, new Set(['Quillo'])), 'maya'), [1, false]);
 });
 
 // ---- PR B, PR-Agent round 8 ----
-test('r8: one repo with two base branches reads as one repo and two branches, never 2 repos', () => {
-  const v = viewL();
-  const base = who(v, 'ravi').summary.bases[0];
-  Object.assign(base, { result: 'passing', requiredResult: 'passing', redSha: null, redSince: null, failing: [] });
-  who(v, 'ravi').summary.bases.push({ ...base, branch: 'release', sha: 'r1' });
-  const html = page({ view: v, now: NOWL });
-  assert.ok(html.includes('<b class="green">Green</b><span>fernpay, 2 branches</span>'));
-  assert.ok(!html.includes('2 repos'));
-  // Both red: each named by its branch, once.
-  for (const b of who(v, 'ravi').summary.bases) Object.assign(b, { result: 'failing', requiredResult: 'failing', redSince: new Date(agoL(60)).toISOString() });
-  assert.match(page({ view: v, now: NOWL }), /<b class="red">Red<\/b><span>since [0-9:]+, fernpay main and fernpay release<\/span>/);
-});
 
 test('r8: the rows chart scrolls across inside its panel and keeps the scroll over a refresh', async () => {
   const { readFileSync } = await import('node:fs');
@@ -793,87 +660,23 @@ test('r8: the rows chart scrolls across inside its panel and keeps the scroll ov
   assert.ok(readFileSync(new URL('./page.ts', import.meta.url), 'utf8').includes("swapAny('.tboard', fresh, '.head', '.you-b, .ok-wrap')"));
 });
 
-
 // ---- PR B, PR-Agent round 9 ----
 test('r9: in a picked project, a PR whose copy there says open is counted as merged when another copy says so', () => {
   const v = viewL();
   const merged = who(v, 'maya').summary.tickets.find((k: Wire) => k.place === 'Merged');
   who(v, 'tom').summary.tickets[0].prs = [{ ...merged.prs[0], state: 'open', mergedAt: null }];
-  const M = board(v, new Set(['Quillo'])).merged;
-  assert.deepEqual([M.count, M.untimed], [1, 0]);
+  assert.deepEqual(mergedOf(board(v, new Set(['Quillo'])), 'maya'), [1, false]);
 });
-
-test('r9: a missing merge base is not checked, never said to be two merge bases', () => {
-  const v = viewL();
-  delete ticket(v, 'ada').changes.mergeBase;
-  const f = one(board(v).files.rows, (r) => r.path === 'web/src/sidebar.tsx', 'web/src/sidebar.tsx');
-  assert.deepEqual([f.state, f.near], ['nc', false]);
-  const html = page({ view: v, now: NOWL });
-  assert.ok(!html.includes('two merge bases'));
-  assert.ok(html.includes('Lines not checked'));
-});
-
-// ---- PR B, PR-Agent round 10 ----
-test('r10: a merge’s branch and commit come from whichever copy gives them, so the ribbon still marks the break', () => {
-  const v = viewL();
-  const ravi = who(v, 'ravi').summary.tickets.find((k: Wire) => k.prs.some((pr: Wire) => pr.n === 431));
-  const pr431 = ravi.prs.find((pr: Wire) => pr.n === 431);
-  // An earlier copy (Kai's thread, read first) says #431 is open and names no base.
-  who(v, 'kai').summary.tickets[0].prs.push({ ...pr431, state: 'open', mergedAt: null, base: null, mergeSha: null });
-  const i = v.people.findIndex((p: Wire) => p.id === 'kai');
-  v.people.splice(1, 0, ...v.people.splice(i, 1));
-  assert.equal(v.people[1].id, 'kai', 'Kai is read before Ravi');
-  const m = one(board(v).base.merges, (x) => x.n === 431, '#431');
-  assert.equal(m.tone, 'red', 'the merged copy names main, so the break is marked');
-});
-
-// ---- PR B, PR-Agent round 11 ----
-test('r11: checked changes with no base branch are not checked, never counted as read', () => {
-  const v = viewL();
-  const F0 = board(v).files;
-  ticket(v, 'ada').changes.base = null;
-  const F = board(v).files;
-  assert.deepEqual([F.compared, F.unread], [F0.compared - 1, F0.unread + 1]);
-  assert.ok(!F.rows.some((f) => f.path === 'web/src/sidebar.tsx'));
-});
-
 
 // ---- PR B, PR-Agent round 13 ----
 test('r13: a merge is credited to the person whose copy says merged, not the first that mentions it', () => {
   const v = viewL();
+  const before = [mergedOf(board(v), 'ravi'), mergedOf(board(v), 'kai')];
   const pr431 = who(v, 'ravi').summary.tickets.find((k: Wire) => k.prs.some((pr: Wire) => pr.n === 431)).prs.find((pr: Wire) => pr.n === 431);
   who(v, 'kai').summary.tickets[0].prs.push({ ...pr431, state: 'open', mergedAt: null });
   const i = v.people.findIndex((p: Wire) => p.id === 'kai');
   v.people.splice(1, 0, ...v.people.splice(i, 1));
-  assert.equal(board(v).base.merges.find((m) => m.n === 431)?.person, 'ravi');
-});
-
-// ---- PR B, PR-Agent round 14 ----
-test('r14: a lockfile two live threads change stays in the files list, not compared and with no call', () => {
-  const v = viewL();
-  const a = ticket(v, 'ada'), other = v.people.flatMap((p: Wire) => p.summary?.tickets ?? []).find((t: Wire) => t !== a && t.changes && t.changes.repo === a.changes.repo && t.changes.base === a.changes.base && t.place !== 'Merged');
-  for (const t of [a, other]) t.changes.files.push({ p: 'pnpm-lock.yaml', r: [[1, 40]], a: 30, d: 2, x: true });
-  const row = one(board(v).files.rows, (f) => f.path === 'pnpm-lock.yaml', 'pnpm-lock.yaml');
-  assert.ok(row, 'the shared lockfile is listed');
-  assert.deepEqual([row.state, row.call], ['gen', null]);
-  assert.ok(!board(v).files.rows.slice(0, -1).some((f, i, rs) => f.state === 'gen' && rs[i + 1] && rs[i + 1]?.state !== 'gen'), 'generated files sort last');
-});
-
-// ---- PR B, PR-Agent round 15 ----
-test('r15: a copy that leaves out readyAt never hides another copy\'s time for the same PR', () => {
-  const v = viewL();
-  const R0 = board(v).review;
-  assert.ok(R0.ages, 'the fixture has every ready time');
-  const src = v.people.flatMap((p: Wire) => (p.summary?.tickets ?? []).map((k: Wire) => ({ p, k })))
-    .find(({ k }: Wire) => k.place === 'In review' && k.prs.some((pr: Wire) => pr.state === 'open' && !pr.draft && pr.readyAt));
-  const pr = src.k.prs.find((x: Wire) => x.state === 'open' && !x.draft && x.readyAt);
-  const other = v.people.find((p: Wire) => p !== src.p && p.online && p.summary);
-  other.summary.tickets.push({ ...src.k, thread: 'mcp:copy-1', prs: [{ ...pr, readyAt: null }] });
-  const i = v.people.indexOf(other);
-  v.people.splice(0, 0, ...v.people.splice(i, 1));
-  const R = board(v).review;
-  assert.equal(R.count, R0.count);
-  assert.deepEqual(R.ages, R0.ages);
+  assert.deepEqual([mergedOf(board(v), 'ravi'), mergedOf(board(v), 'kai')], before, '#431 stays Ravi’s');
 });
 
 test('a click on a sub-lead’s team folds it: the page keeps the fold in the address and draws again', async () => {
@@ -985,7 +788,7 @@ test('rows r3: a team with a member not checked counts at least; the longest mer
   for (const p of v.people) p.under = p.id === 'sam' ? 'kai' : v.me.id;
   Object.assign(who(v, 'sam'), { summary: null, at: null, lastSeen: null });
   const svg = grab(page({ view: v, now: NOWL }), /<svg class="fx okr"[^]*?<\/svg>/);
-  assert.match(svg, />at least 1 agent · 1 call</);
+  assert.match(svg, />at least 1 agent · <tspan class="need">1 needs you<\/tspan></);
   assert.match(svg, /working, and a Mac not checked/);
   // A quiet Mac with the most merges: its bar leaves room for "at least 2" inside the 860 view.
   const w = viewL();
@@ -993,4 +796,50 @@ test('rows r3: a team with a member not checked counts at least; the longest mer
   const s2 = grab(page({ view: w, now: NOWL }), /<svg class="fx okr"[^]*?<\/svg>/);
   const x = Number(grab(s2, /<text class="mnum" x="([0-9.]+)"[^>]*>at least 2</).match(/x="([0-9.]+)"/)![1]);
   assert.ok(x + 'at least 2'.length * 6.2 <= 860, `label ends at ${x + 62}`);
+});
+
+// ---- Rows alone (Dan, 2026-11-12, "1. B-ish") ----
+test('the rows fill the size the page sends, up to a cap, and keep their own height without one', () => {
+  const svgOf = (h: string) => grab(h, /<svg class="fx okr"[^>]*>/);
+  const H = (h: string) => Number(/viewBox="0 0 860 (\d+)"/.exec(svgOf(h))?.[1]);
+  const rowsAt = (h: string) => [...grab(h, /<svg class="fx okr"[^]*?<\/svg>/).matchAll(/<text class="rowname[^"]*"[^>]*? y="([\d.]+)"/g)].map((m) => Number(m[1]));
+  const own = page({ view: viewL(), now: NOWL });
+  assert.doesNotMatch(svgOf(own), /data-fit/);
+  const pitch = (h: string) => { const ys = rowsAt(h); return ys[1]! - ys[0]!; };
+  assert.equal(pitch(own), 48, 'no size sent: each row keeps its own height');
+  // 14 rows in a tall column: each grows to share it, and the chart reaches the column's foot.
+  const tall = page({ view: viewL(), now: NOWL }, { fit: { w: 860, h: 1000 } });
+  assert.match(svgOf(tall), /data-fit="860x1000"/);
+  assert.equal(H(tall), 1000);
+  assert.ok(pitch(tall) > 48 && pitch(tall) <= 72, String(pitch(tall)));
+  // A short column: rows never shrink below their own height, and the column scrolls.
+  const short = page({ view: viewL(), now: NOWL }, { fit: { w: 860, h: 300 } });
+  assert.equal(pitch(short), 48);
+  assert.ok(H(short) > 300);
+  // Far more room than the rows need: they stop at the cap and the dotted field runs to the foot.
+  const v = viewL();
+  v.people = v.people.slice(0, 3);
+  const roomy = page({ view: v, now: NOWL }, { fit: { w: 860, h: 1200 } });
+  assert.equal(pitch(roomy), 72);
+  assert.equal(H(roomy), 1200);
+  assert.match(roomy, /fill="url\(#okdots\)"/);
+});
+
+test('a project’s name opens that project, as in You, expanded; with one open, the back button sits beside the picker', () => {
+  const all = page({ view: viewL(), now: NOWL });
+  assert.match(all, /<text class="pjname" data-drill="Fernpay" tabindex="0" role="button" aria-label="Open Fernpay"/);
+  assert.doesNotMatch(grab(all, /<section class="tboard"[^]*?<\/header>/), /data-unpick/);
+  const one1 = page({ view: viewL(), now: NOWL }, { picked: ['Fernpay'] });
+  assert.doesNotMatch(one1, /class="pjname" data-drill/);
+  assert.match(grab(one1, /<section class="tboard"[^]*?<\/header>/), /<\/details><button type="button" class="fx-back" data-unpick aria-label="Back to all projects"/);
+});
+
+test('the page measures the rows’ column from its parts, so a panel that already fills it can still grow', async () => {
+  const { pageScript } = await import('./test/served.ts');
+  const src = pageScript();
+  const fn = grab(src, /function fitRows[\s\S]*?\n {2}\}/);
+  assert.match(fn, /\.ok-foot/);
+  assert.doesNotMatch(fn, /box\.getBoundingClientRect\(\)\.height/, 'the panel stretches, so its own height says nothing');
+  assert.match(grab(src, /function fitFlow[\s\S]*?\n {2}\}/), /if \(fitRows\(\)\) return;/);
+  assert.match(grab(src, /function watchFlow[\s\S]*?\n {2}\}/), /flowRO\.observe\(tb\)/);
 });

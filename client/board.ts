@@ -552,13 +552,6 @@ function plate(k: Ticket, link: (t: ThreadRow) => string, origin: string, answer
 const plural = (n: number | null, one: string, many = one + 's'): string => `${n} ${n === 1 ? one : many}`;
 // Minutes as a card says them: "52 min", "3 h", "2 d".
 const span = (m: number): string => (m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h` : `${Math.floor(m / 1440)} d`);
-const NOT = (why: string): string => `<b class="nc">Not checked</b><span>${why}</span>`;
-/** Bars of whole numbers, one each, tallest the highest. */
-function bars(vals: readonly number[], label: string): string {
-  const w = 200, h = 30, m = Math.max(1, ...vals), bw = w / vals.length;
-  return `<svg class="vbars" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="${e(label)}">${vals.map((v, i) => { const bh = Math.max(2, (v / m) * (h - 2));
-    return `<rect x="${(i * bw + 1.5).toFixed(1)}" y="${(h - bh).toFixed(1)}" width="${Math.max(1, bw - 3).toFixed(1)}" height="${bh.toFixed(1)}" rx="1.5"/>`; }).join('')}</svg>`;
-}
 /** You, expanded: the solo Sankey (Dan, 2026-11-11, flow mock v3.3; client/flow.ts) under the header picker. It took the
  *  place of the six stage columns: your threads run left to right from their project, through checks and review, to you
  *  and the branch they merged into, and a band that waits on you lights its card in The Pass beside it. Without a good
@@ -758,75 +751,22 @@ function teamDock(c: TeamCall, w: Words, me: Me | null | undefined, id: string):
   return `<aside class="dock dock-plain" aria-label="Your move"><form class="act team-act" method="post" action="/act" data-plate="${e(id)}">${only}${ask}${note}${bar(labelled, [hold, settle], rows)}</form></aside>`;
 }
 
-/** Your team, expanded (mock v2, approved 2026-11-10): a header, four instruments, the rows (flow mock round 3.3, locked
- *  2026-11-11: they replace Who's on what) and the files two live threads change. Its numbers come from client/open-kitchen.ts kitchenBoard; what no summary says reads "Not checked". */
-function boardOf({ ok, now, want, fold, name, people, plateOf, menu }: { ok: OpenKitchen; now: number; want: ReadonlySet<string> | null; fold: ReadonlySet<string>; name: Namer;
-  people: ReadonlyMap<string, Person>; plateOf: (id: string) => string | null; menu: string }): string {
+/** Your team, expanded: the rows alone (flow mock round 3.3, locked 2026-11-11), filling the column beside the team's
+ *  Pass (Dan, 2026-11-12, "1. B-ish": the mock plus our side cards; the instruments and the files list went). The header
+ *  is the project picker, as in You, expanded: with one project open, a back button sits beside it. Its numbers come
+ *  from client/open-kitchen.ts kitchenBoard; what no summary says reads "Not checked". */
+function boardOf({ ok, now, want, fold, name, people, plateOf, menu, fit }: { ok: OpenKitchen; now: number; want: ReadonlySet<string> | null; fold: ReadonlySet<string>; name: Namer;
+  people: ReadonlyMap<string, Person>; plateOf: (id: string) => string | null; menu: string; fit: Fit | null }): string {
   const title = want ? [...want].sort((a, b) => a.localeCompare(b)).join(', ') : 'All projects';
-  // The header is the project picker, with no count line under it (Dan, 2026-11-11): people want what is slow, stuck
-  // and worth their focus, which the board below shows. The heading stays for a screen reader.
-  const top = `<header class="you-h"><h2 id="tb-t" class="vh">Open kitchen, ${e(title)}</h2>${menu}</header>`;
+  // The header is the project picker, with no count line under it (Dan, 2026-11-11). The heading stays for a screen reader.
+  const back = want && want.size === 1 ? `<button type="button" class="fx-back" data-unpick aria-label="Back to all projects" title="Back to all projects">${svg('chev')}</button>` : '';
+  const top = `<header class="you-h"><h2 id="tb-t" class="vh">Open kitchen, ${e(title)}</h2>${menu}${back}</header>`;
   const B = kitchenBoard(ok, { now, want });
   if (!B) {
     const why = ok.why === 'offline' ? 'Yes Chef’s team connection is down.' : 'No one on your team has reported yet.';
     return `<section class="tboard" aria-labelledby="tb-t">${top}<div class="you-b"><p class="nc-l"><b>Not checked</b> ${e(why)}</p></div></section>`;
   }
-  const ins = (label: string, v: string, extra = '') => `<div class="ins" role="listitem"><p class="l">${e(label)}</p><p class="v">${v}</p>${extra}</div>`;
-  const ago = (t: number) => span(Math.max(0, Math.round((now - t) / 60000)));
-  const short = (repo: unknown) => String(repo).split('/').pop()!;
-  // 1. The base: red since the first red commit, or green; one mark per merge today, so it agrees with Merged today.
-  const b = B.base;
-  const label1 = b.branches.length === 1 ? b.branches[0]! : 'Base branches';
-  // Bases are one per repo and branch: name the branch only when there is more than one, and count repos apart.
-  const baseName = (r: { repo: unknown; branch: unknown }) => (b.branches.length > 1 ? `${short(r.repo)} ${r.branch}` : short(r.repo));
-  const nRepos = new Set(b.repos.map((r) => r.toLowerCase())).size;
-  const v1 = b.state === 'red' ? `<b class="red">Red</b><span>${b.since !== null ? `since ${hm(b.since)}` : 'since not checked'}${b.count > 1 ? `, ${e(and([...new Set(b.red.map(baseName))]))}` : ''}</span>`
-    : b.state === 'green' ? `<b class="green">Green</b><span>${e(nRepos > 1 ? `${nRepos} repos` : b.count > 1 ? `${short(b.repos[0])}, ${plural(b.count, 'branch', 'branches')}` : short(b.repos[0]))}</span>`
-    : NOT(b.count ? 'a required check has no result yet' : 'no Mac online has read it');
-  const rib = b.merges.length ? `<div class="kribbon" role="img" aria-label="${e(`${plural(b.merges.length, 'merge')} today`)}">${b.merges.map((m) => `<i${m.tone === 'red' ? ' class="r"' : ''} title="${e(`#${m.n}, ${name(m.person)}, ${hm(m.at)}${m.tone === 'red' ? `, while ${label1} is red` : ''}`)}"></i>`).join('')}</div>`
-    + `<span class="cap"><span>${plural(b.merges.length, 'merge')}</span>${b.merges.some((m) => m.tone === 'red') ? `<span class="red">red: since ${b.since !== null ? hm(b.since) : 'the break'}</span>` : ''}</span>` : '';
-  // 2. Merged today: the count and bars by hour. "Usual by now" needs weeks of merge times, which no summary sends.
-  const m = B.merged;
-  // Merges with no time may be today's: the count is then a floor, and says so.
-  // What a count cannot see goes in a caption under it ("Not counted: …"); a count that may be low says "at least".
-  const gapWords = (g: { away?: number; capped?: number }, untimed = 0) => [untimed ? `${plural(untimed, 'merge')} with no time` : '', g.away ? `${plural(g.away, 'Mac')} not reporting` : '',
-    g.capped ? `${plural(g.capped, 'Mac')} that sent part of ${g.capped === 1 ? 'its' : 'their'} threads` : ''].filter(Boolean).join(', ');
-  const gapCap = (words: string) => words ? `<span class="cap"><span>Not counted: ${e(words)}</span></span>` : '';
-  const mGap = gapWords(m.gap, m.untimed);
-  const v2 = `<b>${m.count}</b><span>${mGap ? 'at least' : 'usual by now: not checked'}</span>`;
-  const hh = (h: number) => `${String(h).padStart(2, '0')}:00`;
-  const mbars = bars(m.byHour, `Merges by hour from ${hh(m.from)}: ${m.byHour.join(', ')}`).replace('class="vbars"', 'class="vbars mg"')
-    + `<span class="cap"><span>${hh(m.from)}</span><span>now</span></span>` + gapCap(mGap);
-  // 3. Waiting for review: PRs ready for review and how long each has waited, oldest first.
-  const r = B.review;
-  // A Mac that is not reporting may hold more, so a caption says so; with none counted the count is not checked, never 0.
-  const rGap = gapWords(r.gap);
-  const v3 = r.count ? `<b>${r.count}</b><span>${r.count === 1 ? 'PR' : 'PRs'}, oldest ${r.ages ? span(Math.round(r.ages[0]! / 60000)) : 'not checked'}</span>`
-    : rGap ? NOT(e(rGap)) : '<b>0</b><span>no PR waits</span>';
-  const rbars = (r.ages ? bars(r.ages.slice(0, 12).map((a) => Math.round(a / 60000)), `How long each waits: ${r.ages.slice(0, 12).map((a) => span(Math.round(a / 60000))).join(', ')}`) : '') + (r.count ? gapCap(rGap) : '');
-  // 4. Agents running now. The day's line needs readings over the day, which no summary sends.
-  const v4 = `<b>${B.agents.count}</b><span>on ${plural(B.agents.threads, 'thread')}</span>`;
-  const inst = `<div class="inst" role="list">${ins(label1, v1, rib)}${ins('Merged today', v2, mbars)}${ins('Waiting for review', v3, rbars)}${ins('Agents running', v4, gapCap(gapWords(B.agents.gap)))}</div>`;
-
-  const who = okRows({ R: B.rows, now, want, fold, name, people, plateOf });
-  // Files two live threads change.
-  const F = B.files;
-  const FS: Record<'same' | 'different' | 'nc' | 'gen', [string, string]> = { same: ['Same lines. In The Pass', 'red'], different: ['Different lines. Fine', ''], nc: ['Lines not checked', 'gray'], gen: ['Lockfile or generated. Not compared', 'gray'] };
-  const frow = (f: (typeof F.rows)[number]) => {
-    const [word, tone] = f.state === 'same' && !(f.call && f.call.mine) ? ['Same lines', 'red'] : f.state === 'nc' && f.near ? ['Lines not checked: two merge bases', 'gray'] : FS[f.state];
-    const open = f.call && f.call.mine ? plateOf(f.call.id) : null;
-    const inner = `<span class="f" title="${e(`${f.repo}: ${f.path}`)}">${e(f.path)}</span><span class="fc">${f.people.map((id) => face(people.get(id), 'sm')).join('')}</span><span class="s${tone ? ` ${tone}` : ''}">${e(word)}</span>`;
-    return open ? `<button type="button" class="sf" role="listitem" data-team-open="${e(open)}">${inner}</button>` : `<div class="sf" role="listitem">${inner}</div>`;
-  };
-  // Threads whose changes were not read could share any file, so the list never reads as all clear while some are out.
-  const out = [F.unread ? `${plural(F.unread, 'live thread')} not checked: ${F.unread === 1 ? 'its' : 'their'} changed files were not sent.` : '',
-    F.partial ? `${plural(F.partial, 'thread')} sent only part of ${F.partial === 1 ? 'its' : 'their'} files.` : '',
-    F.capped ? `${plural(F.capped, 'Mac')} sent only part of ${F.capped === 1 ? 'its' : 'their'} threads.` : ''].filter(Boolean).join(' ');
-  const fbody = !F.compared ? `<p class="nc-l"><b>Not checked</b> No live thread has sent its changed files.</p>`
-    : F.rows.length ? `<div class="sfl" role="list">${F.rows.slice(0, 8).map(frow).join('')}</div>${F.rows.length > 8 ? `<p class="tmore">And ${plural(F.rows.length - 8, 'more file')}.</p>` : ''}${out ? `<p class="tmore">${e(out)}</p>` : ''}`
-    : out ? `<p class="nc-l">No file is changed by two of the ${plural(F.compared, 'thread')} read. ${e(out)}</p>` : `<p class="nc-l">No file is changed by two live threads.</p>`;
-  const files = `<section class="pnl" aria-labelledby="tb-f"><header class="ph"><h3 id="tb-f">Files two live threads change</h3><span>${F.at !== null ? `checked ${hm(F.at)}` : 'check time not checked'}</span></header>${fbody}</section>`;
-  return `<section class="tboard" aria-labelledby="tb-t">${top}<div class="you-b">${inst}${who}${files}</div></section>`;
+  return `<section class="tboard" aria-labelledby="tb-t">${top}<div class="you-b">${okRows({ R: B.rows, now, want, fold, name, people, plateOf, fit })}</div></section>`;
 }
 
 type Rows = NonNullable<ReturnType<typeof kitchenBoard>>['rows'];
@@ -835,9 +775,9 @@ type Rows = NonNullable<ReturnType<typeof kitchenBoard>>['rows'];
  *  the same file draw a link between their cells, in that file's column: the one line on the chart, and it marks that
  *  event where it happens. Sub-leads group their people; a click on the group folds it (?fold=<id>). Hover links the
  *  chart and The Pass both ways (data-k, data-f, as client/flow.ts). Red and amber are calls and nothing else. */
-function okRows({ R, now, want, fold, name, people, plateOf }: { R: Rows; now: number; want: ReadonlySet<string> | null; fold: ReadonlySet<string>; name: Namer;
-  people: ReadonlyMap<string, Person>; plateOf: (id: string) => string | null }): string {
-  const W = 860, ROW = 48, TOPK = 62, XA = 112, SQ = 16, GAP = 4, SLOTS = 8, XM = XA + SLOTS * (SQ + GAP) + 14, MW = 112;
+function okRows({ R, now, want, fold, name, people, plateOf, fit }: { R: Rows; now: number; want: ReadonlySet<string> | null; fold: ReadonlySet<string>; name: Namer;
+  people: ReadonlyMap<string, Person>; plateOf: (id: string) => string | null; fit: Fit | null }): string {
+  const W = 860, TOPK = 62, Y0 = TOPK - 4, XA = 112, SQ = 16, GAP = 4, SLOTS = 8, XM = XA + SLOTS * (SQ + GAP) + 14, MW = 112;
   // Columns: as many as fit at 24 px; past that the least busy fold into one "Other areas" column at the end.
   // An area cell shows the agents at work in it, and an Overlap's side even while it waits: the link needs both ends
   // (PR-Agent r1 on #53).
@@ -868,7 +808,15 @@ function okRows({ R, now, want, fold, name, people, plateOf }: { R: Rows; now: n
     if (pod && !lines.some((l) => l.kind === 'pod' && l.lead === pod)) lines.push({ kind: 'pod', lead: pod, members: R.pods.find((p) => p.lead === pod)!.members, folded: fold.has(pod) });
     if (!pod || !fold.has(pod)) lines.push({ kind: 'dev', r, pod });
   }
-  const H = TOPK + lines.length * ROW + 6;
+  // The rows fill the column down to the foot of The Pass (Dan, 2026-11-12): the page sends the size it has (fx=WxH,
+  // client/page.ts fitFlow), and the rows grow to share it, up to a cap; past the cap the dotted field runs to the foot.
+  // Without a size, or with more rows than fit, each row keeps its own height and the column scrolls.
+  const HF = fit ? (fit.h * W) / fit.w : 0;
+  const ROW = Math.max(48, Math.min(72, Math.floor((HF - Y0 - 6) / Math.max(1, lines.length))));
+  const H = Math.max(Y0 + lines.length * ROW + 6, Math.floor(HF));
+  // Every mark in a row sits on its middle line; cells keep the mock's height however tall the row grows.
+  const CH = Math.min(ROW - 16, 34), PH = CH - 8;
+  const mid = (i: number) => Y0 + i * ROW + ROW / 2;
   const maxM = Math.max(1, ...R.people.map((r) => r.merged ?? 0));
   // A Mac quiet since an earlier day says the day, never an hour that reads as today's.
   const when = (t: number) => (new Date(t).toDateString() === new Date(now).toDateString() ? hm(t) : new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }));
@@ -880,7 +828,10 @@ function okRows({ R, now, want, fold, name, people, plateOf }: { R: Rows; now: n
   for (const pj of [...new Set(cols.map((c) => c.project))]) {
     const cs = cols.flatMap((c, i) => (c.project === pj ? [i] : []));
     const x0 = XM + cs[0]! * CW, x1 = XM + (cs[cs.length - 1]! + 1) * CW - 6;
-    if (pj) head += `<text class="pjname" x="${x0}" y="${TOPK - 40}">${e(pj)}</text><line class="pjrule" x1="${x0}" x2="${x1}" y1="${TOPK - 33}" y2="${TOPK - 33}"/>`;
+    // Every project open: a click on a project's name opens that project, as in You, expanded; the back button beside
+    // the picker returns.
+    const dr = pj && !(want && want.size === 1) ? ` data-drill="${e(pj)}" tabindex="0" role="button" aria-label="${e(`Open ${pj}`)}"` : '';
+    if (pj) head += `<text class="pjname"${dr} x="${x0}" y="${TOPK - 40}">${e(pj)}</text><line class="pjrule" x1="${x0}" x2="${x1}" y1="${TOPK - 33}" y2="${TOPK - 33}"/>`;
   }
   cols.forEach((c, i) => {
     const n = R.people.reduce((s, r) => s + r.agents.filter((a) => inCol(a, i)).length, 0);
@@ -890,20 +841,21 @@ function okRows({ R, now, want, fold, name, people, plateOf }: { R: Rows; now: n
   head += `<text class="zlbl" x="${XA}" y="${TOPK - 14}">Agents</text><text class="zlbl" x="${XT}" y="${TOPK - 14}">Merged today</text>`;
   const rowAt = new Map<string, number>();
   lines.forEach((l, i) => {
-    const y = TOPK + i * ROW;
+    const y = Y0 + i * ROW, cy = mid(i);
     if (l.kind === 'pod') {
       for (const m of l.members) if (l.folded) rowAt.set(m, i);
       const rs = R.people.filter((r) => l.members.includes(r.person)), ag = rs.flatMap((r) => r.agents);
-      // One Overlap is one call, though two of the team's agents are in it.
-      const calls = new Set(ag.flatMap((a) => (a.call && !a.out ? [a.call.id] : []))).size;
+      // The calls of theirs that wait on you (the mock's "3 need you"): one Overlap is one call, though two of the team's
+      // agents are in it, and a call with no agent at work (a merge that broke main) counts too.
+      const need = new Set([...ag.flatMap((a) => (a.call && a.call.mine && !a.out ? [a.call.id] : [])), ...rs.flatMap((r) => r.calls.flatMap((c) => (c.mine ? [c.id] : [])))]).size;
       // A member Yes Chef cannot read adds no agents it knows of: the team's count is then at least (PR-Agent r3 on #53).
       const some = rs.some((r) => !r.known) ? 'at least ' : '';
       const m = rs.some((r) => r.merged === null) ? null : rs.reduce((s, r) => s + r.merged!, 0), floor = rs.some((r) => r.floor);
       // The team's name carries every call of its people, so a folded team still lights their cards and they light it.
       const k = [`pod:${l.lead}`, ...new Set([...ag.flatMap((a) => (a.out ? [] : callKey(a.call))), ...rs.flatMap((r) => r.calls.flatMap(callKey))])];
-      rows += `<rect class="podband" x="0" y="${y - 4}" width="${W}" height="${ROW}"/>`;
-      rows += `<text class="rowname strong" role="button" tabindex="0" data-fold="${e(l.lead)}" aria-expanded="${!l.folded}"${att(k, k[0]!, `<b>${e(name(l.lead))}’s team</b><div>${e(l.members.map(name).join(', '))}</div><div class="m">${ag.filter((a) => a.working).length} of ${plural(ag.length, 'agent')} working${some ? ', and a Mac not checked' : ''} · ${e(mWords(m, floor))} merged today</div>`)} x="0" y="${y + 16}" dominant-baseline="central">${l.folded ? '▸' : '▾'} ${e(name(l.lead))}’s team</text>`;
-      rows += `<text class="mnum" x="${XA}" y="${y + 16}" dominant-baseline="central">${some}${plural(ag.length, 'agent')}${calls ? ` · ${plural(calls, 'call')}` : ''}</text>`;
+      rows += `<rect class="podband" x="0" y="${y}" width="${W}" height="${ROW}"/>`;
+      rows += `<text class="rowname strong" role="button" tabindex="0" data-fold="${e(l.lead)}" aria-expanded="${!l.folded}"${att(k, k[0]!, `<b>${e(name(l.lead))}’s team</b><div>${e(l.members.map(name).join(', '))}</div><div class="m">${ag.filter((a) => a.working).length} of ${plural(ag.length, 'agent')} working${some ? ', and a Mac not checked' : ''} · ${e(mWords(m, floor))} merged today</div>`)} x="0" y="${cy}" dominant-baseline="central">${l.folded ? '▸' : '▾'} ${e(name(l.lead))}’s team</text>`;
+      rows += `<text class="mnum" x="${XA}" y="${cy}" dominant-baseline="central">${some}${plural(ag.length, 'agent')}${need ? ` · <tspan class="need">${need} need${need === 1 ? 's' : ''} you</tspan>` : ''}</text>`;
       cols.forEach((_, c) => {
         const here = ag.filter((a) => busyIn(a) && inCol(a, c));
         if (!here.length) return;
@@ -911,9 +863,9 @@ function okRows({ R, now, want, fold, name, people, plateOf }: { R: Rows; now: n
         // The same shades as a person's cells, so folding never changes what a shade means.
         const lvl = hot ? 'red' : `n${Math.min(3, here.length)}`;
         const ks = [`pc:${l.lead}:${c}`, ...k, `ar:${c}`, ...here.map((a) => `a:${a.thread}`), ...linkKeys(l.members, c)];
-        rows += `<rect class="cell ${lvl}"${att(ks, `pc:${l.lead}:${c}`, `<b>${e(name(l.lead))}’s team · ${e(cols[c]!.area)}</b><div>${plural(here.length, 'agent')}</div>${hot ? '<div class="m red">Overlap</div>' : ''}`)} x="${XM + c * CW}" y="${y + 4}" width="${CW - 6}" height="${ROW - 24}" rx="4"/>`;
+        rows += `<rect class="cell ${lvl}"${att(ks, `pc:${l.lead}:${c}`, `<b>${e(name(l.lead))}’s team · ${e(cols[c]!.area)}</b><div>${plural(here.length, 'agent')}</div>${hot ? '<div class="m red">Overlap</div>' : ''}`)} x="${XM + c * CW}" y="${cy - PH / 2}" width="${CW - 6}" height="${PH}" rx="4"/>`;
       });
-      rows += `<text class="mnum strong" x="${XT}" y="${y + 16}" dominant-baseline="central">${e(mWords(m, floor, true))}</text>`;
+      rows += `<text class="mnum strong" x="${XT}" y="${cy}" dominant-baseline="central">${e(mWords(m, floor, true))}</text>`;
       return;
     }
     const r = l.r, p = people.get(r.person), d = [`d:${r.person}`, ...(l.pod ? [`pod:${l.pod}`] : [])];
@@ -925,12 +877,12 @@ function okRows({ R, now, want, fold, name, people, plateOf }: { R: Rows; now: n
       : `<b>${e(name(r.person))}</b><div>Agents and merges not checked</div>${lead ? `<div class="m">${e(lead.slice(3))}</div>` : ''}`;
     // The name also carries the person's calls, so a call with no agent at work lights it and it lights the call.
     const nameK = [...d, ...new Set(r.calls.flatMap(callKey))];
-    rows += `<text class="rowname${p ? '' : ' muted'}" tabindex="0"${att(nameK, d[0]!, dt)} x="${ix}" y="${y + 16}" dominant-baseline="central">${e(name(r.person))}</text>`;
+    rows += `<text class="rowname${p ? '' : ' muted'}" tabindex="0"${att(nameK, d[0]!, dt)} x="${ix}" y="${cy}" dominant-baseline="central">${e(name(r.person))}</text>`;
     if (!r.known) {
-      rows += `<text class="mnum" x="${XA}" y="${y + 16}" dominant-baseline="central">Not checked</text>`;
+      rows += `<text class="mnum" x="${XA}" y="${cy}" dominant-baseline="central">Not checked</text>`;
     } else if (r.quiet) {
       // A Mac that is not reporting: its agents are not known now, so none are drawn.
-      rows += `<text class="mnum" x="${XA}" y="${y + 16}" dominant-baseline="central">${e(quietWords)}</text>`;
+      rows += `<text class="mnum" x="${XA}" y="${cy}" dominant-baseline="central">${e(quietWords)}</text>`;
     } else {
       const shown = r.agents.length > SLOTS ? r.agents.slice(0, SLOTS - 1) : r.agents;
       shown.forEach((a, j) => {
@@ -941,10 +893,10 @@ function okRows({ R, now, want, fold, name, people, plateOf }: { R: Rows; now: n
         const open = a.call && a.call.mine && !a.out ? plateOf(a.call.id) : null;
         // A square that opens its call is a button: a keyboard reaches it and Enter opens the call (PR-Agent r1 on #53).
         const btn = open ? ` data-team-open="${e(open)}" tabindex="0" role="button" aria-label="${e(`Open the call: ${nA(a)}, ${KINDS[a.call!.kind].word}`)}"` : '';
-        rows += `<rect class="ag ${a.out ? 'out' : tone(a)}"${btn}${att(ks, `a:${a.thread}`, tip)} x="${x}" y="${y + 8}" width="${SQ}" height="${SQ}" rx="3.5"/>`;
+        rows += `<rect class="ag ${a.out ? 'out' : tone(a)}"${btn}${att(ks, `a:${a.thread}`, tip)} x="${x}" y="${cy - SQ / 2}" width="${SQ}" height="${SQ}" rx="3.5"/>`;
       });
-      if (r.agents.length > SLOTS) rows += `<text class="mnum" x="${XA + (SLOTS - 1) * (SQ + GAP) + SQ / 2}" y="${y + 16}" text-anchor="middle" dominant-baseline="central">+${r.agents.length - SLOTS + 1}</text>`;
-      if (!r.agents.length) rows += `<text class="mnum" x="${XA}" y="${y + 16}" dominant-baseline="central">No agents</text>`;
+      if (r.agents.length > SLOTS) rows += `<text class="mnum" x="${XA + (SLOTS - 1) * (SQ + GAP) + SQ / 2}" y="${cy}" text-anchor="middle" dominant-baseline="central">+${r.agents.length - SLOTS + 1}</text>`;
+      if (!r.agents.length) rows += `<text class="mnum" x="${XA}" y="${cy}" dominant-baseline="central">No agents</text>`;
     }
     cols.forEach((_, c) => {
       const here = r.agents.filter((a) => busyIn(a) && inCol(a, c));
@@ -952,20 +904,20 @@ function okRows({ R, now, want, fold, name, people, plateOf }: { R: Rows; now: n
       const hot = shared([r.person], c);
       const ks = [`c:${r.person}:${c}`, ...d, `ar:${c}`, ...here.map((a) => `a:${a.thread}`), ...(l.pod ? [`pc:${l.pod}:${c}`] : []), ...linkKeys([r.person], c)];
       const files = here.flatMap((a) => (a.files ?? []).filter((f) => cols[c]!.of.some((o) => o.project === a.project && areaOf(f) === o.area)).slice(0, 3).map((f) => `<div class="m mono">${e(f)}</div>`));
-      rows += `<rect class="cell ${hot ? 'red' : `n${Math.min(3, here.length)}`}"${att(ks, `c:${r.person}:${c}`, `<b>${e(name(r.person))} · ${e(cols[c]!.area)}</b><div>${plural(here.length, 'agent')}</div>${files.join('')}${hot ? '<div class="m red">Overlap</div>' : ''}`)} x="${XM + c * CW}" y="${y}" width="${CW - 6}" height="${ROW - 16}" rx="4"/>`;
+      rows += `<rect class="cell ${hot ? 'red' : `n${Math.min(3, here.length)}`}"${att(ks, `c:${r.person}:${c}`, `<b>${e(name(r.person))} · ${e(cols[c]!.area)}</b><div>${plural(here.length, 'agent')}</div>${files.join('')}${hot ? '<div class="m red">Overlap</div>' : ''}`)} x="${XM + c * CW}" y="${cy - CH / 2}" width="${CW - 6}" height="${CH}" rx="4"/>`;
     });
     // Room for the longest label after the bar ("at least 12"), so a count never runs off the chart (PR-Agent r3 on #53).
     const bw = ((r.merged ?? 0) / maxM) * (W - XT - 74);
-    if (r.merged) rows += `<rect class="mbar"${att(d, d[0]!, dt)} x="${XT}" y="${y + 10}" width="${bw.toFixed(1)}" height="12" rx="3"/>`;
-    rows += `<text class="mnum" x="${(XT + bw + (r.merged ? 6 : 0)).toFixed(1)}" y="${y + 16}" dominant-baseline="central">${e(mWords(r.merged, r.floor, true))}</text>`;
+    if (r.merged) rows += `<rect class="mbar"${att(d, d[0]!, dt)} x="${XT}" y="${cy - 6}" width="${bw.toFixed(1)}" height="12" rx="3"/>`;
+    rows += `<text class="mnum" x="${(XT + bw + (r.merged ? 6 : 0)).toFixed(1)}" y="${cy}" dominant-baseline="central">${e(mWords(r.merged, r.floor, true))}</text>`;
   });
   // Overlap: the one line on the chart. It joins the two people's cells in the column of the file both change.
   for (const l of R.links) {
     const c = colOf(l.project, l.area), ra = rowAt.get(l.a), rb = rowAt.get(l.b);
     if (c < 0 || ra === undefined || rb === undefined || ra === rb) continue;
     const [i, j] = [ra, rb].sort((x, z) => x - z) as [number, number];
-    const bot = (r: number) => TOPK + r * ROW + (lines[r]!.kind === 'pod' ? ROW - 20 : ROW - 16);
-    const x = XM + c * CW + (CW - 6) / 2, y1 = bot(i), y2 = TOPK + j * ROW + (lines[j]!.kind === 'pod' ? 4 : 0);
+    const half = (r: number) => (lines[r]!.kind === 'pod' ? PH : CH) / 2;
+    const x = XM + c * CW + (CW - 6) / 2, y1 = mid(i) + half(i), y2 = mid(j) - half(j);
     const ks = [...l.threads.map((t) => `a:${t}`), ...callKey(l)];
     const tip = `<b class="red">Overlap</b><div class="mono">${e(l.path)}</div><div>${e(name(l.a))} and ${e(name(l.b))} both change it</div>`;
     links += `<line class="olink halo" x1="${x}" x2="${x}" y1="${y1}" y2="${y2}"/><line class="olink"${att(ks, ks.join(' '), tip)} x1="${x}" x2="${x}" y1="${y1}" y2="${y2}"/>`;
@@ -973,20 +925,22 @@ function okRows({ R, now, want, fold, name, people, plateOf }: { R: Rows; now: n
   const all = R.people.flatMap((r) => (r.quiet ? [] : r.agents)), on = all.filter((a) => !a.out);
   const n = (f: (a: (typeof all)[number]) => boolean) => on.filter(f).length;
   const chip = (cls: string, word: string, count: number | null) => `<span><i class="sq ${cls}"></i>${word}${count === null ? '' : ` ${count}`}</span>`;
-  const key = `<span class="lg okk">${chip('working', 'Working', n((a) => !a.call && a.working))}${chip('idle', 'Idle', n((a) => !a.call && !a.working))}`
+  // The key sits at the foot, under the rows, as in the mock; no line explains how to read it (Dan, 2026-11-12).
+  const key = `<p class="lg okk">${chip('working', 'Working', n((a) => !a.call && a.working))}${chip('idle', 'Idle', n((a) => !a.call && !a.working))}`
     + `${chip('red', 'Act now', n((a) => a.call !== null && KINDS[a.call.kind].tone === 'red'))}${chip('amber', 'Decide soon', n((a) => a.call !== null && KINDS[a.call.kind].tone === 'amber'))}`
     + `${want ? chip('out', 'Other projects', all.length - on.length) : ''}<span><i class="sq n1"></i><i class="sq n2"></i><i class="sq n3"></i>1, 2, 3+ agents</span>`
-    + `<span>Agents by lab: not checked</span></span>`;
-  const svg = `<svg class="fx okr" viewBox="0 0 ${W} ${H}" role="img" aria-label="${e(`One row per person: ${R.people.length} people`)}"><defs><pattern id="okdots" width="14" height="14" patternUnits="userSpaceOnUse"><circle cx="7" cy="7" r="1" class="dot"/></pattern></defs>`
-    + (cols.length ? `<rect x="${XM - 6}" y="${TOPK - 6}" width="${cols.length * CW + 6}" height="${lines.length * ROW}" fill="url(#okdots)"/>` : '')
+    + '</p><p class="lg okl">Agents by lab: not checked</p>';
+  const svg = `<svg class="fx okr"${fit ? ` data-fit="${fit.w}x${fit.h}"` : ''} viewBox="0 0 ${W} ${H}" role="img" aria-label="${e(`One row per person: ${R.people.length} people`)}"><defs><pattern id="okdots" width="14" height="14" patternUnits="userSpaceOnUse"><circle cx="7" cy="7" r="1" class="dot"/></pattern></defs>`
+    + (cols.length ? `<rect x="${XM - 6}" y="${Y0}" width="${cols.length * CW + 6}" height="${H - Y0}" fill="url(#okdots)"/>` : '')
     + `${head}${rows}${links}</svg>`;
-  return `<section class="pnl ok-p" aria-labelledby="tb-who"><header class="ph"><h3 id="tb-who">Who’s on what</h3>${key}</header>`
+  // No title over the chart, as in You, expanded: the header picker names what it shows.
+  return `<section class="pnl ok-p" aria-label="Who’s on what">`
     // The tip sits beside the scroller, not in it, so a sideways scroll never clips it (PR-Agent r2 on #53).
-    + `<div class="fx-wrap ok-box"><div class="ok-wrap"><div class="fx-view">${svg}</div></div><div class="fx-tip" hidden></div></div></section>`;
+    + `<div class="fx-wrap ok-box"><div class="ok-wrap"><div class="fx-view">${svg}</div></div><div class="fx-tip" hidden></div></div><footer class="ok-foot">${key}</footer></section>`;
 }
 
 /** Everything Your team draws when the page has a team reading. ctx: { icons } from the board, for project marks. */
-function teamParts(team: TeamInput, view: TeamView, icons: ReadonlyMap<string, string | null>, want: ReadonlySet<string> | null = null, menu = '', fold: ReadonlySet<string> = new Set()) {
+function teamParts(team: TeamInput, view: TeamView, icons: ReadonlyMap<string, string | null>, want: ReadonlySet<string> | null = null, menu = '', fold: ReadonlySet<string> = new Set(), fit: Fit | null = null) {
   const now = typeof team.now === 'number' && Number.isFinite(team.now) ? team.now : Date.now();
   const ok = openKitchen(view, { now });
   const me = view.me;
@@ -1046,7 +1000,7 @@ function teamParts(team: TeamInput, view: TeamView, icons: ReadonlyMap<string, s
   const col = calls.length ? `<div class="tcol" role="list" aria-label="Your team’s calls">${calls.map(xcard).join('')}</div>` : '';
   const pass = !live ? `<div class="clear team-pass">${svg('cloche')}<p><b>${NC_V}</b></p><p class="muted">${e(why)} Your team’s calls show once it is back.</p></div>`
     : `<div class="team-pass tp-live"><div class="folder" data-folder="team">${calls.map(tile).join('')}</div>${col}${calm}</div>`;
-  const board = boardOf({ ok, now, want, fold, name, people, menu, plateOf: (id) => (calls.some((x) => x.c.id === id) ? teamPlateId({ id }) : null) });
+  const board = boardOf({ ok, now, want, fold, name, people, menu, fit, plateOf: (id) => (calls.some((x) => x.c.id === id) ? teamPlateId({ id }) : null) });
   return {
     ok, card, pass, board, count: live ? calls.length : '–',
     plates: calls.map(plateOf).join(''),
@@ -1144,7 +1098,7 @@ export function renderApp({ board, picked = null, link, status, origin, answered
   // Your team, from a team reading (team.view, client/team.ts's shape). Without one it says "Not checked".
   // Expanded Team's header picker, on the board and on the waiting panel alike, since the rail's chip hides there.
   const teamHead = team ? viewMenu({ team, projs, picked: want ? [...want] : null, icons, ok: status.ok, head: 'skillet' }) : '';
-  const T = team?.view ? teamParts(team, team.view, icons, want, teamHead, new Set(fold ?? [])) : null;
+  const T = team?.view ? teamParts(team, team.view, icons, want, teamHead, new Set(fold ?? []), fit) : null;
   const active = STAGES.reduce((x, s) => x + (spots[s] || []).length, 0), held = HELD.reduce((x, s) => x + (spots[s] || []).length, 0);
   // Unknown is not zero: without a good poll the counts read "not checked".
   const n = (v: number | string) => (status.ok ? v : 'not checked');
