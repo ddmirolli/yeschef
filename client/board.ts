@@ -1029,7 +1029,9 @@ export function renderApp({ board, picked = null, link, status, origin, answered
   // The rail's footer chip and its menu, and its stand-in in the top bar (phones). The toggle needs reports.
   const footMenu = viewMenu({ team, projs, picked: want ? [...want] : null, icons, ok: status.ok });
   // Your team, from a team reading (team.view, client/team.ts's shape). Without one it says "Not checked".
-  const T = team?.view ? teamParts(team, team.view, icons, want, viewMenu({ team, projs, picked: want ? [...want] : null, icons, ok: status.ok, head: 'skillet' })) : null;
+  // Expanded Team's header picker, on the board and on the waiting panel alike, since the rail's chip hides there.
+  const teamHead = team ? viewMenu({ team, projs, picked: want ? [...want] : null, icons, ok: status.ok, head: 'skillet' }) : '';
+  const T = team?.view ? teamParts(team, team.view, icons, want, teamHead) : null;
   const active = STAGES.reduce((x, s) => x + (spots[s] || []).length, 0), held = HELD.reduce((x, s) => x + (spots[s] || []).length, 0);
   // Unknown is not zero: without a good poll the counts read "not checked".
   const n = (v: number | string) => (status.ok ? v : 'not checked');
@@ -1073,7 +1075,7 @@ export function renderApp({ board, picked = null, link, status, origin, answered
     + `</section>`;
   const you = youView({ trays, head: viewMenu({ team, projs, picked: want ? [...want] : null, icons, ok: status.ok, head: 'person' }) });
   // Your team is not built yet (Dan, 2026-11-10): with reports, its view says so instead of showing anything made up.
-  const teamWait = team ? `<section class="team-wait" aria-label="Your team"><p><b>${e(team.name || 'Your team')}</b></p><p class="muted">Not checked. Your team's view needs the team connection, which Yes Chef does not have yet.</p></section>` : '';
+  const teamWait = team ? `<section class="team-wait" aria-label="Your team"><header class="you-h">${teamHead}</header><div class="tw-b"><p><b>${e(team.name || 'Your team')}</b></p><p class="muted">Not checked. Your team's view needs the team connection, which Yes Chef does not have yet.</p></div></section>` : '';
   const lamp = status.ok ? 'ok' : 'bad';
   const projectOptions = `<select id="yc-projects" hidden>${[...projects].sort((a, b) => String(a.title).localeCompare(String(b.title))).map((p) => `<option value="${e(p.id)}">${e(p.title || 'Untitled')}</option>`).join('')}</select>`;
   const detail = status.ok ? `T3 Code at ${new URL(origin).host}. Checked ${new Date(status.at).toLocaleTimeString()} (${status.ms} ms).` : '';

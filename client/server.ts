@@ -1411,8 +1411,8 @@ html .plate .dock .q-set{max-width:640px}
 @media (prefers-color-scheme:dark){.vmenu{--cbon:#0A84FF;--cboff:rgba(255,255,255,.07);--cbline:rgba(255,255,255,.32);--segon:#636366}}
 .vmenu summary .ic.who{width:24px;height:24px}
 .vmenu summary .vi{display:flex;flex:none}
-.vmenu .vi-team,html.s-team .vmenu .vi-you{display:none}
-html.s-team .vmenu .vi-team{display:flex}
+.vmenu summary .vi-team,html.s-team .vmenu summary .vi-you{display:none}
+html.s-team .vmenu summary .vi-team{display:flex}
 .vmenu summary .vp{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* The fan: each card steps right and turns a little more, and both shrink as the count grows, so ten still fit.
    When the chip is short of room, the fan gives way and its cards step by the width it
@@ -1472,7 +1472,8 @@ html.s-team .you{display:none}
 /* The Pass follows the view: in Your team it says what it cannot show yet, and none of your own calls. */
 .team-pass,html.s-team .head-b>.folder,html.s-team .head .badge,html.s-team .head-h>.muted{display:none}
 html.s-team .head-b>.team-pass{display:flex}
-html.s-team.v-kitchen .team-wait{display:block;padding:16px 18px;border-radius:16px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--sep)}
+html.s-team.v-kitchen .team-wait{display:block}
+.team-wait .tw-b{padding:16px 18px;border-radius:16px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--sep)}
 /* Your team, Open kitchen (step 4; mock v2, round 2, Dan 2026-11-10). The team's card replaces yours in the rail, and
    The Pass holds the team's calls with a quiet line under them. Phones show The Pass only (Dan's 1a). */
 .team-card,.tpn{display:none}
@@ -1545,7 +1546,7 @@ html.s-team .bar .stats{display:none}
 /* Your team's instruments and panels. You, expanded no longer draws them (#14), so they live here, scoped to the team
    board: a bare .ph would also style the action bar's phone rows (.mi.ph). */
 /* The header (You and Your team, expanded): the picker alone. */
-:is(.you,.tboard)>.you-h{display:flex;flex:none;align-items:center;padding:6px 2px 14px}
+:is(.you,.tboard,.team-wait)>.you-h{display:flex;flex:none;align-items:center;padding:6px 2px 14px}
 .tboard .you-b{display:flex;flex-direction:column;gap:12px;container-type:inline-size}
 .tboard .you-b>*{min-width:0}
 .tboard .inst{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}

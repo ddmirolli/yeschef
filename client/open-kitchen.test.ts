@@ -527,6 +527,14 @@ test('expanded: the header is the picker, with the skillet and no count line (Da
   assert.doesNotMatch(top, /you-sub|people|live thread|<time/);
 });
 
+test('expanded: with no team reading the waiting panel keeps the header picker (PR-Agent, #46)', () => {
+  const html = page({ name: 'Platform', below: 6, mode: 'open' });
+  const wait = (html.match(/<section class="team-wait"[\s\S]*?<\/section>/) || [""])[0];
+  assert.match(wait, /^<section class="team-wait" aria-label="Your team"><header class="you-h"><details class="pmenu vmenu vhead"><summary><span class="vi" title="Team, Open kitchen">/);
+  assert.match(wait, /data-scope="you"[\s\S]*?data-scope="team"/);
+  assert.match(wait, /<div class="tw-b"><p><b>Platform<\/b><\/p><p class="muted">Not checked\./);
+});
+
 test('expanded: the page draws the board and The Pass as a column; each opens a call that is in the page', () => {
   const html = page({ view: viewL(), now: NOWL });
   assert.match(html, /<section class="tboard"/);

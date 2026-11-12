@@ -474,7 +474,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
       var fold = ae.tagName === 'SUMMARY' && ae.parentNode && (ae.parentNode as Element).classList && (ae.parentNode as Element).classList[0];
       // The project menu shows in several places (stage list, top bar, the expanded view's header), so focus returns to
       // the same one.
-      if (!focusSel && fold) focusSel = (fold === 'pmenu' ? (ae.closest('.stagenav') ? '.stagenav ' : ae.closest('.you') ? '.you ' : ae.closest('.tboard') ? '.tboard ' : '.bar ') : '') + 'details.' + fold + ' > summary';
+      if (!focusSel && fold) focusSel = (fold === 'pmenu' ? (ae.closest('.stagenav') ? '.stagenav ' : ae.closest('.you') ? '.you ' : ae.closest('.tboard') ? '.tboard ' : ae.closest('.team-wait') ? '.team-wait ' : '.bar ') : '') + 'details.' + fold + ' > summary';
     }
     var t = document.createElement('template'); t.innerHTML = html; var fresh = t.content;
     swap('.stats', fresh); swap('.pmenu', fresh); swap('.bar .lamps', fresh); swap('.stagenav', fresh, '.nav-scroll');
