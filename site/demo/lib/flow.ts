@@ -1,7 +1,9 @@
 // The expanded views' flow charts, drawn as SVG strings the way client/board.ts draws (Dan, 2026-11-11, stack A: our
 // own layout in strict TypeScript, no chart library). This file is You's Sankey (flow mock v3.3, locked 2026-11-11):
 // your threads run left to right from their project, through checks and review, to you, then to the branch they merged
-// into. Width is threads. Gray is how long since a thread last changed, in three labelled steps (dark mode inverts it, so
+// into. The columns are the stages: a thread's band ends, with a round cap, inside the column of the stage it is in, and
+// crosses a column's dashed edge only when it took that step. Nothing else draws a line (Dan, 2026-11-12: no node bars,
+// which sat inside a column and read as a step that was not there). Width is threads. Gray is how long since a thread last changed, in three labelled steps (dark mode inverts it, so
 // old is bright). No red, orange or yellow fills. What waits on you is The Pass's job (Dan, 2026-11-12): its threads
 // keep their gray here, with no mark at rest, and hover links each one to its card both ways, in one colour (the page
 // script reads data-k, data-f and data-tip). Their tooltip says "Waiting on you". Each project is its logo, gray until
@@ -37,7 +39,7 @@ export interface Layout {
 
 export const DAY = 86_400_000;
 export const W = 860;
-const TOP = 58, FOOT = 18, NW = 5, X0 = 10, XFAN = 70, XB = 118, XG = 150;
+const TOP = 58, FOOT = 18, X0 = 10, XFAN = 70, XB = 118, XG = 150;
 /** Where a band that has not reached review ends, by stage: further along the line is further right. */
 const STUB: Partial<Record<FlowStage, number>> = { Backlog: 188, Planned: 216, 'In progress': 244 };
 /** x of each node, and the stage zones behind them. */
@@ -61,7 +63,6 @@ export const ageOf = (since: number, now: number): Age => {
 const e = (s: unknown): string => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[c]!);
 const f1 = (n: number): string => (Math.round(n * 10) / 10).toString();
 const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
-const cut = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 const ago = (since: number, now: number): string => {
   if (!Number.isFinite(since)) return 'not checked';
   const m = Math.max(0, Math.round((now - since) / 60000));
@@ -173,22 +174,30 @@ export function layout(items: readonly FlowItem[], now: number, drill: string | 
   return { H, span, drill, groups, nodes, bands };
 }
 
-/** A ribbon h high from (x0, y0) to (x1, y1), curved like a Sankey link; from xs, it runs straight to x0 first. */
-const link = (x0: number, y0: number, x1: number, y1: number, h: number, xs = x0): string => {
-  const m = (x0 + x1) / 2;
-  return `M${f1(xs)},${f1(y0)}${xs !== x0 ? `L${f1(x0)},${f1(y0)}` : ''}C${f1(m)},${f1(y0)} ${f1(m)},${f1(y1)} ${f1(x1)},${f1(y1)}L${f1(x1)},${f1(y1 + h)}C${f1(m)},${f1(y1 + h)} ${f1(m)},${f1(y0 + h)} ${f1(x0)},${f1(y0 + h)}${xs !== x0 ? `L${f1(xs)},${f1(y0 + h)}` : ''}Z`;
+/** A point on a band's top edge: straight to it, or curved like a Sankey link (c). */
+interface Pt { x: number; y: number; c: boolean }
+/** A band as one ribbon h high through its points, ending in a round cap: one outline, so no seam shows where its
+ *  straight and curved parts meet. */
+const ribbon = (p: readonly Pt[], h: number): string => {
+  const go = (a: Pt, b: Pt, dy: number): string => {
+    if (!b.c) return `L${f1(b.x)},${f1(b.y + dy)}`;
+    const m = (a.x + b.x) / 2;
+    return `C${f1(m)},${f1(a.y + dy)} ${f1(m)},${f1(b.y + dy)} ${f1(b.x)},${f1(b.y + dy)}`;
+  };
+  const [first] = p, last = p[p.length - 1]!;
+  let d = `M${f1(first!.x)},${f1(first!.y)}`;
+  for (let i = 1; i < p.length; i++) d += go(p[i - 1]!, p[i]!, 0);
+  d += `A${f1(Math.min(5, h / 2))},${f1(h / 2)} 0 0 1 ${f1(last.x)},${f1(last.y + h)}`;
+  for (let i = p.length - 1; i > 0; i--) d += go(p[i]!, { ...p[i - 1]!, c: p[i]!.c }, h);
+  return `${d}Z`;
 };
-/** A straight ribbon that ends in a round cap: a thread that stopped short of review. */
-const stub = (x0: number, x1: number, y: number, h: number): string =>
-  `M${f1(x0)},${f1(y)}L${f1(x1)},${f1(y)}A${f1(Math.min(5, h / 2))},${f1(h / 2)} 0 0 1 ${f1(x1)},${f1(y + h)}L${f1(x0)},${f1(y + h)}Z`;
-const rect = (x0: number, x1: number, y: number, h: number): string => `M${f1(x0)},${f1(y)}L${f1(x1)},${f1(y)}L${f1(x1)},${f1(y + h)}L${f1(x0)},${f1(y + h)}Z`;
 /** What a hover element belongs to (k), what it lights (f), and its tooltip. */
 const hov = (k: readonly string[], f: readonly string[], tip: string): string => ` data-k="${e(k.join(' '))}" data-f="${e(f.join(' '))}" data-tip="${e(tip)}"`;
 const ageCls = (a: Age): string => (a === null ? 'anc' : `a${a}`);
 const WHERE: Partial<Record<FlowStage, string>> = { 'In review': ' · waiting on checks and review', 'Ready to merge': ' · waiting on you to merge', Merged: ' · merged' };
 
 function threadTip(t: FlowItem, now: number): string {
-  return `<b>${e(t.title)}</b><div>${t.stage}${t.pr !== null ? ` · PR #${t.pr}` : ''}</div>`
+  return `<b>${e(t.title)}</b><div>${t.stage}${t.stage === 'Merged' && t.base ? ` into ${e(t.base)}` : ''}${t.pr !== null ? ` · PR #${t.pr}` : ''}</div>`
     + `<div class="m">Last change ${ago(t.since, now)} ago${t.subs ? ` · ${plural(t.subs, 'subagent')}` : ''}</div><div class="m">${e(t.project)}</div>`
     + (t.waits ? `<div class="alarm">${clocheIc('ic')}Waiting on you</div>` : '');
 }
@@ -196,7 +205,9 @@ function bandTip(b: Band, now: number): string {
   const [t0] = b.items;
   if (b.items.length === 1 && t0) return threadTip(t0, now);
   const subs = b.items.reduce((s, t) => s + t.subs, 0);
-  return `<b>${e(b.group)}</b><div>${plural(b.items.length, 'thread')} · ${b.stage}${WHERE[b.stage] ?? ''}</div>`
+  // The branch a merged band went into, when every thread in it went into the same known one.
+  const base = b.stage === 'Merged' && b.items.every((t) => t.base && t.base === t0?.base) ? t0?.base : null;
+  return `<b>${e(b.group)}</b><div>${plural(b.items.length, 'thread')} · ${b.stage}${base ? ` · merged into ${e(base)}` : WHERE[b.stage] ?? ''}</div>`
     + `<div class="m">Last change ${b.age === null ? 'not checked' : AGE_WORD[b.age]}${subs ? ` · ${plural(subs, 'subagent')}` : ''}</div>`;
 }
 
@@ -221,45 +232,39 @@ export function drawFlow(L: Layout, now: number): string {
   let bands = '', fans = '';
   for (const b of L.bands) {
     const ts = b.items.map((t) => `t:${t.id}`);
-    const k = [`fl:${b.id}`, gk(b.group), ...ts, ...b.path.map((s) => `n:${s}`)], f = [`fl:${b.id}`, ...ts];
+    const k = [`fl:${b.id}`, gk(b.group), ...ts], f = [`fl:${b.id}`, ...ts];
     const attrs = hov(k, f, bandTip(b, now));
     const cls = `band ${ageCls(b.age)}${b.waits ? ' wait' : ''}`;
-    const segs: string[] = [];
     const [t0] = b.items;
-    // Opened, a thread's lane is one ribbon from the left to its first stop (no node, so no seam where one was).
-    const lead = L.drill !== null && b.lane !== null ? (!t0 || !t0.subs ? X0 + 30 : XFAN) : null;
-    if (L.drill !== null && b.lane !== null) {
-      if (t0 && t0.subs) {
-        // One hairline per subagent (up to 8), fanning into the thread's lane.
-        const m = Math.min(8, t0.subs), cy = b.lane + b.h / 2;
-        fans += `<rect class="fanhit"${attrs} x="${X0}" y="${f1(b.lane - 2)}" width="${XFAN - X0}" height="${f1(b.h + 4)}"/>`;
-        for (let j = 0; j < m; j++) {
-          const yy = cy + (j - (m - 1) / 2) * 3.2;
-          fans += `<path class="fanl ${ageCls(b.age)}" data-k="${e(k.join(' '))}" d="M${X0},${f1(yy)}C${X0 + 34},${f1(yy)} ${XFAN - 22},${f1(cy)} ${XFAN},${f1(cy)}"/>`;
-        }
+    if (L.drill !== null && b.lane !== null && t0 && t0.subs) {
+      // One hairline per subagent (up to 8), fanning into the thread's lane.
+      const m = Math.min(8, t0.subs), cy = b.lane + b.h / 2;
+      fans += `<rect class="fanhit"${attrs} x="${X0}" y="${f1(b.lane - 2)}" width="${XFAN - X0}" height="${f1(b.h + 4)}"/>`;
+      for (let j = 0; j < m; j++) {
+        const yy = cy + (j - (m - 1) / 2) * 3.2;
+        fans += `<path class="fanl ${ageCls(b.age)}" data-k="${e(k.join(' '))}" d="M${X0},${f1(yy)}C${X0 + 34},${f1(yy)} ${XFAN - 22},${f1(cy)} ${XFAN},${f1(cy)}"/>`;
       }
-    } else segs.push(rect(XB, XG, b.y0, b.h));
-    const end = STUB[b.stage];
-    if (end !== undefined) segs.push(stub(lead ?? XG + NW, end, b.y0, b.h));
-    let px = XG + NW, py = b.y0;
-    for (const s of b.path) {
-      segs.push(link(px, py, NODE_X[s], b.yIn[s] ?? 0, b.h, px === XG + NW && lead !== null ? lead : px));
-      px = NODE_X[s] + NW; py = b.yOut[s] ?? 0;
     }
+    // From its project's logo (opened: its own lane at the left), straight, then on to where it is now.
+    const xs = L.drill !== null && b.lane !== null ? (t0 && t0.subs ? XFAN : X0 + 30) : XB;
+    const pts: Pt[] = [{ x: xs, y: b.y0, c: false }, { x: XG, y: b.y0, c: false }];
+    const end = STUB[b.stage];
+    if (end !== undefined) pts.push({ x: end, y: b.y0, c: false });
+    for (const st of b.path) pts.push({ x: NODE_X[st], y: b.yIn[st] ?? 0, c: true });
     // Every project open: a click opens the project. One project open: a click opens the thread, as its card does.
     // Opened, each thread's band is a button a keyboard reaches too (PR-Agent r1 on #49); every project is reached by its name.
     const act = L.drill === null ? ` data-drill="${e(b.group)}"`
       : t0 ? ` data-plate="${e(t0.id)}" tabindex="0" role="button" aria-label="${e(`${t0.title}, ${t0.stage}${t0.waits ? ', waiting on you' : ''}`)}"` : '';
-    bands += `<path class="${cls}"${attrs}${act} d="${segs.join('')}"/>`;
+    bands += `<path class="${cls}"${attrs}${act} d="${ribbon(pts, b.h)}"/>`;
   }
   // The river fills the column down to The Pass's foot (Dan, 2026-11-12): the page stretches .fx-body to the height that
   // is free (data-span is its natural height under data-top), and moves each name to its node's new place (data-y) at its own size.
   let names = '';
   out += `<g class="fx-body" data-top="${TOP}" data-span="${f1(L.span)}"><g class="bands">${bands}</g><g class="fans">${fans}</g>`;
 
-  // Every project open: each project's node, and its logo where its name was (Dan, 2026-11-12). The logo is gray at
-  // rest and takes its colour when anything of its project lights: its own threads' keys are on it. One project open
-  // has no node and no logo: the header names it, and its threads run straight in from the left.
+  // Every project open: each project's logo where its name was, its threads starting at it (Dan, 2026-11-12, 1B: no bar
+  // beside it). The logo is gray at rest and takes its colour when anything of its project lights: its own threads'
+  // keys are on it. One project open has no logo: the header names it, and its threads run straight in from the left.
   if (L.drill === null) for (const g of L.groups) {
     const mine = all.filter((t) => t.project === g.name);
     const subs = mine.reduce((s, t) => s + t.subs, 0);
@@ -267,28 +272,9 @@ export function drawFlow(L: Layout, now: number): string {
       + `<div class="m">${mine.filter((t) => t.stage === 'Merged').length} merged · ${mine.filter((t) => t.stage === 'In review').length} in review</div>`
       + '<div class="m">Click to open its threads</div>';
     const dr = ` data-drill="${e(g.name)}"`;
-    out += `<rect class="node"${hov([gk(g.name)], [gk(g.name)], tip)}${dr} x="${XG}" y="${f1(g.y)}" width="${NW}" height="${f1(Math.max(1, g.h))}" rx="1.5"/>`;
     const lk = [gk(g.name), ...mine.map((t) => `t:${t.id}`)];
     names += `<g class="glogo"${hov(lk, [gk(g.name)], tip)}${dr} tabindex="0" role="button" aria-label="${e(`Open ${g.name}: ${plural(mine.length, 'thread')}`)}">`
       + `<svg x="${XB - 8 - LOGO}" y="${f1(g.y + g.h / 2 - LOGO / 2)}" data-y="${f1(g.y + g.h / 2)}" data-dy="${-LOGO / 2}" width="${LOGO}" height="${LOGO}" viewBox="0 0 ${LOGO} ${LOGO}" overflow="visible">${logo(g.name, mine[0])}</svg></g>`;
-  }
-  // The stops. A node's queue is the threads that end there.
-  const ends = (s: Stop) => L.bands.filter((b) => b.path[b.path.length - 1] === s).flatMap((b) => b.items);
-  const on = (s: Stop) => L.bands.filter((b) => b.path.includes(s) && b.path[b.path.length - 1] !== s).reduce((n, b) => n + b.items.length, 0);
-  const old = (ts: FlowItem[]) => { const n = ts.filter((t) => ageOf(t.since, now) === 2).length; return n ? ` · ${n} over 3 days` : ''; };
-  const merged = ends('main');
-  const bases = new Set(merged.map((t) => t.base || ''));
-  const base = bases.size === 1 ? [...bases][0] || null : null;
-  const stops: [Stop, string, string][] = [
-    ['review', 'Review', `<b>Checks and review</b><div>${ends('review').length} waiting${old(ends('review'))}</div><div class="m">${on('review')} moved on</div>`],
-    ['you', 'You', `<b>You</b><div>${ends('you').length} ready to merge${old(ends('you'))}</div><div class="m">${on('you')} merged</div>`],
-    ['main', base ?? '', `<b>${e(base ?? 'Merged')}</b><div>${plural(merged.length, 'thread')} merged${base ? ` into ${e(base)}` : ''}</div><div class="m">Releases not checked</div>`],
-  ];
-  for (const [s, word, tip] of stops) {
-    const n = L.nodes[s];
-    if (!n) continue;
-    out += `<rect class="node${s === 'you' ? ' you' : ''}"${hov([`n:${s}`], [`n:${s}`], tip)} x="${NODE_X[s]}" y="${f1(n.y)}" width="${NW}" height="${f1(n.h)}" rx="1.5"/>`;
-    if (word) names += `<text class="gname${s === 'you' ? ' strong' : ''}"${hov([`n:${s}`], [`n:${s}`], tip)} x="${NODE_X[s] + NW / 2}" y="${f1(n.y - 7)}" data-y="${f1(n.y)}" data-dy="-7" text-anchor="middle">${e(cut(word, 14))}</text>`;
   }
   return `${out}</g><g class="fx-names">${names}</g></svg>`;
 }

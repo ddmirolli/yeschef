@@ -1221,11 +1221,6 @@ html .plate .dock .q-set{max-width:640px}
 .fx [data-drill],.fx .band[data-plate]{cursor:pointer}
 .fx [tabindex]{outline:none}
 .fx [tabindex]:focus-visible{outline:2px solid var(--fx-hov);outline-offset:2px}
-.fx .node{fill:var(--label2)}
-.fx .node.you{fill:var(--label)}
-.fx .node.lit{fill:var(--fx-hov)}
-.fx .gname{fill:var(--label2);paint-order:stroke;stroke:var(--bg);stroke-width:3.5px;stroke-linejoin:round}
-.fx .gname.strong,.fx .gname.lit{fill:var(--label);font-weight:600}
 .fx .glogo{filter:grayscale(1);opacity:.75;transition:filter .15s,opacity .15s}
 .fx .glogo.lit{filter:none;opacity:1}
 .fx .glogo .pml{fill:#fff;font-size:12px;font-weight:700}

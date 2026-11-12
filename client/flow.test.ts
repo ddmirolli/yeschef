@@ -132,20 +132,18 @@ test('every project: a band or a project\'s logo picks the project; one project 
   const top = grab(html, /^<div class="fx-view">[\s\S]*?<\/svg><\/div>/);
   assert.doesNotMatch(top, /data-plate=/);
   assert.match(top, /<path class="band [^"]+"[^>]*data-drill="Yes Chef"/);
-  assert.match(top, /<rect class="node"[^>]*data-drill="Fernpay"/);
   assert.match(top, /<g class="glogo"[^>]*data-drill="Fernpay"[^>]*>/);
   // Dan, 2026-11-12: a logo where the name was, never the name in words.
   assert.doesNotMatch(top, />Fernpay<|>Yes Chef</);
   // One project (picked in the header, or clicked here) is its threads: no project node, no logo, no name.
   const one = youFlow(LINE.filter((t) => t.project === 'Fernpay'), NOW);
   assert.match(one, /data-plate=/);
-  assert.doesNotMatch(one, /data-drill=|glogo|>Fernpay<|<rect class="node" x="150"/);
+  assert.doesNotMatch(one, /data-drill=|glogo|>Fernpay</);
   const L = layout(LINE, NOW, 'Fernpay');
-  assert.equal(drawFlow(L, NOW).match(/<rect class="node/g)?.length, 3);
   // Each thread runs straight from its lane: it leaves where it starts.
   assert.ok(L.bands.every((b) => b.lane === b.y0));
-  // No second line of labels over the columns: each node is named on its own.
-  assert.doesNotMatch(html + one, /tierh|Checks and review<|You merge</);
+  // No second line of labels over the columns, and no bars (Dan, 2026-11-12, 1B and the column call).
+  assert.doesNotMatch(html + one, /tierh|Checks and review<|You merge<|class="node/);
 });
 
 test('hover keys split on spaces: a project name with spaces is one key, and each thread is a t: key', () => {
@@ -154,7 +152,8 @@ test('hover keys split on spaces: a project name with spaces is one key, and eac
   const k = grab(band, /data-k="([^"]+)"/, 1).split(' ');
   assert.ok(k.includes('g:Yes%20Chef'));
   assert.ok(k.includes('t:y1'));
-  assert.ok(k.includes('n:review') && k.includes('n:you') && !k.includes('n:main'));
+  // No stop keys: there are no stops to light (Dan, 2026-11-12).
+  assert.ok(!k.some((x) => x.startsWith('n:')));
   assert.deepEqual(grab(band, /data-f="([^"]+)"/, 1).split(' ').slice(1), ['t:y1']);
 });
 
@@ -181,13 +180,34 @@ test('names and titles are escaped everywhere', () => {
   assert.match(html, /aria-label="&lt;img src=x onerror=alert\(1\)&gt;&quot;&amp;&#39;: its threads/);
 });
 
-test('the merged node names the branch only when every merged thread went into the same known one', () => {
-  const named = drawFlow(layout(LINE, NOW), NOW);
-  assert.match(named, /<text class="gname"[^>]*>main<\/text>/);
-  const mixed = drawFlow(layout([I('a', 'P', 'Merged', 0, { base: 'main' }), I('b', 'P', 'Merged', 0, { base: 'staging' })], NOW), NOW);
-  assert.doesNotMatch(mixed, />main<\/text>|>staging<\/text>/);
-  const unknown = drawFlow(layout([I('a', 'P', 'Merged')], NOW), NOW);
-  assert.doesNotMatch(unknown, /<text class="gname"[^>]*>(?!Review|You|P)[^<]+<\/text>/);
+test('a merged band names the branch in its tooltip only when every thread in it went into the same known one', () => {
+  const tipOf = (svg: string) => grab(svg, /<path class="band[^"]*"[^>]*data-tip="([^"]*)"/, 1);
+  assert.match(tipOf(drawFlow(layout([I('a', 'P', 'Merged', 0, { base: 'main' }), I('b', 'P', 'Merged', 0, { base: 'main' })], NOW), NOW)), /merged into main/);
+  assert.doesNotMatch(tipOf(drawFlow(layout([I('a', 'P', 'Merged', 0, { base: 'main' }), I('b', 'P', 'Merged', 0, { base: 'staging' })], NOW), NOW)), /into/);
+  assert.doesNotMatch(tipOf(drawFlow(layout([I('a', 'P', 'Merged')], NOW), NOW)), /into/);
+  assert.match(tipOf(drawFlow(layout([I('a', 'P', 'Merged', 0, { base: 'main' })], NOW, 'P'), NOW)), /Merged into main/);
+});
+
+test('under the narrowest look: each band ends inside the column of its stage, and the column edges are the only lines (Dan, 2026-11-12)', () => {
+  const ZONE: Record<FlowStage, number> = { Backlog: 0, Planned: 0, 'In progress': 0, 'In review': 1, 'Ready to merge': 2, Merged: 3 };
+  const stage = new Map(LINE.map((t) => [t.id, t.stage]));
+  for (const svg of [drawFlow(layout(LINE, NOW), NOW), drawFlow(layout(LINE, NOW, 'Fernpay'), NOW), drawFlow(layout(LINE, NOW, null, 900), NOW)]) {
+    const edges = [0, ...[...svg.matchAll(/<line class="zline" x1="([\d.]+)"/g)].map((m) => Number(m[1])), W];
+    assert.equal(edges.length, 6);
+    // The only lines are the four column edges; no bars, no stop names in the river.
+    assert.equal(svg.match(/<line /g)?.length, 4);
+    assert.doesNotMatch(svg, /<rect class="node|class="gname/);
+    const body = grab(svg, /<g class="bands">[\s\S]*?<\/g>/);
+    for (const m of body.matchAll(/<path class="band[^"]*" data-k="([^"]+)"[^>]*d="([^"]+)"/g)) {
+      const ids = m[1]!.split(' ').filter((k) => k.startsWith('t:')).map((k) => k.slice(2));
+      const zones = new Set(ids.map((id) => ZONE[stage.get(id)!]));
+      assert.equal(zones.size, 1, `one band, one stage: ${ids}`);
+      const [z] = zones;
+      // Its right end, cap included (the arc's radius is at most 5).
+      const right = Math.max(...[...m[2]!.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)].map((p) => Number(p[1]))) + 5;
+      assert.ok(right > edges[z!]! && right < edges[z! + 1]!, `${ids} ends at ${right}, outside ${edges[z!]}..${edges[z! + 1]}`);
+    }
+  }
 });
 
 test('the key is the three gray steps and nothing else on screen (Dan, 2026-11-12)', () => {
