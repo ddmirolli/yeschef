@@ -36,8 +36,6 @@ interface LaunchForm extends PageForm { readonly elements: LaunchFields }
 interface Plate extends HTMLElement { _lastSet?: HTMLFieldSetElement }
 /** A send T3 may or may not have taken: the ticket offers Retry, the same bytes. */
 interface Unconfirmed { body: string; what: string; text: string; form: PageForm; refused?: string; flying?: boolean }
-/** sizeRail keeps its one canvas for text metrics on itself. */
-type Measured = { cv?: CanvasRenderingContext2D };
 /** A toast's button: its label, what it does, and the command whose key it shows. */
 type ToastAct = [label: string, run: () => void, command?: string];
 /** A control a send locks while it waits. */
@@ -89,7 +87,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     // Read the reading position before the layout changes: hiding the reader drops its scroll.
     if (v === 'kitchen' && state.view === 'pass') { var rs0 = mounted && $('.plate-scroll', mounted); state.passScroll = rs0 ? rs0.scrollTop : 0; }
     state.view = v; store('yc.view', v);
-    root.classList.toggle('v-pass', v === 'pass'); root.classList.toggle('v-kitchen', v === 'kitchen'); fitRail();
+    root.classList.toggle('v-pass', v === 'pass'); root.classList.toggle('v-kitchen', v === 'kitchen'); fades();
     var fl = $('.flip'); if (fl) fl.style.transform = '';
     var b = $('[data-view-toggle]'); if (b) b.setAttribute('aria-label', v === 'pass' ? 'Show the full kitchen' : 'Focus on the pass');
     // Neither view opens a ticket by itself: the reader stays blank until you pick one (Dan, 2026-11-08).
@@ -216,20 +214,14 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     if (headRO && sc !== headWatched) { headRO.disconnect(); headWatched = sc || null; if (sc) { headRO.observe(sc); if (h) headRO.observe(h); } }
     fitHead();
   }
-  // J/K move within the list the open ticket came from (a stage column or the pass list), not always the pass
-  // (hill climb r1, Sol). The list is named, not held, so a refresh keeps it.
+  // The list the open ticket came from, by name, so a refresh keeps it.
   function listKeyOf(t: Element): string | null {
-    var tray = t.closest<HTMLElement>('.tray'), folder = t.closest<HTMLElement>('.folder');
-    return tray ? 'tray:' + tray.dataset.stage : folder ? 'folder:' + folder.dataset.folder : null;
+    var folder = t.closest<HTMLElement>('.folder');
+    return folder ? 'folder:' + folder.dataset.folder : null;
   }
-  function listFor(key: string | null | undefined): HTMLElement | null {
-    if (!key) return null;
-    if (key.indexOf('tray:') === 0) return $('.tray[data-stage="' + key.slice(5) + '"] .tray-b');
-    return null;
-  }
+  // You, expanded has no lists of its own since the chart (client/flow.ts), so J/K move in The Pass there too.
   function step(dir: number): void {
-    var box = !focusView() ? listFor(state.listKey) : null;
-    var list = box ? $$('[data-plate]', box).filter(function(t){ return !t.classList.contains('gone'); }) : tiles(); if (!list.length) return;
+    var list = tiles(); if (!list.length) return;
     var i = list.findIndex(function(t){ return t.dataset.plate === state.sel; });
     var t = list[i < 0 ? 0 : Math.max(0, Math.min(list.length - 1, i + dir))]!;
     // Focus moves with the selection, so Enter or Space on a card never reopens the one you left (hill climb 2 r2, Opus).
@@ -265,87 +257,131 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   // 34 px) does not count, so its last line never dims over empty space (hill climb r5, Fable and Sol).
   function moreBelow(el: Element): boolean { return el.scrollHeight - el.scrollTop - el.clientHeight > (el.classList.contains('plate-scroll') ? 40 : 4); }
   function fades(){
-    $$('.tray-b, .head-b, .stagenav, .plate-scroll, .set-panes').forEach(function(el){ el.classList.toggle('fade-end', moreBelow(el)); });
-    $$('.rail, .atts, .stagenav').forEach(railEdge);
+    $$('.head-b, .stagenav, .plate-scroll, .set-panes').forEach(function(el){ el.classList.toggle('fade-end', moreBelow(el)); });
+    $$('.atts, .stagenav').forEach(railEdge);
   }
-  // The kitchen rail and a ticket's attachments fade at the right edge while more wait off screen (hill climb 2 r1).
+  // A ticket's attachments and the stage list fade at the right edge while more wait off screen (hill climb 2 r1).
   function railEdge(el: Element): void { el.classList.toggle('fade-right', el.scrollWidth - el.scrollLeft - el.clientWidth > 4); }
-  // Kitchen stages with tickets share the width by their longest title, so a long title stacks less and a stage of
-  // short ones gives room (hill climb 2 r8, Opus). It only sets each stage's share; the CSS keeps a floor.
-  function sizeRail(){
-    // Text metrics need no layout, so a hidden kitchen measures too, and one measure serves every window width.
-    var cv = (sizeRail as Measured).cv || ((sizeRail as Measured).cv = document.createElement('canvas').getContext('2d') as CanvasRenderingContext2D);
-    var wide = function(el: Element): number { var cs = getComputedStyle(el); cv.font = cs.fontStyle + ' ' + cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily; return cv.measureText((el.textContent || '').trim()).width; };
-    $$('.rail>.tray').forEach(function(tr){
-      // --name holds the stage's name and count on one line, so an empty stage no longer clips "In progress" or "Ready to
-      // merge" (dev words, 2026-11-10): the dot and its 7 px gap, the 6 px gap to the count, the heading's 5 px and the
-      // stage's 8 px sides, and 2 px to spare.
-      var g = $('.tray-h .g', tr), c = $('.tray-h .n', tr);
-      if (g) tr.style.setProperty('--name', Math.ceil(wide(g) + (c ? wide(c) : 0) + 49) + 'px'); else tr.style.removeProperty('--name');
-      // --word is the narrowest the stage can be with no word broken: its name's longest word beside the count, and
-      // (below) its cards' longest word and top row. .tighter holds it, so a narrow window wraps words, never splits them.
-      var word = 0, cw = c ? wide(c) : 0;
-      if (g) { wide(g); (g.textContent || '').trim().split(' ').forEach(function(w){ word = Math.max(word, cv.measureText(w).width + cw + 49); }); }
-      var setWord = function(){ if (word) tr.style.setProperty('--word', Math.ceil(word) + 'px'); else tr.style.removeProperty('--word'); };
-      var ts = $$('.tile .t', tr);
-      if (!ts.length) { ['--need', '--floor', '--text', '--text4'].forEach(function(p){ tr.style.removeProperty(p); }); setWord(); return; }
-      // A stage's share grows with its longest title as drawn, so the titles take about the same lines everywhere.
-      var m = ts.reduce(function(a, t){ return Math.max(a, wide(t)); }, 0);
-      tr.style.setProperty('--need', (Math.min(Math.max(m, 160), 560) / 266).toFixed(2));
-      // Its floor holds its one-line hint (the stage's 8 px and the heading's 5 px sides), so every stage's first
-      // card starts on one line (hill climb 2 r11, Astra).
-      var h = $('.tray-h .hint', tr);
-      if (h) tr.style.setProperty('--floor', Math.ceil(wide(h) + 28) + 'px'); else tr.style.removeProperty('--floor');
-      // --text is the width a card's content needs: its top row whole (the avatar and the age with their gaps; the
-      // rail hides the cloche), so no stage clips the avatar, and each title in 5 lines or fewer, wrapped at spaces
-      // and after hyphens as the page wraps it. The CSS adds the stage and card sides (hill climb 2 r10 and r11).
-      // --text4 is the same with titles in 4 lines, for a window over 1366 px (r13, Opus and Fable).
-      var need = $$('.tile .tile-top', tr).reduce(function(a, tt){ var ag = $('.age', tt); return ag ? Math.max(a, wide(ag) + 21) : a; }, 0), need4 = need;
-      ts.forEach(function(t){
-        wide(t);
-        var sp = cv.measureText(' ').width, words: { w: number; sp: boolean }[] = [];
-        (t.textContent || '').trim().split(' ').forEach(function(w){
-          w.split('-').forEach(function(p, i, all){ if (p || i < all.length - 1) words.push({ w: cv.measureText(i < all.length - 1 ? p + '-' : p).width, sp: i === 0 }); });
-        });
-        var lines = function(at: number): number { var n = 1, x = 0; words.forEach(function(d){ var gap = x && d.sp ? sp : 0; if (x && x + gap + d.w > at) { n++; x = d.w; } else x += gap + d.w; }); return n; };
-        var fit = function(most: number): number { var lo = 40, hi = 220; if (lines(hi) > most) return hi; while (hi - lo > 1) { var mid = (lo + hi) >> 1; if (lines(mid) > most) lo = mid; else hi = mid; } return hi + 2; };
-        need4 = Math.max(need4, fit(4)); need = Math.max(need, fit(5));
-        words.forEach(function(d){ word = Math.max(word, d.w + 45); });
-      });
-      tr.style.setProperty('--text', Math.ceil(need) + 'px'); tr.style.setProperty('--text4', Math.ceil(need4) + 'px');
-      // The top row: the project's mark and the age (the model hides in a narrow stage).
-      word = Math.max(word, $$('.tile .tile-top .age', tr).reduce(function(a, ag){ return Math.max(a, wide(ag) + 21 + 45); }, 0));
-      setWord();
-    });
-    fitRail();
+  // ----- You, expanded: the chart (client/flow.ts) -----
+  // The server draws the projects the header picker shows: one project as its threads, more as every project. A click
+  // on a project picks it there (Dan, 2026-11-12: a second "All projects" over the chart); the picker goes back.
+  // clear: a fresh page, so nothing stays lit. A refresh keeps what the pointer lit, on the fresh chart.
+  function applyFlow(clear: boolean): void {
+    var keep = clear || !fxKeys ? [] : fxKeys.filter(function(k){ return k.indexOf('fl:') !== 0; });
+    fxNow = null; flowFocus(keep.length ? keep : null);
+    watchFlow();
   }
-  // The 4-line floor (.four) holds only while the whole rail fits: it is tried, and dropped if the rail would scroll,
-  // so a window from 1367 to about 1435 px keeps 5 lines and every title whole (r14, Opus). If the rail still runs
-  // past its edge, .tight drops the floors and the titles wrap more, so Merged is never cut off (Dan, 2026-11-10).
-  // Run on draw, resize and view change; a hidden rail keeps its state.
-  function fitRail(){
-    $$('.rail').forEach(function(rail){
-      if (!rail.clientWidth) return;
-      var over = function(){ return rail.scrollWidth > rail.clientWidth + 1; };
-      rail.classList.remove('tight', 'tighter'); rail.classList.add('four');
-      if (over()) rail.classList.remove('four');
-      if (over()) rail.classList.add('tight');
-      // A window near 1280 px: the stage names wrap too.
-      if (over()) rail.classList.add('tighter');
-    });
-    fades();
+  // The chart fills its column down to the foot of The Pass beside it (Dan, 2026-11-12: half the page sat empty). The
+  // river stretches to the height that is free, never below its own; strokes keep their width (CSS), and each name
+  // moves with its node at its own size. Measured again whenever the column changes size.
+  var fxSize = '', fxAsked = '', fxTimer: ReturnType<typeof setTimeout> | undefined;
+  /** /app for a query, with the chart's size once the page has measured it. */
+  function appUrl(q: string): string { return '/app' + q + (fxSize ? (q ? '&' : '?') + 'fx=' + fxSize : ''); }
+  var flowRO = window.ResizeObserver ? new ResizeObserver(function(){ fitFlow(); }) : null, flowWatched: Element | null = null;
+  function watchFlow(): void {
+    var sc = $('.you .you-b');
+    if (flowRO && sc !== flowWatched) { flowRO.disconnect(); flowWatched = sc || null; if (sc) flowRO.observe(sc); }
+    fitFlow();
   }
+  function fitFlow(): void {
+    var sc = $('.you .you-b'), svg = $('.you .fx-view:not([hidden]) svg.fx') as SVGSVGElement | null;
+    var body = svg && svg.querySelector<SVGGElement>('.fx-body');
+    if (!sc || !svg || !body || !svg.viewBox || !svg.viewBox.baseVal) return;
+    var top = +(body.dataset.top || 0), span = +(body.dataset.span || 0), vw = svg.viewBox.baseVal.width, w = svg.getBoundingClientRect().width;
+    if (!span || !vw || !w) return;
+    var foot = 18, own = top + span + foot, wrap = svg.closest('.fx-wrap'), cs = getComputedStyle(sc);
+    // What else shares the column: its own padding (the key sits in the chart's corner).
+    var rest = (wrap ? wrap.getBoundingClientRect().height : 0) - svg.getBoundingClientRect().height + (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+    var free = Math.floor(sc.clientHeight - rest) - 1;
+    // The server lays the river out for this size (fx=WxH on /app), so it spreads to fill it; until then the stretch
+    // below stands in. It asks once per size, and not while the size still moves.
+    var want = [Math.round(w), Math.max(150, free)], had = (svg.getAttribute('data-fit') || '').split('x');
+    var near = had.length === 2 && Math.abs(+had[0]! - want[0]!) <= 3 && Math.abs(+had[1]! - want[1]!) <= 3, ask = want.join('x');
+    if (!near && ask !== fxAsked) {
+      fxSize = ask; clearTimeout(fxTimer);
+      fxTimer = setTimeout(function(){ fxAsked = ask; wake(); }, 150);
+    }
+    var vh = Math.max(own, free * vw / w), k = (vh - top - foot) / span;
+    svg.setAttribute('viewBox', '0 0 ' + vw + ' ' + vh.toFixed(1));
+    if (k > 1.001) body.setAttribute('transform', 'translate(0 ' + top + ') scale(1 ' + k.toFixed(4) + ') translate(0 ' + (-top) + ')');
+    else body.removeAttribute('transform');
+    svg.querySelectorAll<SVGTextElement>('.fx-names [data-y]').forEach(function(t){
+      t.setAttribute('y', (top + (+(t.dataset.y || 0) - top) * Math.max(1, k) + (+(t.dataset.dy || 0))).toFixed(1));
+    });
+  }
+  // Hover links the chart and The Pass both ways (Dan, 2026-11-11). A chart part lights what it names (data-f) in the
+  // chart: every element that belongs to one of those keys (data-k). Its Pass cards light too: the cards of the threads
+  // in what lit. A Pass card lights its thread's band. Only bands step back; nodes, names and cards never fade.
+  var fxNow: string | null = null, fxKeys: string[] | null = null;
+  function flowFocus(keys: string[] | null): void {
+    var board = $('.board'); if (!board) return;
+    fxKeys = keys;
+    var key = keys ? keys.join(' ') : ''; if (key === fxNow) return; fxNow = key;
+    board.classList.toggle('fx-focus', !!keys);
+    var lit: Record<string, boolean> = {};
+    $$('.you .fx-view:not([hidden]) [data-k]').forEach(function(n){
+      var mine = (n.dataset.k || '').split(' '), on = !!keys && keys.some(function(k){ return mine.indexOf(k) >= 0; });
+      n.classList.toggle('lit', on);
+      // A project's logo carries every thread's key so any of them lights it; it never lights their cards in turn.
+      if (on && !n.classList.contains('glogo')) mine.forEach(function(k){ if (k.indexOf('t:') === 0) lit[k.slice(2)] = true; });
+    });
+    if (keys) keys.forEach(function(k){ if (k.indexOf('t:') === 0) lit[k.slice(2)] = true; });
+    $$('.head-b .folder[data-folder="pass"] .call-tile[data-plate]').forEach(function(t){ t.classList.toggle('lit', !!keys && !!lit[t.dataset.plate!]); });
+  }
+  function flowTip(n: Element | null, ev: MouseEvent): void {
+    var box = $('.you .fx-tip'), wrap = $('.you .fx-wrap'); if (!box || !wrap) return;
+    var html = n && n.getAttribute('data-tip');
+    box.hidden = !html; if (!html) return;
+    box.innerHTML = html;
+    // Beside the pointer, inside the part of the chart you can see: it flips left or up at the scroller's edge (PR-Agent
+    // r1 on #49: a narrow window clipped it).
+    var r = wrap.getBoundingClientRect(), sc = (wrap.closest('.you-b') || wrap).getBoundingClientRect();
+    var x = ev.clientX + 14, y = ev.clientY + 14, w = box.offsetWidth, h = box.offsetHeight;
+    if (x + w > sc.right) x = Math.max(sc.left, ev.clientX - 14 - w);
+    if (y + h > sc.bottom) y = Math.max(sc.top, ev.clientY - 14 - h);
+    box.style.left = (x - r.left) + 'px';
+    box.style.top = (y - r.top) + 'px';
+  }
+  document.addEventListener('mouseover', function(ev){
+    if (!root.classList.contains('v-kitchen')) return;
+    var t = ev.target as Element, part = t.closest && t.closest<Element>('.you .fx-view [data-f]');
+    var card = !part && t.closest && t.closest<HTMLElement>('.head-b .folder[data-folder="pass"] .call-tile[data-plate]');
+    flowFocus(part ? (part.getAttribute('data-f') || '').split(' ') : card ? ['t:' + card.dataset.plate] : null);
+    flowTip(part || null, ev);
+  });
+  // A keyboard reaches each project's name and, opened, each thread's band: focus lights them as hover does, and Enter
+  // or Space acts as a click (PR-Agent r1 on #49). Capture, so the board's own Enter never also runs.
+  document.addEventListener('focusin', function(ev){
+    var part = (ev.target as Element).closest && (ev.target as Element).closest<Element>('.you .fx-view [data-f][tabindex]');
+    if (part) flowFocus((part.getAttribute('data-f') || '').split(' '));
+  });
+  document.addEventListener('focusout', function(ev){
+    var part = (ev.target as Element).closest && (ev.target as Element).closest('.you .fx-view [tabindex]');
+    if (part) flowFocus(null);
+  });
+  document.addEventListener('keydown', function(ev){
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    var part = (ev.target as Element).closest && (ev.target as Element).closest('.you .fx-view [tabindex][role=button]');
+    if (!part || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+    ev.preventDefault(); ev.stopPropagation();
+    part.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  }, true);
+  // The tip follows the pointer, and comes back on the next move after a refresh drew a fresh chart under it.
+  document.addEventListener('mousemove', function(ev){
+    var box = $('.you .fx-tip'), t = ev.target as Element, part = t.closest && t.closest<Element>('.you .fx-view [data-f]');
+    if (box && (!box.hidden || part)) flowTip(part, ev);
+  });
   var timers = new WeakMap<Element, ReturnType<typeof setTimeout>>();
   document.addEventListener('scroll', function(ev){
     var el = ev.target as HTMLElement | null; if (!el || !el.classList) return; // the document scrolls too: it has no classList
     el.classList.add('scrolling');
     clearTimeout(timers.get(el)); timers.set(el, setTimeout(function(){ el!.classList.remove('scrolling'); }, 900));
-    if (el.matches && el.matches('.tray-b, .head-b, .stagenav, .plate-scroll, .set-panes')) el.classList.toggle('fade-end', moreBelow(el));
-    if (el.matches && el.matches('.rail, .atts, .stagenav')) railEdge(el);
+    if (el.matches && el.matches('.head-b, .stagenav, .plate-scroll, .set-panes')) el.classList.toggle('fade-end', moreBelow(el));
+    if (el.matches && el.matches('.atts, .stagenav')) railEdge(el);
     // The ticket's head shows a rule under it once the message scrolls beneath it (Dan, 2026-11-08).
     if (el.matches && el.matches('.plate-scroll')) { var ph = $('.plate-head', el); if (ph) ph.classList.toggle('stuck', el.scrollTop > 0); }
   }, true);
-  window.addEventListener('resize', function(){ fitRail(); placeNavMenu(); });
+  window.addEventListener('resize', function(){ fades(); placeNavMenu(); });
   // The stage list's project menu opens under its button, or above it when there is more room there, and scrolls
   // inside itself when it is still too tall. The stage list can scroll, so the menu is fixed, not clipped by it (PR-Agent on #44).
   function placeNavMenu(){
@@ -476,7 +512,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     var t = document.createElement('template'); t.innerHTML = html; var fresh = t.content;
     swap('.stats', fresh); swap('.pmenu', fresh); swap('.bar .lamps', fresh); swap('.stagenav', fresh, '.nav-scroll');
     // You, expanded: its columns come fresh when they change, and each keeps where you scrolled.
-    swap('.you', fresh, '.you-b, .tray-b'); swapAny('.team-wait', fresh, '.head'); swapAny('.tboard', fresh, '.head', '.you-b, .tl-s'); swap('.head', fresh, '.head-b');
+    swap('.you', fresh, '.you-b'); swapAny('.team-wait', fresh, '.head'); swapAny('.tboard', fresh, '.head', '.you-b, .tl-s'); swap('.head', fresh, '.head-b');
     swap('#yc-projects', fresh); swapAny('#yc-team', fresh, '#plates'); swap('#yc-rules-now', fresh); if (typeof krLive === 'function') krLive();
     // A card's "Not confirmed" line is the page's own. A list kept from the last refresh still has it, so it goes here,
     // and decorate() and markSent() put back the ones still true, as they did on a new copy.
@@ -516,7 +552,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     $$('.plate', nuStore).forEach(function(p){ if ((!mounted || p.id !== mounted.id) && !held[p.id]) { plateSrc.set(p, plateKey(p.outerHTML)); store_.appendChild(p); } });
     // A ticket sent from the pass comes back as soon as the agent hands it back again, not after 90 s.
     Object.keys(acted).forEach(function(aid){ var np = nuStore.querySelector<HTMLElement>('#' + CSS.escape(aid)) || document.getElementById(aid); if (np && actedLatest[aid] !== undefined && (np.dataset.latest || '') !== actedLatest[aid]) { delete acted[aid]; delete actedLatest[aid]; } });
-    hideActed(); setFolder(state.folder); applyScope(); normalizePicked(); sizeRail(); if (KST.changed || !K.mac) relabel(document); restoreDrafts(app); restoreDrafts($('#plates'));
+    hideActed(); setFolder(state.folder); applyScope(); normalizePicked(); applyFlow(false); fades(); if (KST.changed || !K.mac) relabel(document); restoreDrafts(app); restoreDrafts($('#plates'));
     if (focusSel && document.activeElement !== null && (document.activeElement === document.body || !document.activeElement.isConnected)) { var back = $(focusSel); if (back) back.focus({ preventScroll: true }); }
     // The open ticket left the board on its own: show the next one, unless you are working in it.
     if (gone && !keep) { var id = mounted!.id; mounted!.remove(); mounted = null; if (acted[id]) { state.sel = null; place(); } else advance(id); return; }
@@ -545,7 +581,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     var t: { ok?: boolean; error?: unknown } = {}; try { t = JSON.parse(ev.data); } catch (x) {}
     net(t.ok !== false, 'T3 did not answer: ' + String(t.error || '').replace(/[<>&]/g, ''));
     var q = location.search;
-    fetch('/app' + q, { cache: 'no-store' }).then(function(r){ if (!r.ok) throw 0; return r.text(); })
+    fetch(appUrl(q), { cache: 'no-store' }).then(function(r){ if (!r.ok) throw 0; return r.text(); })
       .then(function(html){ if (q !== location.search) return; if (t.ok !== false) { last = Date.now(); app.classList.remove('is-stale'); } sync(html); Object.keys(unconfirmed).forEach(decorate); markSent(); }, function(){ lost('the Pass did not answer'); });
   });
   es.onerror = function(){ lost('lost the connection to the Pass'); };
@@ -1201,7 +1237,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
       t.appendChild(m);
     });
   }
-  function wake(): Promise<void> { var q = location.search; return fetch('/app' + q, { cache: 'no-store' }).then(function(r){ return r.ok ? r.text() : null; }).then(function(h){ if (h && q === location.search) { sync(h); Object.keys(unconfirmed).forEach(decorate); markSent(); } }, function(){}); }
+  function wake(): Promise<void> { var q = location.search; return fetch(appUrl(q), { cache: 'no-store' }).then(function(r){ return r.ok ? r.text() : null; }).then(function(h){ if (h && q === location.search) { sync(h); Object.keys(unconfirmed).forEach(decorate); markSent(); } }, function(){}); }
   // Reload and a project switch refresh the board in place (council 3): the page never unloads, so a send waiting
   // out its Undo keeps its four seconds and a half-written note stays.
   window.__ycSoftReload = function(){ wake(); };
@@ -1232,6 +1268,21 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     var q = names ? '?' + names.map(function(n){ return 'p=' + encodeURIComponent(n); }).join('&') : '';
     if (q === location.search) return;
     history.pushState(null, '', location.pathname + q); state.sel = null; wake();
+  }
+  // A project clicked in You's chart: that project alone, as if picked in the menu.
+  function pickOnly(name: string): void {
+    if (!name) return;
+    drawPicked([name]);
+    var q = '?p=' + encodeURIComponent(name);
+    if (q === location.search) return;
+    history.pushState({ fxPick: 1 }, '', location.pathname + q); state.sel = null; wake();
+  }
+  // The back button beside the picker: back where the click came from, else every project.
+  function unpick(): void {
+    if (history.state && history.state.fxPick) { history.back(); return; }
+    drawPicked(null);
+    var u = new URLSearchParams(location.search); u.delete('p'); var q = u.toString();
+    history.pushState(null, '', location.pathname + (q ? '?' + q : '')); state.sel = null; wake();
   }
   // Every copy of the menu (the rail's, and the expanded view's header) shows the same picks. names: null is All projects.
   function drawPicked(names: string[] | null): void {
@@ -1466,6 +1517,11 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     if (pk) { pickProject(pk); return; }
     var sc = t.closest<HTMLElement>('.vmenu .seg [data-scope]');
     if (sc) { setScope(sc.dataset.scope!); return; }
+    // The chart: a project opens its threads, ‹ All projects goes back. A thread's band carries data-plate, so a click
+    // on it opens the ticket below, as its card does.
+    var dr = t.closest<Element>('.you [data-drill]');
+    if (dr) { var tp = $('.you .fx-tip'); if (tp) tp.hidden = true; pickOnly(dr.getAttribute('data-drill') || ''); return; }
+    if (t.closest('.you [data-unpick]')) { unpick(); return; }
     var nf = t.closest<HTMLElement>('.nf[data-folder]');
     // In You, expanded, a stage row opens that stage's list in the pass view, with no ticket open.
     if (nf && !focusView()) { state.passFolder = nf.dataset.folder!; state.passSel = null; toggleView(); return; }
@@ -1803,7 +1859,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   // Typing your own answer picks it: a field inside a label does not check the label's radio by itself.
   document.addEventListener('focusin', function(ev){ var t = ev.target as Element; if (t.matches && t.matches('label.opt .custom')) { var r = t.parentNode!.querySelector<HTMLInputElement>('input[data-custom]'); if (r) r.checked = true; } });
 
-  applyPrefs(); applyScope(); normalizePicked(); sizeRail(); if (KST.changed || !K.mac) relabel(document); restoreDrafts(document);
+  applyPrefs(); applyScope(); normalizePicked(); applyFlow(true); if (KST.changed || !K.mac) relabel(document); restoreDrafts(document);
   setView(state.view); setFolder('pass');
   fades();
   // The Cmd+K action bar (client/bar.ts). View: You and View: Team read and set the same scope as the footer

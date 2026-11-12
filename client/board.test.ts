@@ -119,7 +119,9 @@ test('without a good poll the counts read "not checked", not zero', () => {
   const board = buildBoard({ projects: [], questions: new Map(), threads: [] });
   const html = renderApp({ board, link, status: { ok: false, error: 'x', at: 0, ms: 0 }, origin: 'https://t3.example' });
   assert.match(html, /Active <b>not checked<\/b>/);
-  assert.match(html, /aria-label="In progress: not checked"/);
+  // The chart says so too, and draws nothing.
+  assert.match(html, /<div class="fx-empty"><p><b>Not checked<\/b>/);
+  assert.doesNotMatch(html, /<svg class="fx"/);
 });
 
 test('the card shows the oldest waiting question when parent and station both ask', () => {
@@ -148,7 +150,7 @@ test('coordinator threads stay out of the stages, the pass and the On hold shelf
   assert.equal(only(board.tickets).place, 'Coordinators');
   const html = renderApp({ board, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
   assert.doesNotMatch(html, /Coordinators/);
-  assert.match(html, /aria-label="In review: 0"/);
+  assert.match(html, /<b>Nothing on the line<\/b>/);
 });
 
 test('a ticket opens to its pull requests and stations, each linked out', () => {

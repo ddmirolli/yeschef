@@ -5,6 +5,7 @@ import type { DemoKitchen, DemoOptions, DemoPr, DemoThread, DemoItem, DemoQuesti
 // Nothing leaves the pass on its own: every ticket there waits for the visitor's call. The agents answer a
 // call a few seconds later, the way a real agent would, and two tickets in progress finish while the visitor watches.
 import { buildBoard, renderApp, pickedFrom } from '../../demo/lib/board.ts';
+import { fitFrom } from '../../demo/lib/flow.ts';
 import { parseCalls, callKey, imageId } from '../../demo/lib/calls.ts';
 import { act } from '../../demo/lib/actions.ts';
 import { normalize, change } from '../../demo/lib/kitchen.ts';
@@ -241,9 +242,9 @@ export function createKitchen({ now = Date.now, where, shot, onChange = () => {}
     /** The app's /app page for a query string, as client/server.ts route() renders it. */
     page(search = '') {
       board = snapshot();
-      const picked = pickedFrom(new URLSearchParams(search));
+      const params = new URLSearchParams(search), picked = pickedFrom(params);
       return renderApp({ board, picked, link: () => 'https://t3.codes/', status: { ok: true, at: now(), ms: 4 },
-        origin: 'https://t3.codes', answered, projects, rules: { ...rules, rev } })
+        origin: 'https://t3.codes', answered, projects, rules: { ...rules, rev }, fit: fitFrom(params) })
         .replace(/\/img\/([0-9a-f]{20})/g, (all, id) => (SHOTS.has(id) ? shot(SHOTS.get(id) ?? id) : all));
     },
     /** The app's /act, as client/server.ts runAct() handles it, for the desktop hook window.yeschef.act. */

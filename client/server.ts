@@ -28,6 +28,7 @@ import { boardThreads, changeTargets, githubTargets } from './shells.ts';
 import { createChanges } from './changes.ts';
 import { createBaseChecks, createPrSizes, prKey, readBaseFacts, readPrFacts } from './github.ts';
 import { buildBoard, renderApp, kitchenPane, pickedFrom, ICON } from './board.ts';
+import { fitFrom } from './flow.ts';
 import { readRuns, dayStart, trackWaits, mayRunToday } from './you.ts';
 import { normalize as normalRules, change as changeRule } from './kitchen.ts';
 import { parseCalls, callKey, imagesIn, imageId, shotPath, isShot, SHOT_TYPES } from './calls.ts';
@@ -432,7 +433,7 @@ body>.netstrip{position:sticky;top:0;z-index:8;margin:0 24px}
 .plate-scroll.fade-end{-webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(to bottom,#000 calc(100% - 28px),transparent)}
 @supports (animation-timeline:view()){
   @media (prefers-reduced-motion:no-preference){
-    .tray-b>.tile,.folder>.tile{animation:recede linear both;animation-timeline:view();animation-range:entry 0% entry 100%}
+    .folder>.tile{animation:recede linear both;animation-timeline:view();animation-range:entry 0% entry 100%}
   }
 }
 @keyframes recede{from{opacity:.55}}
@@ -495,8 +496,8 @@ body>.netstrip{position:sticky;top:0;z-index:8;margin:0 24px}
 .retry .result{margin:0;font-size:13px}
 /* The Retry button is as wide as its words, like the send it repeats, not the whole dock (r15, Fable). */
 .retry>[data-retry]{align-self:flex-start}
-.is-stale .head-b>.folder,.is-stale .rail .tray-b,.is-stale .segbar{visibility:hidden}
-.is-stale .stats b,.is-stale .nf .n,.is-stale .tray-h .n,.is-stale .head .badge,.is-stale .pmenu-l .n{visibility:hidden}
+.is-stale .head-b>.folder,.is-stale .fx-wrap,.is-stale .segbar{visibility:hidden}
+.is-stale .stats b,.is-stale .nf .n,.is-stale .head .badge,.is-stale .pmenu-l .n{visibility:hidden}
 /* The hidden list says why it is empty. */
 .is-stale .head-b::before{content:"Not checked. The list returns with the next update.";display:block;padding:24px 12px;text-align:center;font-size:13px;color:var(--label2)}
 .tile.sel,.call-tile.sel{box-shadow:inset 0 0 0 2px var(--accent)}
@@ -700,7 +701,7 @@ dialog.sheet .plate-bar{padding-right:12px}
   .v-pass .head-h>.muted{display:none}
   .v-pass .head-h{padding-bottom:10px}
   .v-pass .board{grid-template-columns:208px clamp(300px,27vw,380px) minmax(0,1fr)}
-  .v-pass .head-b,.tray-b,.plate-scroll{scrollbar-gutter:stable}
+  .v-pass .head-b,.plate-scroll{scrollbar-gutter:stable}
 }
 /* The pull requests sit under the title as chips; a ticket still cooking says where it stands. */
 .pr-row{display:flex;flex-wrap:wrap;gap:8px;margin:-4px 0 14px}
@@ -716,10 +717,6 @@ html .plate .plate-scroll{flex:0 1 auto}
 /* Hill climb r5 (Opus): a question card's recommendation on one line, its ticket on its own quiet line. */
 .call-tile .ct-rec{display:block;font-size:13px;line-height:1.35;color:var(--label);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .call-tile .pick.ct-title{display:block;-webkit-line-clamp:unset;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px;color:var(--label2)}
-/* Narrow kitchen columns show the project's mark alone (its name is the mark's tooltip). */
-.v-kitchen .rail>.tray{container-type:inline-size}
-/* A column with tickets is about 181 px wide at 1440, so names hide below 220 px rather than truncate (Opus r6). */
-@container (max-width:220px){ .tile .proj .pn{display:none} .tile .tile-top .proj{flex-shrink:0} }
 /* A screenshot that cannot load says so instead of a broken box. */
 .shot-missing{display:block;margin:6px 0 10px;padding:10px 12px;border-radius:10px;background:var(--fill);font-size:12px;white-space:nowrap;color:var(--label2)}
 /* The reader's stage reads like the cards': a dot and the word. */
@@ -734,10 +731,6 @@ html .plate .dock .q-set{grid-template-columns:repeat(auto-fit,minmax(220px,1fr)
 .prose .shot span{color:var(--label2)}
 /* An option's description sits on its own line under the label and chip, at every width (Fable r4). */
 label.opt .opt-t .muted{display:block;margin-top:2px;font-size:13px;font-weight:400;line-height:1.35}
-/* The blue left bar means "selected" only; the cloche marks a ticket at the pass in the kitchen (Opus r4). */
-.v-kitchen .rail .tile.at{box-shadow:var(--sh1)}
-/* Kitchen titles wrap without a lone last word (r14, Astra). */
-.v-kitchen .rail .tile .t{text-wrap:pretty}
 /* Header counts live in the kitchen; the pass view's stage list already carries them (Opus r4). */
 @media (min-width:761px){ :is(.v-pass,.v-kitchen) .bar .stats{visibility:hidden} }
 /* Header counts are plain text, not chips: they do nothing when clicked (Fable). */
@@ -754,37 +747,7 @@ dialog.sheet{height:fit-content;max-height:min(920px,calc(100dvh - 48px))}
 /* The kitchen in the same style as the pass: one card look, no glow. */
 .v-kitchen .head::before{display:none}
 .v-kitchen .head .call-tile{background:var(--bg);box-shadow:inset 0 0 0 .5px var(--sep)}
-/* Kitchen columns share the width by need: an empty stage narrows, a stage with tickets gets room for titles. */
-@media (min-width:761px){
-  .v-kitchen .rail{display:flex;gap:12px}
-  .v-kitchen .rail>.tray{flex:1 1 168px;min-width:0}
-  .v-kitchen .rail>.tray.empty{flex:.45 1 92px}
-  .v-kitchen .rail>.tray.empty .hint{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .v-kitchen .rail>.tray.empty{min-width:max(104px,var(--name,0px))}
-  .v-kitchen .rail>.tray.empty .tray-h{flex-wrap:nowrap}
-  .v-kitchen .rail>.tray.empty .tray-h .g{min-width:0;overflow:hidden;white-space:nowrap}
-  .v-kitchen .rail>.tray.empty .tray-h .hint{display:none}
-  /* A stage with tickets keeps room for its titles; on a narrow window the rail scrolls sideways (hill climb 2 r1). */
-  .v-kitchen .rail>.tray:not(.empty){min-width:max(120px,var(--floor,140px),var(--name,0px),calc(var(--text,0px) + 45px),min(var(--word,0px),200px));flex:var(--need,1) 1 0}
-  .v-kitchen .rail.fade-right{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 40px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 40px),transparent)}
-}
-/* Over 1366 px a narrower pass panel and 8 px stage gaps give the titles 4 lines when the whole rail fits (.four), else 5 (r14, Opus); the stage arrow takes the 1280 size for the gap (r13, Opus and Fable). */
-@media (min-width:1367px){ .v-kitchen .rail{gap:8px} .v-kitchen .rail.four>.tray:not(.empty){min-width:max(120px,var(--floor,140px),var(--name,0px),calc(var(--text4,var(--text,0px)) + 45px),min(var(--word,0px),200px))} .v-kitchen .rail>.tray:not(:last-child)::after{right:-6.5px;width:3.5px;height:3.5px} .v-kitchen .board{grid-template-columns:208px minmax(0,1fr) clamp(280px,19.5vw,360px)} }
-/* Still too wide (the page script's fitRail() sets .tight): a stage keeps only its name and count on one line, so all
-   six stages stay in the window (Dan, 2026-11-10). Every floor holds the stage's longest word (--word), so a title
-   word is never split; only a word that would make its stage wider than 200 px (a pasted link) breaks (PR-Agent on
-   #14). */
-@media (min-width:761px){
-  .v-kitchen .rail.tight>.tray:not(.empty){min-width:max(88px,var(--name,0px),min(var(--word,0px),200px))}
-  .v-kitchen .rail.tight .tile .t{overflow-wrap:break-word}
-  /* .tighter: a stage's name may wrap after its dot, with its count at the right, down to its longest word (--word).
-     Narrower still, the stages scroll sideways. */
-  .v-kitchen .rail.tight.tighter>.tray.empty,.v-kitchen .rail.tight.tighter>.tray:not(.empty){min-width:max(88px,min(var(--word,0px),200px))}
-  .v-kitchen .rail.tight.tighter>.tray .tray-h{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;column-gap:6px}
-  .v-kitchen .rail.tight.tighter>.tray .tray-h .g{min-width:0;overflow:visible;white-space:normal;align-items:flex-start}
-  .v-kitchen .rail.tight.tighter>.tray .tray-h .g .gd{flex:none;margin-top:5px}
-  .v-kitchen .rail.tight.tighter>.tray .tray-h .hint{grid-column:1/-1}
-}
+@media (min-width:1367px){ .v-kitchen .board{grid-template-columns:208px minmax(0,1fr) clamp(280px,19.5vw,360px)} }
 /* A card's model shows whole or not at all: a column too narrow for it drew "O." (Dan's screenshot, 2026-11-10). */
 @container (max-width:150px){ .tile .tile-top .mdl{display:none} }
 .status-why{margin:-6px 0 14px;font-size:14px;color:var(--label2)}
@@ -934,14 +897,6 @@ html .plate .dock{margin:0;padding:12px 28px 16px;border:0;border-radius:0;backg
 /* At 1280 all six kitchen columns fit: a narrower pass panel and 140px stages. */
 @media (min-width:761px) and (max-width:1366px){
   .v-kitchen .board{grid-template-columns:208px minmax(0,1fr) 280px}
-  .v-kitchen .rail>.tray:not(.empty){min-width:max(104px,var(--floor,120px),var(--name,0px),calc(var(--text,0px) + 35px),min(var(--word,0px),200px))}
-  /* Narrower gutters give the titles room at 1280 (hill climb 2 r5, Opus). Stages with tickets share the width by their longest title, as above 1366, over a floor that holds the stage's hint on one line (at least 104 px), so no title takes more than 5 lines (hill climb 2 r10 and r11). */
-  .v-kitchen .rail{gap:8px}
-  .v-kitchen .rail .tile{padding:10px 6px}
-  .v-kitchen .rail>.tray{flex:1 1 0}
-  .v-kitchen .rail>.tray.empty{flex:.45 1 0}
-  .v-kitchen .rail>.tray:not(.empty){flex-grow:var(--need,1)}
-  .v-kitchen .rail>.tray:not(:last-child)::after{right:-6.5px;width:3.5px;height:3.5px}
 }
 /* The kitchen's pass heading sits on the stage headings' line. */
 /* The kitchen pass header reads like a stage header: its line under the title is hint-sized, and the first card lines up with the stages' first cards (hill climb 2 r8, Opus). Under 1636 px only its first sentence shows, on one line. */
@@ -955,7 +910,7 @@ html .plate .dock{margin:0;padding:12px 28px 16px;border:0;border-radius:0;backg
   .v-pass .reader>.reader-empty{align-self:stretch}
   .v-pass .reader{position:relative}
   /* One card treatment in both views: a flat card one fill step off its container, a shadow only on hover. */
-  .v-kitchen .tile:not(.sel),.v-kitchen .rail .tile.at:not(.sel),.v-kitchen .head .call-tile:not(.sel),.v-kitchen .head .tile:not(.sel){box-shadow:none}
+  .v-kitchen .tile:not(.sel),.v-kitchen .head .call-tile:not(.sel),.v-kitchen .head .tile:not(.sel){box-shadow:none}
   .v-kitchen .tile:not(.sel):hover{box-shadow:var(--sh1)}
   /* The toast sits in the bottom bar's row, clear of the panels. */
   #toast{inset:auto auto 5px 50%;transform:translateX(-50%);padding:4px 6px 4px 14px;width:max-content;max-width:min(900px,calc(100vw - 300px))}
@@ -1235,17 +1190,70 @@ html .plate .dock .q-set{max-width:640px}
 .segbar i{flex:1 1 0;min-width:2px;border-radius:2px}
 .segbar i.c-backlog{background:var(--st-backlog)}.segbar i.c-planned{background:var(--st-planned)}.segbar i.c-prog{background:var(--st-prog)}
 .segbar i.c-open{background:var(--st-review)}.segbar i.c-blue{background:var(--st-ready)}.segbar i.c-merged{background:var(--st-merged)}
-/* You, expanded (Dan, 2026-11-10): the stage columns alone. They start at the top of the window and end level with
-   The Pass and the stage list, and each column scrolls inside itself. */
+/* You, expanded (Dan, 2026-11-11, flow mock v3.3): the header picker over the solo Sankey (client/flow.ts), which took
+   the place of the stage columns. The chart keeps its size and scrolls inside the view when the window is narrow or the
+   line is long. Gray steps are time since the last change; dark mode inverts them, so old is bright. One hover colour:
+   the logo's blue in light, white in dark. No red, orange or yellow, and no mark at rest for what waits on you: The
+   Pass lists it, and hover links each card to its thread (Dan, 2026-11-12). */
+:root{--fx-a0:#D6D6DB;--fx-a1:#A6A6AB;--fx-a2:#636366;--fx-hov:#0071E3;--fx-zone-a:rgba(118,118,128,.035);--fx-zone-b:rgba(118,118,128,.085);--fx-dot:rgba(60,60,67,.2)}
+@media (prefers-color-scheme:dark){:root{--fx-a0:#48484A;--fx-a1:#7C7C80;--fx-a2:#C7C7CC;--fx-hov:#FFFFFF;--fx-zone-a:rgba(255,255,255,.015);--fx-zone-b:rgba(255,255,255,.05);--fx-dot:rgba(235,235,245,.16)}}
 .you,.team-wait{display:none}
 @media (min-width:761px){
-  .v-kitchen .you,.v-kitchen .you-b,.v-kitchen .you .rail-wrap{display:flex;flex-direction:column;min-height:0}
-  .v-kitchen .you-b,.v-kitchen .you .rail-wrap{flex:1;height:auto}
-  .v-kitchen .you .tray{max-height:none}
+  .v-kitchen .you{display:flex;flex-direction:column;min-height:0}
+  .v-kitchen .you-b{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain}
   .v-kitchen .team-wait{align-self:start}
-  /* The tile's cloche needed the key that sat over the columns; The Pass on the right lists the same threads. */
-  .v-kitchen .rail .at-ic{display:none}
 }
+.fx-wrap{position:relative;min-width:640px}
+.fx{display:block;width:100%;height:auto;clip-path:inset(0 round 18px)}
+.fx .fx-body *{vector-effect:non-scaling-stroke}
+.fx text{font-size:11.5px}
+.fx .dot{fill:var(--fx-dot)}
+.fx .zone.z0{fill:var(--fx-zone-a)}.fx .zone.z1{fill:var(--fx-zone-b)}
+.fx .zline{stroke:var(--sep);stroke-dasharray:3 4}
+.fx .zlbl{font-weight:600;fill:var(--label2)}
+.fx .zcount{font-weight:400;fill:var(--label2)}
+.fx .band{stroke:var(--bg);stroke-width:.6;transition:fill .15s,opacity .15s}
+.fx .band.a0{fill:var(--fx-a0)}.fx .band.a1{fill:var(--fx-a1)}.fx .band.a2{fill:var(--fx-a2)}
+/* Dashed, with no fill, yet its whole ribbon answers the pointer (PR-Agent r3 on #49). */
+.fx .band.anc{fill:none;stroke:var(--fx-a1);stroke-dasharray:3 2;pointer-events:all}
+.fx .band.lit{fill:var(--fx-hov)}
+.fx-focus .fx .band:not(.lit){opacity:.5}
+.fx [data-drill],.fx .band[data-plate]{cursor:pointer}
+.fx [tabindex]{outline:none}
+.fx [tabindex]:focus-visible{outline:2px solid var(--fx-hov);outline-offset:2px}
+.fx .node{fill:var(--label2)}
+.fx .node.you{fill:var(--label)}
+.fx .node.lit{fill:var(--fx-hov)}
+.fx .gname{fill:var(--label2);paint-order:stroke;stroke:var(--bg);stroke-width:3.5px;stroke-linejoin:round}
+.fx .gname.strong,.fx .gname.lit{fill:var(--label);font-weight:600}
+.fx .glogo{filter:grayscale(1);opacity:.75;transition:filter .15s,opacity .15s}
+.fx .glogo.lit{filter:none;opacity:1}
+.fx .glogo .pml{fill:#fff;font-size:12px;font-weight:700}
+.fx .fanl{fill:none;stroke-width:1.1;pointer-events:none;transition:stroke .15s,opacity .15s}
+.fx .fanl.a0{stroke:var(--fx-a0)}.fx .fanl.a1{stroke:var(--fx-a1)}.fx .fanl.a2{stroke:var(--fx-a2)}.fx .fanl.anc{stroke:var(--fx-a1)}
+.fx .fanl.lit{stroke:var(--fx-hov)}
+.fx-focus .fx .fanl:not(.lit){opacity:.5}
+.fx .fanhit{fill:transparent}
+.head .call-tile.lit{outline:1.5px solid var(--fx-hov);outline-offset:-1.5px}
+.fx-tip{position:absolute;z-index:5;max-width:260px;padding:8px 10px;border-radius:8px;background:var(--card);box-shadow:0 0 0 .5px var(--sep),0 8px 24px rgba(0,0,0,.18);font-size:12px;line-height:1.4;color:var(--label);pointer-events:none}
+.fx-tip .m{color:var(--label2)}
+.fx-tip .alarm{display:flex;align-items:center;gap:5px;font-weight:600}
+.fx-tip .alarm .ic{width:14px;height:14px;color:var(--pass);stroke-width:2.2}
+.fx-key{position:absolute;right:16px;bottom:14px;display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--label2);white-space:nowrap;pointer-events:none}
+.fx-back{display:grid;flex:none;place-items:center;width:30px;height:30px;margin-left:6px;padding:0;border:0;border-radius:9px;background:var(--fill);color:var(--label2);cursor:pointer}
+.fx-back:hover{color:var(--label)}
+.fx-back .ic{width:16px;height:16px;transform:rotate(90deg)}
+/* Expanded, The Pass is the right column, so its row at the top left gives way to the picker (Dan, 2026-11-12): the
+   picker sits beside the logo, and the chart starts at the top, level with The Pass. The row keeps its height. */
+@media (min-width:761px){
+  .v-kitchen .stagenav>.nf[data-folder=pass]{visibility:hidden}
+  .v-kitchen :is(.you,.tboard,.team-wait)>.you-h{position:absolute;top:16px;left:68px;z-index:4;max-width:176px;padding:0}
+  .v-kitchen .you-h .vhead summary{min-height:36px;font-size:17px}
+}
+.fx-chip{display:inline-flex;align-items:center;gap:6px}
+.fx-chip .sw{width:10px;height:10px;border-radius:2px}
+.fx-chip .sw.a0{background:var(--fx-a0)}.fx-chip .sw.a1{background:var(--fx-a1)}.fx-chip .sw.a2{background:var(--fx-a2)}
+.fx-empty{padding:48px 12px;text-align:center}
 /* The footer chip and its menu (Dan, 2026-11-10, view menu mock a). The chip: the person, or the toque for Team, then
    All projects or the picked projects' icons fanned like cards. The menu: check boxes, then the toggle. No "You" or
    "Team" word in the chip or the toggle (Dan, 2026-11-11): the icon's tooltip and hidden label carry it. */
@@ -1685,7 +1693,8 @@ interface Routed { status: number; headers: Record<string, string>; body: string
 function route(url: URL): Routed {
   // ?p=A&p=B: the projects picked in the view menu; no p is All projects.
   const picked = pickedFrom(url.searchParams);
-  const app = (): string => renderApp({ board, picked, link, status, origin: ORIGIN, answered, projects, rules: rulesNow() });
+  // fx=WxH: the size the page has for You's chart, so the river fills it (client/flow.ts fitFrom).
+  const app = (): string => renderApp({ board, picked, link, status, origin: ORIGIN, answered, projects, rules: rulesNow(), fit: fitFrom(url.searchParams) });
   const html = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' };
   const teamPage = team.route(url);
   if (teamPage) return teamPage;
