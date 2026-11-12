@@ -4,6 +4,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { imagesIn, imageUrl, withoutImages, recommendLines } from './calls.ts';
 import { missingShots, ASK_SHOTS } from './kitchen.ts';
 import { trackWaits, withoutWaits } from './you.ts';
+import { youFlow, FLOW_KEY } from './flow.ts';
+import type { FlowItem, FlowStage } from './flow.ts';
 import { openKitchen, kitchenBoard, KINDS, may } from './open-kitchen.ts';
 import type { Call, Shot } from './calls.ts';
 import type { RunsEntry, WaitEntry } from './you.ts';
@@ -556,13 +558,14 @@ function bars(vals: readonly number[], label: string): string {
   return `<svg class="vbars" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="${e(label)}">${vals.map((v, i) => { const bh = Math.max(2, (v / m) * (h - 2));
     return `<rect x="${(i * bw + 1.5).toFixed(1)}" y="${(h - bh).toFixed(1)}" width="${Math.max(1, bw - 3).toFixed(1)}" height="${bh.toFixed(1)}" rx="1.5"/>`; }).join('')}</svg>`;
 }
-/** You, expanded: the stage columns, from the top of the window to the bottom, each scrolling inside. Dan, 2026-11-10:
- *  the header line said nothing the rail and The Pass do not, the four instruments repeated The Pass or said "Not
- *  checked", and the "At The Pass" key sat over one column at random. With them gone the columns move up and run the
- *  full height, so the panels that sat under them went too: Merged, last 7 days only ever said "Not checked", Verified
- *  and on hold are rows in the rail, and Agent time today was the one panel with its own numbers. */
-function youView({ trays, head }: { trays: string; head: string }): string {
-  return `<section class="you" aria-label="Your threads by stage"><header class="you-h">${head}</header><div class="you-b"><div class="rail-wrap"><div class="rail">${trays}</div></div></div></section>`;
+/** You, expanded: the solo Sankey (Dan, 2026-11-11, flow mock v3.3; client/flow.ts) under the header picker. It took the
+ *  place of the six stage columns: your threads run left to right from their project, through checks and review, to you
+ *  and the branch they merged into, and a band that waits on you lights its card in The Pass beside it. Without a good
+ *  poll it says "Not checked"; with nothing on the line it says so. Verified and on hold stay in the stage list. */
+function youView({ chart, head }: { chart: string; head: string }): string {
+  return `<section class="you" aria-label="Your threads by stage"><header class="you-h">${head}</header>`
+    + `<p class="fx-crumb" hidden><button type="button" class="fx-back" data-undrill>‹ All projects</button><b class="fx-name"></b></p>`
+    + `<div class="you-b"><div class="fx-wrap">${chart}<div class="fx-tip" role="tooltip" hidden></div></div></div></section>`;
 }
 
 // ---------- Your team, Open kitchen (step 4) ----------
@@ -1036,10 +1039,13 @@ export function renderApp({ board, picked = null, link, status, origin, answered
   const n = (v: number | string) => (status.ok ? v : 'not checked');
   const stats = ([['Active', active], ['Verified today', (spots.Verified || []).length], ['On hold', held]] as const).map(([k, v]) => `<li class="stat">${k} <b>${n(v)}</b></li>`).join('');
   const verified = spots.Verified || [];
-  const trays = STAGES.map((s) => {
-    const here = spots[s] || [];
-    return `<section class="tray${!here.length ? ' empty' : ''}" data-stage="${s}" aria-label="${s}: ${n(here.length)}"><header class="tray-h"><span class="g"><i class="gd c-${DOT[s]}"></i>${s}</span><span class="n">${status.ok ? here.length : '–'}</span><span class="hint">${HINT[s]}</span></header><div class="tray-b">${here.map((k) => tile(k)).join('')}</div></section>`;
-  }).join('');
+  // You, expanded: the line's threads as a Sankey (client/flow.ts), keyed by the plate id their Pass card carries.
+  const onLine = STAGES.flatMap((s) => spots[s] || []);
+  const chart = !status.ok ? `<div class="fx-empty"><p><b>Not checked</b></p><p class="muted">T3 did not answer, so the chart cannot say where your threads are.</p></div>`
+    : !onLine.length ? `<div class="fx-empty"><p><b>Nothing on the line</b></p><p class="muted">Threads show here from Backlog to Merged.</p></div>`
+    : youFlow(onLine.map((k): FlowItem => ({ id: plateId(k), title: k.thread.title || 'Untitled thread', project: k.project, stage: k.place as FlowStage,
+      since: Date.parse(k.updatedAt), subs: k.stations, waits: k.atPass, pr: (k.open[0] || k.merged[0])?.number ?? null,
+      base: k.merged.length && !k.open.length ? (k.merged.every((p) => p.base && p.base === k.merged[0]!.base) ? k.merged[0]!.base : null) : null })), status.at) + FLOW_KEY;
   // The focused view's left list: the pass first, then each stage, then Verified and On hold.
   // Dan, 2026-11-07: Merged sits nearest the pass, then back down the line to Backlog, in one card; what is off the
   // line in its own card below.
@@ -1072,7 +1078,7 @@ export function renderApp({ board, picked = null, link, status, origin, answered
     // Your team, expanded: the column says how many calls need you (mock v2).
     + `${T && T.ok.status === 'live' ? `<p class="muted tpm">${T.count ? `${T.count} need you, most urgent first.` : 'Nothing from your team needs you.'}</p>` : ''}</header><div class="head-b">${lists}</div>`
     + `</section>`;
-  const you = youView({ trays, head: viewMenu({ team, projs, picked: want ? [...want] : null, icons, ok: status.ok, head: 'person' }) });
+  const you = youView({ chart, head: viewMenu({ team, projs, picked: want ? [...want] : null, icons, ok: status.ok, head: 'person' }) });
   // Your team is not built yet (Dan, 2026-11-10): with reports, its view says so instead of showing anything made up.
   const teamWait = team ? `<section class="team-wait" aria-label="Your team"><header class="you-h">${teamHead}</header><div class="tw-b"><p><b>${e(team.name || 'Your team')}</b></p><p class="muted">Not checked. Your team's view needs the team connection, which Yes Chef does not have yet.</p></div></section>` : '';
   const lamp = status.ok ? 'ok' : 'bad';

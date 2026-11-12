@@ -206,58 +206,89 @@ test('the rail opens with the person and one bar piece per thread on the line, B
 
 const youOf = (html: string) => grab(html, /<section class="you"[\s\S]*?<\/div><\/div><\/div><\/section>/);
 
-test('You, expanded is the header picker and the six stage columns alone (Dan, 2026-11-10 and 2026-11-11)', () => {
-  const you = youOf(page());
+test('You, expanded is the header picker over the solo Sankey (Dan, 2026-11-10 and 2026-11-11, flow mock v3.3)', () => {
+  const html = page(), you = youOf(html);
   // The header is the project picker and nothing else (Dan, 2026-11-11): the person, All projects, the chevron.
-  assert.match(you, /^<section class="you" aria-label="Your threads by stage"><header class="you-h"><details class="pmenu vmenu vhead"><summary><span class="vi" title="You"><svg class="ic who"[^>]*><circle cx="12" cy="8\.25"[\s\S]*?<span class="vh">You<\/span><\/span><span class="vp">All projects<\/span><svg class="ic"[\s\S]*?<\/details><\/header><div class="you-b"><div class="rail-wrap"><div class="rail"><section class="tray/);
-  assert.deepEqual([...you.matchAll(/<section class="tray[^"]*" data-stage="([^"]+)"/g)].map((m) => m[1]), ['Backlog', 'Planned', 'In progress', 'In review', 'Ready to merge', 'Merged']);
-  // Each thread on the line once, in its column.
-  for (const [id, stage] of [['backlog', 'Backlog'], ['planned', 'Planned'], ['cooking', 'In progress'], ['review', 'In review'], ['merged', 'Merged']]) {
-    assert.match(you, new RegExp(`data-stage="${stage}"[^]*?<div class="tray-b">(?:(?!</section>)[^])*data-thread="${id}"`));
-  }
+  assert.match(you, /^<section class="you" aria-label="Your threads by stage"><header class="you-h"><details class="pmenu vmenu vhead"><summary><span class="vi" title="You"><svg class="ic who"[^>]*><circle cx="12" cy="8\.25"[\s\S]*?<span class="vh">You<\/span><\/span><span class="vp">All projects<\/span><svg class="ic"[\s\S]*?<\/details><\/header><p class="fx-crumb" hidden><button type="button" class="fx-back" data-undrill>‹ All projects<\/button><b class="fx-name"><\/b><\/p><div class="you-b"><div class="fx-wrap"><div class="fx-view" data-view=""><svg class="fx"/);
+  assert.doesNotMatch(you, /class="tray|class="rail/);
+  // Each thread on the line is one band in its project's view, and it opens the same plate its card does.
+  const opened = grab(you, /<div class="fx-view" data-view="Fernpay" hidden>[\s\S]*?<\/svg><\/div>/);
+  const plates = [...opened.matchAll(/<path class="band [^"]+"[^>]*data-plate="([^"]+)"/g)].map((m) => m[1]!);
+  assert.equal(plates.length, 5);
+  for (const id of plates) assert.match(html, new RegExp(`<article class="plate" id="${id}"`));
+  // Held and verified threads stay off the line, as they did off the columns.
+  assert.match(opened, /aria-label="Fernpay: its threads, left to right from start to merge"/);
+  assert.match(you, /Gray is time since the last change:/);
   // Dan cut the header line, the four cards, the "At The Pass" key and the panels under the board.
   for (const gone of [/class="you-sub"/, /class="inst"/, /Agents running/, /Merged today/, /Checks on open PRs/, /Your agents wait on you/,
     /At The Pass/, /Merged, last 7 days/, /Agent time today/, /class="held"/, /class="pnl/]) assert.doesNotMatch(you, gone);
   // Verified and on hold stay one click away in the stage list.
-  assert.match(page(), /<button type="button" class="nf" data-folder="Verified">[\s\S]*?<span class="n">1<\/span><\/button><button type="button" class="nf" data-folder="On hold">/);
+  assert.match(html, /<button type="button" class="nf" data-folder="Verified">[\s\S]*?<span class="n">1<\/span><\/button><button type="button" class="nf" data-folder="On hold">/);
 });
 
-test('without a good poll the columns say "–" and hold no threads', () => {
+test('without a good poll the chart says "Not checked" and draws no threads', () => {
   const you = youOf(page({ status: { ok: false, error: 'down', at: NOW, ms: 0 } }));
-  assert.equal([...you.matchAll(/<span class="n">–<\/span>/g)].length, 6);
-  assert.doesNotMatch(you, /data-thread=/);
+  assert.match(you, /<div class="fx-empty"><p><b>Not checked<\/b><\/p>/);
+  assert.doesNotMatch(you, /<svg class="fx"|data-plate=|Gray is time/);
 });
 
-test('the columns run the window\'s full height and each scrolls inside; all six stay in the window (Dan, 2026-11-10)', () => {
+test('the chart fills the view and scrolls inside it when the window is narrow or the line is long', () => {
   const src = servedSource();
-  const wide = grab(src, /@media \(min-width:761px\)\{\n {2}\.v-kitchen \.you,\.v-kitchen \.you-b,\.v-kitchen \.you \.rail-wrap\{[^\n]*\n[\s\S]*?\n\}/);
-  assert.match(wide, /\.v-kitchen \.you-b,\.v-kitchen \.you \.rail-wrap\{flex:1;height:auto\}/);
-  assert.match(wide, /\.v-kitchen \.you \.tray\{max-height:none\}/);
-  // The wide rules never let a column grow past the window or scroll the middle as a whole.
-  assert.doesNotMatch(wide, /\.tray-b\{[^}]*overflow:visible|you-b\{[^}]*overflow-y:auto/);
-  assert.match(src, /\.v-kitchen \.rail \.at-ic\{display:none\}/);
-  // fitRail tries the 4-line floor, then the 5-line one, then .tight, then .tighter, and starts over on each call.
-  const fn = grab(src, /function fitRail\(\)\{[\s\S]*?\n {2}\}/);
-  const run = (fits: (cls: Set<string>) => boolean) => {
-    const cls = new Set(['tight', 'tighter']);
-    const rail = { clientWidth: 800, get scrollWidth() { return fits(cls) ? 800 : 900; }, classList: { add: (...c: string[]) => c.forEach((x) => cls.add(x)), remove: (...c: string[]) => c.forEach((x) => cls.delete(x)) } };
-    vm.runInContext(fn + ' fitRail();', vm.createContext({ $$: () => [rail], fades() {} }));
-    return [...cls].sort();
+  const wide = grab(src, /@media \(min-width:761px\)\{\n {2}\.v-kitchen \.you\{[^\n]*\n[\s\S]*?\n\}/);
+  assert.match(wide, /\.v-kitchen \.you\{display:flex;flex-direction:column;min-height:0\}/);
+  assert.match(wide, /\.v-kitchen \.you-b\{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain\}/);
+  assert.match(src, /\.fx-wrap\{position:relative;min-width:720px\}/);
+  // The columns' fitting is gone with them.
+  assert.doesNotMatch(src, /function fitRail|\.rail-wrap|\.tray-b/);
+  // A stale page hides the chart, as it hid the columns' counts.
+  assert.match(src, /\.is-stale[^{]*\.fx-wrap[,{]/);
+});
+
+test('hover lights the chart and The Pass both ways; opening a project shows its view and the way back', () => {
+  const src = pageScript();
+  const fns = grab(src, /var drill = '';[\s\S]*?\n {2}function flowTip/).replace(/function flowTip$/, '');
+  type El = { dataset: Record<string, string>; hidden: boolean; textContent: string; cls: Set<string>; classList: { toggle(c: string, on: boolean): void; contains(c: string): boolean } };
+  const el = (dataset: Record<string, string> = {}): El => {
+    const cls = new Set<string>();
+    return { dataset, hidden: false, textContent: '', cls, classList: { toggle: (c, on) => { if (on) cls.add(c); else cls.delete(c); }, contains: (c) => cls.has(c) } };
   };
-  assert.deepEqual(run(() => true), ['four']);
-  assert.deepEqual(run((c) => !c.has('four')), []);
-  assert.deepEqual(run((c) => c.has('tight')), ['tight']);
-  assert.deepEqual(run(() => false), ['tight', 'tighter']);
-  // No floor splits a title word: each stage keeps its longest word (--word, up to 200 px), in every mode (PR-Agent on
-  // #14: .tight fit with a long word split, so .tighter never ran).
-  const floors = src.match(/\.v-kitchen \.rail(?:\.four|\.tight)?>\.tray:not\(\.empty\)\{min-width:max\([^}]*\}/g);
-  assert.ok(floors);
-  assert.equal(floors.length, 4);
-  floors.forEach((f) => assert.match(f, /,min\(var\(--word,0px\),200px\)\)/, f));
-  assert.match(src, /\.v-kitchen \.rail\.tight>\.tray:not\(\.empty\)\{min-width:max\(88px,var\(--name,0px\),min\(var\(--word,0px\),200px\)\)\}/);
-  assert.match(src, /\.v-kitchen \.rail\.tight\.tighter>\.tray\.empty,\.v-kitchen \.rail\.tight\.tighter>\.tray:not\(\.empty\)\{min-width:max\(88px,min\(var\(--word,0px\),200px\)\)\}/);
-  assert.match(src, /tr\.style\.setProperty\('--word', Math\.ceil\(word\) \+ 'px'\)/);
-  assert.doesNotMatch(src, /hyphens:auto/);
+  const board = el(), crumb = el(), name = el(), wrap = el();
+  const views = [el({ view: '' }), el({ view: 'Fernpay' })];
+  const band = el({ k: 'fl:0 g:Fernpay t:p-1 t:p-2 n:review' }), other = el({ k: 'fl:1 g:Fernpay t:p-3' }), card = el({ plate: 'p-2' }), card3 = el({ plate: 'p-9' });
+  const one: Record<string, El> = { '.board': board, '.you .fx-crumb': crumb, '.you .fx-name': name, '.you .fx-wrap': wrap };
+  const many: Record<string, El[]> = { '.you .fx-view': views, '.you .fx-view:not([hidden]) [data-k]': [band, other], '.head-b .folder[data-folder="pass"] .call-tile[data-plate]': [card, card3] };
+  const ctx = vm.createContext({ $: (s: string) => one[s] ?? null, $$: (s: string) => many[s] ?? [] });
+  vm.runInContext(fns, ctx);
+  const run = (code: string) => vm.runInContext(code, ctx);
+  // A band lights itself and its threads' cards; the band beside it steps back.
+  run(`flowFocus(['fl:0', 't:p-1', 't:p-2'])`);
+  assert.ok(board.cls.has('fx-focus') && band.cls.has('lit') && !other.cls.has('lit'));
+  assert.ok(card.cls.has('lit') && !card3.cls.has('lit'));
+  // A card lights its thread's band.
+  run(`flowFocus(['t:p-3'])`);
+  assert.ok(other.cls.has('lit') && !band.cls.has('lit') && !card.cls.has('lit'));
+  // A project lights every band of it.
+  run(`flowFocus(['g:Fernpay'])`);
+  assert.ok(band.cls.has('lit') && other.cls.has('lit') && card.cls.has('lit'));
+  // A refresh keeps what the pointer lit (it calls applyDrill(false) after drawing the fresh chart and Pass).
+  band.cls.delete('lit'); card.cls.delete('lit');
+  run(`applyDrill(false)`);
+  assert.ok(board.cls.has('fx-focus') && band.cls.has('lit') && card.cls.has('lit'));
+  run(`flowFocus(null)`);
+  assert.ok(!board.cls.has('fx-focus') && !band.cls.has('lit') && !card.cls.has('lit'));
+  run(`flowFocus(['t:p-1'])`);
+  // Opening a project shows its view and the crumb back; a project that left the chart goes back to every project.
+  run(`drill = 'Fernpay'; applyDrill(true)`);
+  assert.deepEqual(views.map((v) => v.hidden), [true, false]);
+  assert.ok(!board.cls.has('fx-focus') && !band.cls.has('lit'));
+  assert.ok(!crumb.hidden && name.textContent === 'Fernpay' && wrap.cls.has('drilled'));
+  run(`drill = 'Gone'; applyDrill(false)`);
+  assert.deepEqual(views.map((v) => v.hidden), [false, true]);
+  assert.ok(crumb.hidden && !wrap.cls.has('drilled'));
+  // The click handler opens and closes a project.
+  assert.match(src, /closest\s*(?:<Element>)?\s*\('\.you \[data-drill\]'\)[\s\S]{0,200}drill = /);
+  assert.match(src, /closest\('\.you \[data-undrill\]'\)\) \{ drill = ''; applyDrill\(true\)/);
+  assert.match(src, /normalizePicked\(\); applyDrill\(false\); fades\(\);/);
 });
 
 test('a stale page hides the rail bar with the counts (PR-Agent on #74)', () => {
