@@ -64,8 +64,6 @@ const ago = (since: number, now: number): string => {
   const m = Math.max(0, Math.round((now - since) / 60000));
   return m < 1 ? 'under 1 min' : m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h` : `${Math.floor(m / 1440)} d`;
 };
-/** A short id from a project's name, safe in an SVG id and url(#…). */
-const idOf = (name: string): string => { let h = 5381; for (const ch of name) h = ((h * 33) ^ ch.codePointAt(0)!) >>> 0; return h.toString(36); };
 /** A project's hover key: its name with no spaces, so the page can split keys on spaces. */
 const gk = (name: string): string => `g:${encodeURIComponent(name)}`;
 
@@ -174,9 +172,7 @@ export function drawFlow(L: Layout, now: number): string {
     ['Ready to merge', String(count('Ready to merge'))], ['Merged', String(count('Merged'))], ['Release', 'not checked'],
   ];
   let out = `<svg class="fx" viewBox="0 0 ${W} ${f1(L.H)}" role="img" aria-label="${e(L.drill === null ? 'Your threads by project, left to right from start to merge' : `${L.drill}: its threads, left to right from start to merge`)}">`;
-  // Each view has its own dots: a hidden view's pattern draws nothing, so a shared id left an opened project bare.
-  const dots = `fx-dots-${L.drill === null ? 'all' : idOf(L.drill)}`;
-  out += `<defs><pattern id="${dots}" width="14" height="14" patternUnits="userSpaceOnUse"><circle cx="7" cy="7" r="1" class="dot"/></pattern></defs><rect width="${W}" height="100%" fill="url(#${dots})"/>`;
+  out += `<defs><pattern id="fx-dots" width="14" height="14" patternUnits="userSpaceOnUse"><circle cx="7" cy="7" r="1" class="dot"/></pattern></defs><rect width="${W}" height="100%" fill="url(#fx-dots)"/>`;
   zones.forEach(([name, n], i) => {
     const x0 = ZONE_X[i] ?? 0, x1 = ZONE_X[i + 1] ?? W;
     out += `<rect class="zone z${i % 2}" x="${x0}" y="0" width="${x1 - x0}" height="100%"/>`;
@@ -184,9 +180,6 @@ export function drawFlow(L: Layout, now: number): string {
     out += i === 4 ? `<text class="zlbl" x="${x0 + 10}" y="19">${name}</text><text class="zcount" x="${x0 + 10}" y="34">${n}</text>`
       : `<text class="zlbl" x="${x0 + 10}" y="19">${name}<tspan class="zcount" dx="6">${n}</tspan></text>`;
   });
-  // Over the nodes: who each one is.
-  out += `<text class="tierh" x="${NODE_X.review + NW / 2}" y="${TOP - 22}" text-anchor="middle">Checks and review</text>`;
-  out += `<text class="tierh" x="${NODE_X.you + NW / 2}" y="${TOP - 22}" text-anchor="middle">You merge</text>`;
 
   let bands = '', fans = '';
   for (const b of L.bands) {
@@ -236,6 +229,9 @@ export function drawFlow(L: Layout, now: number): string {
       + (L.drill === null ? '<div class="m">Click to open its threads</div>' : '');
     const dr = L.drill === null ? ` data-drill="${e(g.name)}"` : '';
     out += `<rect class="node"${hov([gk(g.name)], [gk(g.name)], tip)}${dr} x="${XG}" y="${f1(g.y)}" width="${NW}" height="${f1(Math.max(1, g.h))}" rx="1.5"/>`;
+    // Opened, the project's name sits over its node and lanes, as each stop's name sits over its node.
+    const lanes = L.bands.filter((b) => b.group === g.name && b.lane !== null).map((b) => b.lane!);
+    if (L.drill !== null) names += `<text class="gname strong"${hov([gk(g.name)], [gk(g.name)], tip)} x="${XG + NW / 2}" y="${f1(Math.min(g.y, ...lanes) - 7)}" data-y="${f1(Math.min(g.y, ...lanes))}" data-dy="-7" text-anchor="middle">${e(cut(g.name, 24))}</text>`;
     if (L.drill === null) names += `<text class="gname"${hov([gk(g.name)], [gk(g.name)], tip)}${dr} tabindex="0" role="button" aria-label="${e(`Open ${g.name}: ${plural(mine.length, 'thread')}`)}" x="${XB - 8}" y="${f1(g.y + g.h / 2)}" data-y="${f1(g.y + g.h / 2)}" text-anchor="end" dominant-baseline="central">${e(cut(g.name, 16))}</text>`;
   }
   // The stops. A node's queue is the threads that end there.
@@ -259,15 +255,13 @@ export function drawFlow(L: Layout, now: number): string {
   return `${out}</g><g class="fx-names">${names}</g></svg>`;
 }
 
-/** You's chart, every project and each one opened, for the page to switch between without a round trip. The page
- *  shows the one data-view names ("" for every project). */
+/** You's chart. One project picked (the header picker, or a click on a project here) shows its threads, one band
+ *  each; more shows every project. */
 export function youFlow(items: readonly FlowItem[], now: number): string {
-  const projects = [...new Set(items.map((t) => t.project))].sort((a, b) => a.localeCompare(b));
-  return `<div class="fx-view" data-view="">${drawFlow(layout(items, now), now)}</div>`
-    + projects.map((p) => `<div class="fx-view" data-view="${e(p)}" hidden>${drawFlow(layout(items, now, p), now)}</div>`).join('');
+  const projects = [...new Set(items.map((t) => t.project))];
+  return `<div class="fx-view">${drawFlow(layout(items, now, projects.length === 1 ? projects[0]! : null), now)}</div>`;
 }
 
-/** Under the chart: what gray means, and how to read it. */
-export const FLOW_KEY = '<div class="fx-key"><span class="m">Gray is time since the last change:</span>'
-  + AGE_WORD.map((w, i) => `<span class="fx-chip"><i class="sw a${i}"></i>${w}</span>`).join('')
-  + '<span class="m fx-how">Width = threads. Checks and review, then you merge. <span class="fx-top">Click a project to open its threads.</span><span class="fx-in">Click a thread to open it. Hairlines at the left are subagents.</span></span></div>';
+/** The three grays, in the header beside the picker (Dan, 2026-11-12: words under the chart took its room). */
+export const FLOW_KEY = '<div class="fx-key" title="Time since the last change"><span class="vh">Time since the last change:</span>'
+  + AGE_WORD.map((w, i) => `<span class="fx-chip"><i class="sw a${i}"></i>${w}</span>`).join('') + '</div>';

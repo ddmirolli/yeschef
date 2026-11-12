@@ -263,20 +263,10 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   // A ticket's attachments and the stage list fade at the right edge while more wait off screen (hill climb 2 r1).
   function railEdge(el: Element): void { el.classList.toggle('fade-right', el.scrollWidth - el.scrollLeft - el.clientWidth > 4); }
   // ----- You, expanded: the chart (client/flow.ts) -----
-  // The server draws every project and each one opened; the page shows one. Which one survives a refresh, and goes
-  // back to every project when its project leaves the chart.
-  var drill = '';
-  // clear: a project opened or closed, so nothing stays lit. A refresh keeps what the pointer lit, on the fresh chart.
-  function applyDrill(clear: boolean): void {
-    var views = $$('.you .fx-view');
-    if (!views.some(function(v){ return v.dataset.view === drill; })) drill = '';
-    views.forEach(function(v){ v.hidden = v.dataset.view !== drill; });
-    var crumb = $('.you .fx-crumb'), nm = $('.you .fx-name');
-    if (crumb) crumb.hidden = !drill;
-    if (nm) nm.textContent = drill;
-    var wrap = $('.you .fx-wrap'); if (wrap) wrap.classList.toggle('drilled', !!drill);
-    // A band's own key (fl:) is its place in the chart, which a refresh can give another band: only the keys of threads,
-    // projects and stops come back (PR-Agent r1 on #49).
+  // The server draws the projects the header picker shows: one project as its threads, more as every project. A click
+  // on a project picks it there (Dan, 2026-11-12: a second "All projects" over the chart); the picker goes back.
+  // clear: a fresh page, so nothing stays lit. A refresh keeps what the pointer lit, on the fresh chart.
+  function applyFlow(clear: boolean): void {
     var keep = clear || !fxKeys ? [] : fxKeys.filter(function(k){ return k.indexOf('fl:') !== 0; });
     fxNow = null; flowFocus(keep.length ? keep : null);
     watchFlow();
@@ -297,7 +287,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     var top = +(body.dataset.top || 0), span = +(body.dataset.span || 0), vw = svg.viewBox.baseVal.width, w = svg.getBoundingClientRect().width;
     if (!span || !vw || !w) return;
     var foot = 18, own = top + span + foot, wrap = svg.closest('.fx-wrap'), cs = getComputedStyle(sc);
-    // What else shares the column: the key under the chart and the column's own padding.
+    // What else shares the column: its own padding (the key sits in the header).
     var rest = (wrap ? wrap.getBoundingClientRect().height : 0) - svg.getBoundingClientRect().height + (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
     var free = Math.floor(sc.clientHeight - rest) - 1;
     var vh = Math.max(own, free * vw / w), k = (vh - top - foot) / span;
@@ -550,7 +540,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     $$('.plate', nuStore).forEach(function(p){ if ((!mounted || p.id !== mounted.id) && !held[p.id]) { plateSrc.set(p, plateKey(p.outerHTML)); store_.appendChild(p); } });
     // A ticket sent from the pass comes back as soon as the agent hands it back again, not after 90 s.
     Object.keys(acted).forEach(function(aid){ var np = nuStore.querySelector<HTMLElement>('#' + CSS.escape(aid)) || document.getElementById(aid); if (np && actedLatest[aid] !== undefined && (np.dataset.latest || '') !== actedLatest[aid]) { delete acted[aid]; delete actedLatest[aid]; } });
-    hideActed(); setFolder(state.folder); applyScope(); normalizePicked(); applyDrill(false); fades(); if (KST.changed || !K.mac) relabel(document); restoreDrafts(app); restoreDrafts($('#plates'));
+    hideActed(); setFolder(state.folder); applyScope(); normalizePicked(); applyFlow(false); fades(); if (KST.changed || !K.mac) relabel(document); restoreDrafts(app); restoreDrafts($('#plates'));
     if (focusSel && document.activeElement !== null && (document.activeElement === document.body || !document.activeElement.isConnected)) { var back = $(focusSel); if (back) back.focus({ preventScroll: true }); }
     // The open ticket left the board on its own: show the next one, unless you are working in it.
     if (gone && !keep) { var id = mounted!.id; mounted!.remove(); mounted = null; if (acted[id]) { state.sel = null; place(); } else advance(id); return; }
@@ -1267,6 +1257,14 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     if (q === location.search) return;
     history.pushState(null, '', location.pathname + q); state.sel = null; wake();
   }
+  // A project clicked in You's chart: that project alone, as if picked in the menu.
+  function pickOnly(name: string): void {
+    if (!name) return;
+    drawPicked([name]);
+    var q = '?p=' + encodeURIComponent(name);
+    if (q === location.search) return;
+    history.pushState(null, '', location.pathname + q); state.sel = null; wake();
+  }
   // Every copy of the menu (the rail's, and the expanded view's header) shows the same picks. names: null is All projects.
   function drawPicked(names: string[] | null): void {
     drawn = {};
@@ -1503,8 +1501,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     // The chart: a project opens its threads, ‹ All projects goes back. A thread's band carries data-plate, so a click
     // on it opens the ticket below, as its card does.
     var dr = t.closest<Element>('.you [data-drill]');
-    if (dr) { drill = dr.getAttribute('data-drill') || ''; applyDrill(true); var tp = $('.you .fx-tip'); if (tp) tp.hidden = true; return; }
-    if (t.closest('.you [data-undrill]')) { drill = ''; applyDrill(true); return; }
+    if (dr) { var tp = $('.you .fx-tip'); if (tp) tp.hidden = true; pickOnly(dr.getAttribute('data-drill') || ''); return; }
     var nf = t.closest<HTMLElement>('.nf[data-folder]');
     // In You, expanded, a stage row opens that stage's list in the pass view, with no ticket open.
     if (nf && !focusView()) { state.passFolder = nf.dataset.folder!; state.passSel = null; toggleView(); return; }
@@ -1842,7 +1839,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   // Typing your own answer picks it: a field inside a label does not check the label's radio by itself.
   document.addEventListener('focusin', function(ev){ var t = ev.target as Element; if (t.matches && t.matches('label.opt .custom')) { var r = t.parentNode!.querySelector<HTMLInputElement>('input[data-custom]'); if (r) r.checked = true; } });
 
-  applyPrefs(); applyScope(); normalizePicked(); applyDrill(true); if (KST.changed || !K.mac) relabel(document); restoreDrafts(document);
+  applyPrefs(); applyScope(); normalizePicked(); applyFlow(true); if (KST.changed || !K.mac) relabel(document); restoreDrafts(document);
   setView(state.view); setFolder('pass');
   fades();
   // The Cmd+K action bar (client/bar.ts). View: You and View: Team read and set the same scope as the footer

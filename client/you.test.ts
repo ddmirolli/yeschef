@@ -208,17 +208,19 @@ const youOf = (html: string) => grab(html, /<section class="you"[\s\S]*?<\/div><
 
 test('You, expanded is the header picker over the solo Sankey (Dan, 2026-11-10 and 2026-11-11, flow mock v3.3)', () => {
   const html = page(), you = youOf(html);
-  // The header is the project picker and nothing else (Dan, 2026-11-11): the person, All projects, the chevron.
-  assert.match(you, /^<section class="you" aria-label="Your threads by stage"><header class="you-h"><details class="pmenu vmenu vhead"><summary><span class="vi" title="You"><svg class="ic who"[^>]*><circle cx="12" cy="8\.25"[\s\S]*?<span class="vh">You<\/span><\/span><span class="vp">All projects<\/span><svg class="ic"[\s\S]*?<\/details><\/header><p class="fx-crumb" hidden><button type="button" class="fx-back" data-undrill>‹ All projects<\/button><b class="fx-name"><\/b><\/p><div class="you-b"><div class="fx-wrap"><div class="fx-view" data-view=""><svg class="fx"/);
-  assert.doesNotMatch(you, /class="tray|class="rail/);
-  // Each thread on the line is one band in its project's view, and it opens the same plate its card does.
-  const opened = grab(you, /<div class="fx-view" data-view="Fernpay" hidden>[\s\S]*?<\/svg><\/div>/);
+  // The header is the project picker (Dan, 2026-11-11): the person, All projects, the chevron; then the three grays at
+  // its right, so the chart runs to the foot of the column (Dan, 2026-11-12). "All projects" is said once.
+  assert.match(you, /^<section class="you" aria-label="Your threads by stage"><header class="you-h"><details class="pmenu vmenu vhead"><summary><span class="vi" title="You"><svg class="ic who"[^>]*><circle cx="12" cy="8\.25"[\s\S]*?<span class="vh">You<\/span><\/span><span class="vp">All projects<\/span><svg class="ic"[\s\S]*?<\/details><div class="fx-key"[\s\S]*?<\/div><\/header><div class="you-b"><div class="fx-wrap"><div class="fx-view"><svg class="fx"/);
+  assert.equal(you.split('>All projects<').length - 1, 2); // the summary and the menu's own All projects box
+  assert.doesNotMatch(you, /class="tray|class="rail|fx-crumb|data-undrill/);
+  // One project picked is its threads: each one band, and it opens the same plate its card does.
+  const opened = grab(youOf(page({ picked: ['Fernpay'] })), /<div class="fx-view">[\s\S]*?<\/svg><\/div>/);
   const plates = [...opened.matchAll(/<path class="band [^"]+"[^>]*data-plate="([^"]+)"/g)].map((m) => m[1]!);
   assert.equal(plates.length, 5);
   for (const id of plates) assert.match(html, new RegExp(`<article class="plate" id="${id}"`));
   // Held and verified threads stay off the line, as they did off the columns.
   assert.match(opened, /aria-label="Fernpay: its threads, left to right from start to merge"/);
-  assert.match(you, /Gray is time since the last change:/);
+  assert.match(you, /<header class="you-h">[\s\S]*?<div class="fx-key" title="Time since the last change">/);
   // Dan cut the header line, the four cards, the "At The Pass" key and the panels under the board.
   for (const gone of [/class="you-sub"/, /class="inst"/, /Agents running/, /Merged today/, /Checks on open PRs/, /Your agents wait on you/,
     /At The Pass/, /Merged, last 7 days/, /Agent time today/, /class="held"/, /class="pnl/]) assert.doesNotMatch(you, gone);
@@ -282,24 +284,23 @@ test('the river stretches to the foot of the column, never below its own height,
   assert.equal(stop.a.y, '143.0');
   // The page measures again when the column changes size and after each refresh.
   assert.match(src, /var flowRO = window\.ResizeObserver \? new ResizeObserver\(function\(\)\{ fitFlow\(\); \}\)/);
-  assert.match(grab(src, /function applyDrill[\s\S]*?\n {2}\}/), /watchFlow\(\);/);
+  assert.match(grab(src, /function applyFlow[\s\S]*?\n {2}\}/), /watchFlow\(\);/);
   // Strokes keep their width when the river stretches.
   assert.match(servedSource(), /\.fx \.fx-body \*\{vector-effect:non-scaling-stroke\}/);
 });
 
-test('hover lights the chart and The Pass both ways; opening a project shows its view and the way back', () => {
+test('hover lights the chart and The Pass both ways; a project click picks that project', () => {
   const src = pageScript();
-  const fns = grab(src, /var drill = '';[\s\S]*?\n {2}function flowTip/).replace(/function flowTip$/, '');
+  const fns = grab(src, /function applyFlow[\s\S]*?\n {2}function flowTip/).replace(/function flowTip$/, '');
   type El = { dataset: Record<string, string>; hidden: boolean; textContent: string; cls: Set<string>; classList: { toggle(c: string, on: boolean): void; contains(c: string): boolean } };
   const el = (dataset: Record<string, string> = {}): El => {
     const cls = new Set<string>();
     return { dataset, hidden: false, textContent: '', cls, classList: { toggle: (c, on) => { if (on) cls.add(c); else cls.delete(c); }, contains: (c) => cls.has(c) } };
   };
-  const board = el(), crumb = el(), name = el(), wrap = el();
-  const views = [el({ view: '' }), el({ view: 'Fernpay' })];
+  const board = el();
   const band = el({ k: 'fl:0 g:Fernpay t:p-1 t:p-2 n:review' }), other = el({ k: 'fl:1 g:Fernpay t:p-3' }), card = el({ plate: 'p-2' }), card3 = el({ plate: 'p-9' });
-  const one: Record<string, El> = { '.board': board, '.you .fx-crumb': crumb, '.you .fx-name': name, '.you .fx-wrap': wrap };
-  const many: Record<string, El[]> = { '.you .fx-view': views, '.you .fx-view:not([hidden]) [data-k]': [band, other], '.head-b .folder[data-folder="pass"] .call-tile[data-plate]': [card, card3] };
+  const one: Record<string, El> = { '.board': board };
+  const many: Record<string, El[]> = { '.you .fx-view:not([hidden]) [data-k]': [band, other], '.head-b .folder[data-folder="pass"] .call-tile[data-plate]': [card, card3] };
   const ctx = vm.createContext({ window: {}, $: (s: string) => one[s] ?? null, $$: (s: string) => many[s] ?? [] });
   vm.runInContext(fns, ctx);
   const run = (code: string) => vm.runInContext(code, ctx);
@@ -313,33 +314,25 @@ test('hover lights the chart and The Pass both ways; opening a project shows its
   // A project lights every band of it.
   run(`flowFocus(['g:Fernpay'])`);
   assert.ok(band.cls.has('lit') && other.cls.has('lit') && card.cls.has('lit'));
-  // A refresh keeps what the pointer lit (it calls applyDrill(false) after drawing the fresh chart and Pass).
+  // A refresh keeps what the pointer lit (it calls applyFlow(false) after drawing the fresh chart and Pass).
   band.cls.delete('lit'); card.cls.delete('lit');
-  run(`applyDrill(false)`);
+  run(`applyFlow(false)`);
   assert.ok(board.cls.has('fx-focus') && band.cls.has('lit') && card.cls.has('lit'));
   // A band's own key is its place, which a refresh can hand another band: only thread, project and stop keys come back.
   run(`flowFocus(['fl:1'])`);
   assert.ok(other.cls.has('lit'));
-  run(`applyDrill(false)`);
+  run(`applyFlow(false)`);
   assert.ok(!board.cls.has('fx-focus') && !other.cls.has('lit'));
   run(`flowFocus(['fl:0', 't:p-1', 't:p-2'])`);
-  run(`applyDrill(false)`);
+  run(`applyFlow(false)`);
   assert.ok(band.cls.has('lit') && !other.cls.has('lit'));
   run(`flowFocus(null)`);
   assert.ok(!board.cls.has('fx-focus') && !band.cls.has('lit') && !card.cls.has('lit'));
-  run(`flowFocus(['t:p-1'])`);
-  // Opening a project shows its view and the crumb back; a project that left the chart goes back to every project.
-  run(`drill = 'Fernpay'; applyDrill(true)`);
-  assert.deepEqual(views.map((v) => v.hidden), [true, false]);
-  assert.ok(!board.cls.has('fx-focus') && !band.cls.has('lit'));
-  assert.ok(!crumb.hidden && name.textContent === 'Fernpay' && wrap.cls.has('drilled'));
-  run(`drill = 'Gone'; applyDrill(false)`);
-  assert.deepEqual(views.map((v) => v.hidden), [false, true]);
-  assert.ok(crumb.hidden && !wrap.cls.has('drilled'));
-  // The click handler opens and closes a project.
-  assert.match(src, /closest\s*(?:<Element>)?\s*\('\.you \[data-drill\]'\)[\s\S]{0,200}drill = /);
-  assert.match(src, /closest\('\.you \[data-undrill\]'\)\) \{ drill = ''; applyDrill\(true\)/);
-  assert.match(src, /normalizePicked\(\); applyDrill\(false\); fades\(\);/);
+  // A click on a project picks it alone, as the header picker does, and the picker goes back.
+  assert.match(src, /closest\s*(?:<Element>)?\s*\('\.you \[data-drill\]'\)[\s\S]{0,200}pickOnly\(dr\.getAttribute\('data-drill'\)/);
+  assert.match(grab(src, /function pickOnly[\s\S]*?\n {2}\}/), /drawPicked\(\[name\]\);[\s\S]*?history\.pushState\(null, '', location\.pathname \+ q\); state\.sel = null; wake\(\);/);
+  assert.doesNotMatch(src, /applyDrill|data-undrill|fx-crumb/);
+  assert.match(src, /normalizePicked\(\); applyFlow\(false\); fades\(\);/);
   // Enter or Space on a focused project name or thread band clicks it, before the board's own keys see it.
   assert.match(src, /closest\('\.you \.fx-view \[tabindex\]\[role=button\]'\)[\s\S]{0,200}dispatchEvent\(new MouseEvent\('click'[\s\S]{0,80}\}, true\);/);
 });

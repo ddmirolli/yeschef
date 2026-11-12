@@ -118,15 +118,22 @@ test('opening a project: one band per thread, each opening its ticket, with a ha
   assert.equal([...many.matchAll(/<path class="fanl /g)].length, 8);
 });
 
-test('every project: a band or a project opens the project; the page gets one view per project', () => {
+test('every project: a band or a project picks the project; one project shows its threads, named over its node', () => {
   const html = youFlow(LINE, NOW);
-  assert.match(html, /^<div class="fx-view" data-view=""><svg class="fx"/);
-  assert.deepEqual([...html.matchAll(/<div class="fx-view" data-view="([^"]*)"( hidden)?>/g)].map((m) => [m[1], !!m[2]]), [['', false], ['Fernpay', true], ['Yes Chef', true]]);
-  const top = grab(html, /^<div class="fx-view" data-view="">[\s\S]*?<\/svg><\/div>/);
+  assert.equal([...html.matchAll(/<div class="fx-view">/g)].length, 1);
+  assert.doesNotMatch(html, /data-view=| hidden/);
+  const top = grab(html, /^<div class="fx-view">[\s\S]*?<\/svg><\/div>$/);
   assert.doesNotMatch(top, /data-plate=/);
   assert.match(top, /<path class="band [^"]+"[^>]*data-drill="Yes Chef"/);
   assert.match(top, /<rect class="node"[^>]*data-drill="Fernpay"/);
   assert.match(top, /<text class="gname"[^>]*data-drill="Fernpay"[^>]*>Fernpay<\/text>/);
+  // One project (picked in the header, or clicked here) is its threads, and its name sits over its node.
+  const one = youFlow(LINE.filter((t) => t.project === 'Fernpay'), NOW);
+  assert.match(one, /data-plate=/);
+  assert.doesNotMatch(one, /data-drill=/);
+  assert.match(one, /<text class="gname strong"[^>]*data-dy="-7" text-anchor="middle">Fernpay<\/text>/);
+  // No second line of labels over the columns: each node is named on its own.
+  assert.doesNotMatch(html + one, /tierh|Checks and review<|You merge</);
 });
 
 test('hover keys split on spaces: a project name with spaces is one key, and each thread is a t: key', () => {
@@ -144,7 +151,7 @@ test('names and titles are escaped everywhere', () => {
   const html = youFlow([I('a"b', bad, 'Merged', 0, { title: bad, base: bad })], NOW);
   assert.doesNotMatch(html, /<img/);
   assert.doesNotMatch(html, /data-plate="a"b"/);
-  assert.match(html, /data-view="&lt;img src=x onerror=alert\(1\)&gt;&quot;&amp;&#39;"/);
+  assert.match(html, /aria-label="&lt;img src=x onerror=alert\(1\)&gt;&quot;&amp;&#39;: its threads/);
 });
 
 test('the merged node names the branch only when every merged thread went into the same known one', () => {
@@ -156,9 +163,11 @@ test('the merged node names the branch only when every merged thread went into t
   assert.doesNotMatch(unknown, /<text class="gname"[^>]*>(?!Review|You|P)[^<]+<\/text>/);
 });
 
-test('the key names the three gray steps and how to read the chart', () => {
+test('the key is the three gray steps and nothing else on screen (Dan, 2026-11-12)', () => {
   assert.deepEqual([...FLOW_KEY.matchAll(/<i class="sw a(\d)"><\/i>([^<]+)/g)].map((m) => m[2]), ['under 1 day', '1 to 3 days', 'over 3 days']);
-  assert.match(FLOW_KEY, /Gray is time since the last change:/);
+  // What the grays measure is a tooltip and a screen reader's words, not a line of text.
+  assert.match(FLOW_KEY, /^<div class="fx-key" title="Time since the last change"><span class="vh">Time since the last change:<\/span>/);
+  assert.doesNotMatch(FLOW_KEY, /Width|Click|Hairlines|Gray is/);
 });
 
 test('every thread keeps a positive width, even with more projects than the chart has room for (PR-Agent r1 on #49)', () => {
@@ -181,12 +190,7 @@ test('a keyboard reaches every project by its name and, opened, every thread (PR
   assert.match(yc, /<path class="band a1"[^>]*data-plate="m2" tabindex="0" role="button" aria-label="m2, Merged"/);
 });
 
-test('each view draws its own dots and fills the height the page gives it', () => {
-  const html = youFlow(LINE, NOW);
-  const ids = [...html.matchAll(/<pattern id="([^"]+)"/g)].map((m) => m[1]!);
-  assert.ok(ids.length > 1);
-  assert.equal(new Set(ids).size, ids.length);
-  for (const id of ids) assert.match(id, /^fx-dots-[a-z0-9]+$/);
+test('the chart fills the height the page gives it', () => {
   // Zones, dots and lines run the full height; the river and its names carry what the page needs to stretch them.
   const svg = drawFlow(layout(LINE, NOW), NOW);
   assert.match(svg, /<rect class="zone z0" x="0" y="0" width="262" height="100%"\/>/);

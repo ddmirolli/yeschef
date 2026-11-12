@@ -1203,7 +1203,7 @@ html .plate .dock .q-set{max-width:640px}
   .v-kitchen .team-wait{align-self:start}
 }
 .fx-wrap{position:relative;min-width:720px}
-.fx{display:block;width:100%;height:auto}
+.fx{display:block;width:100%;height:auto;clip-path:inset(0 round 18px)}
 .fx .fx-body *{vector-effect:non-scaling-stroke}
 .fx text{font-size:11.5px}
 .fx .dot{fill:var(--fx-dot)}
@@ -1211,7 +1211,6 @@ html .plate .dock .q-set{max-width:640px}
 .fx .zline{stroke:var(--sep);stroke-dasharray:3 4}
 .fx .zlbl{font-weight:600;fill:var(--label2)}
 .fx .zcount{font-weight:400;fill:var(--label2)}
-.fx .tierh{font-size:11px;font-weight:600;fill:var(--label2)}
 .fx .band{stroke:var(--bg);stroke-width:.6;transition:fill .15s,opacity .15s}
 .fx .band.a0{fill:var(--fx-a0)}.fx .band.a1{fill:var(--fx-a1)}.fx .band.a2{fill:var(--fx-a2)}
 /* Dashed, with no fill, yet its whole ribbon answers the pointer (PR-Agent r3 on #49). */
@@ -1236,16 +1235,10 @@ html .plate .dock .q-set{max-width:640px}
 .fx-tip .m{color:var(--label2)}
 .fx-tip .alarm{display:flex;align-items:center;gap:5px;font-weight:600}
 .fx-tip .alarm .ic{width:14px;height:14px;color:var(--pass);stroke-width:2.2}
-.fx-key{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;padding:10px 4px 2px;font-size:12px;color:var(--label)}
-.fx-key .m{color:var(--label2)}
+.fx-key{display:flex;align-items:center;gap:14px;margin-left:auto;font-size:12px;color:var(--label2);white-space:nowrap}
 .fx-chip{display:inline-flex;align-items:center;gap:6px}
 .fx-chip .sw{width:10px;height:10px;border-radius:2px}
 .fx-chip .sw.a0{background:var(--fx-a0)}.fx-chip .sw.a1{background:var(--fx-a1)}.fx-chip .sw.a2{background:var(--fx-a2)}
-.fx-how{margin-left:auto}
-.fx-wrap.drilled .fx-top,.fx-wrap:not(.drilled) .fx-in{display:none}
-.fx-crumb{display:flex;align-items:center;gap:10px;margin:0 0 6px;font-size:13px}
-.fx-crumb[hidden]{display:none}
-.fx-back{padding:0;border:0;background:none;color:var(--link);font:inherit;cursor:pointer}
 .fx-empty{padding:48px 12px;text-align:center}
 /* The footer chip and its menu (Dan, 2026-11-10, view menu mock a). The chip: the person, or the toque for Team, then
    All projects or the picked projects' icons fanned like cards. The menu: check boxes, then the toggle. No "You" or
