@@ -58,7 +58,6 @@ interface PendingSend { label: string; title: string; until: number; done: boole
 export function passScript(MINI: Readonly<Record<string, string>>): void {
   var root = document.documentElement, app = document.getElementById('app') as HTMLElement;
   var sheet = document.getElementById('sheet') as HTMLDialogElement, viewer = document.getElementById('viewer') as HTMLDialogElement, toastEl = document.getElementById('toast') as HTMLElement, setDlg = document.getElementById('settings') as HTMLDialogElement, launchDlg = document.getElementById('launch') as HTMLDialogElement, barDlg = document.getElementById('bar') as HTMLDialogElement;
-  var wideQ = window.matchMedia('(min-width: 761px)');
   var reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
   function store(k: string, v?: string): string | null | undefined { try { if (v === undefined) return window.localStorage.getItem(k); window.localStorage.setItem(k, v); } catch (x) { return null; } }
   // The pass is the normal view; the full kitchen is one click on the logo away. The choice is remembered.
@@ -79,7 +78,6 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   function SK(){ return keyLabel('ticket.suggested'); }
   function $<E extends Element = HTMLElement>(sel: string, el?: ParentNode | null): E | null { return (el || document).querySelector<E>(sel); }
   function $$<E extends Element = HTMLElement>(sel: string, el?: ParentNode | null): E[] { return Array.prototype.slice.call((el || document).querySelectorAll<E>(sel)); }
-  function wide(){ return wideQ.matches; }
   function focusView(){ return state.view === 'pass'; }
 
   // ----- Views -----
@@ -182,7 +180,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   // Put the selected ticket where the view shows it: beside the list (pass view, wide) or in the sheet.
   function place(){
     var p = plateNode(state.sel);
-    if (focusView() && wide()) {
+    if (focusView()) {
       if (sheet.open) sheet.close();
       var r = $('.reader'); if (!r) return;
       if (!p) { unmount(); emptyReader(); mark(); return; }
@@ -360,11 +358,6 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   }
   document.addEventListener('toggle', function(ev){ var d = ev.target as HTMLDetailsElement | null; if (d && d.open && d.matches && d.matches('.stagenav details.pmenu')) placeNavMenu(); }, true);
   document.addEventListener('scroll', function(ev){ if (ev.target && (ev.target as Element).classList && (ev.target as Element).classList.contains('nav-scroll')) placeNavMenu(); }, true);
-  // A ticket opens only when you pick it; a phone closes the open one when the window narrows.
-  wideQ.addEventListener('change', function(){
-    if (!wide()) state.sel = null;
-    place();
-  });
 
   // ----- Refresh: swap each region; never the ticket you are working on -----
   // pendingFor: the address pendingHtml was read for. A project pick or Back changes the address while the menu is
@@ -386,13 +379,13 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     var i = rows.indexOf(document.activeElement as HTMLButtonElement);
     rows[i < 0 ? (d > 0 ? 0 : rows.length - 1) : (i + d + rows.length) % rows.length]!.focus();
   }
-  // It opens above its button, left-aligned with it; on a phone, CSS makes it a sheet from the bottom. Toggle events
+  // It opens above its button, left-aligned with it. Toggle events
   // do not bubble, so these listen on the way down.
   function moreOf(mn: Element): HTMLElement | null { return $('.abar [data-more][popovertarget="' + mn.id + '"]'); }
   document.addEventListener('beforetoggle', function(ev){
     var mn = ev.target as HTMLElement; if (!mn.classList || !mn.classList.contains('menu') || ev.newState !== 'open') return;
     var b = moreOf(mn);
-    if (!b || !wide()) { mn.style.left = ''; mn.style.bottom = ''; return; }
+    if (!b) { mn.style.left = ''; mn.style.bottom = ''; return; }
     var r = b.getBoundingClientRect();
     mn.style.left = Math.max(8, Math.min(r.left, innerWidth - 244)) + 'px';
     mn.style.bottom = Math.max(8, innerHeight - r.top + 8) + 'px';
@@ -401,7 +394,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     var mn = ev.target as HTMLElement; if (!mn.classList || !mn.classList.contains('menu')) return;
     var b = moreOf(mn), on = ev.newState === 'open';
     if (b) b.classList.toggle('on', on);
-    if (on && wide() && mn.offsetWidth) mn.style.left = Math.max(8, Math.min(parseFloat(mn.style.left) || 8, innerWidth - mn.offsetWidth - 8)) + 'px';
+    if (on && mn.offsetWidth) mn.style.left = Math.max(8, Math.min(parseFloat(mn.style.left) || 8, innerWidth - mn.offsetWidth - 8)) + 'px';
   }, true);
   function dirty(p: Plate | null): boolean {
     if (!p) return false;
@@ -525,7 +518,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     if (gone && !keep) { var id = mounted!.id; mounted!.remove(); mounted = null; if (acted[id]) { state.sel = null; place(); } else advance(id); return; }
     // The open ticket left the list you are working (an agent picked it up, or it moved stage): the next one opens,
     // unless you are typing or picking in it. The list's own order decides "next".
-    if (focusView() && wide() && state.sel && !keep && !acted[state.sel] && !tiles().some(function(x){ return x.dataset.plate === state.sel; })) {
+    if (focusView() && state.sel && !keep && !acted[state.sel] && !tiles().some(function(x){ return x.dataset.plate === state.sel; })) {
       var nextT = tiles()[0]; state.sel = nextT ? nextT.dataset.plate : null;
     }
     place();
@@ -1236,7 +1229,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     if (q === location.search) return;
     history.pushState(null, '', location.pathname + q); state.sel = null; wake();
   }
-  // Both copies of the menu (the rail's, and the top bar's on a phone) show the same picks. names: null is All projects.
+  // Every copy of the menu (the rail's, and the expanded view's header) shows the same picks. names: null is All projects.
   function drawPicked(names: string[] | null): void {
     drawn = {};
     $$('details.vmenu').forEach(function(d){
@@ -1472,7 +1465,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     var nf = t.closest<HTMLElement>('.nf[data-folder]');
     // In You, expanded, a stage row opens that stage's list in the pass view, with no ticket open.
     if (nf && !focusView()) { state.passFolder = nf.dataset.folder!; state.passSel = null; toggleView(); return; }
-    if (nf) { setFolder(nf.dataset.folder!); if (focusView() && wide()) { state.sel = null; place(); } return; }
+    if (nf) { setFolder(nf.dataset.folder!); if (focusView()) { state.sel = null; place(); } return; }
     var shot = t.closest<HTMLAnchorElement>('a[data-shot]');
     if (shot) { ev.preventDefault(); var box = shot.closest('.plate') || document; shotsList = $$<HTMLAnchorElement>('a[data-shot]', box); showShot(shotsList.indexOf(shot)); if (!viewer.open) viewer.showModal(); yieldKey(); return; }
     var to = t.closest<HTMLElement>('[data-team-open]');
@@ -1482,14 +1475,14 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     var rt = t.closest('[data-retry]'); if (rt) { var pl = rt.closest('.plate'); if (pl) retry(pl.id); return; }
     if (t.closest('[data-settings]')) { openSettings(); return; }
     var an = t.closest('[data-addnote]'); if (an) { shut(an); noting(an.closest<PageForm>('form.act'), true); return; }
-    // More's rows: Open in T3 follows the ticket's link, as O does. On a phone, Hold and Settle press the bar's own
+    // More's rows: Open in T3 follows the ticket's link, as O does. In a narrow bar, Hold and Settle press the bar's own
     // buttons, so every check in send() still runs.
     var ot = t.closest('[data-open-t3]'); if (ot) { shut(ot); var op = ot.closest('.plate'), ol = op && $('.plate-bar a[href]', op); if (ol) ol.click(); return; }
     var pr = t.closest<HTMLElement>('[data-press]'); if (pr) { shut(pr); var pf = pr.closest<PageForm>('form.act'), pb = pf && $<HTMLButtonElement>('button[name=kind][value="' + pr.dataset.press + '"]', pf); if (pb && !pb.disabled) send(pf!, pb); return; }
     if (t.closest('[data-close]')) { sheet.close(); return; }
     if (t === sheet) sheet.close();
   });
-  sheet.addEventListener('close', function(){ var id = state.sel; if (!(focusView() && wide())) { unmount(); state.sel = null; mark(); } var back = id && $('[data-plate="' + id + '"]:not(form)'); if (back) back.focus({ preventScroll: true }); });
+  sheet.addEventListener('close', function(){ var id = state.sel; if (!focusView()) { unmount(); state.sel = null; mark(); } var back = id && $('[data-plate="' + id + '"]:not(form)'); if (back) back.focus({ preventScroll: true }); });
   // The page's keys, as each command's default key reads (client/keys.ts). The router below sends every key here.
   function onKey(ev: PageKey): void {
     // Esc closes the menu and puts focus back on its chip, so the keys go on from there.

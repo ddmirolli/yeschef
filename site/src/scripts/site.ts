@@ -125,11 +125,14 @@ type View = 'solo' | 'team';
   // The hero demo (Dan, 2026-11-09): the app on a made-up kitchen for agents, the Teams mock for devs. The
   // frame for the view on screen loads at once and the other on the first flip, so a visitor who never
   // flips loads one demo.
+  // Phones get no demo (Dan, 2026-11-11: no phone build), so they load none; widening the window loads it then.
+  var phone = window.matchMedia("(max-width: 760px)");
   function loadDemo(view: View) {
     var frame = document.querySelector<HTMLIFrameElement>('.demo [data-swap="' + view + '"] iframe[data-src]');
-    if (frame && !frame.getAttribute("src")) frame.setAttribute("src", frame.dataset.src ?? "");
+    if (frame && !phone.matches && !frame.getAttribute("src")) frame.setAttribute("src", frame.dataset.src ?? "");
     return frame;
   }
+  phone.addEventListener("change", function () { if (!phone.matches) loadDemo(root.getAttribute("data-view") === "solo" ? "solo" : "team"); });
   function pick(view: View) {
     root.setAttribute("data-view", view);
     loadDemo(view);

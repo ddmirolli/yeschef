@@ -344,8 +344,7 @@ const noteField = (need: string, value = ''): string => `<label class="note"><sp
 // More's rows: an icon, a word and its key. The note stays folded away until R, F, N or Add a note asks for it (council 1b).
 const MORE_NOTE = `<button type="button" class="mi" role="menuitem" data-addnote>${svg('note')}<span>Add a note</span>${kbd('N', 'ticket.addNote')}</button>`;
 const MORE_T3 = `<button type="button" class="mi" role="menuitem" data-open-t3>${svg('out')}<span>Open in T3</span>${kbd('O', 'ticket.open')}</button>`;
-// On a phone the row has four slots, so Hold and Settle move into More, which opens as a sheet (call 2a); a narrow
-// ticket in a wide window does the same, and there the card shows their keys. These rows press the row's own button,
+// A narrow ticket's row has four slots, so Hold and Settle move into More (call 2a), and the card shows their keys. These rows press the row's own button,
 // which keeps the form value.
 const phoneRow = (kind: ActKind, word: string): string => `<button type="button" class="mi ph" role="menuitem" data-press="${kind}">${svg(ACT[kind].ic)}<span>${word}</span>${kbd(ACT[kind].key, ACT[kind].cmd)}</button>`;
 /** The bar: the labelled buttons, a divider and the icon buttons, then More and its card. The hint line sits above the
@@ -1026,7 +1025,7 @@ export function renderApp({ board, picked = null, link, status, origin, answered
   const here = new Set(icons.keys());
   for (const nm of want || []) if (!icons.has(nm)) icons.set(nm, null);
   const projs = [...icons.keys()].sort((a, b) => a.localeCompare(b)).map((nm): MenuProject => [nm, mark(nm, icons.get(nm)), here.has(nm)]);
-  // The rail's footer chip and its menu, and its stand-in in the top bar (phones). The toggle needs reports.
+  // The rail's footer chip and its menu. The toggle needs reports.
   const footMenu = viewMenu({ team, projs, picked: want ? [...want] : null, icons, ok: status.ok });
   // Your team, from a team reading (team.view, client/team.ts's shape). Without one it says "Not checked".
   // Expanded Team's header picker, on the board and on the waiting panel alike, since the rail's chip hides there.
@@ -1081,14 +1080,14 @@ export function renderApp({ board, picked = null, link, status, origin, answered
   const detail = status.ok ? `T3 Code at ${new URL(origin).host}. Checked ${new Date(status.at).toLocaleTimeString()} (${status.ms} ms).` : '';
   // The project menu (or, with reports, the view switch), the connection and Settings sit at the foot of the stage
   // list (Dan, 2026-11-08), pinned to the bottom of the column with no rule above them: the space does the separating
-  // (Dan, 2026-11-09). With no stage list (phones) they stay in the top bar. The Shortcuts button went: ? and Settings open them.
+  // (Dan, 2026-11-09). The Shortcuts button went: ? and Settings open them.
   const lamps = `<ul class="lamps" aria-label="Sources"><li class="${lamp}" title="${e(detail)}"><i></i>${status.ok ? 'Live' : 'Not checked'}</li></ul>`;
   const gear = `<button type="button" class="gear" data-settings data-tcmd="settings.open" aria-label="Settings" title="Settings (⌘,)">${svg('sliders')}</button>`;
   const navFoot = `<div class="nav-foot">${footMenu}<div class="nav-foot-row">${lamps}${gear}</div></div></div></nav>`;
   const strip = status.ok ? '' : `<div class="strip" role="status"><b>T3</b> not checked: ${e(status.error)}</div>`;
   // The logo is the view switch: white on blue for the focused pass, blue on white for You, expanded.
   const logo = `<button type="button" class="logo" data-view-toggle data-tcmd="view.toggle" aria-label="Show the full kitchen" title="Switch view (V)"><span class="flip"><span class="face f-pass">${svg('cloche')}</span><span class="face f-kitchen">${svg('cloche')}</span></span><span class="vh">Yes Chef</span></button>`;
-  return `<header class="bar"><h1 class="brand">${logo}</h1><ul class="stats" aria-label="Counts">${stats}</ul>${lamps}${footMenu}${gear}</header>${strip}`
+  return `<header class="bar"><h1 class="brand">${logo}</h1><ul class="stats" aria-label="Counts">${stats}</ul></header>${strip}`
     + `<div class="board">${nav}${navFoot}${you}${T ? T.board : teamWait}${pass}`
     + `<section class="reader" aria-label="Open ticket"><div class="reader-empty">${svg('cloche')}<p class="muted">Pick a ticket to read it here.</p></div></section></div>${projectOptions}`
     + (team ? `<script type="application/json" id="yc-team">${JSON.stringify(T ? T.meta : { name: team.name || null, below: typeof team.below === 'number' ? team.below : null, mode: team.mode === 'open' || team.mode === 'brigade' ? team.mode : null }).replace(/</g, '\\u003c')}</script>` : '')

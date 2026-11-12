@@ -157,8 +157,6 @@ export const BAR_CSS = `
   .cb-res.popin .cb-it,.cb-res.popin .cb-gh{animation:cb-fade .2s ease both;animation-delay:.1s}
 }
 /* A phone has no Esc or arrow keys to show, and less room for the field's words. */
-@media (max-width:760px){.cb-hint,.cb-foot .cb-move,.cb-foot .cb-note,#bar .cb-q>kbd,#bar .cb-compose button kbd{display:none}.cb-q{padding:14px 14px}.cb-q input{font-size:16px}.cb-res{padding:4px 6px 6px}
-  .cb-compose{padding:12px}.cb-compose textarea{font-size:16px}.cb-crow{flex-wrap:wrap}.cb-crow .cb-why{flex-basis:100%}}
 `;
 
 // Icons: the mock's set, plus Request changes, Settle and Collapse. The two views use the app's own person and toque
