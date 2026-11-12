@@ -169,7 +169,7 @@ try {
   // The modes section's toggle, and a picture opened larger (Dan, 1C, 2026-11-12).
   await page.locator('[data-mode-pick="brigade"]').click();
   assert.equal(await page.locator('.modes').getAttribute('data-mode'), 'brigade');
-  await page.locator('.mode-pane[data-pane="brigade"] [data-zoom]').click();
+  await page.locator('[data-zoom][data-pane="brigade"]').click();
   assert.equal(await page.locator('dialog.zoom[open] .zoom-pic img').count(), 1);
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('dialog.zoom[open]').count(), 0);

@@ -1207,8 +1207,8 @@ html .plate .dock .q-set{max-width:640px}
    line is long. Gray steps are time since the last change; dark mode inverts them, so old is bright. One hover colour:
    the logo's blue in light, white in dark. No red, orange or yellow, and no mark at rest for what waits on you: The
    Pass lists it, and hover links each card to its thread (Dan, 2026-11-12). */
-:root{--fx-a0:#D6D6DB;--fx-a1:#A6A6AB;--fx-a2:#636366;--fx-hov:#0071E3;--fx-t0:#1D1D1F;--fx-t1:#1D1D1F;--fx-t2:#FFFFFF;--fx-hov-t:#FFFFFF;--fx-zone-a:rgba(118,118,128,.035);--fx-zone-b:rgba(118,118,128,.085);--fx-dot:rgba(60,60,67,.2)}
-@media (prefers-color-scheme:dark){:root{--fx-a0:#48484A;--fx-a1:#7C7C80;--fx-a2:#C7C7CC;--fx-hov:#FFFFFF;--fx-t0:#FFFFFF;--fx-t1:#FFFFFF;--fx-t2:#1C1C1E;--fx-hov-t:#1C1C1E;--fx-zone-a:rgba(255,255,255,.015);--fx-zone-b:rgba(255,255,255,.05);--fx-dot:rgba(235,235,245,.16)}}
+:root{--fx-a0:#D6D6DB;--fx-a1:#A6A6AB;--fx-a2:#636366;--fx-hov:#0071E3;--fx-zone-a:rgba(118,118,128,.035);--fx-zone-b:rgba(118,118,128,.085);--fx-dot:rgba(60,60,67,.2)}
+@media (prefers-color-scheme:dark){:root{--fx-a0:#48484A;--fx-a1:#7C7C80;--fx-a2:#C7C7CC;--fx-hov:#FFFFFF;--fx-zone-a:rgba(255,255,255,.015);--fx-zone-b:rgba(255,255,255,.05);--fx-dot:rgba(235,235,245,.16)}}
 .you,.team-wait{display:none}
 @media (min-width:761px){
   .v-kitchen .you{display:flex;flex-direction:column;min-height:0}
@@ -1452,9 +1452,9 @@ html.v-kitchen .tp-live .tcol{display:flex;flex-direction:column;gap:8px}
 .fbr .fbn text{paint-order:stroke;stroke:var(--card);stroke-width:3px;stroke-linejoin:round}
 .fbr .fbn.r-above text{fill:var(--label2)}.fbr .fbn.r-above rect{fill:none;stroke:var(--label3,var(--label2));stroke-width:1}
 .fbr .fbn:not(.r-above) rect{fill:var(--card);stroke:var(--sep);stroke-width:1}
-/* A person opened: each thread's title on its band, in the shade that reads on that band's gray. */
-.fbr .ttl{font-size:11px;font-weight:500;pointer-events:none;fill:var(--fx-t0)}.fbr .ttl.a1{fill:var(--fx-t1)}.fbr .ttl.a2{fill:var(--fx-t2)}
-.fbr .band.lit+.ttl{fill:var(--fx-hov-t)}
+/* A person opened: one band per thread, packed, so the line between two threads is the same 1 px hairline the
+   full chart draws inside a bundle (.strand). */
+.fb-one .band{stroke-width:1px;vector-effect:non-scaling-stroke}
 .you-who{margin-left:10px;font-size:17px;font-weight:600;color:var(--label);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fbr .band[data-who],.fbr [data-team-open]{cursor:pointer}
 .fx-chip .sw.up{background:none;box-shadow:inset 0 0 0 1px var(--label2)}

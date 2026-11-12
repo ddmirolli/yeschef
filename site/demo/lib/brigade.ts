@@ -108,9 +108,6 @@ const TOP = 58, FOOT = 18, NG = 20, XN = 96, XB = 104, XG = 136;
 /** The stage zones: In progress, In review (the ladder), Ready to merge (who merges), Merged, Staging, Release. */
 const ZONE_X = [0, 236, 546, 640, 716, 788, W] as const;
 const X_MERGE = 593, END_PROG = 214, END_REVIEW = 276, END_MERGED = 690;
-/** A thread's title, opened: as many characters as fit in In progress at 11 px (about 6 units each). */
-const TTL_CH = 32;
-const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
 /** Who signs a thread off, nearest first, and who merges it, from its author's line. */
 function ladder(tree: Tree, author: string): { signers: string[]; merger: string | null } {
@@ -150,8 +147,10 @@ export function brigadeLayout(items: readonly FbItem[], tree: Tree, now: number,
     if (!nodes.has(n.key)) nodes.set(n.key, n);
     return n.key;
   };
-  // Opened: a person's threads one band each (p:<id>), or a folded team as its people, bundled as the full chart is
-  // (f:<id>), so a team of any size reads the same way one level down (Dan's scale check, 2026-11-12).
+  // Opened: a person's threads one band each (p:<id>), packed into one bundle with a hairline between threads, as a
+  // person's bundle reads in the full chart, never as loose strands apart (Dan, 2026-11-12: "detailed threads with
+  // texture rather than the linguini"). Or a folded team as its people, bundled as the full chart is (f:<id>), so a
+  // team of any size reads the same way one level down (Dan's scale check, 2026-11-12).
   const one = !!drill?.startsWith('p:');
   const pick = drill === null ? items : items.filter((t) => (one ? t.author === drill.slice(2) : groupOf(t.author).key === drill));
   const rowOf = (id: string) => (drill?.startsWith('f:') ? { key: `p:${id}`, label: tree.name(id) } : groupOf(id));
@@ -171,15 +170,14 @@ export function brigadeLayout(items: readonly FbItem[], tree: Tree, now: number,
     const age = ageOf(t.since, now), g = rowOf(t.author);
     const key = one || t.calls.length ? `t|${t.id}` : `${g.key}|${t.stage}|${age}|${stops.join('>')}|${signed}`;
     let b = map.get(key);
-    if (!b) map.set(key, b = { id: '', group: one ? `t:${t.id}` : g.key, stage: t.stage, age, items: [], stops, h: 0, y0: 0, y: {}, signed });
+    if (!b) map.set(key, b = { id: '', group: one && drill ? drill : g.key, stage: t.stage, age, items: [], stops, h: 0, y0: 0, y: {}, signed });
     b.items.push(t);
   }
   const bands = [...map.values()];
   bands.forEach((b, i) => { b.id = String(i); });
   const labels = new Map(pick.map((t) => [rowOf(t.author).key, rowOf(t.author).label]));
-  // People in name order; opened, threads by stage, furthest first.
-  const stageOf = (g: string) => RANK[bands.find((b) => b.group === g)!.stage];
-  const names = [...new Set(bands.map((b) => b.group))].sort((a, z) => (!one ? (labels.get(a) ?? a).localeCompare(labels.get(z) ?? z) : stageOf(a) - stageOf(z)) || a.localeCompare(z));
+  // People in name order. Within each, threads by stage, furthest first (mine, below).
+  const names = [...new Set(bands.map((b) => b.group))].sort((a, z) => (labels.get(a) ?? a).localeCompare(labels.get(z) ?? z) || a.localeCompare(z));
   const total = pick.length, n = names.length;
 
   // Columns: review levels deepest first (left), then who merges.
@@ -189,8 +187,8 @@ export function brigadeLayout(items: readonly FbItem[], tree: Tree, now: number,
   const cols = levels.map((_, i) => REV0 + ((REV1 - REV0) * (i + 0.5)) / levels.length);
   const xOf = (d: Node): number => (d.merge ? X_MERGE : cols[levels.indexOf(d.level)] ?? X_MERGE);
 
-  let gap = 6, laneGap = 5;
-  let u = one ? 11 : Math.max(3, Math.min(12, (440 - gap * Math.max(0, n - 1)) / Math.max(1, total)));
+  let gap = 6;
+  let u = one ? clamp(440 / Math.max(1, total), 3, 24) : Math.max(3, Math.min(12, (440 - gap * Math.max(0, n - 1)) / Math.max(1, total)));
   let room = 200;
   if (fitH !== undefined && Number.isFinite(fitH)) {
     room = Math.max(200, fitH - TOP - FOOT);
@@ -199,16 +197,13 @@ export function brigadeLayout(items: readonly FbItem[], tree: Tree, now: number,
     if (!one) {
       u = clamp((avail - 14 * Math.max(0, n - 1)) / Math.max(1, total), 1, 30);
       if (n > 1) gap = Math.max(6, (avail - total * u) / (n - 1));
-    } else {
-      u = clamp((avail - 5 * Math.max(0, total - 1)) / Math.max(1, total), 2, 24);
-      if (total > 1) laneGap = clamp((avail - total * u) / (total - 1), 1, 60);
-    }
+    } else u = clamp(avail / Math.max(1, total), 1, 30);
   }
   for (const b of bands) b.h = b.items.length * u;
   // A name needs about 14 px: a person with one thin band keeps that much room.
   const gh = (g: string) => bands.filter((b) => b.group === g).reduce((h, b) => h + b.h, 0);
   if (!one && n > 1) gap = Math.max(gap, 14 - Math.min(...names.map(gh)));
-  const sepG = one ? laneGap : gap;
+  const sepG = gap;
   // Separation tightens left to right (Dan, 2026-11-12), down to touching at the merge.
   const sepAt = (x: number): number => sepG * clamp((X_MERGE - x) / (X_MERGE - XG), 0, 1);
   const sep = (a: FbBand, b: FbBand, x: number): number => (a.group !== b.group ? sepAt(x) : 0);
@@ -302,8 +297,8 @@ export function drawBrigade(items: readonly FbItem[], tree: Tree, now: number, {
   // GitHub login to the teammate's name, for the reviewers in a tooltip.
   const names = new Map<string, string>();
   for (const id of new Set([tree.me, ...all.flatMap((t) => [t.author, ...tree.up(t.author)])])) { const l = tree.login(id); if (l) names.set(l.toLowerCase(), id === tree.me ? 'You' : tree.name(id)); }
-  let out = `<svg class="fx okr fbr"${fit ? ` data-fit="${fit.w}x${fit.h}"` : ''} viewBox="0 0 ${W} ${f1(L.H)}" role="img" aria-label="${e(`French Brigade: ${plural(all.length, 'thread')} from start to merge, by person`)}">`;
-  out += `<defs><pattern id="fb-dots" width="14" height="14" patternUnits="userSpaceOnUse"><circle cx="7" cy="7" r="1" class="dot"/></pattern></defs><clipPath id="fb-ttl"><rect x="0" y="0" width="${END_PROG - 6}" height="100%"/></clipPath><rect width="${W}" height="100%" fill="url(#fb-dots)"/>`;
+  let out = `<svg class="fx okr fbr${L.drill?.startsWith('p:') ? ' fb-one' : ''}"${fit ? ` data-fit="${fit.w}x${fit.h}"` : ''} viewBox="0 0 ${W} ${f1(L.H)}" role="img" aria-label="${e(`French Brigade: ${plural(all.length, 'thread')} from start to merge, by person`)}">`;
+  out += `<defs><pattern id="fb-dots" width="14" height="14" patternUnits="userSpaceOnUse"><circle cx="7" cy="7" r="1" class="dot"/></pattern></defs><rect width="${W}" height="100%" fill="url(#fb-dots)"/>`;
   zones.forEach(([name, n], i) => {
     const x0 = ZONE_X[i] ?? 0, x1 = ZONE_X[i + 1] ?? W;
     out += `<rect class="zone z${i % 2}" x="${x0}" y="0" width="${x1 - x0}" height="100%"/>`;
@@ -331,11 +326,7 @@ export function drawBrigade(items: readonly FbItem[], tree: Tree, now: number, {
     // Every person shown: a click opens their threads. Opened: a thread with a call opens it in The Pass.
     const plate = t0?.calls[0]?.slice(2);
     const act = !one ? ` data-who="${e(b.group)}"` : plate ? ` data-team-open="${e(plate)}" tabindex="0" role="button" aria-label="${e(t0!.title)}"` : '';
-    // A person opened: each thread carries its title at its start, so every band is a thread you can name, not one
-    // of many alike (Dan, 3A, 2026-11-12: "show the full threads"). Drawn right after its band, so it lights with it.
-    // Clipped to In progress, since characters differ in width (a CJK title runs wider than 32 Latin ones; PR-Agent r1 on #60).
-    const ttl = one && t0 && b.items.length === 1 && b.h >= 12 ? `<text class="ttl ${ageCls(b.age)}" clip-path="url(#fb-ttl)" x="${xs + 8}" y="${f1(b.y0 + b.h / 2)}" dominant-baseline="central">${e(clip(t0.title, TTL_CH))}</text>` : '';
-    bands += `<path class="band ${ageCls(b.age)}"${hov(k, f, tip)}${act} d="${ribbon(pts, b.h)}"/>${ttl}${strands(pts, b.h, b.items.length)}`;
+    bands += `<path class="band ${ageCls(b.age)}"${hov(k, f, tip)}${act} d="${ribbon(pts, b.h)}"/>${strands(pts, b.h, b.items.length)}`;
   }
   // The names: each person (or folded team) at the left, each sign-off node over its pile. Leads above you are outlined.
   if (!L.drill?.startsWith('p:')) for (const g of L.groups) {

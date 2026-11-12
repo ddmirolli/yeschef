@@ -66,7 +66,7 @@ On 2026-11-12 Dan asked for a made-up team, so the site shows the app's current 
 
 ## The modes section
 
-Dan, 2026-11-12, 1C: the devs view's modes section is one frame with an Open kitchen | French Brigade toggle (the I run toggle's look), each mode's text beside a picture of its expanded view. A click on the picture opens it larger (`dialog.zoom`); on a phone it opens at 960 px and pans. Its heading and lines describe only what the app draws today.
+Dan, 2026-11-12, 1C: the devs view's modes section is one frame with an Open kitchen | French Brigade toggle (the I run toggle's look), each mode's text beside a picture of its expanded view. A click on the picture opens it larger (`dialog.zoom`); on a phone it opens at 960 px and pans. The title spans the section with no lede, the toggle heads the text column, and the mode's name shows only on the toggle (Dan, 2026-11-12). Its lines describe only what the app draws today.
 
 - `src/assets/mode-open-{light,dark}.png` and `mode-brigade-{light,dark}.png` are the built team demo (`dist/demo/team.html`), expanded, at 1440x900, shot at 2x on Browserbase. Serve the page as `/` with `yc.view` set to `kitchen` after the shim's `yc.scope` line, and `data-team="brigade"` for French Brigade, then run `SHOOT_SCALE=2 SHOOT_VIEWS=light:1440:900,dark:1440:900 zsh tools/shoot.sh <port> <out> <label>` and copy each `-board.png`. Retake them when either expanded view changes.
 - Team actions answer as the app does today: "Not sent: Yes Chef does not have the team connection yet."
