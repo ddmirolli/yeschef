@@ -605,14 +605,16 @@ const dstat = (a: number, d: number): string => `<span class="dst" role="group" 
 
 /** Its changed-files tree (apps/web/src/lib/turnDiffTree.ts): folders, then files, each by name; a folder whose only
  *  child is a folder shows as one row (a/b/c); a folder counts its files' lines. Ours leaves lockfiles and generated
- *  files out of a folder's count, as the call's size does, and draws them faded. */
+ *  files out of a folder's count, as the call's size does, and draws them faded. Where T3 Code sums only the files it
+ *  has counts for, a folder here shows no count while any of its files has none: a part is not the total (PR-Agent
+ *  r1 on #63). path is the folder's full path, which keeps it open through a refresh. */
 interface CfFile { kind: 'file'; name: string; a: number | null; d: number | null; x: boolean }
-interface CfDir { kind: 'dir'; name: string; a: number; d: number; kids: CfNode[] }
+interface CfDir { kind: 'dir'; name: string; path: string; a: number | null; d: number | null; kids: CfNode[] }
 type CfNode = CfFile | CfDir;
 const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 function cfTree(files: readonly ChangedFile[]): CfNode[] {
-  interface Dir { name: string; a: number; d: number; dirs: Map<string, Dir>; files: CfFile[] }
-  const root: Dir = { name: '', a: 0, d: 0, dirs: new Map(), files: [] };
+  interface Dir { name: string; path: string; a: number; d: number; unread: boolean; dirs: Map<string, Dir>; files: CfFile[] }
+  const root: Dir = { name: '', path: '', a: 0, d: 0, unread: false, dirs: new Map(), files: [] };
   for (const f of files) {
     const seg = String(f.p ?? '').split('/').filter(Boolean);
     if (!seg.length) continue;
@@ -620,15 +622,17 @@ function cfTree(files: readonly ChangedFile[]): CfNode[] {
     let at = root;
     for (const name of seg.slice(0, -1)) {
       let next = at.dirs.get(name);
-      if (!next) { next = { name, a: 0, d: 0, dirs: new Map(), files: [] }; at.dirs.set(name, next); }
+      if (!next) { next = { name, path: at.path ? `${at.path}/${name}` : name, a: 0, d: 0, unread: false, dirs: new Map(), files: [] }; at.dirs.set(name, next); }
       at = next; up.push(at);
     }
     at.files.push({ kind: 'file', name: seg[seg.length - 1]!, a: f.a, d: f.d, x: f.x });
-    if (!f.x && okCount(f.a) && okCount(f.d)) for (const dir of up) { dir.a += f.a; dir.d += f.d; }
+    if (f.x) continue;
+    if (okCount(f.a) && okCount(f.d)) for (const dir of up) { dir.a += f.a; dir.d += f.d; }
+    else for (const dir of up) dir.unread = true;
   }
   const nodes = (dir: Dir): CfNode[] => [
     ...[...dir.dirs.values()].sort((p, q) => byName.compare(p.name, q.name)).map((sub) => {
-      let node: CfDir = { kind: 'dir', name: sub.name, a: sub.a, d: sub.d, kids: nodes(sub) };
+      let node: CfDir = { kind: 'dir', name: sub.name, path: sub.path, a: sub.unread ? null : sub.a, d: sub.unread ? null : sub.d, kids: nodes(sub) };
       for (let only = node.kids[0]; node.kids.length === 1 && only?.kind === 'dir'; only = node.kids[0]) node = { ...only, name: `${node.name}/${only.name}` };
       return node;
     }),
@@ -640,7 +644,7 @@ function cfTree(files: readonly ChangedFile[]): CfNode[] {
 function cfRows(nodes: readonly CfNode[], depth: number, dirs: boolean): string {
   const pad = ` style="padding-left:${8 + depth * 14}px"`;
   return nodes.map((n) => n.kind === 'dir'
-    ? `<details class="cfd"><summary class="cfr"${pad}>${svg('chevR', 'ic cv')}${svg('folderShut', 'ic fc')}${svg('folderOpen', 'ic fo')}<span class="nm">${e(n.name)}</span>${n.a || n.d ? dstat(n.a, n.d) : ''}</summary>${cfRows(n.kids, depth + 1, dirs)}</details>`
+    ? `<details class="cfd" data-cf="${e(n.path)}"><summary class="cfr"${pad}>${svg('chevR', 'ic cv')}${svg('folderShut', 'ic fc')}${svg('folderOpen', 'ic fo')}<span class="nm">${e(n.name)}</span>${okCount(n.a) && okCount(n.d) && (n.a || n.d) ? dstat(n.a, n.d) : ''}</summary>${cfRows(n.kids, depth + 1, dirs)}</details>`
     : `<div class="cfr f${n.x ? ' x' : ''}"${pad}>${dirs || depth ? '<i class="sp"></i>' : ''}${svg('file')}<span class="nm">${e(n.name)}</span>${okCount(n.a) && okCount(n.d) ? dstat(n.a, n.d) : ''}</div>`).join('');
 }
 /** Too big: T3 Code's changed-files card (ChangedFilesTree.tsx; Dan, 2026-11-10, "A"). The header is the PR's size,

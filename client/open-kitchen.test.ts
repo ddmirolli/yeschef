@@ -264,6 +264,9 @@ test('the readers (Dan, 2026-11-12, 1A 2A 3A): fixes tried, the last message, no
   assert.deepEqual([...big.matchAll(/<span class="nm">([^<]+)<\/span>/g)].map((m) => m[1]),
     ['apps/web/src/export', 'c.ts', 'packages', 'contracts/src', 'd.ts', 'export/src', 'markdown', 'b.ts', 'tables', 'a.ts', 'pnpm-lock.yaml']);
   assert.match(big, /<span class="nm">packages<\/span><span class="dst" role="group" aria-label="948 additions, 102 deletions">/);
+  // Each folder carries its full path, which keeps it open through a refresh (PR-Agent r1 on #63).
+  assert.deepEqual([...big.matchAll(/<details class="cfd" data-cf="([^"]+)">/g)].map((m) => m[1]),
+    ['apps/web/src/export', 'packages', 'packages/contracts/src', 'packages/export/src', 'packages/export/src/markdown', 'packages/export/src/tables']);
   assert.match(big, /<div class="cfr f x" style="padding-left:8px"><i class="sp"><\/i><svg[^]*?<\/svg><span class="nm">pnpm-lock\.yaml<\/span><span class="dst"[^>]*><span class="a" aria-hidden="true">\+2\.1k<\/span>/);
   // Only Main broken keeps a facts table.
   assert.equal((html.match(/class="kvs"/g) || []).length, 1);
@@ -289,6 +292,9 @@ test('the readers say Not checked for what a summary does not say, and draw only
   assert.match(big, /<a class="cfm" href="https:\/\/github\.com\/acme\/fernpay\/pull\/440\/files" target="_blank" rel="noopener">3 more files in the full diff<\/a>/);
   assert.match(big, /<span class="nm">&lt;i&gt;x\.ts<\/span>/);
   assert.match(big, /<span class="nm">b\.ts<\/span><\/div>/, 'a file with no count shows none');
+  // Nor does any folder it is in: a part is not the total (PR-Agent r1 on #63). A folder beside it keeps its count.
+  for (const dir of ['packages', 'export/src', 'markdown']) assert.match(big, new RegExp(`<span class="nm">${dir}</span></summary>`), dir);
+  assert.match(big, /<span class="nm">contracts\/src<\/span><span class="dst"/);
   // Files the Mac did not read: the PR's size, and Not checked for the tree.
   iris.changes.state = 'reading';
   html = page({ view: v, now: NOWL });

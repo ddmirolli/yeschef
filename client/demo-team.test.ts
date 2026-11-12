@@ -68,7 +68,7 @@ test('the demo’s readers tell a real story: Nina’s fixes are commits, and Ir
   const iris = plate('#440 changes');
   assert.match(iris, /<span class="n">41 changed files<span class="dst" role="group" aria-label="1079 additions, 161 deletions">/);
   // T3 Code's folders: apps/web/src/statements and packages at the root, then contracts/src, statements/src/csv and its __tests__.
-  assert.deepEqual([...iris.matchAll(/<details class="cfd"><summary[^>]*>(?:<svg[^]*?<\/svg>){3}<span class="nm">([^<]+)</g)].map((m) => m[1]),
+  assert.deepEqual([...iris.matchAll(/<details class="cfd"[^>]*><summary[^>]*>(?:<svg[^]*?<\/svg>){3}<span class="nm">([^<]+)</g)].map((m) => m[1]),
     ['apps/web/src/statements', 'packages', 'contracts/src', 'statements/src/csv', '__tests__']);
   assert.equal((iris.match(/<div class="cfr f"/g) || []).length, 41);
   assert.match(iris, /<span class="nm">apps\/web\/src\/statements<\/span>/);
