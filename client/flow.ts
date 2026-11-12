@@ -34,7 +34,7 @@ export interface Layout {
 
 export const DAY = 86_400_000;
 export const W = 860;
-const TOP = 58, NW = 5, X0 = 10, XFAN = 70, XB = 118, XG = 150;
+const TOP = 58, FOOT = 18, NW = 5, X0 = 10, XFAN = 70, XB = 118, XG = 150;
 /** Where a band that has not reached review ends, by stage: further along the line is further right. */
 const STUB: Partial<Record<FlowStage, number>> = { Backlog: 188, Planned: 216, 'In progress': 244 };
 /** x of each node, and the stage zones behind them. */
@@ -67,8 +67,12 @@ const ago = (since: number, now: number): string => {
 /** A project's hover key: its name with no spaces, so the page can split keys on spaces. */
 const gk = (name: string): string => `g:${encodeURIComponent(name)}`;
 
-/** Where every band and node sits. drill: a project's name to open its threads, one band each; null for every project. */
-export function layout(items: readonly FlowItem[], now: number, drill: string | null = null): Layout {
+const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+/** Where every band and node sits. drill: a project's name to open its threads, one band each; null for every project.
+ *  fitH: the height (in viewBox units) the page has free for the chart. With it the river spreads to fill that height
+ *  with a margin above and below (Dan, 2026-11-12): threads grow to a cap, and the rest goes between projects (or, opened,
+ *  between threads), so the left branches out and the stops stay packed. Without it, the chart keeps its own size. */
+export function layout(items: readonly FlowItem[], now: number, drill: string | null = null, fitH?: number): Layout {
   const pick = drill === null ? items : items.filter((t) => t.project === drill);
   const map = new Map<string, Band>();
   for (const t of pick) {
@@ -85,18 +89,35 @@ export function layout(items: readonly FlowItem[], now: number, drill: string | 
   const bands = [...map.values()];
   bands.forEach((b, i) => { b.id = String(i); });
   const names = [...new Set(bands.map((b) => b.group))].sort((a, b) => a.localeCompare(b));
-  const total = pick.length, gap = drill === null ? 6 : 0, gaps = gap * Math.max(0, names.length - 1), laneGap = 5;
+  const total = pick.length, n = names.length;
+  let gap = drill === null ? 6 : 0, laneGap = 5;
   // Every thread keeps at least 3 px (PR-Agent r1 on #49: 75 projects' gaps alone passed 440 px); past that the chart
   // grows and scrolls inside the view.
-  const u = drill !== null ? 11 : Math.max(3, Math.min(12, (440 - gaps) / Math.max(1, total)));
+  let u = drill !== null ? 11 : Math.max(3, Math.min(12, (440 - gap * Math.max(0, n - 1)) / Math.max(1, total)));
+  let room = 200;
+  if (fitH !== undefined && Number.isFinite(fitH)) {
+    room = Math.max(200, fitH - TOP - FOOT);
+    // A margin that grows with the room, so the river never runs edge to edge.
+    const avail = room - 2 * clamp(room * 0.07, 20, 52);
+    if (drill === null) {
+      u = clamp((avail - 6 * Math.max(0, n - 1)) / Math.max(1, total), 3, 30);
+      if (n > 1) gap = Math.max(6, (avail - total * u) / (n - 1));
+    } else {
+      u = clamp((avail - 5 * Math.max(0, total - 1)) / Math.max(1, total), 11, 24);
+      if (total > 1) laneGap = clamp((avail - total * u) / (total - 1), 5, 60);
+    }
+  }
+  const gaps = gap * Math.max(0, n - 1);
   for (const b of bands) b.h = b.items.length * u;
   const leftH = drill !== null ? total * u + Math.max(0, total - 1) * laneGap : 0;
-  const span = Math.max(200, drill !== null ? leftH : total * u + gaps);
-  const H = TOP + span + 18;
+  const span = Math.max(room, drill !== null ? leftH : total * u + gaps);
+  const H = TOP + span + FOOT;
+  // Centred in the whole chart, not under the stage names, so the margins above and below match; never over the names.
+  const mid = (h: number): number => Math.max(TOP, (H - h) / 2);
 
   // The projects' nodes, centred.
   const groups: Layout['groups'] = [];
-  let y = TOP + (span - (total * u + gaps)) / 2;
+  let y = mid(total * u + gaps);
   for (const name of names) {
     const h = bands.filter((b) => b.group === name).reduce((s, b) => s + b.h, 0);
     groups.push({ name, y, h });
@@ -106,7 +127,7 @@ export function layout(items: readonly FlowItem[], now: number, drill: string | 
   const nodes: Layout['nodes'] = {};
   for (const s of ['review', 'you', 'main'] as const) {
     const h = bands.filter((b) => b.path.includes(s)).reduce((a, b) => a + b.h, 0);
-    if (h) nodes[s] = { y: TOP + (span - h) / 2, h };
+    if (h) nodes[s] = { y: mid(h), h };
   }
   // Out of each project's node, top to bottom: furthest along first, then oldest, a band that waits on you last.
   for (const g of groups) {
@@ -130,7 +151,7 @@ export function layout(items: readonly FlowItem[], now: number, drill: string | 
   }
   // Drilled in, each thread starts in its own lane at the left.
   if (drill !== null) {
-    let acc = TOP + (span - leftH) / 2;
+    let acc = mid(leftH);
     for (const b of [...bands].sort((a, b) => a.y0 - b.y0)) { b.lane = acc; acc += b.h + laneGap; }
   }
   return { H, span, drill, groups, nodes, bands };
@@ -229,9 +250,8 @@ export function drawFlow(L: Layout, now: number): string {
       + (L.drill === null ? '<div class="m">Click to open its threads</div>' : '');
     const dr = L.drill === null ? ` data-drill="${e(g.name)}"` : '';
     out += `<rect class="node"${hov([gk(g.name)], [gk(g.name)], tip)}${dr} x="${XG}" y="${f1(g.y)}" width="${NW}" height="${f1(Math.max(1, g.h))}" rx="1.5"/>`;
-    // Opened, the project's name sits over its node and lanes, as each stop's name sits over its node.
-    const lanes = L.bands.filter((b) => b.group === g.name && b.lane !== null).map((b) => b.lane!);
-    if (L.drill !== null) names += `<text class="gname strong"${hov([gk(g.name)], [gk(g.name)], tip)} x="${XG + NW / 2}" y="${f1(Math.min(g.y, ...lanes) - 7)}" data-y="${f1(Math.min(g.y, ...lanes))}" data-dy="-7" text-anchor="middle">${e(cut(g.name, 24))}</text>`;
+    // Opened, the project's name sits over its node, as each stop's name sits over its node.
+    if (L.drill !== null) names += `<text class="gname strong"${hov([gk(g.name)], [gk(g.name)], tip)} x="${XG + NW / 2}" y="${f1(g.y - 7)}" data-y="${f1(g.y)}" data-dy="-7" text-anchor="middle">${e(cut(g.name, 24))}</text>`;
     if (L.drill === null) names += `<text class="gname"${hov([gk(g.name)], [gk(g.name)], tip)}${dr} tabindex="0" role="button" aria-label="${e(`Open ${g.name}: ${plural(mine.length, 'thread')}`)}" x="${XB - 8}" y="${f1(g.y + g.h / 2)}" data-y="${f1(g.y + g.h / 2)}" text-anchor="end" dominant-baseline="central">${e(cut(g.name, 16))}</text>`;
   }
   // The stops. A node's queue is the threads that end there.
@@ -257,11 +277,21 @@ export function drawFlow(L: Layout, now: number): string {
 
 /** You's chart. One project picked (the header picker, or a click on a project here) shows its threads, one band
  *  each; more shows every project. */
-export function youFlow(items: readonly FlowItem[], now: number): string {
+export function youFlow(items: readonly FlowItem[], now: number, fit: Fit | null = null): string {
   const projects = [...new Set(items.map((t) => t.project))];
-  return `<div class="fx-view">${drawFlow(layout(items, now, projects.length === 1 ? projects[0]! : null), now)}</div>`;
+  const svg = drawFlow(layout(items, now, projects.length === 1 ? projects[0]! : null, fit ? (fit.h * W) / fit.w : undefined), now);
+  // data-fit: the size this chart was laid out for, so the page asks again only when its column's size changes.
+  return `<div class="fx-view">${fit ? svg.replace('<svg class="fx"', `<svg class="fx" data-fit="${fit.w}x${fit.h}"`) : svg}</div>${FLOW_KEY}`;
+}
+/** The chart's size in CSS px, from the page's fx=WxH (client/page.ts fitFlow); null when absent or out of range. */
+export interface Fit { w: number; h: number }
+export function fitFrom(params: URLSearchParams): Fit | null {
+  const m = /^(\d{3,4})x(\d{3,4})$/.exec(params.get('fx') || '');
+  if (!m) return null;
+  const w = Number(m[1]), h = Number(m[2]);
+  return w >= 300 && w <= 4000 && h >= 150 && h <= 3000 ? { w, h } : null;
 }
 
-/** The three grays, in the header beside the picker (Dan, 2026-11-12: words under the chart took its room). */
+/** The three grays, in the chart's bottom-right corner, where a Sankey leaves room (Dan, 2026-11-12). */
 export const FLOW_KEY = '<div class="fx-key" title="Time since the last change"><span class="vh">Time since the last change:</span>'
   + AGE_WORD.map((w, i) => `<span class="fx-chip"><i class="sw a${i}"></i>${w}</span>`).join('') + '</div>';

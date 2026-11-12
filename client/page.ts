@@ -274,6 +274,9 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   // The chart fills its column down to the foot of The Pass beside it (Dan, 2026-11-12: half the page sat empty). The
   // river stretches to the height that is free, never below its own; strokes keep their width (CSS), and each name
   // moves with its node at its own size. Measured again whenever the column changes size.
+  var fxSize = '', fxAsked = '', fxTimer: ReturnType<typeof setTimeout> | undefined;
+  /** /app for a query, with the chart's size once the page has measured it. */
+  function appUrl(q: string): string { return '/app' + q + (fxSize ? (q ? '&' : '?') + 'fx=' + fxSize : ''); }
   var flowRO = window.ResizeObserver ? new ResizeObserver(function(){ fitFlow(); }) : null, flowWatched: Element | null = null;
   function watchFlow(): void {
     var sc = $('.you .you-b');
@@ -287,9 +290,17 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     var top = +(body.dataset.top || 0), span = +(body.dataset.span || 0), vw = svg.viewBox.baseVal.width, w = svg.getBoundingClientRect().width;
     if (!span || !vw || !w) return;
     var foot = 18, own = top + span + foot, wrap = svg.closest('.fx-wrap'), cs = getComputedStyle(sc);
-    // What else shares the column: its own padding (the key sits in the header).
+    // What else shares the column: its own padding (the key sits in the chart's corner).
     var rest = (wrap ? wrap.getBoundingClientRect().height : 0) - svg.getBoundingClientRect().height + (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
     var free = Math.floor(sc.clientHeight - rest) - 1;
+    // The server lays the river out for this size (fx=WxH on /app), so it spreads to fill it; until then the stretch
+    // below stands in. It asks once per size, and not while the size still moves.
+    var want = [Math.round(w), Math.max(150, free)], had = (svg.getAttribute('data-fit') || '').split('x');
+    var near = had.length === 2 && Math.abs(+had[0]! - want[0]!) <= 3 && Math.abs(+had[1]! - want[1]!) <= 3, ask = want.join('x');
+    if (!near && ask !== fxAsked) {
+      fxSize = ask; clearTimeout(fxTimer);
+      fxTimer = setTimeout(function(){ fxAsked = ask; wake(); }, 150);
+    }
     var vh = Math.max(own, free * vw / w), k = (vh - top - foot) / span;
     svg.setAttribute('viewBox', '0 0 ' + vw + ' ' + vh.toFixed(1));
     if (k > 1.001) body.setAttribute('transform', 'translate(0 ' + top + ') scale(1 ' + k.toFixed(4) + ') translate(0 ' + (-top) + ')');
@@ -569,7 +580,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     var t: { ok?: boolean; error?: unknown } = {}; try { t = JSON.parse(ev.data); } catch (x) {}
     net(t.ok !== false, 'T3 did not answer: ' + String(t.error || '').replace(/[<>&]/g, ''));
     var q = location.search;
-    fetch('/app' + q, { cache: 'no-store' }).then(function(r){ if (!r.ok) throw 0; return r.text(); })
+    fetch(appUrl(q), { cache: 'no-store' }).then(function(r){ if (!r.ok) throw 0; return r.text(); })
       .then(function(html){ if (q !== location.search) return; if (t.ok !== false) { last = Date.now(); app.classList.remove('is-stale'); } sync(html); Object.keys(unconfirmed).forEach(decorate); markSent(); }, function(){ lost('the Pass did not answer'); });
   });
   es.onerror = function(){ lost('lost the connection to the Pass'); };
@@ -1225,7 +1236,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
       t.appendChild(m);
     });
   }
-  function wake(): Promise<void> { var q = location.search; return fetch('/app' + q, { cache: 'no-store' }).then(function(r){ return r.ok ? r.text() : null; }).then(function(h){ if (h && q === location.search) { sync(h); Object.keys(unconfirmed).forEach(decorate); markSent(); } }, function(){}); }
+  function wake(): Promise<void> { var q = location.search; return fetch(appUrl(q), { cache: 'no-store' }).then(function(r){ return r.ok ? r.text() : null; }).then(function(h){ if (h && q === location.search) { sync(h); Object.keys(unconfirmed).forEach(decorate); markSent(); } }, function(){}); }
   // Reload and a project switch refresh the board in place (council 3): the page never unloads, so a send waiting
   // out its Undo keeps its four seconds and a half-written note stays.
   window.__ycSoftReload = function(){ wake(); };
@@ -1263,7 +1274,14 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     drawPicked([name]);
     var q = '?p=' + encodeURIComponent(name);
     if (q === location.search) return;
-    history.pushState(null, '', location.pathname + q); state.sel = null; wake();
+    history.pushState({ fxPick: 1 }, '', location.pathname + q); state.sel = null; wake();
+  }
+  // The back button beside the picker: back where the click came from, else every project.
+  function unpick(): void {
+    if (history.state && history.state.fxPick) { history.back(); return; }
+    drawPicked(null);
+    var u = new URLSearchParams(location.search); u.delete('p'); var q = u.toString();
+    history.pushState(null, '', location.pathname + (q ? '?' + q : '')); state.sel = null; wake();
   }
   // Every copy of the menu (the rail's, and the expanded view's header) shows the same picks. names: null is All projects.
   function drawPicked(names: string[] | null): void {
@@ -1502,6 +1520,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     // on it opens the ticket below, as its card does.
     var dr = t.closest<Element>('.you [data-drill]');
     if (dr) { var tp = $('.you .fx-tip'); if (tp) tp.hidden = true; pickOnly(dr.getAttribute('data-drill') || ''); return; }
+    if (t.closest('.you [data-unpick]')) { unpick(); return; }
     var nf = t.closest<HTMLElement>('.nf[data-folder]');
     // In You, expanded, a stage row opens that stage's list in the pass view, with no ticket open.
     if (nf && !focusView()) { state.passFolder = nf.dataset.folder!; state.passSel = null; toggleView(); return; }

@@ -208,9 +208,9 @@ const youOf = (html: string) => grab(html, /<section class="you"[\s\S]*?<\/div><
 
 test('You, expanded is the header picker over the solo Sankey (Dan, 2026-11-10 and 2026-11-11, flow mock v3.3)', () => {
   const html = page(), you = youOf(html);
-  // The header is the project picker (Dan, 2026-11-11): the person, All projects, the chevron; then the three grays at
-  // its right, so the chart runs to the foot of the column (Dan, 2026-11-12). "All projects" is said once.
-  assert.match(you, /^<section class="you" aria-label="Your threads by stage"><header class="you-h"><details class="pmenu vmenu vhead"><summary><span class="vi" title="You"><svg class="ic who"[^>]*><circle cx="12" cy="8\.25"[\s\S]*?<span class="vh">You<\/span><\/span><span class="vp">All projects<\/span><svg class="ic"[\s\S]*?<\/details><div class="fx-key"[\s\S]*?<\/div><\/header><div class="you-b"><div class="fx-wrap"><div class="fx-view"><svg class="fx"/);
+  // The header is the project picker (Dan, 2026-11-11): the person, All projects, the chevron. "All projects" is said once,
+  // with no back button while every project shows.
+  assert.match(you, /^<section class="you" aria-label="Your threads by stage"><header class="you-h"><details class="pmenu vmenu vhead"><summary><span class="vi" title="You"><svg class="ic who"[^>]*><circle cx="12" cy="8\.25"[\s\S]*?<span class="vh">You<\/span><\/span><span class="vp">All projects<\/span><svg class="ic"[\s\S]*?<\/details><\/header><div class="you-b"><div class="fx-wrap"><div class="fx-view"><svg class="fx"/);
   assert.equal(you.split('>All projects<').length - 1, 2); // the summary and the menu's own All projects box
   assert.doesNotMatch(you, /class="tray|class="rail|fx-crumb|data-undrill/);
   // One project picked is its threads: each one band, and it opens the same plate its card does.
@@ -220,7 +220,11 @@ test('You, expanded is the header picker over the solo Sankey (Dan, 2026-11-10 a
   for (const id of plates) assert.match(html, new RegExp(`<article class="plate" id="${id}"`));
   // Held and verified threads stay off the line, as they did off the columns.
   assert.match(opened, /aria-label="Fernpay: its threads, left to right from start to merge"/);
-  assert.match(you, /<header class="you-h">[\s\S]*?<div class="fx-key" title="Time since the last change">/);
+  // The three grays sit in the chart's bottom-right corner (Dan, 2026-11-12), not in the header.
+  assert.match(you, /<\/svg><\/div><div class="fx-key" title="Time since the last change">[\s\S]*?<\/div><div class="fx-tip"/);
+  // One project open: a back button beside the picker.
+  assert.match(youOf(page({ picked: ['Fernpay'] })), /<\/details><button type="button" class="fx-back" data-unpick aria-label="Back to all projects" title="Back to all projects"><svg[\s\S]*?<\/button><\/header>/);
+  assert.doesNotMatch(you, /data-unpick/);
   // Dan cut the header line, the four cards, the "At The Pass" key and the panels under the board.
   for (const gone of [/class="you-sub"/, /class="inst"/, /Agents running/, /Merged today/, /Checks on open PRs/, /Your agents wait on you/,
     /At The Pass/, /Merged, last 7 days/, /Agent time today/, /class="held"/, /class="pnl/]) assert.doesNotMatch(you, gone);
@@ -234,12 +238,19 @@ test('without a good poll the chart says "Not checked" and draws no threads', ()
   assert.doesNotMatch(you, /<svg class="fx"|data-plate=|Gray is time/);
 });
 
+test('expanded, the picker takes The Pass row beside the logo, and the chart starts level with The Pass (Dan, 2026-11-12)', () => {
+  const css = grab(servedSource(), /\/\* Expanded, The Pass is the right column[\s\S]*?\n\}/);
+  assert.match(css, /\.v-kitchen \.stagenav>\.nf\[data-folder=pass\]\{visibility:hidden\}/);
+  assert.match(css, /\.v-kitchen :is\(\.you,\.tboard,\.team-wait\)>\.you-h\{position:absolute;top:16px;left:68px;/);
+  assert.match(servedSource(), /\.fx-key\{position:absolute;right:16px;bottom:14px;/);
+});
+
 test('the chart fills the view and scrolls inside it when the window is narrow or the line is long', () => {
   const src = servedSource();
   const wide = grab(src, /@media \(min-width:761px\)\{\n {2}\.v-kitchen \.you\{[^\n]*\n[\s\S]*?\n\}/);
   assert.match(wide, /\.v-kitchen \.you\{display:flex;flex-direction:column;min-height:0\}/);
   assert.match(wide, /\.v-kitchen \.you-b\{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain\}/);
-  assert.match(src, /\.fx-wrap\{position:relative;min-width:720px\}/);
+  assert.match(src, /\.fx-wrap\{position:relative;min-width:640px\}/);
   // The columns' fitting is gone with them.
   assert.doesNotMatch(src, /function fitRail|\.rail-wrap|\.tray-b/);
   // A stale page hides the chart, as it hid the columns' counts.
@@ -249,7 +260,7 @@ test('the chart fills the view and scrolls inside it when the window is narrow o
 test('the river stretches to the foot of the column, never below its own height, and its names move with their nodes', () => {
   // Dan, 2026-11-12: the chart stopped halfway down the page beside a full-height Pass.
   const src = pageScript();
-  const fns = grab(src, /var flowRO = [\s\S]*?\n {2}\/\/ Hover links the chart/).replace(/\/\/ Hover links the chart$/, '');
+  const fns = grab(src, /var fxSize = [\s\S]*?\n {2}\/\/ Hover links the chart/).replace(/\/\/ Hover links the chart$/, '');
   const attrs = (o: Record<string, string>) => ({ a: o, setAttribute(k: string, v: string) { this.a[k] = v; }, removeAttribute(k: string) { delete this.a[k]; } });
   const name = { dataset: { y: '100' } as Record<string, string>, ...attrs({ y: '100' }) };
   const stop = { dataset: { y: '150', dy: '-7' } as Record<string, string>, ...attrs({ y: '143' }) };
@@ -258,7 +269,7 @@ test('the river stretches to the foot of the column, never below its own height,
   const make = (colH: number) => {
     let vh = 276;
     const svg = {
-      viewBox: { baseVal: { width: 860 } }, ...attrs({}),
+      viewBox: { baseVal: { width: 860 } }, ...attrs({}), getAttribute(k: string) { return this.a[k] ?? null; },
       getBoundingClientRect: () => ({ width: 860, height: vh }),
       querySelector: () => body, querySelectorAll: () => [name, stop],
       closest: () => ({ getBoundingClientRect: () => ({ height: vh + 50 }) }),
@@ -266,10 +277,13 @@ test('the river stretches to the foot of the column, never below its own height,
     svg.setAttribute = function (k: string, v: string) { this.a[k] = v; if (k === 'viewBox') vh = Number(v.split(' ')[3]); };
     const col = { clientHeight: colH };
     const one: Record<string, unknown> = { '.you .you-b': col, '.you .fx-view:not([hidden]) svg.fx': svg };
-    const ctx = vm.createContext({ window: {}, $: (s: string) => one[s] ?? null, getComputedStyle: () => ({ paddingTop: '0', paddingBottom: '12px' }) });
+    const timers: (() => void)[] = [];
+    const ctx = vm.createContext({ window: {}, $: (s: string) => one[s] ?? null, getComputedStyle: () => ({ paddingTop: '0', paddingBottom: '12px' }),
+      setTimeout: (f: () => void) => timers.push(f), clearTimeout: () => {}, wake: () => { woke.push(vm.runInContext("appUrl('?p=A')", ctx) as string); } });
+    const woke: string[] = [];
     vm.runInContext(fns, ctx);
     vm.runInContext('watchFlow()', ctx);
-    return svg;
+    return Object.assign(svg, { timers, woke, ctx });
   };
   const tall = make(700);
   // 700 - 50 key - 12 padding - 1 = 637 high: the body stretches from 200 to 637 - 76 = 561.
@@ -277,6 +291,16 @@ test('the river stretches to the foot of the column, never below its own height,
   assert.match(body.a.transform!, /^translate\(0 58\) scale\(1 2\.805\d*\) translate\(0 -58\)$/);
   assert.equal(name.a.y, (58 + 42 * 2.805).toFixed(1));
   assert.equal(stop.a.y, (58 + 92 * 2.805 - 7).toFixed(1));
+  // It asks the server to lay the river out for that size, once, after the size settles.
+  assert.equal(tall.woke.length, 0);
+  tall.timers.forEach((f) => f());
+  assert.deepEqual(tall.woke, ['/app?p=A&fx=860x637']);
+  vm.runInContext('fitFlow()', tall.ctx);
+  assert.equal(tall.timers.length, 1);
+  // A chart already laid out for this size asks nothing.
+  tall.a['data-fit'] = '860x636';
+  vm.runInContext("fxAsked = ''; fitFlow()", tall.ctx);
+  assert.equal(tall.timers.length, 1);
   // A short column never squeezes the river: it keeps its own height and the column scrolls.
   const short = make(200);
   assert.equal(short.a.viewBox, '0 0 860 276.0');
@@ -330,7 +354,13 @@ test('hover lights the chart and The Pass both ways; a project click picks that 
   assert.ok(!board.cls.has('fx-focus') && !band.cls.has('lit') && !card.cls.has('lit'));
   // A click on a project picks it alone, as the header picker does, and the picker goes back.
   assert.match(src, /closest\s*(?:<Element>)?\s*\('\.you \[data-drill\]'\)[\s\S]{0,200}pickOnly\(dr\.getAttribute\('data-drill'\)/);
-  assert.match(grab(src, /function pickOnly[\s\S]*?\n {2}\}/), /drawPicked\(\[name\]\);[\s\S]*?history\.pushState\(null, '', location\.pathname \+ q\); state\.sel = null; wake\(\);/);
+  assert.match(grab(src, /function pickOnly[\s\S]*?\n {2}\}/), /drawPicked\(\[name\]\);[\s\S]*?history\.pushState\(\{ fxPick: 1 \}, '', location\.pathname \+ q\); state\.sel = null; wake\(\);/);
+  // Back goes where the click came from, else to every project.
+  assert.match(src, /closest\('\.you \[data-unpick\]'\)\) \{ unpick\(\); return; \}/);
+  assert.match(grab(src, /function unpick[\s\S]*?\n {2}\}/), /history\.state && history\.state\.fxPick\) \{ history\.back\(\); return; \}[\s\S]*?drawPicked\(null\);[\s\S]*?u\.delete\('p'\)/);
+  // Every refresh carries the chart's size.
+  assert.equal(src.match(/fetch\(appUrl\(q\)/g)?.length, 2);
+  assert.doesNotMatch(src, /fetch\('\/app' \+ q/);
   assert.doesNotMatch(src, /applyDrill|data-undrill|fx-crumb/);
   assert.match(src, /normalizePicked\(\); applyFlow\(false\); fades\(\);/);
   // Enter or Space on a focused project name or thread band clicks it, before the board's own keys see it.

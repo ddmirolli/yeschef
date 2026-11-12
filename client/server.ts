@@ -28,6 +28,7 @@ import { boardThreads, changeTargets, githubTargets } from './shells.ts';
 import { createChanges } from './changes.ts';
 import { createBaseChecks, createPrSizes, prKey, readBaseFacts, readPrFacts } from './github.ts';
 import { buildBoard, renderApp, kitchenPane, pickedFrom, ICON } from './board.ts';
+import { fitFrom } from './flow.ts';
 import { readRuns, dayStart, trackWaits, mayRunToday } from './you.ts';
 import { normalize as normalRules, change as changeRule } from './kitchen.ts';
 import { parseCalls, callKey, imagesIn, imageId, shotPath, isShot, SHOT_TYPES } from './calls.ts';
@@ -1202,7 +1203,7 @@ html .plate .dock .q-set{max-width:640px}
   .v-kitchen .you-b{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain}
   .v-kitchen .team-wait{align-self:start}
 }
-.fx-wrap{position:relative;min-width:720px}
+.fx-wrap{position:relative;min-width:640px}
 .fx{display:block;width:100%;height:auto;clip-path:inset(0 round 18px)}
 .fx .fx-body *{vector-effect:non-scaling-stroke}
 .fx text{font-size:11.5px}
@@ -1235,7 +1236,17 @@ html .plate .dock .q-set{max-width:640px}
 .fx-tip .m{color:var(--label2)}
 .fx-tip .alarm{display:flex;align-items:center;gap:5px;font-weight:600}
 .fx-tip .alarm .ic{width:14px;height:14px;color:var(--pass);stroke-width:2.2}
-.fx-key{display:flex;align-items:center;gap:14px;margin-left:auto;font-size:12px;color:var(--label2);white-space:nowrap}
+.fx-key{position:absolute;right:16px;bottom:14px;display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--label2);white-space:nowrap;pointer-events:none}
+.fx-back{display:grid;flex:none;place-items:center;width:30px;height:30px;margin-left:6px;padding:0;border:0;border-radius:9px;background:var(--fill);color:var(--label2);cursor:pointer}
+.fx-back:hover{color:var(--label)}
+.fx-back .ic{width:16px;height:16px;transform:rotate(90deg)}
+/* Expanded, The Pass is the right column, so its row at the top left gives way to the picker (Dan, 2026-11-12): the
+   picker sits beside the logo, and the chart starts at the top, level with The Pass. The row keeps its height. */
+@media (min-width:761px){
+  .v-kitchen .stagenav>.nf[data-folder=pass]{visibility:hidden}
+  .v-kitchen :is(.you,.tboard,.team-wait)>.you-h{position:absolute;top:16px;left:68px;z-index:4;max-width:176px;padding:0}
+  .v-kitchen .you-h .vhead summary{min-height:36px;font-size:17px}
+}
 .fx-chip{display:inline-flex;align-items:center;gap:6px}
 .fx-chip .sw{width:10px;height:10px;border-radius:2px}
 .fx-chip .sw.a0{background:var(--fx-a0)}.fx-chip .sw.a1{background:var(--fx-a1)}.fx-chip .sw.a2{background:var(--fx-a2)}
@@ -1679,7 +1690,8 @@ interface Routed { status: number; headers: Record<string, string>; body: string
 function route(url: URL): Routed {
   // ?p=A&p=B: the projects picked in the view menu; no p is All projects.
   const picked = pickedFrom(url.searchParams);
-  const app = (): string => renderApp({ board, picked, link, status, origin: ORIGIN, answered, projects, rules: rulesNow() });
+  // fx=WxH: the size the page has for You's chart, so the river fills it (client/flow.ts fitFrom).
+  const app = (): string => renderApp({ board, picked, link, status, origin: ORIGIN, answered, projects, rules: rulesNow(), fit: fitFrom(url.searchParams) });
   const html = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' };
   const teamPage = team.route(url);
   if (teamPage) return teamPage;

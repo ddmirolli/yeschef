@@ -2,7 +2,7 @@
 import { test } from 'vite-plus/test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { ageOf, layout, drawFlow, youFlow, FLOW_KEY, CLOCHE, DAY } from './flow.ts';
+import { ageOf, layout, drawFlow, youFlow, fitFrom, FLOW_KEY, CLOCHE, DAY, W } from './flow.ts';
 import type { FlowItem, FlowStage } from './flow.ts';
 import { grab } from './test/expect.ts';
 import { servedSource } from './test/served.ts';
@@ -122,7 +122,7 @@ test('every project: a band or a project picks the project; one project shows it
   const html = youFlow(LINE, NOW);
   assert.equal([...html.matchAll(/<div class="fx-view">/g)].length, 1);
   assert.doesNotMatch(html, /data-view=| hidden/);
-  const top = grab(html, /^<div class="fx-view">[\s\S]*?<\/svg><\/div>$/);
+  const top = grab(html, /^<div class="fx-view">[\s\S]*?<\/svg><\/div>/);
   assert.doesNotMatch(top, /data-plate=/);
   assert.match(top, /<path class="band [^"]+"[^>]*data-drill="Yes Chef"/);
   assert.match(top, /<rect class="node"[^>]*data-drill="Fernpay"/);
@@ -197,4 +197,42 @@ test('the chart fills the height the page gives it', () => {
   assert.match(svg, /<line class="zline"[^>]*y2="100%"\/>/);
   assert.match(svg, /<g class="fx-body" data-top="58" data-span="[\d.]+"><g class="bands">/);
   assert.match(svg, /<\/g><g class="fx-names"><text class="gname"[^>]*data-y="[\d.]+"/);
+});
+
+test('given the room the page has, the river spreads to fill it with matching margins, and the stops stay packed', () => {
+  // Dan, 2026-11-12: the threads on the left should use the height, branching out, never edge to edge.
+  for (const fitH of [400, 760, 1400]) {
+    for (const drill of [null, 'Fernpay'] as const) {
+      const L = layout(LINE, NOW, drill, fitH);
+      assert.ok(Math.abs(L.H - fitH) < 0.5, `H ${L.H} for ${fitH}`);
+      const left = drill === null ? L.groups.map((g) => [g.y, g.y + g.h] as const) : L.bands.map((b) => [b.lane!, b.lane! + b.h] as const);
+      const top = Math.min(...left.map((r) => r[0])), bottom = Math.max(...left.map((r) => r[1]));
+      // A margin above and below, the same both ways (within the stage names' band at the top), never zero.
+      assert.ok(top >= 58 && bottom <= L.H - 18, `${top}..${bottom} in ${L.H}`);
+      if (top > 58) assert.ok(Math.abs(top - (L.H - bottom)) < 1, `margins ${top} and ${L.H - bottom}`);
+      assert.ok(L.H - bottom >= 20);
+      // Threads grow, but to a cap; the rest is space between projects (or, opened, threads, to a cap: their lanes fan into one node).
+      const u = L.bands[0]!.h / L.bands[0]!.items.length;
+      assert.ok(u <= (drill === null ? 30 : 24) && u >= (drill === null ? 3 : 11));
+      // The stops hold their bands edge to edge: a node is as tall as what passes through it.
+      const review = L.nodes.review!;
+      assert.equal(review.h, L.bands.filter((b) => b.path.includes('review')).reduce((n, b) => n + b.h, 0));
+    }
+  }
+  // More room, a wider spread at the left: it never sits at one size in a tall column.
+  const spread = (fitH: number) => { const g = layout(LINE, NOW, null, fitH).groups; return g[g.length - 1]!.y + g[g.length - 1]!.h - g[0]!.y; };
+  assert.ok(spread(400) < spread(760) && spread(760) < spread(1400), `${spread(400)} ${spread(760)} ${spread(1400)}`);
+  // Without a size, the chart keeps its own (tests above and the first paint).
+  assert.equal(layout(LINE, NOW).span, 200);
+});
+
+test('the page says its chart size as fx=WxH; anything else draws the chart at its own size', () => {
+  assert.deepEqual(fitFrom(new URLSearchParams('fx=842x760')), { w: 842, h: 760 });
+  for (const bad of ['', 'fx=', 'fx=842', 'fx=12x760', 'fx=842x99999', 'fx=842x760x1', 'fx=-842x760', 'fx=842.5x760']) assert.equal(fitFrom(new URLSearchParams(bad)), null, bad);
+  const html = youFlow(LINE, NOW, { w: 842, h: 760 });
+  assert.match(html, /^<div class="fx-view"><svg class="fx" data-fit="842x760" viewBox="0 0 860 ([\d.]+)"/);
+  assert.ok(Math.abs(Number(/viewBox="0 0 860 ([\d.]+)"/.exec(html)![1]) - (760 * W) / 842) < 0.1);
+  assert.doesNotMatch(youFlow(LINE, NOW), /data-fit/);
+  // The key rides in the chart's corner, after the chart.
+  assert.ok(html.endsWith(FLOW_KEY));
 });

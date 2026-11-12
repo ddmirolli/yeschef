@@ -4,7 +4,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { imagesIn, imageUrl, withoutImages, recommendLines } from './calls.ts';
 import { missingShots, ASK_SHOTS } from './kitchen.ts';
 import { trackWaits, withoutWaits } from './you.ts';
-import { youFlow, FLOW_KEY } from './flow.ts';
+import { youFlow } from './flow.ts';
+import type { Fit } from './flow.ts';
 import type { FlowItem, FlowStage } from './flow.ts';
 import { openKitchen, kitchenBoard, KINDS, may } from './open-kitchen.ts';
 import type { Call, Shot } from './calls.ts';
@@ -562,8 +563,10 @@ function bars(vals: readonly number[], label: string): string {
  *  place of the six stage columns: your threads run left to right from their project, through checks and review, to you
  *  and the branch they merged into, and a band that waits on you lights its card in The Pass beside it. Without a good
  *  poll it says "Not checked"; with nothing on the line it says so. Verified and on hold stay in the stage list. */
-function youView({ chart, head, key }: { chart: string; head: string; key: string }): string {
-  return `<section class="you" aria-label="Your threads by stage"><header class="you-h">${head}${key}</header>`
+function youView({ chart, head, back }: { chart: string; head: string; back: boolean }): string {
+  // Back: one project open (a click on it in the chart, or a pick), so the way to every project sits beside the picker.
+  const btn = back ? `<button type="button" class="fx-back" data-unpick aria-label="Back to all projects" title="Back to all projects">${svg('chev')}</button>` : '';
+  return `<section class="you" aria-label="Your threads by stage"><header class="you-h">${head}${btn}</header>`
     + `<div class="you-b"><div class="fx-wrap">${chart}<div class="fx-tip" role="tooltip" hidden></div></div></div></section>`;
 }
 
@@ -1006,8 +1009,10 @@ function viewMenu({ team, projs, picked, icons, ok, head = null }: { team: TeamI
 export interface RenderInput {
   board: Board; picked?: readonly string[] | null; link: (t: ThreadRow) => string; status: Status; origin: string;
   answered?: ReadonlyMap<string, Answered>; projects?: readonly Pick<Project, 'id' | 'title'>[]; rules?: unknown; team?: TeamInput | null;
+  /** The size the page has for You's chart (client/flow.ts fitFrom), or null to draw it at its own size. */
+  fit?: Fit | null;
 }
-export function renderApp({ board, picked = null, link, status, origin, answered = new Map(), projects = [], rules = null, team = null }: RenderInput): string {
+export function renderApp({ board, picked = null, link, status, origin, answered = new Map(), projects = [], rules = null, team = null, fit = null }: RenderInput): string {
   const want = picked && picked.length ? new Set(picked) : null;
   // Missing data renders "not checked": without a good poll, show no tickets at all, never an older board.
   const shown = status.ok ? board.tickets.filter((k) => !want || want.has(k.project)) : [];
@@ -1044,8 +1049,8 @@ export function renderApp({ board, picked = null, link, status, origin, answered
     : !onLine.length ? `<div class="fx-empty"><p><b>Nothing on the line</b></p><p class="muted">Threads show here from Backlog to Merged.</p></div>`
     : youFlow(onLine.map((k): FlowItem => ({ id: plateId(k), title: k.thread.title || 'Untitled thread', project: k.project, stage: k.place as FlowStage,
       since: Date.parse(k.updatedAt), subs: k.stations, waits: k.atPass, pr: (k.open[0] || k.merged[0])?.number ?? null,
-      base: k.merged.length && !k.open.length ? (k.merged.every((p) => p.base && p.base === k.merged[0]!.base) ? k.merged[0]!.base : null) : null })), status.at);
-  const key = status.ok && onLine.length ? FLOW_KEY : '';
+      base: k.merged.length && !k.open.length ? (k.merged.every((p) => p.base && p.base === k.merged[0]!.base) ? k.merged[0]!.base : null) : null })), status.at, fit);
+  const back = !!want && status.ok && new Set(onLine.map((k) => k.project)).size === 1;
   // The focused view's left list: the pass first, then each stage, then Verified and On hold.
   // Dan, 2026-11-07: Merged sits nearest the pass, then back down the line to Backlog, in one card; what is off the
   // line in its own card below.
@@ -1078,7 +1083,7 @@ export function renderApp({ board, picked = null, link, status, origin, answered
     // Your team, expanded: the column says how many calls need you (mock v2).
     + `${T && T.ok.status === 'live' ? `<p class="muted tpm">${T.count ? `${T.count} need you, most urgent first.` : 'Nothing from your team needs you.'}</p>` : ''}</header><div class="head-b">${lists}</div>`
     + `</section>`;
-  const you = youView({ chart, key, head: viewMenu({ team, projs, picked: want ? [...want] : null, icons, ok: status.ok, head: 'person' }) });
+  const you = youView({ chart, back, head: viewMenu({ team, projs, picked: want ? [...want] : null, icons, ok: status.ok, head: 'person' }) });
   // Your team is not built yet (Dan, 2026-11-10): with reports, its view says so instead of showing anything made up.
   const teamWait = team ? `<section class="team-wait" aria-label="Your team"><header class="you-h">${teamHead}</header><div class="tw-b"><p><b>${e(team.name || 'Your team')}</b></p><p class="muted">Not checked. Your team's view needs the team connection, which Yes Chef does not have yet.</p></div></section>` : '';
   const lamp = status.ok ? 'ok' : 'bad';
