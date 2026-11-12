@@ -244,6 +244,49 @@ test('the chart fills the view and scrolls inside it when the window is narrow o
   assert.match(src, /\.is-stale[^{]*\.fx-wrap[,{]/);
 });
 
+test('the river stretches to the foot of the column, never below its own height, and its names move with their nodes', () => {
+  // Dan, 2026-11-12: the chart stopped halfway down the page beside a full-height Pass.
+  const src = pageScript();
+  const fns = grab(src, /var flowRO = [\s\S]*?\n {2}\/\/ Hover links the chart/).replace(/\/\/ Hover links the chart$/, '');
+  const attrs = (o: Record<string, string>) => ({ a: o, setAttribute(k: string, v: string) { this.a[k] = v; }, removeAttribute(k: string) { delete this.a[k]; } });
+  const name = { dataset: { y: '100' } as Record<string, string>, ...attrs({ y: '100' }) };
+  const stop = { dataset: { y: '150', dy: '-7' } as Record<string, string>, ...attrs({ y: '143' }) };
+  const body = { dataset: { top: '58', span: '200' }, ...attrs({}) };
+  // Natural height 58 + 200 + 18 = 276 at 860 wide; the column is 700 high and 860 wide, with a 50 px key under the chart.
+  const make = (colH: number) => {
+    let vh = 276;
+    const svg = {
+      viewBox: { baseVal: { width: 860 } }, ...attrs({}),
+      getBoundingClientRect: () => ({ width: 860, height: vh }),
+      querySelector: () => body, querySelectorAll: () => [name, stop],
+      closest: () => ({ getBoundingClientRect: () => ({ height: vh + 50 }) }),
+    };
+    svg.setAttribute = function (k: string, v: string) { this.a[k] = v; if (k === 'viewBox') vh = Number(v.split(' ')[3]); };
+    const col = { clientHeight: colH };
+    const one: Record<string, unknown> = { '.you .you-b': col, '.you .fx-view:not([hidden]) svg.fx': svg };
+    const ctx = vm.createContext({ window: {}, $: (s: string) => one[s] ?? null, getComputedStyle: () => ({ paddingTop: '0', paddingBottom: '12px' }) });
+    vm.runInContext(fns, ctx);
+    vm.runInContext('watchFlow()', ctx);
+    return svg;
+  };
+  const tall = make(700);
+  // 700 - 50 key - 12 padding - 1 = 637 high: the body stretches from 200 to 637 - 76 = 561.
+  assert.equal(tall.a.viewBox, '0 0 860 637.0');
+  assert.match(body.a.transform!, /^translate\(0 58\) scale\(1 2\.805\d*\) translate\(0 -58\)$/);
+  assert.equal(name.a.y, (58 + 42 * 2.805).toFixed(1));
+  assert.equal(stop.a.y, (58 + 92 * 2.805 - 7).toFixed(1));
+  // A short column never squeezes the river: it keeps its own height and the column scrolls.
+  const short = make(200);
+  assert.equal(short.a.viewBox, '0 0 860 276.0');
+  assert.equal(body.a.transform, undefined);
+  assert.equal(stop.a.y, '143.0');
+  // The page measures again when the column changes size and after each refresh.
+  assert.match(src, /var flowRO = window\.ResizeObserver \? new ResizeObserver\(function\(\)\{ fitFlow\(\); \}\)/);
+  assert.match(grab(src, /function applyDrill[\s\S]*?\n {2}\}/), /watchFlow\(\);/);
+  // Strokes keep their width when the river stretches.
+  assert.match(servedSource(), /\.fx \.fx-body \*\{vector-effect:non-scaling-stroke\}/);
+});
+
 test('hover lights the chart and The Pass both ways; opening a project shows its view and the way back', () => {
   const src = pageScript();
   const fns = grab(src, /var drill = '';[\s\S]*?\n {2}function flowTip/).replace(/function flowTip$/, '');
@@ -257,7 +300,7 @@ test('hover lights the chart and The Pass both ways; opening a project shows its
   const band = el({ k: 'fl:0 g:Fernpay t:p-1 t:p-2 n:review' }), other = el({ k: 'fl:1 g:Fernpay t:p-3' }), card = el({ plate: 'p-2' }), card3 = el({ plate: 'p-9' });
   const one: Record<string, El> = { '.board': board, '.you .fx-crumb': crumb, '.you .fx-name': name, '.you .fx-wrap': wrap };
   const many: Record<string, El[]> = { '.you .fx-view': views, '.you .fx-view:not([hidden]) [data-k]': [band, other], '.head-b .folder[data-folder="pass"] .call-tile[data-plate]': [card, card3] };
-  const ctx = vm.createContext({ $: (s: string) => one[s] ?? null, $$: (s: string) => many[s] ?? [] });
+  const ctx = vm.createContext({ window: {}, $: (s: string) => one[s] ?? null, $$: (s: string) => many[s] ?? [] });
   vm.runInContext(fns, ctx);
   const run = (code: string) => vm.runInContext(code, ctx);
   // A band lights itself and its threads' cards; the band beside it steps back.

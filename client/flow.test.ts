@@ -180,3 +180,17 @@ test('a keyboard reaches every project by its name and, opened, every thread (PR
   assert.match(yc, /<path class="band a0 wait"[^>]*data-plate="y1" tabindex="0" role="button" aria-label="y1, Ready to merge, waiting on you"/);
   assert.match(yc, /<path class="band a1"[^>]*data-plate="m2" tabindex="0" role="button" aria-label="m2, Merged"/);
 });
+
+test('each view draws its own dots and fills the height the page gives it', () => {
+  const html = youFlow(LINE, NOW);
+  const ids = [...html.matchAll(/<pattern id="([^"]+)"/g)].map((m) => m[1]!);
+  assert.ok(ids.length > 1);
+  assert.equal(new Set(ids).size, ids.length);
+  for (const id of ids) assert.match(id, /^fx-dots-[a-z0-9]+$/);
+  // Zones, dots and lines run the full height; the river and its names carry what the page needs to stretch them.
+  const svg = drawFlow(layout(LINE, NOW), NOW);
+  assert.match(svg, /<rect class="zone z0" x="0" y="0" width="262" height="100%"\/>/);
+  assert.match(svg, /<line class="zline"[^>]*y2="100%"\/>/);
+  assert.match(svg, /<g class="fx-body" data-top="58" data-span="[\d.]+"><g class="bands">/);
+  assert.match(svg, /<\/g><g class="fx-names"><text class="gname"[^>]*data-y="[\d.]+"/);
+});

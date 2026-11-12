@@ -279,6 +279,34 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     // projects and stops come back (PR-Agent r1 on #49).
     var keep = clear || !fxKeys ? [] : fxKeys.filter(function(k){ return k.indexOf('fl:') !== 0; });
     fxNow = null; flowFocus(keep.length ? keep : null);
+    watchFlow();
+  }
+  // The chart fills its column down to the foot of The Pass beside it (Dan, 2026-11-12: half the page sat empty). The
+  // river stretches to the height that is free, never below its own; strokes keep their width (CSS), and each name
+  // moves with its node at its own size. Measured again whenever the column changes size.
+  var flowRO = window.ResizeObserver ? new ResizeObserver(function(){ fitFlow(); }) : null, flowWatched: Element | null = null;
+  function watchFlow(): void {
+    var sc = $('.you .you-b');
+    if (flowRO && sc !== flowWatched) { flowRO.disconnect(); flowWatched = sc || null; if (sc) flowRO.observe(sc); }
+    fitFlow();
+  }
+  function fitFlow(): void {
+    var sc = $('.you .you-b'), svg = $('.you .fx-view:not([hidden]) svg.fx') as SVGSVGElement | null;
+    var body = svg && svg.querySelector<SVGGElement>('.fx-body');
+    if (!sc || !svg || !body || !svg.viewBox || !svg.viewBox.baseVal) return;
+    var top = +(body.dataset.top || 0), span = +(body.dataset.span || 0), vw = svg.viewBox.baseVal.width, w = svg.getBoundingClientRect().width;
+    if (!span || !vw || !w) return;
+    var foot = 18, own = top + span + foot, wrap = svg.closest('.fx-wrap'), cs = getComputedStyle(sc);
+    // What else shares the column: the key under the chart and the column's own padding.
+    var rest = (wrap ? wrap.getBoundingClientRect().height : 0) - svg.getBoundingClientRect().height + (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+    var free = Math.floor(sc.clientHeight - rest) - 1;
+    var vh = Math.max(own, free * vw / w), k = (vh - top - foot) / span;
+    svg.setAttribute('viewBox', '0 0 ' + vw + ' ' + vh.toFixed(1));
+    if (k > 1.001) body.setAttribute('transform', 'translate(0 ' + top + ') scale(1 ' + k.toFixed(4) + ') translate(0 ' + (-top) + ')');
+    else body.removeAttribute('transform');
+    svg.querySelectorAll<SVGTextElement>('.fx-names [data-y]').forEach(function(t){
+      t.setAttribute('y', (top + (+(t.dataset.y || 0) - top) * Math.max(1, k) + (+(t.dataset.dy || 0))).toFixed(1));
+    });
   }
   // Hover links the chart and The Pass both ways (Dan, 2026-11-11). A chart part lights what it names (data-f) in the
   // chart: every element that belongs to one of those keys (data-k). Its Pass cards light too: the cards of the threads

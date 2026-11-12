@@ -64,6 +64,8 @@ const ago = (since: number, now: number): string => {
   const m = Math.max(0, Math.round((now - since) / 60000));
   return m < 1 ? 'under 1 min' : m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h` : `${Math.floor(m / 1440)} d`;
 };
+/** A short id from a project's name, safe in an SVG id and url(#…). */
+const idOf = (name: string): string => { let h = 5381; for (const ch of name) h = ((h * 33) ^ ch.codePointAt(0)!) >>> 0; return h.toString(36); };
 /** A project's hover key: its name with no spaces, so the page can split keys on spaces. */
 const gk = (name: string): string => `g:${encodeURIComponent(name)}`;
 
@@ -172,11 +174,13 @@ export function drawFlow(L: Layout, now: number): string {
     ['Ready to merge', String(count('Ready to merge'))], ['Merged', String(count('Merged'))], ['Release', 'not checked'],
   ];
   let out = `<svg class="fx" viewBox="0 0 ${W} ${f1(L.H)}" role="img" aria-label="${e(L.drill === null ? 'Your threads by project, left to right from start to merge' : `${L.drill}: its threads, left to right from start to merge`)}">`;
-  out += `<defs><pattern id="fx-dots" width="14" height="14" patternUnits="userSpaceOnUse"><circle cx="7" cy="7" r="1" class="dot"/></pattern></defs><rect width="${W}" height="${f1(L.H)}" fill="url(#fx-dots)"/>`;
+  // Each view has its own dots: a hidden view's pattern draws nothing, so a shared id left an opened project bare.
+  const dots = `fx-dots-${L.drill === null ? 'all' : idOf(L.drill)}`;
+  out += `<defs><pattern id="${dots}" width="14" height="14" patternUnits="userSpaceOnUse"><circle cx="7" cy="7" r="1" class="dot"/></pattern></defs><rect width="${W}" height="100%" fill="url(#${dots})"/>`;
   zones.forEach(([name, n], i) => {
     const x0 = ZONE_X[i] ?? 0, x1 = ZONE_X[i + 1] ?? W;
-    out += `<rect class="zone z${i % 2}" x="${x0}" y="0" width="${x1 - x0}" height="${f1(L.H)}"/>`;
-    if (i) out += `<line class="zline" x1="${x0}" x2="${x0}" y1="0" y2="${f1(L.H)}"/>`;
+    out += `<rect class="zone z${i % 2}" x="${x0}" y="0" width="${x1 - x0}" height="100%"/>`;
+    if (i) out += `<line class="zline" x1="${x0}" x2="${x0}" y1="0" y2="100%"/>`;
     out += i === 4 ? `<text class="zlbl" x="${x0 + 10}" y="19">${name}</text><text class="zcount" x="${x0 + 10}" y="34">${n}</text>`
       : `<text class="zlbl" x="${x0 + 10}" y="19">${name}<tspan class="zcount" dx="6">${n}</tspan></text>`;
   });
@@ -218,7 +222,10 @@ export function drawFlow(L: Layout, now: number): string {
       : t0 ? ` data-plate="${e(t0.id)}" tabindex="0" role="button" aria-label="${e(`${t0.title}, ${t0.stage}${t0.waits ? ', waiting on you' : ''}`)}"` : '';
     bands += `<path class="${cls}"${attrs}${act} d="${segs.join('')}"/>`;
   }
-  out += `<g class="bands">${bands}</g><g class="fans">${fans}</g>`;
+  // The river fills the column down to The Pass's foot (Dan, 2026-11-12): the page stretches .fx-body to the height that
+  // is free (data-span is its natural height under data-top), and moves each name to its node's new place (data-y) at its own size.
+  let names = '';
+  out += `<g class="fx-body" data-top="${TOP}" data-span="${f1(L.span)}"><g class="bands">${bands}</g><g class="fans">${fans}</g>`;
 
   // The projects' nodes and, with every project open, their names.
   for (const g of L.groups) {
@@ -229,7 +236,7 @@ export function drawFlow(L: Layout, now: number): string {
       + (L.drill === null ? '<div class="m">Click to open its threads</div>' : '');
     const dr = L.drill === null ? ` data-drill="${e(g.name)}"` : '';
     out += `<rect class="node"${hov([gk(g.name)], [gk(g.name)], tip)}${dr} x="${XG}" y="${f1(g.y)}" width="${NW}" height="${f1(Math.max(1, g.h))}" rx="1.5"/>`;
-    if (L.drill === null) out += `<text class="gname"${hov([gk(g.name)], [gk(g.name)], tip)}${dr} tabindex="0" role="button" aria-label="${e(`Open ${g.name}: ${plural(mine.length, 'thread')}`)}" x="${XB - 8}" y="${f1(g.y + g.h / 2)}" text-anchor="end" dominant-baseline="central">${e(cut(g.name, 16))}</text>`;
+    if (L.drill === null) names += `<text class="gname"${hov([gk(g.name)], [gk(g.name)], tip)}${dr} tabindex="0" role="button" aria-label="${e(`Open ${g.name}: ${plural(mine.length, 'thread')}`)}" x="${XB - 8}" y="${f1(g.y + g.h / 2)}" data-y="${f1(g.y + g.h / 2)}" text-anchor="end" dominant-baseline="central">${e(cut(g.name, 16))}</text>`;
   }
   // The stops. A node's queue is the threads that end there.
   const ends = (s: Stop) => L.bands.filter((b) => b.path[b.path.length - 1] === s).flatMap((b) => b.items);
@@ -247,9 +254,9 @@ export function drawFlow(L: Layout, now: number): string {
     const n = L.nodes[s];
     if (!n) continue;
     out += `<rect class="node${s === 'you' ? ' you' : ''}"${hov([`n:${s}`], [`n:${s}`], tip)} x="${NODE_X[s]}" y="${f1(n.y)}" width="${NW}" height="${f1(n.h)}" rx="1.5"/>`;
-    if (word) out += `<text class="gname${s === 'you' ? ' strong' : ''}"${hov([`n:${s}`], [`n:${s}`], tip)} x="${NODE_X[s] + NW / 2}" y="${f1(n.y - 7)}" text-anchor="middle">${e(cut(word, 14))}</text>`;
+    if (word) names += `<text class="gname${s === 'you' ? ' strong' : ''}"${hov([`n:${s}`], [`n:${s}`], tip)} x="${NODE_X[s] + NW / 2}" y="${f1(n.y - 7)}" data-y="${f1(n.y)}" data-dy="-7" text-anchor="middle">${e(cut(word, 14))}</text>`;
   }
-  return `${out}</svg>`;
+  return `${out}</g><g class="fx-names">${names}</g></svg>`;
 }
 
 /** You's chart, every project and each one opened, for the page to switch between without a round trip. The page

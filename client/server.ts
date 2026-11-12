@@ -1204,6 +1204,7 @@ html .plate .dock .q-set{max-width:640px}
 }
 .fx-wrap{position:relative;min-width:720px}
 .fx{display:block;width:100%;height:auto}
+.fx .fx-body *{vector-effect:non-scaling-stroke}
 .fx text{font-size:11.5px}
 .fx .dot{fill:var(--fx-dot)}
 .fx .zone.z0{fill:var(--fx-zone-a)}.fx .zone.z1{fill:var(--fx-zone-b)}
