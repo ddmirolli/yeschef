@@ -40,6 +40,8 @@ test('no phone build: at phone width the page is one screen that points to the M
   // That block is the only phone rule left: no phone layout, and the page script has no phone branch.
   assert.equal(src.match(/@media \(max-width:(760|600|560)px\)/g)?.length, 1);
   assert.doesNotMatch(src, /wideQ|min-width: 761px'\)/);
+  // Narrowing to it closes any open dialog, so the page under it is not left inert (PR-Agent r1 on #47).
+  assert.match(src, /phoneQ\.addEventListener\('change', function\(\)\{ if \(phoneQ\.matches\) \$\$\s*\('dialog\[open\]'\)\.forEach\(function\(d\)\{ d\.close\(\); \}\); \}\);/);
   // The Mac app's window stays wider than that.
   assert.match(readFileSync(new URL('../desktop/main.ts', import.meta.url), 'utf8'), /new BrowserWindow\(\{ width: 1440, height: 900, minWidth: 960,/);
 });

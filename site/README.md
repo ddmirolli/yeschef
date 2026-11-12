@@ -90,3 +90,7 @@ Later on 2026-11-09, after #60, Dan asked for a full pass:
 - Tokens stay "modeled, not measured", and the page gives no number for time saved until it is measured.
 
 Later on 2026-11-09 Dan renamed the toggle's segments from [agents][devs] to [solo][team], the same words as `?view=solo` and `?view=team`.
+
+## Phone screenshots
+
+The app has no phone build (Dan, 2026-11-11). On a phone the hero shows a screenshot of the app for each view, as t3.codes does, in place of the live demo. The four PNGs in `src/assets/` (`app-solo-light`, `app-solo-dark`, `app-team-light`, `app-team-dark`) are the built demo pages (`dist/demo/app.html` and `dist/demo/team.html`) at 1440x900, shot at 2x on Browserbase: serve each page as `/` and run `SHOOT_SCALE=2 SHOOT_VIEWS=light:1440:900,dark:1440:900 zsh tools/shoot.sh <port> <out> <label>`, then copy each `-board.png`. Astro turns them into webp at 800, 1200 and 1600 px wide. Retake them when the app's look changes.

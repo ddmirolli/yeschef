@@ -59,6 +59,10 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   var root = document.documentElement, app = document.getElementById('app') as HTMLElement;
   var sheet = document.getElementById('sheet') as HTMLDialogElement, viewer = document.getElementById('viewer') as HTMLDialogElement, toastEl = document.getElementById('toast') as HTMLElement, setDlg = document.getElementById('settings') as HTMLDialogElement, launchDlg = document.getElementById('launch') as HTMLDialogElement, barDlg = document.getElementById('bar') as HTMLDialogElement;
   var reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+  // No phone build (Dan, 2026-11-11): at phone width CSS shows only the screen that points to the Mac app. A dialog
+  // left open would keep the page inert under it, so narrowing to that width closes every open dialog.
+  var phoneQ = window.matchMedia('(max-width: 760px)');
+  phoneQ.addEventListener('change', function(){ if (phoneQ.matches) $$<HTMLDialogElement>('dialog[open]').forEach(function(d){ d.close(); }); });
   function store(k: string, v?: string): string | null | undefined { try { if (v === undefined) return window.localStorage.getItem(k); window.localStorage.setItem(k, v); } catch (x) { return null; } }
   // The pass is the normal view; the full kitchen is one click on the logo away. The choice is remembered.
   var state: PageState = { view: store('yc.view') === 'kitchen' ? 'kitchen' : 'pass', folder: 'pass', sel: null };
