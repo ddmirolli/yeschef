@@ -1435,46 +1435,43 @@ html.v-kitchen .tp-live .tcol{display:flex;flex-direction:column;gap:8px}
 .kribbon i{flex:1 1 0;max-width:16px;height:18px;border-radius:2px;background:var(--merged);opacity:.75}
 .kribbon i.r{height:26px;background:var(--red);opacity:1}
 .ins .cap .red{font-weight:600;color:var(--red)}
-/* Who's on what: a row per person, a bar per thread along today. */
-.tl-p .ph .lg{display:flex;flex-wrap:wrap;gap:4px 12px;font-weight:500}
-.tl-p .ph .lg>span{display:inline-flex;align-items:center;gap:5px}
+/* Open kitchen's rows (flow mock round 3.3): agents as squares, code areas as cells, merged today. Red and amber are
+   calls and nothing else; gray steps count agents, and dark mode turns them so more is brighter. */
 .sw{display:inline-block;width:14px;height:8px;border-radius:2px;background:var(--fill2)}
-.sw.red{background:none;box-shadow:inset 0 0 0 1.5px var(--red)}.sw.amber{background:none;box-shadow:inset 0 0 0 1.5px var(--orange)}
-.sw.off{background:repeating-linear-gradient(135deg,var(--fill2) 0 2px,transparent 2px 4px);box-shadow:inset 0 0 0 .5px var(--fill2)}
-.mk{display:inline-block;width:8px;height:8px;border-radius:1px;background:var(--merged);transform:rotate(45deg)}
-.tl-s{overflow-x:auto;overscroll-behavior-x:contain}
-.tl{position:relative;min-width:560px}
-.tlax{display:grid;grid-template-columns:116px 1fr;height:16px;font-size:11px;color:var(--label2)}
-.tlax .ax{position:relative}
-.tlax .ax span{position:absolute;transform:translateX(-50%);white-space:nowrap;font-variant-numeric:tabular-nums}
-.tlr{display:grid;grid-template-columns:116px 1fr;align-items:center;height:30px;border-top:.5px solid var(--sep)}
-.tlr .who{display:flex;align-items:center;gap:7px;min-width:0;padding-right:6px}
-.tlr .who>span{min-width:0}
-.tlr .who b{display:block;overflow:hidden;font-size:12.5px;font-weight:600;line-height:1.15;text-overflow:ellipsis;white-space:nowrap}
-.tlr .who em{display:block;font-style:normal;font-size:10.5px;font-weight:600;line-height:1.2;white-space:nowrap}
-.k-pass{color:var(--pass)}.k-amber{color:var(--orange)}.k-gray{color:var(--label2)}
-.tlr .plot{position:relative;height:100%}
-.gv{position:absolute;top:0;bottom:0;width:0;border-left:.5px solid var(--sep)}
-.tlb{position:absolute;box-sizing:border-box;height:12px;margin:0;padding:0 5px;border:0;border-radius:3px;background:var(--fill2);font:500 9.5px/12px var(--sans);color:var(--label2);text-align:left;white-space:nowrap}
-.tlb .tlt{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.tlb:has(.tltag){display:flex;padding-right:0;overflow:hidden}
-.tlb:has(.tltag) .tlt{flex:1 1 0}
-.tlb .tltag{position:static;flex:0 1 auto;min-width:0;margin-left:auto;overflow:hidden;text-overflow:ellipsis}
-button.tlb{cursor:pointer}
-.tlb.red{background:var(--red-t);box-shadow:inset 0 0 0 1.5px var(--red);color:var(--label)}
-.tlb.amber{background:var(--orange-t);box-shadow:inset 0 0 0 1.5px var(--orange);color:var(--label)}
-.tlb.clip{border-top-left-radius:0;border-bottom-left-radius:0}
-.tlb.off{background:repeating-linear-gradient(135deg,var(--fill2) 0 2px,transparent 2px 5px);font-style:italic;color:var(--label2)}
-.tlm{position:absolute;width:8px;height:8px;margin:-4px 0 0 -4px;border-radius:1px;background:var(--merged);transform:rotate(45deg)}
-.tltag{position:absolute;padding:0 5px;border-radius:3px;font-size:10px;font-weight:700;line-height:12px;white-space:nowrap}
-.tltag.red{background:var(--red);color:#fff}.tltag.amber{background:var(--orange);color:#1D1D1F}
-.tlx{position:absolute;right:0;top:50%;padding-left:6px;background:var(--card);font-size:10.5px;color:var(--label2);transform:translateY(-50%)}
-.tl .now{position:absolute;bottom:0;width:0;border-left:1.5px solid var(--pass);pointer-events:none}
-/* The now label sits left of its line: to the right it ran past the chart's edge and was clipped to "nov" (2026-11-12). */
-.tl .now span{position:absolute;top:0;right:4px;font-size:10.5px;font-weight:700;color:var(--pass);white-space:nowrap}
-.tl .conn{position:absolute;width:0;border-left:2px solid var(--red)}
-.tl .conn button{all:unset;cursor:pointer}
-.tl .conn span{position:absolute;left:6px;top:50%;padding:1px 4px;border-radius:3px;background:var(--card);box-shadow:inset 0 0 0 1px var(--red);font:600 10.5px var(--mono);color:var(--red);white-space:nowrap;transform:translateY(-50%)}
+.ok-p .ph .lg{display:flex;flex-wrap:wrap;gap:4px 12px;font-weight:500}
+.ok-p .ph .lg>span{display:inline-flex;align-items:center;gap:5px}
+.ok-box{position:relative}.ok-wrap{overflow-x:auto;overscroll-behavior-x:contain}
+.okr{display:block;width:100%;min-width:640px;height:auto;font-size:12px}
+.okr .dot{fill:var(--fx-dot)}
+.okr .zlbl{font-size:11.5px;font-weight:600;fill:var(--label2)}
+.okr .zlbl.col.lit{fill:var(--label)}
+.okr .pjname{font-size:11px;font-weight:700;fill:var(--label)}
+.okr .pjrule{stroke:var(--sep);stroke-width:1}
+.okr .rowname{font-size:12.5px;font-weight:600;fill:var(--label)}
+.okr .rowname.strong{font-weight:700}.okr .rowname.muted{fill:var(--label2)}
+.okr [data-fold],.okr [data-team-open]{cursor:pointer}
+.okr .podband{fill:var(--fx-zone-b)}
+.okr .mnum{font-size:11.5px;fill:var(--label2);font-variant-numeric:tabular-nums}
+.okr .mnum.strong{fill:var(--label);font-weight:600}
+.okr .ag{stroke-width:1.5;transition:fill .15s,stroke .15s,opacity .15s}
+.okr .ag.working{fill:var(--fx-a1)}.okr .ag.idle{fill:none;stroke:var(--fx-a1)}
+.okr .ag.red{fill:var(--red)}.okr .ag.amber{fill:var(--orange)}
+.okr .ag.out{fill:none;stroke:var(--fx-a1);stroke-dasharray:2 2}
+.okr .cell{transition:fill .15s,opacity .15s}
+.okr .cell.n1{fill:var(--fx-a0)}.okr .cell.n2{fill:var(--fx-a1)}.okr .cell.n3{fill:var(--fx-a2)}.okr .cell.red{fill:var(--red)}
+.okr .mbar{fill:var(--merged);transition:fill .15s,opacity .15s}
+.okr .olink{stroke:var(--red);stroke-width:3;stroke-linecap:round}
+.okr .olink.halo{stroke:var(--card);stroke-width:7;pointer-events:none}
+.okr .ag.working.lit,.okr .cell.lit:not(.red),.okr .mbar.lit{fill:var(--fx-hov)}
+.okr .ag.lit{stroke:var(--fx-hov);stroke-width:2}
+.okr .cell.red.lit{stroke:var(--fx-hov);stroke-width:2}
+.fx-focus .okr .ag:not(.lit),.fx-focus .okr .cell:not(.lit),.fx-focus .okr .mbar:not(.lit){opacity:.45}
+.okr [tabindex]:focus-visible{outline:2px solid var(--fx-hov);outline-offset:2px}
+.okk .sq{display:inline-block;width:10px;height:10px;border-radius:2.5px;box-sizing:border-box}
+.okk .sq.working{background:var(--fx-a1)}.okk .sq.idle{box-shadow:inset 0 0 0 1.5px var(--fx-a1)}
+.okk .sq.red{background:var(--red)}.okk .sq.amber{background:var(--orange)}.okk .sq.out{border:1.5px dashed var(--fx-a1)}
+.okk .sq.n1{background:var(--fx-a0)}.okk .sq.n2{background:var(--fx-a1)}.okk .sq.n3{background:var(--fx-a2)}
+.tcol .xc.lit{outline:1.5px solid var(--fx-hov);outline-offset:-1.5px}
 /* Files two live threads change: the path, the faces, a state word. */
 .sfl{display:flex;flex-direction:column}
 .sf{display:grid;grid-template-columns:minmax(0,1.4fr) 64px minmax(0,1fr);align-items:center;gap:12px;width:100%;min-height:34px;margin:0;padding:0;border:0;border-top:.5px solid var(--sep);background:none;font:inherit;font-size:13px;color:var(--label);text-align:left}
@@ -1690,7 +1687,7 @@ function route(url: URL): Routed {
   // ?p=A&p=B: the projects picked in the view menu; no p is All projects.
   const picked = pickedFrom(url.searchParams);
   // fx=WxH: the size the page has for You's chart, so the river fills it (client/flow.ts fitFrom).
-  const app = (): string => renderApp({ board, picked, link, status, origin: ORIGIN, answered, projects, rules: rulesNow(), fit: fitFrom(url.searchParams) });
+  const app = (): string => renderApp({ board, picked, link, status, origin: ORIGIN, answered, projects, rules: rulesNow(), fit: fitFrom(url.searchParams), fold: url.searchParams.getAll('fold') });
   const html = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' };
   const teamPage = team.route(url);
   if (teamPage) return teamPage;

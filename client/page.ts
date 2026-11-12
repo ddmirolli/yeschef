@@ -312,64 +312,80 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   // Hover links the chart and The Pass both ways (Dan, 2026-11-11). A chart part lights what it names (data-f) in the
   // chart: every element that belongs to one of those keys (data-k). Its Pass cards light too: the cards of the threads
   // in what lit. A Pass card lights its thread's band. Only bands step back; nodes, names and cards never fade.
+  // Two charts take part: You, expanded (the Sankey) and Your team, expanded (the Open kitchen rows). A team row's parts
+  // carry p:<plate> keys, which light that thread's card in the team Pass.
   var fxNow: string | null = null, fxKeys: string[] | null = null;
+  var PART = ':is(.you, .tboard) .fx-view';
   function flowFocus(keys: string[] | null): void {
     var board = $('.board'); if (!board) return;
     fxKeys = keys;
     var key = keys ? keys.join(' ') : ''; if (key === fxNow) return; fxNow = key;
     board.classList.toggle('fx-focus', !!keys);
     var lit: Record<string, boolean> = {};
-    $$('.you .fx-view:not([hidden]) [data-k]').forEach(function(n){
+    function isCard(k: string): boolean { return k.indexOf('t:') === 0 || k.indexOf('p:') === 0; }
+    function card(k: string): void { if (isCard(k)) lit[k] = true; }
+    // What names its cards (a Pass card, a band) lights those alone: a part that holds several, such as a team's
+    // name, never passes its other cards on (PR-Agent r2 on #53).
+    var named = !!keys && keys.some(isCard);
+    $$('.you .fx-view:not([hidden]) [data-k], .tboard .fx-view [data-k]').forEach(function(n){
       var mine = (n.dataset.k || '').split(' '), on = !!keys && keys.some(function(k){ return mine.indexOf(k) >= 0; });
       n.classList.toggle('lit', on);
       // A project's logo carries every thread's key so any of them lights it; it never lights their cards in turn.
-      if (on && !n.classList.contains('glogo')) mine.forEach(function(k){ if (k.indexOf('t:') === 0) lit[k.slice(2)] = true; });
+      if (on && !named && !n.classList.contains('glogo')) mine.forEach(card);
     });
-    if (keys) keys.forEach(function(k){ if (k.indexOf('t:') === 0) lit[k.slice(2)] = true; });
-    $$('.head-b .folder[data-folder="pass"] .call-tile[data-plate]').forEach(function(t){ t.classList.toggle('lit', !!keys && !!lit[t.dataset.plate!]); });
+    if (keys) keys.forEach(card);
+    $$('.head-b .folder[data-folder="pass"] .call-tile[data-plate]').forEach(function(t){ t.classList.toggle('lit', !!keys && !!(lit['t:' + t.dataset.plate] || lit['p:' + t.dataset.plate])); });
+    $$('.tcol .xc[data-team-open]').forEach(function(t){ t.classList.toggle('lit', !!keys && !!lit['p:' + t.dataset.teamOpen]); });
   }
   function flowTip(n: Element | null, ev: MouseEvent): void {
-    var box = $('.you .fx-tip'), wrap = $('.you .fx-wrap'); if (!box || !wrap) return;
+    var wrap = (n && n.closest('.fx-wrap')) || $('.you .fx-wrap'), box = wrap && wrap.querySelector<HTMLElement>('.fx-tip');
+    $$('.fx-tip').forEach(function(b){ if (b !== box) b.hidden = true; });
+    if (!box || !wrap) return;
     var html = n && n.getAttribute('data-tip');
     box.hidden = !html; if (!html) return;
     box.innerHTML = html;
     // Beside the pointer, inside the part of the chart you can see: it flips left or up at the scroller's edge (PR-Agent
     // r1 on #49: a narrow window clipped it).
-    var r = wrap.getBoundingClientRect(), sc = (wrap.closest('.you-b') || wrap).getBoundingClientRect();
+    var r = wrap.getBoundingClientRect(), sc = (wrap.closest('.you-b, .tboard') || wrap).getBoundingClientRect();
     var x = ev.clientX + 14, y = ev.clientY + 14, w = box.offsetWidth, h = box.offsetHeight;
-    if (x + w > sc.right) x = Math.max(sc.left, ev.clientX - 14 - w);
+    var right = Math.min(sc.right, r.right), left = Math.max(sc.left, r.left);
+    if (x + w > right) x = Math.max(left, ev.clientX - 14 - w);
     if (y + h > sc.bottom) y = Math.max(sc.top, ev.clientY - 14 - h);
-    box.style.left = (x - r.left) + 'px';
-    box.style.top = (y - r.top) + 'px';
+    // The tip is placed in its wrap's own coordinates, so a wrap that scrolls adds its scroll (PR-Agent r1 on #53). The
+    // team rows scroll in an inner box, so their tip is never clipped by the scroller (r2).
+    box.style.left = (x - r.left + wrap.scrollLeft) + 'px';
+    box.style.top = (y - r.top + wrap.scrollTop) + 'px';
   }
   document.addEventListener('mouseover', function(ev){
     if (!root.classList.contains('v-kitchen')) return;
-    var t = ev.target as Element, part = t.closest && t.closest<Element>('.you .fx-view [data-f]');
+    var t = ev.target as Element, part = t.closest && t.closest<Element>(PART + ' [data-f]');
     var card = !part && t.closest && t.closest<HTMLElement>('.head-b .folder[data-folder="pass"] .call-tile[data-plate]');
-    flowFocus(part ? (part.getAttribute('data-f') || '').split(' ') : card ? ['t:' + card.dataset.plate] : null);
+    var team = !part && !card && t.closest && t.closest<HTMLElement>('.tcol .xc[data-team-open]');
+    flowFocus(part ? (part.getAttribute('data-f') || '').split(' ') : card ? ['t:' + card.dataset.plate, 'p:' + card.dataset.plate] : team ? ['p:' + team.dataset.teamOpen] : null);
     flowTip(part || null, ev);
   });
   // A keyboard reaches each project's name and, opened, each thread's band: focus lights them as hover does, and Enter
   // or Space acts as a click (PR-Agent r1 on #49). Capture, so the board's own Enter never also runs.
   document.addEventListener('focusin', function(ev){
-    var part = (ev.target as Element).closest && (ev.target as Element).closest<Element>('.you .fx-view [data-f][tabindex]');
+    var part = (ev.target as Element).closest && (ev.target as Element).closest<Element>(PART + ' [data-f][tabindex]');
     if (part) flowFocus((part.getAttribute('data-f') || '').split(' '));
   });
   document.addEventListener('focusout', function(ev){
-    var part = (ev.target as Element).closest && (ev.target as Element).closest('.you .fx-view [tabindex]');
+    var part = (ev.target as Element).closest && (ev.target as Element).closest(PART + ' [tabindex]');
     if (part) flowFocus(null);
   });
   document.addEventListener('keydown', function(ev){
     if (ev.key !== 'Enter' && ev.key !== ' ') return;
-    var part = (ev.target as Element).closest && (ev.target as Element).closest('.you .fx-view [tabindex][role=button]');
+    var part = (ev.target as Element).closest && (ev.target as Element).closest(PART + ' [tabindex][role=button]');
     if (!part || ev.metaKey || ev.ctrlKey || ev.altKey) return;
     ev.preventDefault(); ev.stopPropagation();
     part.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
   }, true);
   // The tip follows the pointer, and comes back on the next move after a refresh drew a fresh chart under it.
   document.addEventListener('mousemove', function(ev){
-    var box = $('.you .fx-tip'), t = ev.target as Element, part = t.closest && t.closest<Element>('.you .fx-view [data-f]');
-    if (box && (!box.hidden || part)) flowTip(part, ev);
+    var t = ev.target as Element, part = t.closest && t.closest<Element>(PART + ' [data-f]');
+    var open = $$('.fx-tip').some(function(b){ return !b.hidden; });
+    if (open || part) flowTip(part, ev);
   });
   var timers = new WeakMap<Element, ReturnType<typeof setTimeout>>();
   document.addEventListener('scroll', function(ev){
@@ -512,7 +528,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     var t = document.createElement('template'); t.innerHTML = html; var fresh = t.content;
     swap('.stats', fresh); swap('.pmenu', fresh); swap('.bar .lamps', fresh); swap('.stagenav', fresh, '.nav-scroll');
     // You, expanded: its columns come fresh when they change, and each keeps where you scrolled.
-    swap('.you', fresh, '.you-b'); swapAny('.team-wait', fresh, '.head'); swapAny('.tboard', fresh, '.head', '.you-b, .tl-s'); swap('.head', fresh, '.head-b');
+    swap('.you', fresh, '.you-b'); swapAny('.team-wait', fresh, '.head'); swapAny('.tboard', fresh, '.head', '.you-b, .ok-wrap'); swap('.head', fresh, '.head-b');
     swap('#yc-projects', fresh); swapAny('#yc-team', fresh, '#plates'); swap('#yc-rules-now', fresh); if (typeof krLive === 'function') krLive();
     // A card's "Not confirmed" line is the page's own. A list kept from the last refresh still has it, so it goes here,
     // and decorate() and markSent() put back the ones still true, as they did on a new copy.
@@ -1265,15 +1281,37 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
       if (!nav.hasAttribute('data-nc') && !ticked.some(gone) && ticked.length === boxes.filter(function(b){ return !gone(b); }).length) names = null;
     }
     drawPicked(names);
-    var q = names ? '?' + names.map(function(n){ return 'p=' + encodeURIComponent(n); }).join('&') : '';
+    var q = withPicked(names);
     if (q === location.search) return;
     history.pushState(null, '', location.pathname + q); state.sel = null; wake();
+  }
+  // The address with these picks (null: All projects) and every other parameter kept, so a pick never unfolds a
+  // folded team (PR-Agent r2 on #53).
+  function withPicked(names: string[] | null): string {
+    var out = new URLSearchParams();
+    new URLSearchParams(location.search).forEach(function(v, k){ if (k !== 'p') out.append(k, v); });
+    var rest = out.toString();
+    var picks = names ? names.map(function(n){ return 'p=' + encodeURIComponent(n); }).join('&') : '';
+    var all = [picks, rest].filter(Boolean).join('&');
+    return all ? '?' + all : '';
+  }
+  // A folded team is a URL parameter, so a refresh draws it folded too.
+  function toggleFold(id: string): void {
+    if (!id) return;
+    var q = new URLSearchParams(location.search), on = q.getAll('fold');
+    var next = on.indexOf(id) >= 0 ? on.filter(function(x){ return x !== id; }) : on.concat(id);
+    var out = new URLSearchParams();
+    q.forEach(function(v, k){ if (k !== 'fold') out.append(k, v); });
+    next.forEach(function(x){ out.append('fold', x); });
+    var qs = out.toString();
+    flowFocus(null);
+    history.replaceState(history.state, '', location.pathname + (qs ? '?' + qs : '')); wake();
   }
   // A project clicked in You's chart: that project alone, as if picked in the menu.
   function pickOnly(name: string): void {
     if (!name) return;
     drawPicked([name]);
-    var q = '?p=' + encodeURIComponent(name);
+    var q = withPicked([name]);
     if (q === location.search) return;
     history.pushState({ fxPick: 1 }, '', location.pathname + q); state.sel = null; wake();
   }
@@ -1519,6 +1557,9 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     if (sc) { setScope(sc.dataset.scope!); return; }
     // The chart: a project opens its threads, ‹ All projects goes back. A thread's band carries data-plate, so a click
     // on it opens the ticket below, as its card does.
+    // Your team, expanded: a sub-lead's name folds their team into one row and back.
+    var fo = t.closest<Element>('.tboard [data-fold]');
+    if (fo) { toggleFold(fo.getAttribute('data-fold') || ''); return; }
     var dr = t.closest<Element>('.you [data-drill]');
     if (dr) { var tp = $('.you .fx-tip'); if (tp) tp.hidden = true; pickOnly(dr.getAttribute('data-drill') || ''); return; }
     if (t.closest('.you [data-unpick]')) { unpick(); return; }

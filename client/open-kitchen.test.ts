@@ -1,7 +1,7 @@
 // Open kitchen, the Your team view (step 4). Run: vp test run open-kitchen.test.ts, in client/
 import { test } from 'vite-plus/test';
 import assert from 'node:assert/strict';
-import { openKitchen, kitchenBoard, callId, below, reporting, reach, sortCalls, may, RULES } from './open-kitchen.ts';
+import { openKitchen, kitchenBoard, areaOf, callId, below, reporting, reach, sortCalls, may, RULES } from './open-kitchen.ts';
 import type { Kind, OpenKitchen, TeamCall, TeamView } from './open-kitchen.ts';
 import { fixtureView } from './open-kitchen.fixture.ts';
 import { renderApp } from './board.ts';
@@ -217,7 +217,7 @@ test('the thresholds are the brief’s defaults', () => {
 });
 
 // ---- The screens ----
-const page = (team: TeamInput | null) => renderApp({ board: { tickets: [], runsChecked: false }, link: () => 'x', status: { ok: true, at: NOW, ms: 1 }, origin: 'https://t3.example', team });
+const page = (team: TeamInput | null, more: { picked?: string[]; fold?: string[] } = {}) => renderApp({ board: { tickets: [], runsChecked: false }, link: () => 'x', status: { ok: true, at: NOW, ms: 1 }, origin: 'https://t3.example', team, ...more });
 
 test('Your team draws The Pass’s calls, the rail card, the quiet line and a reader for each', () => {
   const html = page({ view: viewL(), now: NOWL });
@@ -394,7 +394,7 @@ test('review r4: any odd value at any place in a summary still draws the page', 
     assert.doesNotThrow(() => { html = page({ view: v, now: NOW }); }, `${path.join('.')} = ${JSON.stringify(bad)}`);
     assert.ok(!html.includes('<b>x</b>'), path.join('.'));
   }
-});
+}, 30000); // About 4,000 whole pages: a busy machine takes past the 5 s default.
 
 test('review r4: a picked project narrows the team’s calls; a red base with no cause names its repo', () => {
   const v = view();
@@ -461,20 +461,77 @@ test('expanded: the instruments from the made-up team', () => {
   assert.deepEqual(B.agents, { count: 20, threads: 12, gap: { away: 1, capped: 0 } });
 });
 
-test('expanded: Who’s on what puts In The Pass first, links the Overlap, and hatches a quiet Mac', () => {
-  const B = board(viewL());
-  const T = B.timeline;
-  assert.deepEqual(T.rows.map((r) => r.state).filter((s, i, a) => a.indexOf(s) === i), ['pass', 'alarm', 'quiet', 'track']);
-  const lee = one(T.rows, (r) => r.person === 'lee', 'lee');
-  assert.equal(lee.quiet?.since, agoL(122));
-  assert.equal(lee.bars[0]?.end, agoL(122), 'a quiet dev’s bar stops at their last report');
-  assert.equal(lee.bars[0]?.call?.kind, 'waiting');
-  const ravi = one(T.rows, (r) => r.person === 'ravi', 'ravi');
-  assert.deepEqual(ravi.bars.map((b) => [b.title, b.call?.kind || null, b.merged !== null]), [['Updater channel picker', 'main', true], ['Nightly icon', null, false]]);
-  assert.equal(one(T.rows, (r) => r.person === 'ben', 'ben').bars[0]?.call?.mine, false, 'Ben holds their own alarm');
-  assert.deepEqual(T.links.map((l) => [l.a, l.b, l.file]), [['kai', 'jon', 'contracts/src/orchestration.ts']]);
-  assert.ok(T.rows.every((r) => r.bars.every((b) => b.start >= T.from && b.end <= T.to && b.start <= b.end)));
+test('expanded: Who’s on what is one row per person: their live agents, a quiet Mac, the Overlap link', () => {
+  const R = board(viewL()).rows;
+  assert.equal(R.people.length, 14, 'everyone, whatever they do');
+  const kai = one(R.people, (r) => r.person === 'kai', 'kai');
+  assert.deepEqual(kai.agents.map((a) => [a.title, a.working, a.call?.kind ?? null, a.call?.mine ?? null, a.areas]), [['Pin threads to the sidebar', true, 'overlap', true, ['contracts', 'web']]]);
+  // A merged thread is not an agent at work: Ravi's merged picker leaves only the Nightly icon.
+  assert.deepEqual(one(R.people, (r) => r.person === 'ravi', 'ravi').agents.map((a) => a.title), ['Nightly icon']);
+  assert.equal(one(R.people, (r) => r.person === 'ben', 'ben').agents[0]?.call?.mine, false, 'Ben holds their own alarm');
+  const lee = one(R.people, (r) => r.person === 'lee', 'lee');
+  assert.deepEqual([lee.quiet?.since, lee.agents.length], [agoL(122), 0], 'a quiet Mac draws no agents: what it runs now is not known');
+  // A thread that sent no file list has no areas, so it lights no column.
+  assert.equal(one(R.people, (r) => r.person === 'tom', 'tom').agents[0]?.areas, null);
+  assert.deepEqual(R.columns.map((c) => `${c.project}:${c.area}`), ['Fernpay:apps/web', 'Fernpay:packages/contracts', 'Fernpay:packages/export', 'Fernpay:root', 'Loopline:contracts', 'Loopline:web']);
+  assert.deepEqual(R.links.map((l) => [l.a, l.b, l.project, l.area, l.path]), [['kai', 'jon', 'Loopline', 'contracts', 'contracts/src/orchestration.ts']]);
+  assert.equal(R.labs, null, 'no summary names the model, so Agents by lab is not checked');
+  assert.deepEqual(R.pods, []);
 });
+
+test('a code area is the top folder, or the package under a workspace folder; a file at the root is root', () => {
+  assert.equal(areaOf('contracts/src/orchestration.ts'), 'contracts');
+  assert.equal(areaOf('packages/export/src/table.ts'), 'packages/export');
+  assert.equal(areaOf('apps/web/src/a.tsx'), 'apps/web');
+  assert.equal(areaOf('packages/README.md'), 'packages');
+  assert.equal(areaOf('pnpm-lock.yaml'), 'root');
+  assert.equal(areaOf('/web/x.ts'), 'web');
+});
+
+test('expanded: the rows draw a square per agent, cells per area, and no line but the Overlap (Dan, 2026-11-12)', () => {
+  const html = page({ view: viewL(), now: NOWL });
+  const svg = grab(html, /<svg class="fx okr"[^]*?<\/svg>/);
+  assert.equal((svg.match(/<rect class="ag /g) || []).length, 13, 'one square per live agent; Lee is quiet');
+  assert.equal((svg.match(/<rect class="ag red"/g) || []).length, 2, 'Kai and Jon: the Overlap');
+  assert.equal((svg.match(/<rect class="ag amber"/g) || []).length, 4, 'Ben, Iris, Nina, Omar');
+  assert.equal((svg.match(/<rect class="ag idle"/g) || []).length, 1, 'Tom');
+  // The only lines: the project rules over their columns, and the Overlap with its halo.
+  const lines = [...svg.matchAll(/<line class="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(lines, ['pjrule', 'pjrule', 'olink halo', 'olink']);
+  assert.match(svg, /Not reporting since \d\d:\d\d/);
+  // Red only where the shared file is: Kai's and Jon's contracts cells; Kai's web cell stays gray.
+  assert.equal((svg.match(/<rect class="cell red"/g) || []).length, 2);
+  assert.match(svg, /<rect class="cell n1" data-k="c:kai:5 /);
+  // A square whose call is in The Pass opens that call, as its card does, and lights it: both carry its plate.
+  const opens = [...svg.matchAll(/<rect class="ag [^"]*" data-team-open="([^"]+)"[^>]*? data-k="([^"]+)"/g)];
+  assert.equal(opens.length, 5, 'Kai, Jon, Iris, Nina, Omar: the calls in The Pass');
+  for (const [, id, k] of opens) {
+    assert.ok(k!.split(' ').includes(`p:${id}`));
+    assert.ok(html.includes(`<div class="xc" role="listitem" data-team-open="${id}">`), id);
+  }
+  assert.ok(html.includes('<span>Agents by lab: not checked</span>'));
+});
+
+test('expanded: a sub-lead’s team folds into one row, and the rows keep their places', () => {
+  const v = viewL();
+  // Kai leads Jon and Ada; everyone else reports to me.
+  for (const p of v.people) p.under = p.id === 'jon' || p.id === 'ada' ? 'kai' : v.me.id;
+  const R = board(v).rows;
+  assert.deepEqual(R.pods, [{ lead: 'kai', members: ['kai', 'ada', 'jon'] }]);
+  const open = page({ view: v, now: NOWL }), shut = page({ view: v, now: NOWL }, { fold: ['kai'] });
+  const svgOf = (h: string) => grab(h, /<svg class="fx okr"[^]*?<\/svg>/);
+  assert.match(svgOf(open), /data-fold="kai" aria-expanded="true"/);
+  assert.match(svgOf(open), />3 agents · 1 call</, 'Kai and Jon share one Overlap: one call');
+  assert.match(svgOf(shut), /data-fold="kai" aria-expanded="false"/);
+  const names = (h: string) => [...svgOf(h).matchAll(/<text class="rowname[^"]*"[^>]*>([^<]+)</g)].map((m) => m[1]);
+  // The team sits where its lead's name sorts: the lead first, then the rest by name, each indented.
+  const at = names(open).indexOf('▾ Kai’s team');
+  assert.deepEqual(names(open).slice(at - 1, at + 5), ['Iris', '▾ Kai’s team', 'Kai', 'Ada', 'Jon', 'Lee']);
+  assert.ok(!names(shut).includes('Ada') && !names(shut).includes('Jon'), 'folded: the team is one row');
+  // The Overlap is inside the folded team: one row, so no line.
+  assert.ok(!svgOf(shut).includes('class="olink'));
+});
+
 
 test('expanded: files two live threads change, same lines first', () => {
   const F = board(viewL()).files;
@@ -500,17 +557,20 @@ test('expanded: what no summary says stays not checked, never a guess', () => {
   // A thread with no start time is counted, not drawn; work merged before today is not drawn at all.
   v = viewL();
   delete ticket(v, 'tom').startedAt;
-  const tom = one(board(v).timeline.rows, (r) => r.person === 'tom', 'tom');
-  assert.deepEqual([tom.bars.length, tom.untimed], [0, 1]);
+  assert.equal(one(board(v).rows.people, (r) => r.person === 'tom', 'tom').agents.length, 1, 'an agent needs no start time');
   v = viewL();
   who(v, 'maya').summary.tickets[1].prs[0].mergedAt = new Date(NOWL - 30 * 60 * MIN).toISOString();
-  assert.equal(one(board(v).timeline.rows, (r) => r.person === 'maya', 'maya').bars.length, 1);
+  assert.equal(one(board(v).rows.people, (r) => r.person === 'maya', 'maya').merged, 0, 'merged yesterday is not merged today');
   assert.equal(kitchenBoard(openKitchen({ ...viewL(), link: 'offline' }, { now: NOWL }), { now: NOWL }), null);
 });
 
 test('expanded: a picked project narrows the board', () => {
   const B = board(viewL(), new Set(['Quillo']));
-  assert.deepEqual(B.timeline.rows.map((r) => r.person).sort(), ['elena', 'lee', 'nina', 'tom']);
+  // Rows never move: everyone stays; work outside the project is drawn dashed and lights no column.
+  assert.equal(B.rows.people.length, 14);
+  assert.deepEqual(B.rows.people.flatMap((r) => r.agents.filter((a) => !a.out).map(() => r.person)).sort(), ['elena', 'nina', 'tom']);
+  assert.deepEqual(B.rows.columns, []);
+  assert.ok(page({ view: viewL(), now: NOWL }, { picked: ['Quillo'] }).includes('Other projects'));
   assert.equal(B.base.state, null, 'the red base is in another project’s repo');
   assert.equal(B.merged.count, 0);
   assert.equal(B.files.rows.length, 0);
@@ -544,10 +604,10 @@ test('expanded: the page draws the board and The Pass as a column; each opens a 
   assert.ok(opens.length > 12);
   for (const id of new Set(opens)) assert.ok(html.includes(`<article class="plate team-plate" id="${id}"`), id);
   // Every colour carries a word: the legend says what red and amber mean.
-  for (const w of ['working', 'merged', 'red: act now', 'amber: decide soon', 'not reporting']) assert.ok(html.includes(w), w);
+  for (const w of ['Working', 'Idle', 'Act now', 'Decide soon', 'Not reporting', 'Merged today']) assert.ok(html.includes(w), w);
   // Lee's Mac is not reporting, so Merged today may be low: it says at least, and why.
   assert.ok(html.includes('<b>5</b><span>at least</span>'));
-  assert.ok(html.includes(`Mac quiet since ${hmOf(agoL(122))}`));
+  assert.ok(html.includes(`Not reporting since ${hmOf(agoL(122))}`));
   assert.ok(html.includes('6 need you, most urgent first.'));
   // The suggestion button is the call's first action, and only for a role that may take it.
   assert.match(html, /data-team-act="rollback">Roll back #431</);
@@ -596,15 +656,6 @@ test('r1: a merged PR with no time makes the count a floor, never dropped', () =
   assert.ok(page({ view: v, now: NOWL }).includes('Not counted: 1 merge with no time, 1 Mac not reporting'));
 });
 
-test('r1: a call’s word is inside its bar, so a click on the word opens the call', () => {
-  const html = page({ view: viewL(), now: NOWL });
-  const tags = (html.match(/<span class="tltag /g) || []).length;
-  const inBar = /<(button|span) (?:type="button" )?class="tlb[^"]*"[^>]*>(?:<span class="tlt">[^<]*<\/span>)?<span class="tltag [^>]*>[^<]*<\/span><\/\1>/g;
-  const inButton = [...html.matchAll(inBar)].filter((m) => m[1] === 'button').length;
-  assert.ok(tags > 0);
-  assert.equal([...html.matchAll(inBar)].length, tags, 'every tag is inside its bar');
-  assert.ok(inButton > 0, 'a call in The Pass: the bar and its word are one button');
-});
 
 // ---- PR B, PR-Agent round 2 ----
 test('r2: a thread that sent only part of its files is counted, so a clear list says so', () => {
@@ -630,19 +681,14 @@ test('r2: a Mac that is not reporting makes Waiting for review and Agents runnin
   assert.equal(board(viewL(), new Set(['Quillo'])).review.gap.away, 1);
 });
 
-test('r2: a Mac quiet since before the window draws from the window’s edge and keeps its real time', () => {
+test('r2: a Mac quiet since an earlier day says the day, never an hour that reads as today', () => {
   const v = viewL();
   const lee = who(v, 'lee');
   lee.lastSeen = NOWL - 20 * 60 * MIN;
   lee.at = lee.lastSeen;
-  const T = board(v).timeline;
-  assert.ok(Number(one(T.rows, (r) => r.person === 'lee', 'lee').quiet?.since) < T.from);
-  const html = page({ view: v, now: NOWL });
-  const band = html.match(/<span class="tlb off clip" style="[^"]*left:([0-9.]+)%[^"]*">Mac quiet since ([^<]+)</);
-  assert.ok(band, 'the band is clipped at the window');
-  assert.equal(Number(band[1]), 0);
-  assert.equal(band[2], new Date(NOWL - 20 * 60 * MIN).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }));
+  assert.ok(page({ view: v, now: NOWL }).includes(`Not reporting since ${new Date(NOWL - 20 * 60 * MIN).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`));
 });
+
 
 // ---- PR B, PR-Agent round 3 ----
 test('r3: a summary that left threads out makes every team count say so', () => {
@@ -677,14 +723,16 @@ test('r4: a Mac whose summary left threads out qualifies the shared files list t
 });
 
 // ---- PR B, PR-Agent round 5 ----
-test('r5: a merged thread with one PR of no merge time has no known end, so it is not drawn as merged early', () => {
+test('r5: a merged thread with one PR of no merge time has no known end, so it is not counted as merged today', () => {
   const v = viewL();
   const maya = who(v, 'maya').summary.tickets.find((k: Wire) => k.place === 'Merged');
-  const first = one(board(v).timeline.rows, (r) => r.person === 'maya', 'maya').bars.find((b) => b.thread === maya.thread);
-  assert.ok(first && first.merged !== null);
+  assert.equal(one(board(v).rows.people, (r) => r.person === 'maya', 'maya').merged, 1);
   maya.prs.push({ ...maya.prs[0], n: 999, mergedAt: null });
-  assert.equal(one(board(v).timeline.rows, (r) => r.person === 'maya', 'maya').bars.find((b) => b.thread === maya.thread), undefined);
+  const maya2 = one(board(v).rows.people, (r) => r.person === 'maya', 'maya');
+  assert.deepEqual([maya2.merged, maya2.floor], [1, true], 'the timed merge counts; the untimed one makes it at least (PR-Agent r3 on #53)');
+  assert.match(grab(page({ view: v, now: NOWL }), /<svg class="fx okr"[^]*?<\/svg>/), />at least 1</);
 });
+
 
 test('r5: checked changes with no repo are not checked, never counted as read', () => {
   const v = viewL();
@@ -738,12 +786,13 @@ test('r8: one repo with two base branches reads as one repo and two branches, ne
   assert.match(page({ view: v, now: NOWL }), /<b class="red">Red<\/b><span>since [0-9:]+, fernpay main and fernpay release<\/span>/);
 });
 
-test('r8: a call’s word may shorten, and never leaves its bar', async () => {
+test('r8: the rows chart scrolls across inside its panel and keeps the scroll over a refresh', async () => {
   const { readFileSync } = await import('node:fs');
   const css = readFileSync(new URL('./server.ts', import.meta.url), 'utf8');
-  assert.ok(css.includes('.tlb:has(.tltag){display:flex;padding-right:0;overflow:hidden}'));
-  assert.ok(css.includes('.tlb .tltag{position:static;flex:0 1 auto;min-width:0;'));
+  assert.ok(css.includes('.ok-box{position:relative}.ok-wrap{overflow-x:auto;'));
+  assert.ok(readFileSync(new URL('./page.ts', import.meta.url), 'utf8').includes("swapAny('.tboard', fresh, '.head', '.you-b, .ok-wrap')"));
 });
+
 
 // ---- PR B, PR-Agent round 9 ----
 test('r9: in a picked project, a PR whose copy there says open is counted as merged when another copy says so', () => {
@@ -788,13 +837,6 @@ test('r11: checked changes with no base branch are not checked, never counted as
   assert.ok(!F.rows.some((f) => f.path === 'web/src/sidebar.tsx'));
 });
 
-test('the axis drops an hour label that would run into now, and keeps its grid line', () => {
-  const at = new Date(2026, 10, 10, 16, 6).getTime();
-  const html = page({ view: fixtureView(at), now: at });
-  const axis = grab(html, /<div class="tlax">[^]*?<\/div><\/div>/);
-  assert.ok(!axis.includes('>16:00<'), 'six minutes before now: no label');
-  assert.ok(axis.includes('>15:00<'));
-});
 
 // ---- PR B, PR-Agent round 13 ----
 test('r13: a merge is credited to the person whose copy says merged, not the first that mentions it', () => {
@@ -834,12 +876,121 @@ test('r15: a copy that leaves out readyAt never hides another copy\'s time for t
   assert.deepEqual(R.ages, R0.ages);
 });
 
-// ---- 2026-11-12: the now label ----
-test('the now label sits left of its line, inside the chart, never past the edge', async () => {
+test('a click on a sub-lead’s team folds it: the page keeps the fold in the address and draws again', async () => {
+  const vm = await import('node:vm');
+  const { pageScript } = await import('./test/served.ts');
+  const src = pageScript();
+  assert.match(src, /closest\s*(?:<Element>)?\s*\('\.tboard \[data-fold\]'\);\s*if \(fo\) \{ toggleFold\(fo\.getAttribute\('data-fold'\) \|\| ''\); return; \}/);
+  const fn = grab(src, /function toggleFold[\s\S]*?\n {2}\}/);
+  const calls: string[] = [];
+  const ctx = vm.createContext({ URLSearchParams, location: { pathname: '/', search: '?p=Fernpay&fold=ben' }, history: { state: null, replaceState: (_s: unknown, _t: string, u: string) => { calls.push(u); ctx.location.search = u.slice(1); } }, wake: () => calls.push('wake'), flowFocus: () => {} });
+  vm.runInContext(fn, ctx);
+  vm.runInContext("toggleFold('kai')", ctx);
+  vm.runInContext("toggleFold('ben')", ctx);
+  vm.runInContext("toggleFold('')", ctx);
+  assert.deepEqual(calls, ['/?p=Fernpay&fold=ben&fold=kai', 'wake', '/?p=Fernpay&fold=kai', 'wake']);
+});
+
+// ---- Open kitchen rows, PR-Agent round 1 (#53) ----
+test('rows r1: a Mac Yes Chef cannot read shows Not checked for agents and merges, never 0', () => {
+  const v = viewL();
+  Object.assign(who(v, 'sam'), { summary: null, at: null, lastSeen: null });
+  const sam = one(board(v).rows.people, (r) => r.person === 'sam', 'sam');
+  assert.deepEqual([sam.known, sam.agents.length, sam.merged], [false, 0, null]);
+  const svg = grab(page({ view: v, now: NOWL }), /<svg class="fx okr"[^]*?<\/svg>/);
+  assert.match(svg, /Agents and merges not checked/);
+  assert.ok(!svg.includes('0 of 0 agents'));
+});
+
+test('rows r1: a square that opens its call is a button a keyboard reaches', () => {
+  const svg = grab(page({ view: viewL(), now: NOWL }), /<svg class="fx okr"[^]*?<\/svg>/);
+  const btns = [...svg.matchAll(/<rect class="ag [^"]*" data-team-open="[^"]+" tabindex="0" role="button" aria-label="Open the call: ([^"]+)"/g)].map((m) => m[1]);
+  assert.equal(btns.length, 5);
+  assert.ok(btns.includes('Group threads by parent, Overlap'));
+});
+
+test('rows r1: an Overlap side that waits keeps its cell, so the link has both ends', () => {
+  const v = viewL();
+  ticket(v, 'jon').working = 0;
+  const svg = grab(page({ view: v, now: NOWL }), /<svg class="fx okr"[^]*?<\/svg>/);
+  assert.match(svg, /<rect class="cell red" data-k="c:jon:4 /);
+  assert.equal((svg.match(/<line class="olink"/g) || []).length, 1);
+});
+
+test('rows r1: a folded team keeps its people’s calls, and shades a cell as a person’s cell would', () => {
+  const v = viewL();
+  // Kai leads Jon and Iris: Iris's Too big is in The Pass, and folding must not lose it.
+  for (const p of v.people) p.under = p.id === 'jon' || p.id === 'iris' ? 'kai' : v.me.id;
+  const svg = grab(page({ view: v, now: NOWL }, { fold: ['kai'] }), /<svg class="fx okr"[^]*?<\/svg>/);
+  const k = grab(svg, /<text class="rowname strong" role="button" tabindex="0" data-fold="kai"[^>]*>/);
+  assert.equal((k.match(/p:p-[0-9a-f]{12}/g) || []).length, 2, 'the Overlap and the Too big');
+  // Two of the team's agents in Loopline contracts: n2, as two agents of one person would be.
+  assert.match(svg, /<rect class="cell red" data-k="pc:kai:4 /);
+  const v2 = viewL();
+  for (const p of v2.people) p.under = p.id === 'ada' ? 'kai' : v2.me.id;
+  const svg2 = grab(page({ view: v2, now: NOWL }, { fold: ['kai'] }), /<svg class="fx okr"[^]*?<\/svg>/);
+  assert.match(svg2, /<rect class="cell n2" data-k="pc:kai:5 /, 'Kai and Ada both in Loopline web');
+});
+
+test('rows r1: the tip counts the rows’ sideways scroll', async () => {
   const { readFileSync } = await import('node:fs');
-  const css = readFileSync(new URL('./server.ts', import.meta.url), 'utf8');
-  const rule = grab(css, /\.tl \.now span\{[^}]*\}/);
-  assert.match(rule, /right:4px/);
-  assert.doesNotMatch(rule, /left:/);
-  assert.match(rule, /white-space:nowrap/);
+  const src = readFileSync(new URL('./page.ts', import.meta.url), 'utf8');
+  assert.match(src, /box\.style\.left = \(x - r\.left \+ wrap\.scrollLeft\) \+ 'px';/);
+  assert.match(src, /box\.style\.top = \(y - r\.top \+ wrap\.scrollTop\) \+ 'px';/);
+});
+
+// ---- Open kitchen rows, PR-Agent round 2 (#53) ----
+test('rows r2: a quiet Mac’s merges are a floor: at least n, and a 0 is not checked', () => {
+  const v = viewL();
+  const R = board(v).rows;
+  const lee = one(R.people, (r) => r.person === 'lee', 'lee');
+  assert.deepEqual([lee.merged, lee.floor], [0, true]);
+  const svg = grab(page({ view: v, now: NOWL }), /<svg class="fx okr"[^]*?<\/svg>/);
+  assert.match(svg, /<text class="rowname"[^>]*data-tip="[^"]*Lee[^"]*not checked merged today/);
+  const sam = who(v, 'sam'); Object.assign(sam, { online: false, lastSeen: agoL(60), at: agoL(60) });
+  const svg2 = grab(page({ view: v, now: NOWL }), /<svg class="fx okr"[^]*?<\/svg>/);
+  assert.match(svg2, />at least 2</);
+});
+
+test('rows r2: a call with no agent at work lights its person’s name: Ravi’s merge broke main', () => {
+  const v = viewL();
+  const ravi = one(board(v).rows.people, (r) => r.person === 'ravi', 'ravi');
+  assert.deepEqual(ravi.calls.map((c) => c.kind), ['main']);
+  const html = page({ view: v, now: NOWL });
+  const svg = grab(html, /<svg class="fx okr"[^]*?<\/svg>/);
+  const name = grab(svg, /<text class="rowname" tabindex="0" data-k="d:ravi [^"]*"/);
+  const plate = grab(name, /p:(p-[0-9a-f]{12})/).slice(2);
+  assert.ok(html.includes(`<div class="xc" role="listitem" data-team-open="${plate}">`));
+});
+
+test('rows r2: a pick keeps the folds; the rows’ tip sits outside their scroller', async () => {
+  const { readFileSync } = await import('node:fs');
+  const vm = await import('node:vm');
+  const { pageScript } = await import('./test/served.ts');
+  const fn = grab(pageScript(), /function withPicked[\s\S]*?\n {2}\}/);
+  const ctx = vm.createContext({ URLSearchParams, location: { search: '?p=A&fold=kai&fx=860x600' } });
+  vm.runInContext(fn, ctx);
+  assert.equal(vm.runInContext("withPicked(['B', 'C d'])", ctx), '?p=B&p=C%20d&fold=kai&fx=860x600');
+  assert.equal(vm.runInContext('withPicked(null)', ctx), '?fold=kai&fx=860x600');
+  ctx.location.search = '?p=A';
+  assert.equal(vm.runInContext('withPicked(null)', ctx), '');
+  const src = readFileSync(new URL('./page.ts', import.meta.url), 'utf8');
+  assert.equal((src.match(/withPicked\(/g) || []).length, 3, 'defined once, used by the menu and the chart click');
+  assert.match(page({ view: viewL(), now: NOWL }), /<div class="fx-wrap ok-box"><div class="ok-wrap"><div class="fx-view"><svg[^]*?<\/svg><\/div><\/div><div class="fx-tip" hidden><\/div><\/div>/);
+});
+
+// ---- Open kitchen rows, PR-Agent round 3 (#53) ----
+test('rows r3: a team with a member not checked counts at least; the longest merged label stays on the chart', () => {
+  const v = viewL();
+  for (const p of v.people) p.under = p.id === 'sam' ? 'kai' : v.me.id;
+  Object.assign(who(v, 'sam'), { summary: null, at: null, lastSeen: null });
+  const svg = grab(page({ view: v, now: NOWL }), /<svg class="fx okr"[^]*?<\/svg>/);
+  assert.match(svg, />at least 1 agent · 1 call</);
+  assert.match(svg, /working, and a Mac not checked/);
+  // A quiet Mac with the most merges: its bar leaves room for "at least 2" inside the 860 view.
+  const w = viewL();
+  Object.assign(who(w, 'sam'), { online: false, lastSeen: agoL(60), at: agoL(60) });
+  const s2 = grab(page({ view: w, now: NOWL }), /<svg class="fx okr"[^]*?<\/svg>/);
+  const x = Number(grab(s2, /<text class="mnum" x="([0-9.]+)"[^>]*>at least 2</).match(/x="([0-9.]+)"/)![1]);
+  assert.ok(x + 'at least 2'.length * 6.2 <= 860, `label ends at ${x + 62}`);
 });
