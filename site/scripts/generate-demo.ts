@@ -141,6 +141,7 @@ export function createLive({ onChange }) {
   // switch it to French Brigade (site/src/pages/demo/team.astro).
   const teamKitchen = createKitchen({ where: (dir) => ({ icon: `icons/${dir}.svg` }), shot: (name) => `img/${name}-dark.png`, later: null, team: 'open' });
   const main = html.indexOf('<main id="app">') + 15, end = html.indexOf('</main>');
+  if (main < 15 || end < main) throw new Error('app.html has no <main id="app"> to draw the team into');
   const team = html.slice(0, main).replace('<title>Yes Chef demo</title>', '<title>Yes Chef for teams demo</title>') + teamKitchen.page('') + html.slice(end);
   for (const want of ['<title>Yes Chef for teams demo</title>', 'id="yc-team"', '"mode":"open"']) if (!team.includes(want)) throw new Error(`team.html is missing ${want}`);
   writeFileSync(join(DEMO, 'team.html'), team);
