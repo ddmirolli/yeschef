@@ -4,11 +4,14 @@
 // Input: the team as client/team.ts Team.view() gives it (3b). The summary fields this reads beyond 3b's v1
 // (bases, seen, and per ticket startedAt, last, ask, changes, prs[].mergedAt/size/checks/draft) are PROPOSED: agreed
 // with 3b and landing in its PR 4. The board (PR B) proposes two more: prs[].readyAt (when a PR was marked ready for
-// review) and changes.at (when its changed files were read). Every one is optional. Whatever a summary lacks is "Not checked": no call is raised
+// review) and changes.at (when its changed files were read). The flow program adds prs[].reviewers (who reviews an open
+// PR, client/reviewers.ts). Every one is optional. Whatever a summary lacks is "Not checked": no call is raised
 // from a guess, and nothing old is shown as live.
 //
 // The words are the locked ones (docs/pass-definitions-v1_0.md): The Pass, Seen, Overlap. The thresholds are the
 // proposed defaults; Rules will set them per project.
+
+import { cleanReviewers, type Reviewer } from './reviewers.ts';
 
 /** Outside data from a teammate's summary, before it is cleaned. */
 type Raw = Record<string, unknown>;
@@ -28,7 +31,9 @@ export interface CheckRun { at: number | null; result: string | null }
 export interface PrChecks { result: string | null; redRuns: number | null; runs: CheckRun[] }
 /** A teammate's PR, cleaned: every field its own type, or null when the summary does not say (not checked). */
 export interface TeamPr { repo: string; n: number; state: string | null; url: string | null; base: string | null; draft: boolean;
-  mergedAt: number | null; mergeSha: string | null; readyAt: number | null; size: PrSize | null; checks: PrChecks | null }
+  mergedAt: number | null; mergeSha: string | null; readyAt: number | null; size: PrSize | null; checks: PrChecks | null;
+  /** Who reviews it (client/reviewers.ts), or null: not checked. */
+  reviewers: Reviewer[] | null }
 export interface TeamAsk { at: number | null; q: string | null; rec: string | null; options: { k: string | null; t: string | null }[] }
 export interface ChangedFile { p: string | null; r: Range[] | null; a: number | null; d: number | null; x: boolean }
 export interface TeamChanges { state: string | null; at: number | null; repo: string | null; base: string | null; mergeBase: string | null;
@@ -125,7 +130,8 @@ function cleanTicket(k: Raw): TeamTicket {
     return { repo: x.repo, n: x.n, state: str(x.state), url: str(x.url), base: str(x.base), draft: x.draft === true,
       mergedAt: ms(x.mergedAt), mergeSha: str(x.mergeSha), readyAt: ms(x.readyAt),
       size: size ? { files: num(size.files), added: num(size.added), removed: num(size.removed), overAt: ms(size.overAt) } : null,
-      checks: checks ? { result: str(checks.result), redRuns: num(checks.redRuns), runs: arr(checks.runs).map((r) => ({ at: ms(r.at), result: str(r.result) })) } : null };
+      checks: checks ? { result: str(checks.result), redRuns: num(checks.redRuns), runs: arr(checks.runs).map((r) => ({ at: ms(r.at), result: str(r.result) })) } : null,
+      reviewers: cleanReviewers(x.reviewers) };
   };
   const c = obj(k.changes);
   const a = obj(k.ask);

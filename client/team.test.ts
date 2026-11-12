@@ -2025,6 +2025,7 @@ test('summary fields for 4b: PR runs and ready time, merge commit, Too big since
   const link = { repository: 'acme/app', number: 12, state: 'open', url: 'https://github.com/acme/app/pull/12', base: 'main', draft: false };
   const run = (i: number, result: string) => ({ at: AT - (20 - i) * 60000, sha: String(i).padStart(40, 'a'), title: `commit ${i} ${'x'.repeat(200)}`, result });
   const runs = { state: 'checked', at: AT, readyAt: AT - 3600000, mergeSha: null,
+    reviewers: [{ who: 'ada', team: false, state: 'approved', at: AT - 60000 }, { who: 'not a login', team: false, state: 'approved', at: AT }, { who: 'acme/payments', team: true, state: 'requested', at: null }],
     checks: { result: 'failing', redRuns: 3, at: AT, runs: Array.from({ length: 12 }, (_, i) => run(i, i > 8 ? 'failing' : 'passing')) } };
   const open = summaryPr(link, { state: 'checked', at: AT, base: 'main', draft: false, size: { files: 2, added: 30, removed: 1 }, runs });
   assert.equal(open.readyAt, AT - 3600000);
@@ -2033,12 +2034,14 @@ test('summary fields for 4b: PR runs and ready time, merge commit, Too big since
   assert.equal(open.checks!.runs.length, 10, 'the last 10');
   assert.deepEqual(open.checks!.runs.at(-1), { at: AT - 9 * 60000, sha: String(11).padStart(40, 'a'), title: `commit 11 ${'x'.repeat(70)}`, result: 'failing' });
   assert.equal(open.mergeSha, undefined, 'an open PR has no merge commit');
+  assert.deepEqual(open.reviewers, [{ who: 'ada', team: false, state: 'approved', at: AT - 60000 }, { who: 'acme/payments', team: true, state: 'requested', at: null }]);
+  assert.equal(summaryPr(link, { state: 'checked', at: AT, size: null, runs: { ...runs, reviewers: null } }).reviewers, null, 'not read: not checked');
   // The runs not read: no runs and no ready time, never a guess.
   const unread = summaryPr(link, { state: 'checked', at: AT, size: null, runs: { state: 'not-checked', why: 'x', at: AT } });
-  assert.deepEqual([unread.checks, unread.readyAt], [undefined, undefined]);
+  assert.deepEqual([unread.checks, unread.readyAt, unread.reviewers], [undefined, undefined, undefined]);
   // Merged: the merge commit, and nothing GitHub says about a size.
   const merged = summaryPr({ ...link, state: 'merged', mergedAt: '2026-11-11T08:00:00Z' }, { state: 'checked', at: AT, mergeSha: 'D'.repeat(40), checks: null } as PrIn);
-  assert.deepEqual([merged.mergeSha, merged.size, merged.checks], ['d'.repeat(40), undefined, undefined]);
+  assert.deepEqual([merged.mergeSha, merged.size, merged.checks, merged.reviewers], ['d'.repeat(40), undefined, undefined, undefined]);
 
   // Too big's age: kept from the read before while the PR stays over, set now when it first goes over, dropped under.
   const big = { files: 40, added: 900, removed: 10 };

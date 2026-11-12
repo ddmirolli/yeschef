@@ -10,6 +10,7 @@ import { clean } from './team-common.ts';
 import { RETRY } from './team-connection.ts';
 import { rangesOf } from './changes.ts';
 import { RULES } from './open-kitchen.ts';
+import { cleanReviewers, type Reviewer } from './reviewers.ts';
 import type { Board, Ticket } from './board.ts';
 import type { ChangedFile } from './changes.ts';
 import type { PullRequestLink } from './contracts.ts';
@@ -38,7 +39,7 @@ export type ChecksIn = { result?: unknown; redRuns?: unknown; at?: unknown; runs
 /** What the board server read of a PR from GitHub (client/github.ts readPrFacts), as the summary reads it. */
 export type PrIn = { state?: unknown; why?: unknown; draft?: unknown; base?: unknown; at?: unknown; mergeSha?: unknown;
   size?: { files?: unknown; added?: unknown; removed?: unknown } | null;
-  runs?: { state?: unknown; why?: unknown; at?: unknown; readyAt?: unknown; checks?: ChecksIn | null } | null };
+  runs?: { state?: unknown; why?: unknown; at?: unknown; readyAt?: unknown; checks?: ChecksIn | null; reviewers?: unknown } | null };
 /** One base branch's checks (client/github.ts readBaseChecks), as the summary reads them. */
 export type BaseIn = { state?: unknown; host?: unknown; repo?: unknown; branch?: unknown; sha?: unknown; title?: unknown; committedAt?: unknown;
   result?: unknown; requiredResult?: unknown; red?: { redSha?: unknown; redSince?: unknown } | null; checks?: unknown; at?: unknown };
@@ -54,7 +55,8 @@ export interface Readers {
 export type SummarySize = { files: number | null; added: number | null; removed: number | null; at: number | null; overAt?: number };
 /** A PR as the summary sends it. */
 export type SummaryPr = { repo: string; n: number; state: string | null | undefined; url: string | null; base: string | null; draft: boolean | null;
-  mergedAt: number | null; size?: SummarySize | null; readyAt?: number | null; checks?: ReturnType<typeof summaryChecks>; mergeSha?: string | null };
+  mergedAt: number | null; size?: SummarySize | null; readyAt?: number | null; checks?: ReturnType<typeof summaryChecks>;
+  reviewers?: Reviewer[] | null; mergeSha?: string | null };
 /** A ticket as the summary sends it. */
 export type SummaryTicket = { thread: string; title: string; project: string; place: string; atPass: boolean; working: number; asks: number; call: boolean;
   prs: SummaryPr[]; updatedAt: string | null; startedAt: number | null; last: string | null; ask: ReturnType<typeof summaryAsk>;
@@ -358,7 +360,7 @@ export function summaryChecks(c: ChecksIn | null | undefined) {
 
 /** A PR as the summary sends it: T3's link (state, target branch, draft, merge time), and what the board server read
  *  from GitHub (client/github.ts readPrFacts). Open: the size (null when GitHub's file list was partial), the check
- *  runs and when it was marked ready. Merged: its merge commit. A fact not read is left out, never a guess. */
+ *  runs, when it was marked ready and who reviews it (client/reviewers.ts). Merged: its merge commit. A fact not read is left out, never a guess. */
 export function summaryPr(p: PullRequestLink, read: PrIn | null | undefined): SummaryPr {
   const out: SummaryPr = { repo: clean(p.repository, 100), n: p.number, state: p.state, url: typeof p.url === 'string' && /^https:\/\//.test(p.url) ? p.url.slice(0, 300) : null,
     base: name(p.base, 100), draft: typeof p.draft === 'boolean' ? p.draft : null, mergedAt: time(p.mergedAt) };
@@ -367,7 +369,9 @@ export function summaryPr(p: PullRequestLink, read: PrIn | null | undefined): Su
     if (typeof read.draft === 'boolean') out.draft = read.draft;
     if (name(read.base, 100)) out.base = name(read.base, 100);
     out.size = read.size ? { files: count(read.size.files), added: count(read.size.added), removed: count(read.size.removed), at: time(read.at) } : null;
-    if (read.runs?.state === 'checked') { out.readyAt = time(read.runs.readyAt); out.checks = summaryChecks(read.runs.checks); }
+    if (read.runs?.state === 'checked') {
+      out.readyAt = time(read.runs.readyAt); out.checks = summaryChecks(read.runs.checks); out.reviewers = cleanReviewers(read.runs.reviewers);
+    }
   }
   if (read?.state === 'checked' && p.state === 'merged') out.mergeSha = sha(read.mergeSha);
   return out;

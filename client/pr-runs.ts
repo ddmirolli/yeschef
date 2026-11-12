@@ -5,8 +5,9 @@
 // guess. 3b PR 4b (docs/team-relay-v0_1.md, "What step 4's calls read"). Every reply is read through a Schema
 // (client/github-rest.ts); one GitHub would never send is "not checked" too.
 import * as Option from 'effect/Option';
-import { CheckRunsPage, Commits, IssueEvents, PullRequest, StatusesPage, must, read } from './github-rest.ts';
+import { CheckRunsPage, Commits, IssueEvents, PullRequest, Reviews, StatusesPage, must, read } from './github-rest.ts';
 import type { CheckRun, Commit, Status } from './github-rest.ts';
+import { REVIEWERS_MAX, loginOf, teamOf, type Reviewer } from './reviewers.ts';
 
 export type Get = (path: string, opts: { host: string }) => Promise<unknown>;
 /** One commit's checks as one word. 'pending' and 'none' never count as a run. */
@@ -15,7 +16,7 @@ export type Run = { at: number; sha: string; title: string; result: 'passing' | 
 export type Checks = { result: Result | null; redRuns: number; at: number; runs: Run[] };
 export type PrRuns =
   | { state: 'checked'; at: number; host: string; repo: string; number: number; head: string | null; draft: boolean | null;
-      readyAt: number | null; mergeSha: string | null; checks: Checks | null }
+      readyAt: number | null; mergeSha: string | null; checks: Checks | null; reviewers: Reviewer[] | null }
   | { state: 'not-checked'; why: string; at: number };
 export type BaseRed = { redSha: string | null; redSince: number | null };
 type Memo = Map<string, { result: Result; done: boolean; at: number }>;
@@ -24,13 +25,13 @@ export type CommitChecks = { result: Result; done: boolean };
 
 export const RUNS_MAX = 10;
 const COMMITS_MAX = 250; // GitHub lists at most 250 commits of a pull request
-const EVENT_PAGES = 3, BASE_COMMITS = 50, MEMO_MAX = 2000;
+const EVENT_PAGES = 3, REVIEW_PAGES = 3, BASE_COMMITS = 50, MEMO_MAX = 2000;
 // A finished commit's checks change only when someone runs them again: kept this long, then read again.
 export const RERUN_MS = 30 * 60000;
 const runMemo: Memo = new Map();
 const mergeMemo = new Map<string, string>(); // host/repo#number -> merge commit: it never changes once merged
 
-const readRuns = read(CheckRunsPage), readStatuses = read(StatusesPage), readCommits = read(Commits), readEvents = read(IssueEvents);
+const readRuns = read(CheckRunsPage), readStatuses = read(StatusesPage), readCommits = read(Commits), readEvents = read(IssueEvents), readReviews = read(Reviews);
 const time = (x: unknown): number | null => {
   const t = typeof x === 'string' ? Date.parse(x) : NaN;
   return Number.isFinite(t) ? t : null;
@@ -143,6 +144,39 @@ async function readyAt(get: Get, host: string, repo: string, number: number, pr:
   return null;
 }
 
+/** Who reviews an open PR (the French Brigade Sankey's In review column, and the sign-off ladder; brief v0.5). Reviews
+ *  come oldest first: each person's latest approval or change request stands, a comment after it leaves it standing,
+ *  and a dismissal clears it (no verdict is claimed after one). `at` is always their latest review's time. Then who is asked now: a request outranks an older review, since GitHub puts a reviewer
+ *  back on a re-request. Null (not checked) when the reviews run past the pages read or a page is not GitHub's. */
+async function readReviewers(get: Get, host: string, repo: string, number: number, pr: PullRequest): Promise<Reviewer[] | null> {
+  // GitHub logins ignore case: one entry per person, keyed lower case.
+  const by = new Map<string, Reviewer>(), set = (r: Reviewer) => by.set(r.who.toLowerCase(), r), was = (who: string) => by.get(who.toLowerCase());
+  for (let page = 1; ; page++) {
+    if (page > REVIEW_PAGES) return null;
+    const got = readReviews(await get(`repos/${repo}/pulls/${number}/reviews?per_page=100&page=${page}`, { host }));
+    if (Option.isNone(got)) return null;
+    for (const r of got.value) {
+      const who = loginOf(r.user?.login), at = time(r.submitted_at);
+      if (!who) continue;
+      // PENDING is a review its author has not sent: no one else sees it.
+      if (r.state === 'APPROVED') set({ who, team: false, state: 'approved', at });
+      else if (r.state === 'CHANGES_REQUESTED') set({ who, team: false, state: 'changes', at });
+      else if (r.state === 'DISMISSED') set({ who, team: false, state: 'commented', at });
+      else if (r.state === 'COMMENTED') set({ who, team: false, state: was(who)?.state ?? 'commented', at });
+    }
+    if (got.value.length < 100) break;
+  }
+  for (const u of pr.requested_reviewers ?? []) {
+    const who = loginOf(u?.login);
+    if (who) set({ who, team: false, state: 'requested', at: null });
+  }
+  for (const t of pr.requested_teams ?? []) {
+    const who = teamOf(repo.split('/')[0], t?.slug);
+    if (who) set({ who, team: true, state: 'requested', at: null });
+  }
+  return [...by.values()].slice(0, REVIEWERS_MAX);
+}
+
 /** One pull request's runs, ready time and merge commit. `get` is ghGet; a failed read is "not checked" with
  *  `why(ex)`'s reason. */
 export async function readPrRuns(
@@ -153,7 +187,7 @@ export async function readPrRuns(
   const at = now();
   const key = `${host.toLowerCase()}/${repo}#${number}`;
   const kept = merges.get(key);
-  if (kept) return { state: 'checked', at, host, repo, number, head: null, draft: false, readyAt: null, mergeSha: kept, checks: null };
+  if (kept) return { state: 'checked', at, host, repo, number, head: null, draft: false, readyAt: null, mergeSha: kept, checks: null, reviewers: null };
   try {
     const pr = must(PullRequest, 'a pull request')(await get(`repos/${repo}/pulls/${number}`, { host }));
     const merged = pr.merged === true;
@@ -167,6 +201,7 @@ export async function readPrRuns(
       readyAt: pr.state === 'open' ? await readyAt(get, host, repo, number, pr) : null,
       mergeSha,
       checks: pr.state === 'open' ? await prChecks(get, host, repo, number, pr, at, memo, now) : null,
+      reviewers: pr.state === 'open' ? await readReviewers(get, host, repo, number, pr) : null,
     };
   } catch (ex) { return { state: 'not-checked', why: why(ex), at }; }
 }

@@ -1,6 +1,7 @@
 import { test } from 'vite-plus/test';
 import assert from 'node:assert/strict';
 import { combine, commitResult, commitChecks, readPrRuns, readBaseRed, RUNS_MAX, RERUN_MS, type Get } from './pr-runs.ts';
+import { cleanReviewers, REVIEWERS_MAX } from './reviewers.ts';
 
 const h = (n: number) => n.toString(16).padStart(40, '0');
 const iso = (min: number) => new Date(Date.UTC(2026, 10, 11, 8, min)).toISOString();
@@ -8,7 +9,7 @@ const AT = Date.UTC(2026, 10, 11, 12);
 
 type Fake = { pr?: Record<string, unknown>; commits?: { sha: string; min: number; parent?: string }[];
   runs?: Record<string, { name: string; status: string; conclusion: string | null }[]>; statuses?: Record<string, { context: string; state: string }[]>;
-  events?: Record<string, unknown>[] };
+  events?: Record<string, unknown>[]; reviews?: Record<string, unknown>[] | null };
 /** A GitHub with one repo, acme/app, that answers only the paths the reader may ask, and counts them. */
 function fake(f: Fake): Get & { paths: string[] } {
   const paths: string[] = [];
@@ -23,6 +24,7 @@ function fake(f: Fake): Get & { paths: string[] } {
     if ((m = /^repos\/acme\/app\/commits\/([0-9a-f]{40})\/check-runs\?per_page=100$/.exec(path))) { const r = f.runs?.[m[1]!] ?? []; return { total_count: r.length, check_runs: r }; }
     if ((m = /^repos\/acme\/app\/commits\/([0-9a-f]{40})\/status\?per_page=100$/.exec(path))) { const s = f.statuses?.[m[1]!] ?? []; return { total_count: s.length, statuses: s }; }
     if ((m = /^repos\/acme\/app\/issues\/7\/events\?per_page=100&page=(\d+)$/.exec(path))) return (f.events ?? []).slice((+m[1]! - 1) * 100, +m[1]! * 100);
+    if ((m = /^repos\/acme\/app\/pulls\/7\/reviews\?per_page=100&page=(\d+)$/.exec(path))) return f.reviews === null ? { message: 'odd' } : (f.reviews ?? []).slice((+m[1]! - 1) * 100, +m[1]! * 100);
     if (/^repos\/acme\/app\/commits\?sha=[^&]+&per_page=50$/.test(path)) return [...(f.commits ?? [])].reverse().map(commit);
     throw new Error(`HTTP 404 ${path}`);
   };
@@ -140,6 +142,66 @@ test('a PR opened ready is ready since it opened; a draft has no ready time; a m
   assert.equal(moved.state === 'checked' && moved.checks, null);
   const gone = await readPrRuns({ repo: 'acme/app', number: 8 }, { get: fake({}), now: () => AT, why: () => 'no such PR' });
   assert.deepEqual(gone, { state: 'not-checked', why: 'no such PR', at: AT });
+});
+
+test('who reviews an open PR: the latest verdict stands, a comment keeps it, a dismissal clears it, a request outranks an older review', async () => {
+  const one = [{ sha: h(1), min: 0 }];
+  const pr = { state: 'open', draft: false, merged: false, created_at: iso(0), commits: 1, head: { sha: h(1) },
+    requested_reviewers: [{ login: 'kai' }, { login: 'bad name!' }, null], requested_teams: [{ slug: 'payments' }, { slug: 'Bad Slug' }] };
+  const rv = (login: string | null, state: string, min: number) => ({ user: login ? { login } : null, state, submitted_at: iso(min) });
+  const reviews = [
+    rv('ada', 'APPROVED', 1), rv('ada', 'COMMENTED', 2), // a comment after an approval: still approved, at the comment
+    rv('jon', 'CHANGES_REQUESTED', 1), rv('jon', 'APPROVED', 3), // the latest verdict stands
+    rv('maya', 'CHANGES_REQUESTED', 1), rv('maya', 'DISMISSED', 2), // dismissed: commented, at the dismissed review's time
+    rv('ada_acme', 'APPROVED', 3), // an Enterprise Managed User
+    rv('ravi', 'COMMENTED', 4), rv('lee', 'PENDING', 4), rv(null, 'APPROVED', 4), // a draft review and a deleted user drop
+    rv('Kai', 'APPROVED', 2), // asked again since: requested, one entry whatever the case
+    rv('coderabbitai[bot]', 'COMMENTED', 5),
+  ];
+  const r = await readPrRuns({ repo: 'acme/app', number: 7 }, { get: fake({ pr, commits: one, reviews, runs: { [h(1)]: [ok()] } }), now: () => AT, memo: new Map(), merges: new Map() });
+  assert.deepEqual(r.state === 'checked' && r.reviewers, [
+    { who: 'ada', team: false, state: 'approved', at: Date.parse(iso(2)) },
+    { who: 'jon', team: false, state: 'approved', at: Date.parse(iso(3)) },
+    { who: 'maya', team: false, state: 'commented', at: Date.parse(iso(2)) },
+    { who: 'ada_acme', team: false, state: 'approved', at: Date.parse(iso(3)) },
+    { who: 'ravi', team: false, state: 'commented', at: Date.parse(iso(4)) },
+    { who: 'kai', team: false, state: 'requested', at: null },
+    { who: 'coderabbitai[bot]', team: false, state: 'commented', at: Date.parse(iso(5)) },
+    { who: 'acme/payments', team: true, state: 'requested', at: null },
+  ]);
+  // Reviews past the pages read, or an answer that is not a list: not checked, never a partial list.
+  const many = Array.from({ length: 300 }, (_, i) => rv(`dev${i}`, 'COMMENTED', 1));
+  const long = await readPrRuns({ repo: 'acme/app', number: 7 }, { get: fake({ pr, commits: one, reviews: many, runs: { [h(1)]: [ok()] } }), now: () => AT, memo: new Map(), merges: new Map() });
+  assert.equal(long.state === 'checked' && long.reviewers, null);
+  const odd = await readPrRuns({ repo: 'acme/app', number: 7 }, { get: fake({ pr, commits: one, reviews: null, runs: { [h(1)]: [ok()] } }), now: () => AT, memo: new Map(), merges: new Map() });
+  assert.equal(odd.state === 'checked' && odd.reviewers, null);
+  // Two pages: a second page is read, and the list stops at REVIEWERS_MAX.
+  const two = Array.from({ length: 150 }, (_, i) => rv(`dev${i % 30}`, 'APPROVED', 1));
+  const paged = fake({ pr: { ...pr, requested_reviewers: [], requested_teams: [] }, commits: one, reviews: two, runs: { [h(1)]: [ok()] } });
+  const r2 = await readPrRuns({ repo: 'acme/app', number: 7 }, { get: paged, now: () => AT, memo: new Map(), merges: new Map() });
+  assert.equal(r2.state === 'checked' && r2.reviewers?.length, REVIEWERS_MAX);
+  assert.equal(paged.paths.filter((p) => p.includes('/reviews?')).length, 2);
+  // A merged PR asks GitHub nothing about its reviews.
+  const merged = fake({ pr: { ...pr, state: 'closed', merged: true, merge_commit_sha: h(99) } });
+  const m = await readPrRuns({ repo: 'acme/app', number: 7 }, { get: merged, now: () => AT, memo: new Map(), merges: new Map() });
+  assert.equal(m.state === 'checked' && m.reviewers, null);
+  assert.ok(!merged.paths.some((p) => p.includes('/reviews')));
+});
+
+test('reviewers from outside data: GitHub names and known states only, one per name, at most 20; no list is not checked', () => {
+  assert.equal(cleanReviewers(undefined), null);
+  assert.equal(cleanReviewers({ who: 'ada' }), null);
+  assert.deepEqual(cleanReviewers([
+    { who: 'ada', state: 'approved', at: 5 }, { who: 'ADA', state: 'changes', at: 6 }, { who: '<b>x</b>', state: 'approved' },
+    { who: 'jon', state: 'merged' }, null, 'kai', { who: 'acme/payments', team: true, state: 'requested', at: -1 },
+    { who: 'acme/<x>', team: true, state: 'requested' }, { who: 'acme/payments', state: 'requested' },
+    { who: 'maya', team: 'yes', state: 'commented', at: Infinity },
+  ]), [
+    { who: 'ada', team: false, state: 'approved', at: 5 },
+    { who: 'acme/payments', team: true, state: 'requested', at: null },
+    { who: 'maya', team: false, state: 'commented', at: null },
+  ]);
+  assert.equal(cleanReviewers(Array.from({ length: 30 }, (_, i) => ({ who: `d${i}`, state: 'requested' })))?.length, REVIEWERS_MAX);
 });
 
 test('the runs reach back across a page of PR commits', async () => {
