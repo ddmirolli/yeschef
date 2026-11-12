@@ -11,16 +11,21 @@ The Pass in its own window, signed in to the T3 Code on this Mac.
 
 ## Install or update
 
+Install Yes Chef from https://yeschef.codes/download (Stable), or Yes Chef (Nightly) from the newest Nightly release. Each one updates itself from GitHub Releases ("Updates", below).
+
+Releases are the only way an app reaches a Mac someone uses (Dan, 2026-11-12). A local build carries `package.json`'s version (0.1.0), so put over a released app it shows the wrong version and offers the newest Stable as an update that would take code away. A task lands without installing: it checks the build in `out/builder` with `--capture` on a copy of the data folder ("Development", below), and main reaches Dan's Mac through the next Nightly.
+
+To build the app for checks:
+
 ```sh
-cd ~/Developer/yeschef
-vp install
+vp install            # at the repo root
 cd desktop
-npm run app -- --install
+npm run app           # out/builder/mac-arm64/Yes Chef.app
 ```
 
 `desktop/` is a package of the repo's pnpm workspace, as T3 Code's desktop app is: `vp install` at the root installs it from `pnpm-lock.yaml`.
 
-This builds `Yes Chef.app` with electron-builder and puts it in `/Applications`. Quit Yes Chef first; the script refuses to replace a running copy. Open it from Applications, then right-click its Dock icon and choose Options → Keep in Dock.
+`npm run app -- --install` also puts the build in `/Applications`, for a Mac that runs no released Yes Chef. It refuses to replace a running copy.
 
 Every build is built the way a release is (`docs/desktop-release-plan-v0_1.md`, sections 2 and 3):
 
