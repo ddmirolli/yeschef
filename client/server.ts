@@ -27,7 +27,7 @@ import { createKeys, createLive } from './t3live.ts';
 import { boardThreads, changeTargets, githubTargets } from './shells.ts';
 import { createChanges } from './changes.ts';
 import { createBaseChecks, createPrSizes, prKey, readBaseFacts, readPrFacts } from './github.ts';
-import { buildBoard, renderApp, kitchenPane, pickedFrom } from './board.ts';
+import { buildBoard, renderApp, kitchenPane, pickedFrom, ICON } from './board.ts';
 import { readRuns, dayStart, trackWaits, mayRunToday } from './you.ts';
 import { normalize as normalRules, change as changeRule } from './kitchen.ts';
 import { parseCalls, callKey, imagesIn, imageId, shotPath, isShot, SHOT_TYPES } from './calls.ts';
@@ -370,6 +370,18 @@ function refreshSoon(): void { if (!soonTimer) soonTimer = setTimeout(() => { so
 
 // The prototype's own rules, after the base sheet (client/pass.css).
 const APP_CSS = `
+/* No phone build (Dan, 2026-11-11): at phone width the page shows one screen that points to the Mac app or a computer.
+   The Mac app's window never gets this narrow (desktop/main.ts, minWidth 960). */
+.only-phone{display:none}
+@media (max-width:760px){
+  body.pass-app>:not(.only-phone){display:none!important}
+  .only-phone{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;min-height:100dvh;padding:24px 16px;text-align:center}
+  .only-phone .op-logo{display:grid;place-items:center;width:64px;height:64px;margin-bottom:8px;border-radius:15px;color:#fff;background:linear-gradient(180deg,#3B9BFF,#0066D6);box-shadow:inset 0 0 0 .5px rgba(0,0,0,.12)}
+  .only-phone .op-logo svg{width:36px;height:36px}
+  .only-phone h1{margin:0;font-size:22px;font-weight:700;letter-spacing:-.01em}
+  .only-phone .btn{margin-top:8px;min-width:220px;text-decoration:none}
+  .only-phone p{margin:0;font-size:15px;color:var(--label2)}
+}
 .pm.pimg{object-fit:contain;background:transparent;border-radius:4px}
 .call-tile .ct-top .chip{margin-left:2px}
 .prose.last{white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0;padding:10px 12px;border-radius:10px;background:var(--card);font-size:14px;max-height:320px;overflow:auto}
@@ -389,78 +401,6 @@ label.opt .custom{flex:1;min-width:0;border:0;background:transparent;font:inheri
 .plate-foot form.act{margin-top:0}
 .plate-foot .note textarea{background:var(--fill);box-shadow:inset 0 0 0 .5px var(--sep)}
 .gate-top{display:none}
-/* Phone layout: council round 1 (Opus 5.5, Fable 5.1, Sol 6.1), 2026-11-06. Prototype only: the live pass is unchanged. */
-@media (max-width:760px){
-  /* No zoom on focus: iOS zooms fields under 16px. */
-  .note textarea,label.opt .custom{font-size:16px}
-  /* 44px touch targets. */
-  .pmenu summary,.pmenu-l a,.confirm-b .btn{min-height:44px}
-  .plate .close{min-width:44px;min-height:44px;justify-content:center;padding:0}
-  .plate-bar a,.plate .row-h a{display:inline-flex;align-items:center;min-height:44px}
-  .plate .row-h a{margin:-11px 0}
-  /* The Pass: stage in the top row, two-line summaries, flatter cards. */
-  .ct-top .gate-top{display:inline;margin-left:auto;font-size:12px;color:var(--label2)}
-  .ct-top .gate-top+.age{margin-left:8px}
-  .ct-foot .gate{display:none}
-  .ct-foot .pick{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
-  .head-b{padding:0 8px 8px}
-  .call-tile{padding:12px 14px;border-radius:12px}
-  /* Stage trays: sized to their tickets, capped at most of a screen, the next one peeking in. */
-  .rail{align-items:stretch;grid-auto-columns:148px}
-  .tray{max-height:min(520px,65dvh)}
-  .tray-b{overflow-y:auto;overscroll-behavior:auto}
-  /* The open ticket: one scroll area, a tighter header, and the actions pinned within thumb reach. */
-  .plate-h{padding:14px 16px 4px}
-  .plate-h h2{font-size:22px;line-height:1.18}
-  .gates{margin-top:12px}
-  .track li{font-size:11px}
-  .sect{padding:16px 16px 24px}
-  .plate .prose.last{max-height:none;overflow:visible;background:none;padding:0}
-  /* The footer: a flat toolbar outside the scroll, buttons above the note so the keyboard never covers them. */
-  .plate-foot{padding:10px 16px calc(10px + env(safe-area-inset-bottom));background:var(--matsheet);-webkit-backdrop-filter:saturate(1.8) blur(20px);backdrop-filter:saturate(1.8) blur(20px)}
-  .plate-foot .acts{order:-1;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:6px}
-  .plate-foot .acts .btn{padding:0 4px}
-  .plate-foot .note>span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-  .plate-foot .note textarea{min-height:44px;height:44px}
-  .plate-foot .note textarea:focus{height:88px}
-  .plate .prose.last{font-size:16px;line-height:1.5}
-  .plate .prose.last code{font-size:14px;padding:2px 5px}
-  .pmenu-l{top:52px}
-  html{-webkit-tap-highlight-color:transparent}
-  @media (hover:none){.tile:hover{transform:none;box-shadow:var(--sh1)}.tile.at:hover{box-shadow:inset 3px 0 0 var(--pass),var(--sh1)}.call-tile:hover{box-shadow:inset 0 0 0 .5px var(--sep)}.btn:hover{background:var(--fill)}.btn.fill:hover{background:var(--accent)}}
-  /* Dark sheet: lighter cells on a darker sheet, like the board; options and confirms one step lighter again. */
-  @media (prefers-color-scheme:dark){.plate,.plate-foot{background:var(--bg)}.plate .rows{background:var(--card)}.plate .rows label.opt,.plate .rows .confirm{background:var(--card2)}.plate .rows label.opt:has(input:checked){background:var(--blue-t)}}
-  /* Council round 3 (Opus 8, Fable 8.5, Sol 9). */
-  .plate-foot .result{order:-1}
-  .plate-foot .note>span{position:static;width:auto;height:auto;overflow:visible;clip:auto;white-space:normal;font-size:12px;font-weight:500}
-  .plate-foot .note>span>span{font-weight:400}
-  .plate-scroll .acts .btn{flex:1}
-  /* Council round 4: the question leads, options read label then description, the queued reply is a plain button. */
-  .plate .q-set legend{padding:0;font-size:17px;line-height:1.3;letter-spacing:-.018em;color:var(--label)}
-  label.opt .opt-t .muted{display:block;margin-top:2px;font-size:14px;font-weight:400;line-height:1.35}
-  .plate:has(.q-set) .plate-foot .acts .btn{background:none;color:var(--link);font-weight:500}
-  .plate .prose.last ul{margin-bottom:0}
-  .head-h{padding:18px 22px 12px}
-  .plate .row-h{font-size:16px}
-  .plate .rows:has(>.turn){background:none;border-radius:0}
-  .plate .turn{padding:0}
-  .plate .turn .row-h b{font-size:13px;font-weight:500;color:var(--label2)}
-  .prose.last ul{margin:2px 0 10px;padding-left:1.2em;white-space:normal}
-  .prose.last li{margin:2px 0}
-  .plate-bar{position:relative;padding-top:12px}
-  .plate-bar::before{content:"";position:absolute;top:6px;left:50%;width:36px;height:5px;margin-left:-18px;border-radius:3px;background:var(--fill2)}
-  .tray{max-height:min(440px,55vh);max-height:min(440px,55svh)}
-  .rail .tile .t{font-size:14px;line-height:1.35}
-  .rail .meta,.tray-h .hint{font-size:12px}
-  .stats{gap:16px}
-  .stat{padding:0;background:none}
-  @media (hover:none){
-    .btn:active,.close:active .ic{background-image:linear-gradient(var(--fill2),var(--fill2))}
-    .btn.fill:active{background-image:linear-gradient(rgba(0,0,0,.16),rgba(0,0,0,.16))}
-    .tile:active,label.opt:active{background-image:linear-gradient(var(--fill),var(--fill))}
-    .plate a:active,.plate:has(.q-set) .plate-foot .acts .btn:active{opacity:.55}
-  }
-}
 .head-b{overflow-x:hidden}
 .plate .prose.last.full{max-height:none}
 .prose.last a{color:var(--link)}
@@ -474,7 +414,6 @@ label.opt .custom{flex:1;min-width:0;border:0;background:transparent;font:inheri
 .since .row-h b,.msg-h b{font-size:13px;font-weight:500;color:var(--label2)}
 .by-msg .shots{margin-top:12px}
 .msg-h{margin-top:16px}
-@media (max-width:760px){.shots{grid-template-columns:1fr 1fr}.shot img{height:120px}}
 .call-tile .q,.call-tile .pick{overflow-wrap:anywhere;min-width:0}
 .call-tile .ct-foot .gate{flex:none}
 body>.netstrip{position:sticky;top:0;z-index:8;margin:0 24px}
@@ -564,7 +503,7 @@ body>.netstrip{position:sticky;top:0;z-index:8;margin:0 24px}
 .tile.gone{display:none}
 /* A list a refresh just redrew (the page script's prime()): its cards take their hover at once, with no fade. */
 .fresh .tile{transition:none}
-/* The open ticket over the kitchen, and on phones. */
+/* The open ticket over the kitchen. */
 dialog.sheet{width:min(1120px,calc(100vw - 48px));height:min(920px,calc(100dvh - 48px));max-width:none;max-height:none;padding:0;border:0;border-radius:22px;background:var(--card);color:var(--label);box-shadow:var(--sh4);overflow:hidden}
 dialog.sheet[open]{display:flex;flex-direction:column;animation:rise .28s cubic-bezier(.2,.8,.2,1)}
 dialog.sheet::backdrop{background:rgba(0,0,0,.36);-webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px)}
@@ -591,8 +530,6 @@ dialog.sheet::backdrop{background:rgba(0,0,0,.36);-webkit-backdrop-filter:blur(5
 .gear{display:grid;place-items:center;width:36px;height:36px;margin-left:8px;padding:0;border:0;border-radius:10px;background:var(--fill);color:var(--label2);cursor:pointer}
 .gear:hover{color:var(--label)}
 .gear .ic{width:19px;height:19px}
-.bar .pmenu{margin-left:0}
-.bar .lamps{margin-left:auto;font-size:12px;color:var(--label2)}
 #settings{border:0;border-radius:18px;background:var(--card);color:var(--label);box-shadow:var(--sh4)}
 #settings::backdrop{background:rgba(0,0,0,.36);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
 #settings h2{margin:0 0 14px;font-size:17px}
@@ -697,20 +634,6 @@ html .plate .shot img{height:340px}
   :is(.v-pass,.v-kitchen) .stagenav{display:flex;flex-direction:column;gap:2px;min-height:0;overflow-y:auto;padding-top:4px}
   .v-pass .reader{display:flex;min-width:0;min-height:0;border-radius:0 22px 22px 0;background:var(--card);box-shadow:inset 0 .5px 0 var(--sep),inset -.5px 0 0 var(--sep),inset 0 -.5px 0 var(--sep);overflow:hidden}
   .v-pass .head::before{display:none}
-}
-/* Phones: the pass is a list and a ticket opens full screen; the stages scroll across the top. */
-@media (max-width:760px){
-  dialog.sheet{width:100vw;height:100dvh;max-height:none;border-radius:0}
-  .plate-scroll{padding:16px}
-  .dock{padding:12px 16px calc(12px + env(safe-area-inset-bottom))}
-  .v-pass .stagenav{display:flex;gap:6px;overflow-x:auto;padding:0 16px 10px}
-  .v-pass .nf{width:auto;flex:none;background:var(--fill)}
-  .v-pass .nf[data-folder=pass]{margin:0}
-  .v-pass .you,.v-pass .team-wait{display:none}
-  .v-pass .board{grid-template-areas:"nav" "head"}
-  .v-pass .stagenav{grid-area:nav;margin:0 -16px;align-items:center}
-  .v-pass .nav-card{display:contents}
-  .head-keys{display:none}
 }
 /* ===== Round 2 (Dan, 2026-11-07): fewer nested colours, Linear-style rounded cards, one settings window. ===== */
 /* The pass and the open ticket are one panel; ticket cards take the app's own background, so colours do not stack. */
@@ -828,7 +751,6 @@ label.opt{min-width:0;max-width:100%}
 .opt-t a{color:var(--link)}
 /* A ticket sheet fits its content. */
 dialog.sheet{height:fit-content;max-height:min(920px,calc(100dvh - 48px))}
-@media (max-width:760px){dialog.sheet{height:100dvh;max-height:none}}
 /* The kitchen in the same style as the pass: one card look, no glow. */
 .v-kitchen .head::before{display:none}
 .v-kitchen .head .call-tile{background:var(--bg);box-shadow:inset 0 0 0 .5px var(--sep)}
@@ -948,7 +870,7 @@ a.att:focus-visible .att-img{outline:2px solid var(--focus);outline-offset:2px}
 .att-cap{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
 .att.missing .att-img{font-size:12px;color:var(--label2)}
 /* The open ticket's surfaces: the ticket on the app's background, its controls on cards; the action bar is not a
-   card of its own, so three levels at most. The sheet over the kitchen and on phones matches the reader. */
+   card of its own, so three levels at most. The sheet over the kitchen matches the reader. */
 .v-pass .reader>.plate,.v-pass .reader>.reader-empty,dialog.sheet{background:var(--bg)}
 html .plate .dock{margin:0;padding:12px 28px 16px;border:0;border-radius:0;background:none;box-shadow:none}
 .plate .more,.plate .prc,.plate label.opt,.plate .note textarea{background:var(--card)}
@@ -1009,19 +931,6 @@ html .plate .dock{margin:0;padding:12px 28px 16px;border:0;border-radius:0;backg
 /* Hill climb 2 r2 (Opus). A card's pull request reads like the ticket's PR chip: a state dot, words in the text colour. */
 .th.pr-open,.th.pr-merged,.th.pr-closed{color:var(--label2)}
 .th.pr-open i{background:var(--open)}.th.pr-merged i{background:var(--merged)}.th.pr-closed i{background:var(--closed)}
-/* A phone pass card keeps its stage dot. */
-@media (max-width:760px){ .call-tile .ct-top .gate-top .gd{display:inline-block;vertical-align:middle;margin:0 5px 0 0} }
-/* Phone pass cards take the desktop list's treatment: flat, one fill step off the panel (hill climb 2 r3, Astra). */
-@media (max-width:760px){ .v-pass .head .folder>.tile,.v-pass .head .folder>.tile:hover{background:var(--bg);box-shadow:none} }
-/* Phone chrome under a fifth of the screen: the strip already names the list, so no stats row and no repeated
-   heading; the strip fades at its right edge while more stages wait (hill climb 2 r3, Opus, Fable). */
-@media (max-width:760px){
-  .v-pass .bar .stats{display:none}
-  .v-pass .head-h{display:none}
-  .v-pass .board{gap:12px}
-  .v-pass .head-b{padding-top:8px}
-  .stagenav.fade-right{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 40px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 40px),transparent)}
-}
 /* At 1280 all six kitchen columns fit: a narrower pass panel and 140px stages. */
 @media (min-width:761px) and (max-width:1366px){
   .v-kitchen .board{grid-template-columns:208px minmax(0,1fr) 280px}
@@ -1059,18 +968,6 @@ html .plate .dock{margin:0;padding:12px 28px 16px;border:0;border-radius:0;backg
   .lead .lead-k{align-self:auto;flex:none}
 }
 textarea{resize:none!important}
-@media (max-width:760px){
-  /* The ticket's header stays one line. "Ready to merge" wrapped it at 390, so the stage and Open in T3 never wrap,
-     and a ticket under 430 px drops the model, which its card in the list still shows. */
-  .plate-bar .stg,.plate-bar .open-t3{flex:none;white-space:nowrap}
-  @container (max-width:430px){ .plate-bar .mdl{display:none} }
-  /* The pass fits the phone's screen: only its list scrolls, never the page. */
-  html.v-pass,html.v-pass body{height:100%;overflow:hidden}
-  html.v-pass #app{height:100dvh;display:flex;flex-direction:column}
-  html.v-pass .board{flex:1;min-height:0;display:flex;flex-direction:column}
-  html.v-pass .head{flex:1;min-height:0;display:flex;flex-direction:column;margin-bottom:0}
-  html.v-pass .head-b{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
-}
 /* ===== Dan, 2026-11-08: light mirrors dark, the list's name shows once, no footer. ===== */
 /* Light mirrors dark: a white page, grey panels, white cards inside them. */
 @media (prefers-color-scheme:light){:root{--bg:#FFFFFF;--well:#F2F2F7;--card:#F2F2F7;--card2:#EBEBF0;--inset:#FFFFFF;--mat:rgba(255,255,255,.8);--matsheet:rgba(255,255,255,.86)}.v-kitchen .rail .tile,.v-kitchen .head .tile{background:#FFFFFF}}
@@ -1082,7 +979,6 @@ textarea{resize:none!important}
 /* Under The Pass, the stages and the foot scroll as one in a short window; The Pass stays on the logo's row. */
 .nav-scroll{display:contents}
 @media (min-width:761px){
-  :is(.v-pass,.v-kitchen) .bar .pmenu,:is(.v-pass,.v-kitchen) .bar .lamps,:is(.v-pass,.v-kitchen) .bar .gear{display:none}
   :is(.v-pass,.v-kitchen) .stagenav{overflow:visible}
   :is(.v-pass,.v-kitchen) .nav-scroll{display:flex;flex-direction:column;gap:2px;flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
   :is(.v-pass,.v-kitchen) .nav-foot{display:flex;flex-direction:column;gap:10px;margin:auto 0 0;padding-top:12px}
@@ -1140,8 +1036,6 @@ textarea{resize:none!important}
 .plate-head>.netstrip{margin:0 0 12px}
 /* Lost: every count waits for the next update, Verified's and On hold's too. */
 .is-stale .pmenu summary .n{visibility:hidden}
-/* Phones: The Pass chip is the other chips' height, so all sit on one line (it was 2 px taller). */
-@media (max-width:760px){ .v-pass .stagenav>.nf[data-folder=pass]{height:34px;min-height:34px} }
 /* ===== Dan, 2026-11-08 (3): calmer cards, a full reader with its actions at the bottom. ===== */
 @media (min-width:761px){
   /* The open card keeps all four round corners (an older rule squared its right side for the joined tab). */
@@ -1219,20 +1113,8 @@ html .plate .plate-scroll.fade-end~.dock{box-shadow:0 -.5px 0 var(--sep)}
 #settings .kx-note{flex-basis:100%;margin:0;color:var(--orange)}
 #settings .kx-none{margin:28px 0;text-align:center;font-size:13px;color:var(--label2)}
 #settings .kx-live{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-/* A phone: the sections sit in a row on top, and each rule's control goes under its words. */
-@media (max-width:600px){
-  #settings[open]{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;height:calc(100dvh - 32px)}
-  #settings .set-nav{grid-row:auto;flex-direction:row;flex-wrap:wrap;gap:4px;padding:14px 12px 8px;border-radius:16px 16px 0 0}
-  #settings .set-nav h2{flex-basis:100%;margin:0 4px 6px}
-  #settings .set-panes,#settings .set-done{grid-column:1}
-  #settings .set-panes{padding:16px}
-  #settings .set-done{padding:8px 16px 16px}
-  #settings .kr-row{grid-template-columns:minmax(0,1fr)}
-  #settings .kr-c{justify-self:start}
-}
 /* No zoom on focus: iOS zooms fields under 16px (as .note textarea does above). This comes after the rules that size
    them: the new-ticket form, the Rules menus and House notes (PR-Agent r8 on #61). */
-@media (max-width:760px){.lf select,.lf textarea,.lf input,#settings .kr-sel,#settings .kr-scope select,#settings .kr-notes textarea{font-size:16px}}
 /* The Pass's check: a visual call with no screenshots. */
 .plate-head .kr-flag{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0 0 12px;font-size:13px;color:var(--label2)}
 .plate-head .kr-flag .kr-k{padding:1px 8px;border-radius:999px;background:var(--orange-t);color:var(--orange);font:600 12px/20px var(--sans)}
@@ -1324,37 +1206,9 @@ kbd.nokey{display:none!important}
 .abar .mi.ph,.abar .mi-x{display:none}
 /* A question's options stop at the reading width (each was about 900 px wide at 2560). */
 html .plate .dock .q-set{max-width:640px}
-/* Phones (call 2a): four slots. The blue pill, then Changes, Reply and More, each an icon over a small word. Hold and
-   Settle move into More, which opens as a sheet from the bottom. */
-@media (max-width:760px){
-  html .plate .dock{padding:12px 16px 0}
-  html .plate .dock-plain{padding-top:0}
-  .dock .act-foot{margin:0 -16px;padding:8px 12px calc(8px + env(safe-area-inset-bottom));border-top:.5px solid var(--sep)}
-  .dock .act-foot>.result{left:16px;right:16px}
-  .abar{gap:4px}
-  .abar>button{height:48px;border-radius:12px}
-  .abar .ab,.abar .more-b{flex:1 1 0;min-width:0;flex-direction:column;gap:3px;width:auto;padding:0 2px;background:none;color:var(--label2);font-size:11px;font-weight:500}
-  .abar .ab .ic,.abar .more-b .ic{width:21px;height:21px;color:var(--label)}
-  .abar .ab.primary{flex:1.25 1 0;flex-direction:row;gap:7px;font-size:15px;font-weight:600}
-  /* A word never runs into the next slot: it ends in an ellipsis first. */
-  .abar .ab .bl{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis}
-  .abar .ab.primary:not(.fill){background:var(--fill);color:var(--label)}
-  .abar .ab.fill{background:var(--accent);color:#fff}
-  .abar .ab.fill .ic{color:#fff}
-  .abar .ib:not(.more-b),.abar .vr{display:none}
-  .abar .more-b .mw{display:block}
-  .abar .more-b.on{background:var(--fill)}
-  .abar .menu{left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom));width:auto;min-width:0;padding:8px;border-radius:22px}
-  .abar .menu::backdrop{background:rgba(0,0,0,.25)}
-  .abar .mi{height:48px;border-radius:12px;font-size:16px}
-  .abar .mi kbd{display:none}
-  .abar .mi.ph{display:flex}
-  .abar .mi-n{max-width:none}
-  .abar .mi-x{display:block;width:100%;height:48px;margin:6px 0 0;border:0;border-radius:12px;background:var(--fill);color:var(--label);font:inherit;font-size:16px;font-weight:600;cursor:pointer}
-}
 /* A narrow ticket in a wide window (a slim window gives the Pass's reader about 340 px at 920): the row never clips
    (PR-Agent r1 on #72). By the ticket's own width: under 560 px Changes and Reply keep only their icons, under 420 px
-   Hold and Settle move into More as on a phone, and under 300 px the row wraps. Tooltips keep every name and key, and
+   Hold and Settle move into More, and under 300 px the row wraps. Tooltips keep every name and key, and
    a word that steps aside stays the button's name for screen readers. */
 @media (min-width:761px){
   @container (max-width:560px){
@@ -1391,18 +1245,6 @@ html .plate .dock .q-set{max-width:640px}
   .v-kitchen .team-wait{align-self:start}
   /* The tile's cloche needed the key that sat over the columns; The Pass on the right lists the same threads. */
   .v-kitchen .rail .at-ic{display:none}
-}
-@media (max-width:760px){
-  /* The phone's stage list is one row of pills: the person and the bar stay on the desktop rail. */
-  .idrow{display:none}
-  .v-kitchen .board{grid-template-areas:"you" "head"}
-  .v-kitchen .you{display:block;grid-area:you;min-width:0}
-  .v-kitchen .team-wait{grid-area:you}
-  .v-kitchen .head{grid-area:head}
-  /* A phone's stages grow with their threads and the page scrolls. */
-  .you .rail-wrap{height:auto}
-  .you .tray{max-height:none}
-  .you .tray-b{flex:none;overflow:visible}
 }
 /* The footer chip and its menu (Dan, 2026-11-10, view menu mock a). The chip: the person, or the toque for Team, then
    All projects or the picked projects' icons fanned like cards. The menu: check boxes, then the toggle. No "You" or
@@ -1455,7 +1297,7 @@ html.s-team .vmenu .pmenu-l .seg::before{transform:translateX(100%)}
 .vmenu .pmenu-l .seg .ic{flex:none;width:24px;height:24px}
 /* The expanded view's header is its picker (Dan, 2026-11-11): the view's icon, then All projects or the fan a size up,
    then the chevron, with no fill until hovered. The menu drops below it. The rail's chip goes in the expanded view. */
-.v-kitchen :is(.bar,.nav-foot) .vmenu{display:none}
+.v-kitchen .nav-foot .vmenu{display:none}
 .vhead{margin:0}
 .vhead summary{gap:8px;min-height:38px;margin-left:-8px;padding:3px 10px 3px 8px;border-radius:9px;background:none;font-size:20px;font-weight:700;letter-spacing:-.01em}
 .vhead summary:hover,.vhead[open] summary{background:var(--fill)}
@@ -1467,7 +1309,6 @@ html.s-team .vmenu .pmenu-l .seg::before{transform:translateX(100%)}
 .vhead .fan .card .pm{width:26px;height:26px;border-radius:7px;font-size:13px}
 .vhead .pmenu-l{top:46px;right:auto;left:-8px}
 @media (prefers-reduced-motion:reduce){.vmenu .pmenu-l .seg::before,.vmenu .cb .tick,.vmenu .fan .card{transition:none}}
-@media (max-width:760px){.vmenu .pmenu-l .pk{min-height:44px}.vmenu .pmenu-l{max-height:calc(100dvh - 72px);overflow-y:auto;overscroll-behavior:contain}}
 html.s-team .you{display:none}
 /* The Pass follows the view: in Your team it says what it cannot show yet, and none of your own calls. */
 .team-pass,html.s-team .head-b>.folder,html.s-team .head .badge,html.s-team .head-h>.muted{display:none}
@@ -1475,7 +1316,7 @@ html.s-team .head-b>.team-pass{display:flex}
 html.s-team.v-kitchen .team-wait{display:block}
 .team-wait .tw-b{padding:16px 18px;border-radius:16px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--sep)}
 /* Your team, Open kitchen (step 4; mock v2, round 2, Dan 2026-11-10). The team's card replaces yours in the rail, and
-   The Pass holds the team's calls with a quiet line under them. Phones show The Pass only (Dan's 1a). */
+   The Pass holds the team's calls with a quiet line under them. */
 .team-card,.tpn{display:none}
 html.s-team .stagenav:has(.team-card) .nav-card:not(.team-card){display:none}
 html.s-team .team-card{display:flex}
@@ -1489,7 +1330,6 @@ html.s-team .head-b>.team-pass.tp-live{display:block;padding:0;text-align:left}
 .tcalm{display:flex;gap:9px;align-items:flex-start;margin:14px 12px 4px 4px;font-size:13px;line-height:1.45;color:var(--label2)}
 .tcalm .ic{flex:none;width:18px;height:18px;color:var(--green)}
 html.s-team .bar .stats{display:none}
-@media (max-width:760px){html.s-team .team-card{display:none}.tcalm{margin:12px 4px 4px}}
 /* The reader: Seen, the evidence, then Suggested. */
 .tv{font-size:14px}
 .tv .tvis{position:relative;margin-top:14px;padding:14px 16px;border-radius:12px;background:var(--card)}
@@ -1539,12 +1379,11 @@ html.s-team .bar .stats{display:none}
 .tv .fmap .band{position:absolute;top:-3px;height:58px;min-width:3px;border-radius:5px;background:var(--red-t);box-shadow:inset 0 0 0 1.5px var(--red)}
 .tv .fmap .ticks{display:grid;grid-template-columns:52px 1fr;gap:10px;margin-top:4px;font-size:11px;color:var(--label2)}
 .tv .fmap .ticks div{display:flex;justify-content:space-between;font-variant-numeric:tabular-nums}
-@media (max-width:560px){.tv .kvs,.tv .duo{grid-template-columns:minmax(0,1fr)}}
 /* Faces: initials on a colour from the name. */
 .av{display:inline-grid;place-items:center;flex:none;width:22px;height:22px;border-radius:50%;background:hsl(var(--h) 52% 46%);font:700 9.5px/1 var(--sans);color:#fff;letter-spacing:.02em}
 .av.sm{width:18px;height:18px;font-size:8px}
 /* Your team's instruments and panels. You, expanded no longer draws them (#14), so they live here, scoped to the team
-   board: a bare .ph would also style the action bar's phone rows (.mi.ph). */
+   board: a bare .ph would also style the action bar's narrow rows (.mi.ph). */
 /* The header (You and Your team, expanded): the picker alone. */
 :is(.you,.tboard,.team-wait)>.you-h{display:flex;flex:none;align-items:center;padding:6px 2px 14px}
 .tboard .you-b{display:flex;flex-direction:column;gap:12px;container-type:inline-size}
@@ -1566,14 +1405,12 @@ html.s-team .bar .stats{display:none}
 .tboard .nc-l{margin:0;font-size:14px;line-height:1.45;color:var(--label2)}
 .tboard .nc-l b{font-weight:600;color:var(--label)}
 @container (max-width:760px){ .tboard .inst{grid-template-columns:repeat(2,minmax(0,1fr))} }
-@media (max-width:760px){ .tboard .inst{grid-template-columns:repeat(2,minmax(0,1fr))} }
 /* Your team, expanded (step 4 PR B; mock v2, approved 2026-11-10): the board in the middle, The Pass as a column of
    cards on the right, each with its suggestion and Open. */
 .tboard,.tcol,.head-h>.tpm{display:none}
 html.s-team.v-kitchen .head-h>.muted.tpm{display:block}
 html.s-team.v-kitchen .tboard{display:flex;flex-direction:column;grid-area:you;min-width:0;min-height:0}
 @media (min-width:761px){html.s-team.v-kitchen .tboard .you-b{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 2px 12px}}
-@media (max-width:760px){html.s-team.v-kitchen .tboard{display:block}}
 html.v-kitchen .tp-live .folder[data-folder=team]{display:none}
 html.v-kitchen .tp-live .tcol{display:flex;flex-direction:column;gap:8px}
 .xc{padding:11px 13px 12px;border-radius:14px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--sep);cursor:pointer}
@@ -1646,7 +1483,6 @@ button.sf:hover .s{text-decoration:underline}
 .sf .s{overflow:hidden;color:var(--label2);text-overflow:ellipsis;white-space:nowrap}
 .sf .s.red{font-weight:600;color:var(--red)}
 .tboard .tmore{margin:8px 0 0;font-size:12.5px;color:var(--label2)}
-@media (max-width:760px){.sf{grid-template-columns:minmax(0,1fr) auto;row-gap:2px;padding:6px 0}.sf .s{grid-column:1 / -1}}
 `;
 // Appearance (theme.ts): every dark and light rule also answers to the html element's data-theme.
 // The pictures in Settings → Layout and the ⌘K bar's Appearance and Density steps (theme.ts).
@@ -1657,7 +1493,7 @@ const STYLE = onScale(onTheme(CSS + APP_CSS + BAR_CSS + MINI_CSS) + miniCss(CSS 
 
 const page = (body: string): string => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark"><title>Yes Chef</title>
-<script>(function(){var c='v-pass d-default';try{var s=localStorage;c=(s.getItem('yc.view')==='kitchen'?'v-kitchen':'v-pass')+' d-'+({comfortable:1,compact:1}[s.getItem('yc.density')]?s.getItem('yc.density'):'default');var t=s.getItem('yc.theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}document.documentElement.className=c})()</script><style>${STYLE}</style></head><body class="pass-app"><main id="app">${body}</main>
+<script>(function(){var c='v-pass d-default';try{var s=localStorage;c=(s.getItem('yc.view')==='kitchen'?'v-kitchen':'v-pass')+' d-'+({comfortable:1,compact:1}[s.getItem('yc.density')]?s.getItem('yc.density'):'default');var t=s.getItem('yc.theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}document.documentElement.className=c})()</script><style>${STYLE}</style></head><body class="pass-app"><section class="only-phone" aria-labelledby="op-t"><span class="op-logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON.cloche}</svg></span><h1 id="op-t">Yes Chef runs on your Mac</h1><a class="btn fill" href="https://yeschef.codes/download" target="_top" rel="noopener">Get the Mac app</a><p>Or open this page on a computer.</p></section><main id="app">${body}</main>
 <dialog class="sheet" id="sheet" aria-label="Ticket"></dialog>
 <dialog id="viewer" aria-label="Screenshot"><img alt=""><div class="v-bar"><button type="button" data-v="prev" aria-label="Previous screenshot">‹</button><span class="v-cap"></span><button type="button" data-v="next" aria-label="Next screenshot">›</button><span class="v-end"><span class="v-keys"><span class="v-arrows"><kbd>←</kbd> <kbd>→</kbd> move&nbsp;&nbsp;</span><kbd>esc</kbd> close</span><button type="button" data-v="close" aria-label="Close">✕</button></span></div></dialog>
 <div id="toast" popover="manual" role="status"><span class="t-msg"></span><span class="t-acts"></span></div>

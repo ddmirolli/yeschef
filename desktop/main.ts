@@ -575,7 +575,9 @@ async function main() {
   if (app.dock && !CAPTURE) app.dock.setIcon(ICON);
   // The capture check runs hidden: no Dock icon.
   if (CAPTURE) app.setActivationPolicy('accessory');
-  win = new BrowserWindow({ width: 1440, height: 900, show: !CAPTURE, title: NAME, icon: ICON, backgroundColor: '#0a0b0d',
+  // No phone build (Dan, 2026-11-11): the window stays wider than the page's phone screen (760 px and under), at the
+  // narrowest width where the desktop layout clips nothing (960, checked on Browserbase).
+  win = new BrowserWindow({ width: 1440, height: 900, minWidth: 960, show: !CAPTURE, title: NAME, icon: ICON, backgroundColor: '#0a0b0d',
     webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, preload: join(HERE, 'preload.cjs') } });
   // Closing the window (it quits the app) waits for any send still in its Undo, as Quit does.
   win.on('close', (event) => {

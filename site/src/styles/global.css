@@ -463,16 +463,21 @@ html.persona-docked .persona-nav {
    gain, how you run the Pass, and how to start. */
 
 /* The hero demo: the app itself (agents) or the Teams mock (devs), 16:10 like the board image it replaces. It
-   stays at least 620 px tall, so the app keeps its wide layout down to a 761 px frame, and 640 px on phones. */
+   stays at least 620 px tall. The app needs a 960 px frame, the Mac app's minimum window (desktop/main.ts), and the
+   frame is the viewport less 64 px of padding, so under 1024 px the hero shows a screenshot of the same view
+   instead, as t3.codes does: the app has no phone build (Dan, 2026-11-11). */
 .demo { position: relative; z-index: 2; }
 .demo.swap > .demo-fig { width: 100%; }
 .demo-frame iframe { display: block; width: 100%; aspect-ratio: 16 / 10; min-height: 620px; max-height: 760px; border: 0; background: var(--bg-well); }
 .demo-fig figcaption { margin: 14px auto 0; max-width: 720px; font-size: 14px; color: var(--fg-dim); text-wrap: balance; }
-@media (max-width: 760px) { .demo-frame iframe { aspect-ratio: auto; height: 640px; min-height: 0; max-height: none; } }
+.demo-shot { display: none; }
+@media (max-width: 1023px) { .demo-frame, .demo-fig figcaption { display: none; } .demo-shot { display: block; } }
 
 /* A button that drives the demo above: it scrolls back up and sets the demo to what the card describes. */
 .demo-link { align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; margin-top: auto; padding: 9px 14px; border-radius: 9px; font-size: 14px; font-weight: 600; color: var(--pass); background: var(--pass-t); transition: background 0.18s ease; }
 .demo-link::before { content: "\2191"; font-weight: 500; }
+/* The buttons drive the live demo, which a screen under 1024 px does not get. */
+@media (max-width: 1023px) { .demo-link { display: none; } }
 .demo-link:hover { background: color-mix(in srgb, var(--pass) 22%, transparent); }
 
 /* Modes, agents: the app's Kitchen rules rows beside the lines they add to a brief. */

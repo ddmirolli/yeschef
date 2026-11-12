@@ -236,8 +236,6 @@ test('the columns run the window\'s full height and each scrolls inside; all six
   // The wide rules never let a column grow past the window or scroll the middle as a whole.
   assert.doesNotMatch(wide, /\.tray-b\{[^}]*overflow:visible|you-b\{[^}]*overflow-y:auto/);
   assert.match(src, /\.v-kitchen \.rail \.at-ic\{display:none\}/);
-  // A phone's stages still grow with their threads.
-  assert.match(src, /@media \(max-width:760px\)\{[^}]*\}[\s\S]*?\.you \.tray-b\{flex:none;overflow:visible\}\n\}/);
   // fitRail tries the 4-line floor, then the 5-line one, then .tight, then .tighter, and starts over on each call.
   const fn = grab(src, /function fitRail\(\)\{[\s\S]*?\n {2}\}/);
   const run = (fits: (cls: Set<string>) => boolean) => {

@@ -2,6 +2,7 @@
 import { test } from 'vite-plus/test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import { keysCore } from './keys.ts';
@@ -31,6 +32,20 @@ test('YESCHEF_DESKTOP without the app\'s pipe is still the web prototype', () =>
   assert.match(r.stderr, /needs BRIGADE_PASS_ORIGIN\./);
 });
 
+test('no phone build: at phone width the page is one screen that points to the Mac app or a computer (Dan, 2026-11-11)', () => {
+  const src = servedSource();
+  assert.match(src, /<body class="pass-app"><section class="only-phone" aria-labelledby="op-t"><span class="op-logo"><svg [^>]*aria-hidden="true">\$\{ICON\.cloche\}<\/svg><\/span><h1 id="op-t">Yes Chef runs on your Mac<\/h1><a class="btn fill" href="https:\/\/yeschef\.codes\/download" target="_top" rel="noopener">Get the Mac app<\/a><p>Or open this page on a computer\.<\/p><\/section><main id="app">\$\{body\}<\/main>/);
+  assert.match(src, /^\.only-phone\{display:none\}$/m);
+  assert.match(src, /@media \(max-width:760px\)\{\n {2}body\.pass-app>:not\(\.only-phone\)\{display:none!important\}\n {2}\.only-phone\{display:flex;/);
+  // That block is the only phone rule left: no phone layout, and the page script has no phone branch.
+  assert.equal(src.match(/@media \(max-width:(760|600|560)px\)/g)?.length, 1);
+  assert.doesNotMatch(src, /wideQ|min-width: 761px'\)/);
+  // Narrowing to it closes any open dialog, so the page under it is not left inert (PR-Agent r1 on #47).
+  assert.match(src, /phoneQ\.addEventListener\('change', function\(\)\{ if \(phoneQ\.matches\) \$\$\s*\('dialog\[open\]'\)\.forEach\(function\(d\)\{ d\.close\(\); \}\); \}\);/);
+  // The Mac app's window stays wider than that.
+  assert.match(readFileSync(new URL('../desktop/main.ts', import.meta.url), 'utf8'), /new BrowserWindow\(\{ width: 1440, height: 900, minWidth: 960,/);
+});
+
 test('Settings has no Ticket layout: every ticket uses the bar, and a stored "side" is never read (Dan, 2026-11-10)', () => {
   const src = servedSource();
   assert.doesNotMatch(src, /Ticket layout|name="layout"|Side panel<|pv-side|a-side|a-bottom/);
@@ -39,10 +54,9 @@ test('Settings has no Ticket layout: every ticket uses the bar, and a stored "si
   assert.match(src, /<legend>Density<\/legend>/);
   assert.match(src, /<div id="kx-list"><\/div>/);
   assert.deepEqual(keysCore(true).CMD['ticket.more']?.keys, ['.']);
-  // The bar's CSS: the blue action fills, the menu is a popover, and on a phone it opens as a sheet.
+  // The bar's CSS: the blue action fills, and the menu is a popover.
   assert.match(src, /\.abar \.ab\.fill\{background:var\(--accent\);color:#fff\}/);
   assert.match(src, /\.abar \.menu:popover-open\{display:flex/);
-  assert.match(src, /\.abar \.menu::backdrop\{/);
 });
 
 test('a narrow ticket in a wide window never clips the bar: it steps down by the ticket\'s own width (PR-Agent r1 on #72)', () => {
@@ -56,10 +70,9 @@ test('a narrow ticket in a wide window never clips the bar: it steps down by the
   assert.match(block, /@container \(max-width:300px\)\{ \.abar\{flex-wrap:wrap;row-gap:6px\} \}/);
 });
 
-test('the blue Send names two picks at most, so it fits the phone pill; its words end in an ellipsis before the next slot (PR-Agent r2 on #72)', () => {
+test('the blue Send names two picks at most, so it fits a narrow bar (PR-Agent r2 on #72)', () => {
   const src = servedSource();
   assert.match(src, /\(plan\.length > 2 \? 'Send all' : 'Send ' \+ picks\)/);
-  assert.match(src, /\.abar \.ab \.bl\{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis\}/);
 });
 
 type Node = { outerHTML: string; kids: Record<string, Node[]>; title: string; tagName: string; dataset: Record<string, string>; cls: Set<string>; replaced: number;
@@ -125,8 +138,6 @@ test('Settings sits in the middle of the window and never runs past it; each tab
   assert.match(src, /^\.set-panes\{[^}]*overflow-y:auto\}$/m);
   // Nothing pins it to the top of the window.
   assert.doesNotMatch(src, /#settings(\[open\])?\{[^}]*(margin-top|margin:\d|top:)/);
-  // A phone: the same, one column.
-  assert.match(src, /@media \(max-width:600px\)\{\n {2}#settings\[open\]\{grid-template-columns:minmax\(0,1fr\);grid-template-rows:auto minmax\(0,1fr\) auto;height:calc\(100dvh - 32px\)\}/);
   // A tab opens at its top.
   assert.match(src, /if \(panes && \(!setDlg\.open \|\| !was \|\| was\.dataset\.tab !== tab\)\) panes\.scrollTop = 0;/);
 });
