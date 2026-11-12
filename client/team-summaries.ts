@@ -10,7 +10,7 @@ import { clean } from './team-common.ts';
 import { RETRY } from './team-connection.ts';
 import { rangesOf } from './changes.ts';
 import { RULES } from './open-kitchen.ts';
-import { cleanReviewers, type Reviewer } from './reviewers.ts';
+import { cleanReviewers, loginOf, type Reviewer } from './reviewers.ts';
 import type { Board, Ticket } from './board.ts';
 import type { ChangedFile } from './changes.ts';
 import type { PullRequestLink } from './contracts.ts';
@@ -50,6 +50,8 @@ export interface Readers {
   pr?: ((pr: { host: string; repo: string; number: number }) => PrIn | null | undefined) | undefined;
   base?: ((threadId: string) => BaseIn | null | undefined) | undefined;
   seen?: unknown; over?: unknown; keepOver?: ((over: Record<string, number>) => void) | undefined; now?: number | undefined;
+  /** This Mac's GitHub login (gh's sign-in), so a lead's Mac can match a PR's reviewers to its teammates. */
+  login?: (() => unknown) | undefined;
 }
 /** A PR's size as the summary sends it. */
 export type SummarySize = { files: number | null; added: number | null; removed: number | null; at: number | null; overAt?: number };
@@ -469,7 +471,8 @@ export function summarize(board: Pick<Board, 'tickets'> | null | undefined, shar
     if (!bases.has(key)) bases.set(key, summaryBase(b));
   }
   get(readers.keepOver, over);
-  const top = { bases: [...bases.values()], seen: keepSeen(readers.seen, now) };
+  // gh: this Mac's GitHub login, or null when gh's sign-in was not read (not checked).
+  const top = { gh: loginOf(get(readers.login)), bases: [...bases.values()], seen: keepSeen(readers.seen, now) };
   let n = Math.min(tickets.length, SUMMARY_TICKETS);
   // A sealed summary is about 4/3 of its JSON's UTF-8 bytes plus the signature. Shed the changed files of the least
   // recent tickets first (a ticket without them reads "Not checked"), then halve the list until it fits. Sealing checks
