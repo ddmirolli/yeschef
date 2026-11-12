@@ -27,7 +27,8 @@ export interface Teammate { id?: unknown; name?: unknown; role?: unknown; perms?
 export interface TeamView { me?: Me | null; people?: unknown; lead?: unknown; link?: unknown; linkAt?: unknown; teamName?: unknown; [field: string]: unknown }
 
 export interface PrSize { files: number | null; added: number | null; removed: number | null; overAt: number | null }
-export interface CheckRun { at: number | null; result: string | null }
+/** A check run, with the commit it ran on: its sha and the first line of its message, or null (not checked). */
+export interface CheckRun { at: number | null; result: string | null; sha: string | null; title: string | null }
 export interface PrChecks { result: string | null; redRuns: number | null; runs: CheckRun[] }
 /** A teammate's PR, cleaned: every field its own type, or null when the summary does not say (not checked). */
 export interface TeamPr { repo: string; n: number; state: string | null; url: string | null; base: string | null; draft: boolean;
@@ -122,6 +123,9 @@ const obj = (v: unknown): Raw | null => (v && typeof v === 'object' ? v as Raw :
 // A PR from a teammate's summary counts only with a whole number and an owner/name repo: both reach the page's markup.
 const okPr = (pr: Raw): pr is Raw & { n: number; repo: string } => Number.isInteger(pr.n) && (pr.n as number) > 0 && typeof pr.repo === 'string' && /^[\w.-]+\/[\w.-]+$/.test(pr.repo);
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+// A commit from a teammate's summary: a hex sha (it reaches the page as text), and a title cut to one line.
+const hex = (v: unknown): string | null => (typeof v === 'string' && /^[0-9a-f]{7,64}$/i.test(v) ? v.toLowerCase() : null);
+const line = (v: unknown, max: number): string | null => (typeof v === 'string' && v.trim() ? v.split('\n')[0]!.slice(0, max) : null);
 // Every field the calls and the screens read from a teammate's summary, as its own type or null (not checked). The
 // detectors and the readers read only this copy, so an odd value in a summary can never throw or reach the markup.
 function cleanTicket(k: Raw): TeamTicket {
@@ -130,7 +134,7 @@ function cleanTicket(k: Raw): TeamTicket {
     return { repo: x.repo, n: x.n, state: str(x.state), url: str(x.url), base: str(x.base), draft: x.draft === true,
       mergedAt: ms(x.mergedAt), mergeSha: str(x.mergeSha), readyAt: ms(x.readyAt),
       size: size ? { files: num(size.files), added: num(size.added), removed: num(size.removed), overAt: ms(size.overAt) } : null,
-      checks: checks ? { result: str(checks.result), redRuns: num(checks.redRuns), runs: arr(checks.runs).map((r) => ({ at: ms(r.at), result: str(r.result) })) } : null,
+      checks: checks ? { result: str(checks.result), redRuns: num(checks.redRuns), runs: arr(checks.runs).map((r) => ({ at: ms(r.at), result: str(r.result), sha: hex(r.sha), title: line(r.title, 120) })) } : null,
       reviewers: cleanReviewers(x.reviewers) };
   };
   const c = obj(k.changes);

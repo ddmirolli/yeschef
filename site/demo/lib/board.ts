@@ -11,7 +11,7 @@ import type { FlowItem, FlowStage } from './flow.ts';
 import { openKitchen, kitchenBoard, KINDS, may, areaOf } from './open-kitchen.ts';
 import type { Call, Shot } from './calls.ts';
 import type { RunsEntry, WaitEntry } from './you.ts';
-import type { Me, OpenKitchen, Person, PersonState, Side, TeamAsk, TeamCall, TeamPr, TeamView } from './open-kitchen.ts';
+import type { ChangedFile, CheckRun, Me, OpenKitchen, Person, PersonState, Side, TeamAsk, TeamCall, TeamChanges, TeamPr, TeamView } from './open-kitchen.ts';
 import type { Answered } from './actions.ts';
 import type { Project, PullRequestLink, QuestionItem, ThreadRow } from './contracts.ts';
 
@@ -183,6 +183,16 @@ export const ICON = {
   // The modes (docs/icons/skillet.svg, toque.svg): Open kitchen and French Brigade. Filled parts take no stroke here,
   // because svg() strokes everything at 1.8.
   skillet: '<g transform="translate(8.98 10.62)"><circle r="3.50" fill="currentColor" fill-opacity=".28" stroke="none"/><circle r="5.1" stroke-width="1.0"/><g transform="rotate(30)"><path d="M-4.26 -2.8 L-6.98 -1.76 L-7.40 -1.15 L-7.40 1.15 L-6.98 1.76 L-4.26 2.8" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter"/><path d="M4.80 -0.8 L14.85 -1.1 L15.30 -0.65 L15.30 0.65 L14.85 1.1 L4.80 0.8 Z M13.25 0 a.5 .5 0 1 0 1 0 a.5 .5 0 1 0 -1 0 Z" fill="currentColor" fill-rule="evenodd" stroke="none"/></g></g>',
+  // T3 Code's lucide icons, for the team readers that copy its parts (Dan, 2026-11-12): a failed check, and the
+  // changed-files card's chevron, folders (closed has the line), file, Open diff and expand or collapse all.
+  circleX: '<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
+  chevR: '<path d="m9 18 6-6-6-6"/>',
+  folderShut: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="M2 10h20"/>',
+  folderOpen: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+  file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>',
+  fileDiff: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M9 10h6"/><path d="M12 13V7"/><path d="M9 17h6"/>',
+  chevsUpDown: '<path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/>',
+  chevsDownUp: '<path d="m7 20 5-5 5 5"/><path d="m7 4 5 5 5-5"/>',
   toque: '<path d="M7.6 16.1V12.55A3.3 3.3 0 0 1 9.35 6.35A3.05 3.05 0 0 1 14.65 6.35A3.3 3.3 0 0 1 16.4 12.55V16.1" stroke-width="1.25" stroke-linecap="butt"/><path d="M10.55 12.1V15.3" stroke-width="0.75"/><path d="M13.45 12.1V15.3" stroke-width="0.75"/><path d="M6.9 17.75H17.1L16.10 19.15H7.90Z" fill="currentColor" stroke="none"/>',
 };
 type IconName = keyof typeof ICON;
@@ -584,6 +594,77 @@ const kvs = (pairs: readonly (readonly [string, string, string?])[]): string => 
 const vlab = (left: string, right = '', tone = ''): string => `<div class="vl"><span>${left}</span>${right ? `<b${tone ? ` class="${tone}"` : ''}>${e(right)}</b>` : ''}</div>`;
 const NC_V = 'Not checked';
 
+// ---------- The readers' parts from T3 Code ----------
+// Its diff counts (DiffStatLabel.tsx): +added in green, -removed in red, past 999 as 1.1k.
+const compact = (v: number): string => {
+  const at = (n: number, u: string) => `${n < 10 ? n.toFixed(1).replace(/\.0$/, '') : Math.round(n)}${u}`;
+  return v < 1000 ? String(v) : v < 999_500 ? at(v / 1000, 'k') : at(v / 1e6, 'm');
+};
+const okCount = (n: number | null): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0;
+const dstat = (a: number, d: number): string => `<span class="dst" role="group" aria-label="${a} additions, ${d} deletions"><span class="a" aria-hidden="true">+${compact(a)}</span><span class="d" aria-hidden="true">-${compact(d)}</span></span>`;
+
+/** Its changed-files tree (apps/web/src/lib/turnDiffTree.ts): folders, then files, each by name; a folder whose only
+ *  child is a folder shows as one row (a/b/c); a folder counts its files' lines. Ours leaves lockfiles and generated
+ *  files out of a folder's count, as the call's size does, and draws them faded. */
+interface CfFile { kind: 'file'; name: string; a: number | null; d: number | null; x: boolean }
+interface CfDir { kind: 'dir'; name: string; a: number; d: number; kids: CfNode[] }
+type CfNode = CfFile | CfDir;
+const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+function cfTree(files: readonly ChangedFile[]): CfNode[] {
+  interface Dir { name: string; a: number; d: number; dirs: Map<string, Dir>; files: CfFile[] }
+  const root: Dir = { name: '', a: 0, d: 0, dirs: new Map(), files: [] };
+  for (const f of files) {
+    const seg = String(f.p ?? '').split('/').filter(Boolean);
+    if (!seg.length) continue;
+    const up = [root];
+    let at = root;
+    for (const name of seg.slice(0, -1)) {
+      let next = at.dirs.get(name);
+      if (!next) { next = { name, a: 0, d: 0, dirs: new Map(), files: [] }; at.dirs.set(name, next); }
+      at = next; up.push(at);
+    }
+    at.files.push({ kind: 'file', name: seg[seg.length - 1]!, a: f.a, d: f.d, x: f.x });
+    if (!f.x && okCount(f.a) && okCount(f.d)) for (const dir of up) { dir.a += f.a; dir.d += f.d; }
+  }
+  const nodes = (dir: Dir): CfNode[] => [
+    ...[...dir.dirs.values()].sort((p, q) => byName.compare(p.name, q.name)).map((sub) => {
+      let node: CfDir = { kind: 'dir', name: sub.name, a: sub.a, d: sub.d, kids: nodes(sub) };
+      for (let only = node.kids[0]; node.kids.length === 1 && only?.kind === 'dir'; only = node.kids[0]) node = { ...only, name: `${node.name}/${only.name}` };
+      return node;
+    }),
+    ...dir.files.sort((p, q) => byName.compare(p.name, q.name)),
+  ];
+  return nodes(root);
+}
+/** Its rows: 28 px, 14 px a level; a folder opens and closes, and starts closed, as T3 Code's do. */
+function cfRows(nodes: readonly CfNode[], depth: number, dirs: boolean): string {
+  const pad = ` style="padding-left:${8 + depth * 14}px"`;
+  return nodes.map((n) => n.kind === 'dir'
+    ? `<details class="cfd"><summary class="cfr"${pad}>${svg('chevR', 'ic cv')}${svg('folderShut', 'ic fc')}${svg('folderOpen', 'ic fo')}<span class="nm">${e(n.name)}</span>${n.a || n.d ? dstat(n.a, n.d) : ''}</summary>${cfRows(n.kids, depth + 1, dirs)}</details>`
+    : `<div class="cfr f${n.x ? ' x' : ''}"${pad}>${dirs || depth ? '<i class="sp"></i>' : ''}${svg('file')}<span class="nm">${e(n.name)}</span>${okCount(n.a) && okCount(n.d) ? dstat(n.a, n.d) : ''}</div>`).join('');
+}
+/** Too big: T3 Code's changed-files card (ChangedFilesTree.tsx; Dan, 2026-11-10, "A"). The header is the PR's size,
+ *  as the call's title; the tree is the thread's files, as its dev's Mac read them, or Not checked. */
+function changedFiles(size: { files: number; added: number; removed: number }, changes: TeamChanges | null, pr: TeamPr): string {
+  const href = e(`${prHref(pr)}/files`);
+  const tree = changes ? cfTree(changes.files) : [];
+  const dirs = tree.some((n) => n.kind === 'dir');
+  const more = changes && okCount(changes.more) ? changes.more : 0;
+  const all = (open: boolean) => `${open ? 'Collapse' : 'Expand'} all folders`;
+  return `<div class="tvis cf"><div class="cfh"><span class="n">${e(plural(size.files, 'changed file'))}${okCount(size.added) && okCount(size.removed) ? dstat(size.added, size.removed) : ''}</span><span class="cfb">`
+    + (dirs ? `<button type="button" class="cfa" data-cf-all aria-expanded="false" aria-label="${all(false)}" title="${all(false)}">${svg('chevsUpDown', 'ic up')}${svg('chevsDownUp', 'ic dn')}</button>` : '')
+    + `<a href="${href}" target="_blank" rel="noopener" title="Open the full diff">${svg('fileDiff')}Open diff</a></span></div>`
+    + (changes ? cfRows(tree, 0, dirs) + (more ? `<a class="cfm" href="${href}" target="_blank" rel="noopener">${e(nf(more))} more ${more === 1 ? 'file' : 'files'} in the full diff</a>` : '') : `<p class="cfn">${NC_V}</p>`)
+    + '</div>';
+}
+/** Failing: the red runs in a row, newest first, each with the commit it ran on, as T3 Code's checks list draws a
+ *  failed check. A run whose result is not failing is left out; a commit a summary does not name is Not checked. */
+function fixesTried(runs: readonly CheckRun[], red: number): string {
+  const rows = runs.slice(-red).filter((r) => r.result === 'failing').reverse().map((r) => `<li>${svg('circleX')}<span${r.title ? '' : ' class="nc"'}>${e(r.title || NC_V)}</span>`
+    + `<code>${r.sha ? e(r.sha.slice(0, 7)) : ''}</code><time>${r.at != null ? hm(r.at) : ''}</time></li>`).join('');
+  return `<div class="tvis">${vlab('Fixes tried')}${rows ? `<ul class="truns">${rows}</ul>` : `<p class="tmsg nc">${NC_V}</p>`}</div>`;
+}
+
 /** Who has seen the call, and why it reached you. Seen comes from each dev's own Yes Chef, in their summary. */
 type Namer = (id: string) => string;
 function seenLine(c: TeamCall, name: Namer): string {
@@ -682,13 +763,15 @@ function callWords(c: TeamCall, { name, now, people }: { name: Namer; now: numbe
       };
     }
     case 'failing':
+      // The commit each red run ran on, newest first: the first is the change that went red, the rest the agent's
+      // fixes (Dan, 2026-11-12, 1A). T3 Code's checks list: a red X, the commit, its sha and the time.
       return {
         title: `#${f.pr.n} checks failed ${f.redRuns} runs in a row`,
         preview: c.since != null ? `${pos(who)} PR has been red since ${hm(c.since)}.` : `${pos(who)} PR keeps failing its checks.`,
         lead: `${f.ticket.title || 'The thread'}: ${f.redRuns} red runs in a row${c.since != null ? `, the first at ${hm(c.since)}` : ''}.`,
         suggest: 'Ask for a new approach',
         why: `Request changes: ask ${pos(who)} agent for a new approach. ${f.redRuns} runs failed in a row.`,
-        body: kvs([['PR', `#${f.pr.n} ${f.ticket.title || ''}`.trim()], ['By', `${pos(who)} agent${f.ticket.working ? `, ${plural(f.ticket.working, 'agent')}` : ''}`], ['Red runs in a row', String(f.redRuns)], ['Red for', c.since != null ? span(Math.round((now - c.since) / 60000)) : NC_V]]),
+        body: fixesTried(f.runs, f.redRuns),
         acts: [['refire', 'Changes', `Request changes: ${pos(who)} agent gets your note`], ['reply', 'Reply', `Reply to ${pos(who)} agent`]],
         reply: who,
       };
@@ -699,7 +782,9 @@ function callWords(c: TeamCall, { name, now, people }: { name: Namer; now: numbe
         lead: `${f.ticket.title || 'The thread'}. It is running, but it has sent no message, commit or check since ${hm(c.since)}.`,
         suggest: 'Ask for status',
         why: `Reply: ask ${pos(who)} agent where it stands.`,
-        body: kvs([['Agents', f.ticket.working ? `${f.ticket.working}, running` : NC_V], ['Quiet for', span(Math.round((now - Number(c.since)) / 60000))], ['PR', pr ? `#${pr.n}, ${pr.state}` : 'None yet'], ['Thread', f.ticket.place || NC_V]]),
+        // The agent's last message (Dan, 2026-11-12, 2A). No time beside it: a summary carries the message, not when it
+        // came, and the lead already says since when nothing has.
+        body: `<div class="tvis">${vlab('Last message')}<p class="tmsg${f.last ? '' : ' nc'}">${e(f.last || NC_V)}</p></div>`,
         acts: [['reply', 'Reply', `Reply to ${pos(who)} agent`], ['refire', 'Changes', `Request changes: ${pos(who)} agent gets your note`]],
         reply: who,
       };
@@ -711,7 +796,8 @@ function callWords(c: TeamCall, { name, now, people }: { name: Namer; now: numbe
         lead: `${f.ticket.title || 'The thread'} has waited on this since ${hm(c.since)}. It does nothing until someone answers.`,
         suggest: rec ? `Answer ${rec}` : 'Answer it',
         why: rec ? `Answer ${rec}, the agent’s pick.` : 'Answer it, or reply with what the agent needs.',
-        body: kvs([['Thread', f.ticket.title || NC_V], ['Waiting for', span(Math.round((now - Number(c.since)) / 60000))], ['PR', pr ? `#${pr.n}, ${pr.state}` : 'None yet'], [`${who}, last seen`, c.quiet[0]?.since != null ? hm(c.quiet[0].since) : 'Reporting']]),
+        // The question and its options are the reader (Dan, 2026-11-12, 3A: no facts table).
+        body: '',
         ask: a, rec,
         acts: [['answer', 'Send answer', `Send your answer to ${pos(who)} agent`], ['reply', 'Reply', `Reply to ${pos(who)} agent`]],
         reply: who,
@@ -725,7 +811,7 @@ function callWords(c: TeamCall, { name, now, people }: { name: Namer; now: numbe
         lead: 'The limit is 800 lines or 30 files, with lockfiles left out.',
         suggest: 'Split it',
         why: `Request changes: ask ${pos(who)} agent to split #${f.pr.n} into smaller PRs.`,
-        body: kvs([['PR', `#${f.pr.n} ${f.ticket.title || ''}`.trim()], ['Changed lines', `+${nf(f.size.added)} −${nf(f.size.removed)}`], ['Files', String(f.size.files)], ['By', `${pos(who)} agent`]]),
+        body: changedFiles(f.size, f.changes, f.pr),
         acts: [['refire', 'Changes', `Request changes: ${pos(who)} agent gets your note`], ['reply', 'Reply', `Reply to ${pos(who)} agent`]],
         reply: who,
       };

@@ -58,8 +58,9 @@ export function demoTeam(now: number): DemoTeam {
 
   const pr = (project: Project, n: number, state: 'open' | 'merged', more: Partial<DemoPr> = {}): DemoPr => ({ repo: REPO[project], n, state,
     url: `https://github.com/${REPO[project]}/pull/${n}`, base: 'main', draft: false, mergedAt: null, ...more });
-  const runs = (greens: number, reds: number, from: number, every: number) => [...Array(greens + reds)].map((_, i) => ({ at: ago(from - i * every), sha: `c${n6(i)}`,
-    title: `run ${i + 1}`, result: i < greens ? 'passing' : 'failing' }));
+  // Each run is on its own commit: `commits` names them, oldest first, as [title, sha].
+  const runs = (greens: number, reds: number, from: number, every: number, commits: readonly (readonly [string, string])[] = []) => [...Array(greens + reds)].map((_, i) => ({
+    at: ago(from - i * every), sha: commits[i]?.[1] ?? `c${n6(i)}`, title: commits[i]?.[0] ?? `run ${i + 1}`, result: i < greens ? 'passing' : 'failing' }));
   const passing = (m: number) => ({ result: 'passing', redRuns: 0, at: ago(m), runs: runs(3, 0, m + 40, 20) });
   const changes = (project: Project, files: DemoFile[], headAt = 4): NonNullable<DemoTicket['changes']> => ({ state: 'checked', at: ago(1), repo: REPO[project], base: 'main',
     mergeBase: 'b0c1d2e', head: 'f3e4d5c', headAt: ago(headAt), files, more: 0,
@@ -83,16 +84,14 @@ export function demoTeam(now: number): DemoTeam {
     prs: [pr('Loopline', 415, 'open', { draft: true })],
     changes: changes('Loopline', [{ p: 'packages/routing/src/eta.ts', r: [[120, 168], [204, 231], [380, 392]], a: 80, d: 12 }, { p: 'packages/routing/src/zones.ts', r: [[1, 90]], a: 90, d: 0 }]) });
   const nina = t('mcp:nina-1', 'Quillo', 'In review', 'Offline drafts sync', { working: 2,
-    prs: [pr('Quillo', 428, 'open', { readyAt: ago(236), size: { files: 9, added: 310, removed: 44, at: ago(5) }, checks: { result: 'failing', redRuns: 6, at: ago(5), runs: runs(4, 6, 233, 20) },
+    prs: [pr('Quillo', 428, 'open', { readyAt: ago(236), size: { files: 9, added: 310, removed: 44, at: ago(5) }, checks: { result: 'failing', redRuns: 6, at: ago(5), runs: runs(4, 6, 233, 20, NINA) },
       reviewers: [{ who: login('kai'), team: false, state: 'commented', at: ago(90) }] })] });
   const ben = t('mcp:ben-1', 'Fernpay', 'In progress', 'Refund webhook signatures', {
-    prs: [pr('Fernpay', 436, 'open', { checks: { result: 'failing', redRuns: 3, at: ago(2), runs: runs(2, 3, 50, 10) } })] });
+    prs: [pr('Fernpay', 436, 'open', { checks: { result: 'failing', redRuns: 3, at: ago(2), runs: runs(2, 3, 50, 10, BEN) } })] });
   const iris = t('mcp:iris-1', 'Fernpay', 'In review', 'Export statements to CSV', { startedAt: ago(51),
     prs: [pr('Fernpay', 440, 'open', { readyAt: ago(44), checks: passing(9), size: { files: 41, added: 1079, removed: 161, at: ago(3), overAt: ago(51) },
       reviewers: [{ who: login('sam'), team: false, state: 'approved', at: ago(20) }, { who: 'coderabbitai[bot]', team: false, state: 'commented', at: ago(40) }] })],
-    changes: changes('Fernpay', [...([['packages/statements/src/csv/rows.ts', 598, 42], ['packages/statements/src/csv/format.ts', 262, 48], ['apps/web/src/statements/Export.tsx', 131, 59],
-      ['packages/contracts/src/statement.ts', 88, 12]] as const).map(([p, a, d]): DemoFile => ({ p, r: [[1, a]], a, d })),
-      { p: 'pnpm-lock.yaml', r: [[1, 2104]], a: 2104, d: 0, x: 1 }]) });
+    changes: changes('Fernpay', [...IRIS.map(([p, a, d]): DemoFile => ({ p, r: [[1, a]], a, d })), { p: 'pnpm-lock.yaml', r: [[1, 2104]], a: 2104, d: 0, x: 1 }]) });
   const omar = t('mcp:omar-1', 'Loopline', 'In progress', 'Expire stale dispatch offers', { working: 2, updatedAt: iso(38),
     last: 'Running the expiry migration against the staging copy. On about 180,000 offers it can take a while.',
     prs: [pr('Loopline', 421, 'open', { draft: true, checks: { result: 'passing', redRuns: 0, at: ago(53), runs: runs(3, 0, 80, 13) } })],
@@ -159,6 +158,26 @@ export function demoTeam(now: number): DemoTeam {
     people: [{ ...me, online: true, summary: null, at: null, live: false, notCheckedSince: null }, ...people], pending: [], invites: [],
   };
 }
+
+// The commits behind the red checks, oldest first: the runs that passed, the change that went red, then the agent's
+// fixes, each run on its own commit.
+const NINA = [['Store drafts in IndexedDB', '5e2f9a1'], ['Read drafts from the local store first', '8c03d4b'], ['Show the offline badge on drafts', '2b7e610'],
+  ['Sync drafts when the app comes back online', 'd94c3f7'], ['Queue drafts in IndexedDB while offline', 'a41c9e2'], ['Wait for the queue to flush in the sync test', '7d02b18'],
+  ['Mock the network clock in sync tests', 'c95e4a0'], ['Retry the flush on reconnect', '3b8f611'], ['Raise the sync test timeout to 30 s', 'e0d7c53'],
+  ['Skip the offline flush test on CI', '91fa3d6']] as const;
+const BEN = [['Verify refund webhook signatures', '4f1a8e2'], ['Reject unsigned refund webhooks', 'b72c05d'], ['Read the signing secret per merchant', '6e93d1a'],
+  ['Use the raw body for the signature check', 'c18f47b'], ['Compare signatures in constant time', '0a5d2e9']] as const;
+/** Iris's CSV export: all 41 files her PR counts (+1,079 -161), as [path, added, removed]. The lockfile is apart. */
+const IRIS: readonly (readonly [string, number, number])[] = [
+  ...([['columns', 62, 8], ['currency', 34, 6], ['dates', 22, 4], ['escape', 28, 4], ['format', 96, 30], ['headers', 18, 2], ['index', 8, 2], ['locale', 16, 3],
+    ['rows', 120, 18], ['stream', 40, 6], ['totals', 20, 3], ['writer', 26, 4]] as const).map(([f, a, d]) => [`packages/statements/src/csv/${f}.ts`, a, d] as const),
+  ...([['columns', 34], ['currency', 22], ['dates', 18], ['empty', 10], ['escape', 30], ['format', 42], ['headers', 12], ['large', 40], ['locale', 16], ['rows', 48],
+    ['stream', 26], ['totals', 14], ['unicode', 38], ['writer', 20]] as const).map(([f, a]) => [`packages/statements/src/csv/__tests__/${f}.test.ts`, a, 0] as const),
+  ...([['ExportButton.tsx', 24, 6], ['ExportDialog.tsx', 38, 12], ['ExportProgress.tsx', 18, 0], ['StatementsPage.tsx', 14, 22], ['columns.ts', 9, 4],
+    ['download.ts', 6, 0], ['format.ts', 4, 8], ['index.ts', 2, 2], ['useExport.ts', 16, 5]] as const).map(([f, a, d]) => [`apps/web/src/statements/${f}`, a, d] as const),
+  ...([['csv.ts', 18, 0], ['errors.ts', 6, 2], ['export.ts', 22, 0], ['index.ts', 4, 0], ['money.ts', 8, 4], ['statement.ts', 30, 6]] as const)
+    .map(([f, a, d]) => [`packages/contracts/src/${f}`, a, d] as const),
+];
 
 /** A short, steady stand-in for a commit hash. */
 function n6(i: number): string { return (0xa1b2c3 + i * 0x1f1f).toString(16).slice(-6); }

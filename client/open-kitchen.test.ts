@@ -241,6 +241,60 @@ test('Your team draws The Pass’s calls, the rail card, the quiet line and a re
   assert.match(html, /Lines 120 to 168, both/);
 });
 
+/** A call's reader, between Seen and Suggested, found by the word on its plate. */
+const readerOf = (html: string, word: string): string => grab(nth(html.split('<article class="plate team-plate"').slice(1).filter((p) => p.includes(`</i>${word}</span>`))),
+  /<section class="msg tv">([^]*?)<div class="tsug">/, 1);
+
+test('the readers (Dan, 2026-11-12, 1A 2A 3A): fixes tried, the last message, no Waiting table, T3 Code’s changed-files card', () => {
+  const html = page({ view: viewL(), now: NOWL });
+  // Failing: the red runs, newest first, each with its commit's title, short sha and time.
+  const fail = readerOf(html, 'Failing');
+  assert.match(fail, /<div class="vl"><span>Fixes tried<\/span><\/div><ul class="truns">/);
+  assert.deepEqual([...fail.matchAll(/<span>(run \d+)<\/span><code>(c0ffee\d)<\/code><time>\d\d:\d\d<\/time>/g)].map((m) => `${m[1]} ${m[2]}`),
+    ['run 10 c0ffee9', 'run 9 c0ffee8', 'run 8 c0ffee7', 'run 7 c0ffee6', 'run 6 c0ffee5', 'run 5 c0ffee4']);
+  // Stuck: the agent's last message, and no time it cannot know.
+  assert.match(readerOf(html, 'Stuck'), /<div class="tvis"><div class="vl"><span>Last message<\/span><\/div><p class="tmsg">Running the expiry migration/);
+  // Waiting: the question is the reader; no facts table.
+  assert.doesNotMatch(readerOf(html, 'Waiting'), /tvis/);
+  // Too big: the PR's size in the header, Open diff to its files, folders as T3 Code compresses them, the lockfile faded.
+  const big = readerOf(html, 'Too big');
+  assert.match(big, /<span class="n">41 changed files<span class="dst" role="group" aria-label="1079 additions, 161 deletions"><span class="a" aria-hidden="true">\+1\.1k<\/span><span class="d" aria-hidden="true">-161<\/span>/);
+  assert.match(big, /<button type="button" class="cfa" data-cf-all aria-expanded="false" aria-label="Expand all folders"/);
+  assert.match(big, /<a href="https:\/\/github\.com\/acme\/fernpay\/pull\/440\/files" target="_blank" rel="noopener" title="Open the full diff">/);
+  assert.deepEqual([...big.matchAll(/<span class="nm">([^<]+)<\/span>/g)].map((m) => m[1]),
+    ['apps/web/src/export', 'c.ts', 'packages', 'contracts/src', 'd.ts', 'export/src', 'markdown', 'b.ts', 'tables', 'a.ts', 'pnpm-lock.yaml']);
+  assert.match(big, /<span class="nm">packages<\/span><span class="dst" role="group" aria-label="948 additions, 102 deletions">/);
+  assert.match(big, /<div class="cfr f x" style="padding-left:8px"><i class="sp"><\/i><svg[^]*?<\/svg><span class="nm">pnpm-lock\.yaml<\/span><span class="dst"[^>]*><span class="a" aria-hidden="true">\+2\.1k<\/span>/);
+  // Only Main broken keeps a facts table.
+  assert.equal((html.match(/class="kvs"/g) || []).length, 1);
+});
+
+test('the readers say Not checked for what a summary does not say, and draw only real red runs', () => {
+  const v = viewL();
+  const runs = ticket(v, 'nina').prs[0].checks.runs;
+  runs[9].title = null; runs[9].sha = 'not-a-sha'; runs[8].sha = 'ABCDEF1234';
+  ticket(v, 'nina').prs[0].checks.redRuns = 8; // more than the red runs sent: the passing ones are left out
+  ticket(v, 'omar').last = null;
+  const iris = who(v, 'iris').summary.tickets[0];
+  iris.changes.more = 3;
+  iris.changes.files[0].p = 'packages/export/src/tables/<i>x.ts';
+  iris.changes.files[1].a = null;
+  let html = page({ view: v, now: NOWL });
+  const fail = readerOf(html, 'Failing');
+  assert.equal((fail.match(/<li>/g) || []).length, 6);
+  assert.match(fail, /<li><svg[^]*?<\/svg><span class="nc">Not checked<\/span><code><\/code><time>/);
+  assert.match(fail, /<code>abcdef1<\/code>/);
+  assert.match(readerOf(html, 'Stuck'), /<p class="tmsg nc">Not checked<\/p>/);
+  const big = readerOf(html, 'Too big');
+  assert.match(big, /<a class="cfm" href="https:\/\/github\.com\/acme\/fernpay\/pull\/440\/files" target="_blank" rel="noopener">3 more files in the full diff<\/a>/);
+  assert.match(big, /<span class="nm">&lt;i&gt;x\.ts<\/span>/);
+  assert.match(big, /<span class="nm">b\.ts<\/span><\/div>/, 'a file with no count shows none');
+  // Files the Mac did not read: the PR's size, and Not checked for the tree.
+  iris.changes.state = 'reading';
+  html = page({ view: v, now: NOWL });
+  assert.match(readerOf(html, 'Too big'), /<span class="n">41 changed files[^]*<p class="cfn">Not checked<\/p><\/div>$/);
+});
+
 test('team actions show by role and never send: a see-only Engineer gets Settle and a line, no note', () => {
   const lead = page({ view: view(), now: NOW });
   assert.match(lead, /<form class="act team-act" method="post" action="\/act" data-plate="p-[0-9a-f]{12}">/);
