@@ -19,8 +19,8 @@ test('each view has a light and a dark webp screenshot of the app next to its li
 
 test('on a phone the screenshot replaces the live demo and its buttons; elsewhere the demo shows', () => {
   assert.match(css, /^\.demo-shot \{ display: none; \}$/m);
-  assert.match(css, /@media \(max-width: 760px\) \{ \.demo-frame, \.demo-fig figcaption \{ display: none; \} \.demo-shot \{ display: block; \} \}/);
+  assert.match(css, /@media \(max-width: 1023px\) \{ \.demo-frame, \.demo-fig figcaption \{ display: none; \} \.demo-shot \{ display: block; \} \}/);
   // After the base .demo-link rule, so it wins (PR-Agent r1 on #47).
-  assert.ok(css.indexOf('@media (max-width: 760px) { .demo-link { display: none; } }') > css.indexOf('.demo-link { align-self'));
+  assert.ok(css.indexOf('@media (max-width: 1023px) { .demo-link { display: none; } }') > css.indexOf('.demo-link { align-self'));
   assert.match(readFileSync(new URL('../src/scripts/site.ts', import.meta.url), 'utf8'), /if \(frame && !phone\.matches && !frame\.getAttribute\("src"\)\)/);
 });
