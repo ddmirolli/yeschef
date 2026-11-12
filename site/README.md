@@ -38,23 +38,36 @@ After Dan's send-it-out, run `npm run deploy --prefix site` with `CLOUDFLARE_API
 
 - `src/pages/`: Astro pages for the home, download, and two demos.
 - `src/layouts/SiteLayout.astro`, `src/components/`: the shared head, navigation, and footer.
-- `src/styles/`: the original global and team-demo CSS. Fonts keep the same public URLs.
+- `src/styles/`: the original global CSS. Fonts keep the same public URLs.
 - `src/scripts/`: typed home interactions, first-paint view selection, download controls, and release lookup.
 - `src/demo/`: typed demo state, controls, bootstrap, and browser-only Node stand-ins.
 - `public/`: the original images, marks, and fonts, at their existing URLs.
-- `demo/app.html` and `demo/lib/*.ts`: generated snapshots of the application, consumed by the Astro demo page and its bundled bootstrap. `demo/lib/` holds unchanged copies of the app's TypeScript modules, so the typed site checks against the app's own types. They belong to the application, rather than a second handwritten site implementation.
+- `demo/app.html`, `demo/team.html` and `demo/lib/*.ts`: generated snapshots of the application, consumed by the Astro demo pages and their bundled bootstrap. `demo/lib/` holds unchanged copies of the app's TypeScript modules, so the typed site checks against the app's own types. They belong to the application, rather than a second handwritten site implementation.
 
 The home page opens on team unless `?view=solo` is explicit. Switching views updates the URL and both controls without saving a preference. The first-paint script is built from checked TypeScript and runs inline in the head.
 
 Every home Download button starts at `/download`. The typed release lookup asks GitHub's public API for the latest Stable arm64 DMG and caches the answer for the tab. The download page also supports `?channel=nightly`, using the latest 30 releases. A full page without a Nightly links the Nightly list rather than claiming none exists. A missing release disables the download; an unavailable API links GitHub Releases. The page shows no version, size, or requirements. A desktop release needs no site deploy.
 
-## Refresh the solo demo
+## Refresh the demos
 
-`npm run demo:generate --prefix site -- PORT` refreshes the app snapshot after an application UI change. Pick an unused port, or omit it to use 8690. The generator runs a temporary copy of `client/` against the made-up kitchen and checks its rendered board against the browser kitchen. It never signs in to T3 Code. It copies the app modules to `demo/lib/` and demo pictures to `public/demo/`. Rebuild the site after generating.
+`npm run demo:generate --prefix site -- PORT` refreshes both app snapshots after an application UI change. Pick an unused port, or omit it to use 8690. The generator runs a temporary copy of `client/` against the made-up kitchen and checks its rendered board against the browser kitchen. It never signs in to T3 Code. It copies the app modules to `demo/lib/` and demo pictures to `public/demo/`. Rebuild the site after generating.
 
 Keep changes to the app's generated snapshot separate from a site-only migration. When the application refactor changes the generator's inputs, update `scripts/generate-demo.ts`, then run the generator and browser checks. The app's own source stays in `client/` and `desktop/`.
 
-The demos contain only made-up products, people, tickets, checks, and pull request numbers. Teams remains a mock. Nothing leaves either pass without the visitor's action.
+The demos contain only made-up products, people, tickets, checks, and pull request numbers. Nothing leaves either pass without the visitor's action.
+
+## The team demo
+
+On 2026-11-12 Dan asked for a made-up team, so the site shows the app's current UI from the solo, Open kitchen and French Brigade sides, collapsed and expanded. The hand-made Teams mock (`src/demo/team.ts`, `src/styles/team.css`) is gone.
+
+- `client/demo-team.ts` is the team: Dana leads 14 people three tiers deep, on the solo demo's projects. Each person's summary has the shape a Mac sends (`client/team-summaries.ts`), and its times follow the clock, so the calls never age. `client/demo-team.test.ts` pins the seven calls it is written for (Main broken, Overlap, two Failing, Too big, Stuck, Waiting) and one person not reporting.
+- `demo/team.html` is the solo page with the app body drawn by the browser kitchen with that team (`createKitchen({ team: 'open' })`): the app server has no team until the team connection lands. `src/pages/demo/team.astro` opens it on Your team.
+- The app has no mode switch of its own. The mode cards on the home page call `__demoMode` in the frame (`src/demo/boot.ts`).
+- Team actions answer as the app does today: "Not sent: Yes Chef does not have the team connection yet."
+
+Language (Dan, 2026-11-12, "1. A"): strict TypeScript on Node 24, inside the existing pieces. The team is a typed `client/` module built on the summary types, the generator writes the page, and Astro serves it.
+
+Order after the showcase (Dan, 2026-11-12, "2. A"): the step 4 readers (Failing, Stuck, Waiting, Too big, Not reporting) after a mock round; real team data through the relay; the Linear tracker read; deploy and flag readers; Duplicate and Diverging, then Rules.
 
 ## Origin
 

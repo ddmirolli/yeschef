@@ -21,7 +21,11 @@ export interface DemoOptions {
   shot: (name: string) => string;
   onChange?: () => void;
   later?: ((callback: () => void, delay: number) => unknown) | null;
+  /** The team demo: the made-up team (client/demo-team.ts) below the visitor, in this mode. Left out, the visitor is solo. */
+  team?: DemoMode | null;
 }
+/** A team's mode: Open kitchen or French Brigade. */
+export type DemoMode = 'open' | 'brigade';
 export interface DemoToolArgs {
   threadId?: string; projectId?: string; action?: string; requestId?: string; settled?: boolean;
   afterPosition?: number; runLimit?: number; answers?: Record<string, string>; title?: string; message?: string;
@@ -31,11 +35,15 @@ export interface DemoKitchen {
   board(): DemoBoard;
   page(search?: string): string;
   act(body: string): Promise<[number, string]>;
+  /** The team demo's mode, which the site's mode cards set; null in the solo demo. */
+  mode(next?: DemoMode): DemoMode | null;
 }
 
 declare global {
   interface Window {
     __demoTouch?: () => void;
+    /** The team demo only: switch the made-up team between the two modes and redraw. */
+    __demoMode?: (mode: DemoMode) => void;
     __demoTick: () => void;
     __demoReady: (kitchen: DemoKitchen) => void;
     yeschef: { act(body: string): Promise<[number, string]> };

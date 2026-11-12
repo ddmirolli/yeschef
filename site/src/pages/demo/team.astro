@@ -1,105 +1,27 @@
 ---
-import "../../styles/team.css";
+import generatedPage from '../../../demo/team.html?raw';
+import { inlineScript } from '../../scripts/inline';
+
+// The team demo (Dan, 2026-11-12): the app itself with a made-up team below you (client/demo-team.ts), in Your team.
+// The application owns this generated snapshot. The site owns its isolated bootstrap, shared with the solo demo.
+const head = generatedPage.match(/<head>([\s\S]*?)<\/head>/)?.[1]
+  ?.replace(/<script type="importmap">[\s\S]*?<\/script>/, '')
+  .replace('<script src="shim.js"></script>', '');
+const body = generatedPage.match(/<body[^>]*>([\s\S]*?)<\/body>/)?.[1]
+  ?.replace('<script type="module" src="boot.mjs"></script>', '');
+if (!head || !body) throw new Error('Regenerate the team demo before building the site.');
+const shim = inlineScript('src/demo/shim.ts');
 ---
 <!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<meta name="robots" content="noindex">
-<title>Yes Chef for teams demo</title>
-<!-- The site's devs-view demo: a clickable mock of a lead's Pass and full kitchen, from the Teams mocks S6 and S7
-     (docs/mocks/team-kitchen-mock.html) and the Teams brief (docs/team-brigade-brief-v0_1.md). Teams is in design:
-     nothing here is built. People, projects and tickets are made up. Nothing leaves the pass without a click. -->
-
-</head>
-<body>
-<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
-  <symbol id="cloche" viewBox="0 0 24 24"><path d="M4.25 17.4a7.75 7.75 0 0 1 15.5 0" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="7.4" r="1.75" fill="currentColor"/><path d="M2.75 19h18.5l-1.5 1.5H4.25z" fill="currentColor"/></symbol>
-  <symbol id="skillet" viewBox="0 0 24 24"><g transform="translate(8.98 10.62)"><circle r="3.50" fill="currentColor" fill-opacity=".28"/><circle r="5.1" fill="none" stroke="currentColor" stroke-width="1.0"/><g transform="rotate(30)"><path d="M-4.26 -2.8 L-6.98 -1.76 L-7.40 -1.15 L-7.40 1.15 L-6.98 1.76 L-4.26 2.8" fill="none" stroke="currentColor" stroke-width="0.75" stroke-linejoin="miter"/><path d="M4.80 -0.8 L14.85 -1.1 L15.30 -0.65 L15.30 0.65 L14.85 1.1 L4.80 0.8 Z M13.25 0 a.5 .5 0 1 0 1 0 a.5 .5 0 1 0 -1 0 Z" fill="currentColor" fill-rule="evenodd"/></g></g></symbol>
-  <symbol id="toque" viewBox="0 0 24 24"><path d="M7.6 16.1V12.55A3.3 3.3 0 0 1 9.35 6.35A3.05 3.05 0 0 1 14.65 6.35A3.3 3.3 0 0 1 16.4 12.55V16.1" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/><path d="M10.55 12.1V15.3" stroke="currentColor" stroke-width="0.75" stroke-linecap="round"/><path d="M13.45 12.1V15.3" stroke="currentColor" stroke-width="0.75" stroke-linecap="round"/><path d="M6.9 17.75H17.1L16.10 19.15H7.90Z" fill="currentColor"/></symbol>
-</defs></svg>
-
-<div class="app v-pass" id="app">
-  <nav class="rail" aria-label="Kitchen">
-    <div class="top"><div class="logo"><svg><use href="#cloche"/></svg></div><button class="passbtn" type="button" data-go="pass">The Pass<span class="n" data-count></span></button></div>
-    <div class="group"><div class="gh">Team</div>
-      <button class="ri" type="button" data-staff="maya"><span class="av c1">MR</span>Maya<span class="t">deputy</span><span class="n">3</span></button>
-      <button class="ri" type="button" data-staff="kai"><span class="av c3">KM</span>Kai<span class="n">4</span></button>
-      <button class="ri" type="button" data-staff="jon"><span class="av c2">JP</span>Jon<span class="n">3</span></button>
-      <button class="ri" type="button" data-staff="sam"><span class="av c4">SO</span>Sam<span class="n">2</span></button>
-      <button class="ri dim" type="button" data-staff="lee"><span class="av c0">LA</span>Lee<span class="warn">2 h</span></button>
-    </div>
-    <div class="group"><div class="gh">Projects</div>
-      <button class="ri" type="button" data-course="k1"><span class="course k1"></span>Mobile v1<span class="n">4</span></button>
-      <button class="ri" type="button" data-course="k2"><span class="course k2"></span>Team relay<span class="n">5</span></button>
-      <button class="ri" type="button" data-course="k3"><span class="course k3"></span>Desktop polish<span class="n">4</span></button>
-      <button class="ri dim" type="button" data-course="k0"><span class="course k0"></span>Unplanned<span class="n">1</span></button>
-    </div>
-    <div class="foot">
-      <button class="mode-chip" type="button" data-mode><svg width="18" height="18"><use href="#skillet"/></svg><span data-mode-name>Open</span><i>3 projects</i></button>
-      <div class="two"><span><span class="dot" style="background:#30D158;width:6px;height:6px"></span>Live</span><span>5 people</span></div>
-    </div>
-  </nav>
-  <div class="bar" aria-label="Kitchen">
-    <div class="logo"><svg><use href="#cloche"/></svg></div>
-    <button class="passbtn" type="button" data-go="pass">The Pass<span class="n" data-count></span></button>
-    <button class="passbtn" type="button" data-go="kitchen">Kitchen</button>
-    <button class="mode-chip" type="button" data-mode><svg width="18" height="18"><use href="#skillet"/></svg><span data-mode-name>Open</span><i>3 projects</i></button>
-  </div>
-
-  <section class="col" aria-label="The Pass" id="list"></section>
-  <section class="reader" aria-label="Ticket"><div class="in" id="reader"></div></section>
-
-  <section class="kitchen" aria-label="The full kitchen">
-    <div class="filters" role="group" aria-label="Projects">
-      <button class="fchip on" type="button" data-course="">All projects</button>
-      <button class="fchip" type="button" data-course="k1"><span class="course k1"></span>Mobile v1</button>
-      <button class="fchip" type="button" data-course="k2"><span class="course k2"></span>Team relay</button>
-      <button class="fchip" type="button" data-course="k3"><span class="course k3"></span>Desktop polish</button>
-      <button class="fchip" type="button" data-course="k0"><span class="course k0"></span>Unplanned</button>
-      <span class="sp"></span><span class="label-tag">14 tickets from 5 people</span>
-    </div>
-    <div class="gridwrap"><div class="grid" id="grid">
-      <div class="gh">Team</div>
-      <div class="gh"><span class="dot d-order"></span>Backlog</div><div class="gh"><span class="dot d-prep"></span>Planned</div><div class="gh"><span class="dot d-fire"></span>In progress</div><div class="gh"><span class="dot d-tasting"></span>In review</div><div class="gh"><span class="dot d-plating"></span>Ready to merge</div><div class="gh"><span class="dot d-sent"></span>Merged today</div>
-
-      <div class="pc" data-row="maya"><span class="av c1">MR</span><div>Maya<i>Deputy</i></div></div>
-      <div class="cell" data-row="maya"></div>
-      <div class="cell" data-row="maya"><div class="tk" data-k="k2"><span class="course k2"></span>Relay: sealed summaries</div></div>
-      <div class="cell" data-row="maya"><button class="tk sauce" type="button" data-k="k2" data-card="shared"><span class="course k2"></span>Shell stream protocol v3</button></div>
-      <div class="cell" data-row="maya"></div><div class="cell" data-row="maya"></div>
-      <div class="cell" data-row="maya"><div class="tk" data-k="k2"><span class="course k2"></span>Relay: inbox expiry</div></div>
-
-      <div class="pc" data-row="kai"><span class="av c3">KM</span><div>Kai<i>Area owner · Desktop</i></div></div>
-      <div class="cell" data-row="kai"><div class="tk" data-k="k3"><span class="course k3"></span>Window state on relaunch</div></div>
-      <div class="cell" data-row="kai"></div>
-      <div class="cell" data-row="kai"><div class="tk" data-k="k3"><span class="course k3"></span>Updater channel picker</div></div>
-      <div class="cell" data-row="kai"><button class="tk coll" type="button" data-k="k3" data-card="coll"><span class="course k3"></span>Pin threads</button></div>
-      <div class="cell" data-row="kai"><button class="tk" type="button" data-k="k3" data-card="tray" id="tray-tk"><span class="course k3"></span>Tray icon states</button></div>
-      <div class="cell" data-row="kai"></div>
-
-      <div class="pc" data-row="jon"><span class="av c2">JP</span><div>Jon<i>Area owner · Mobile</i></div></div>
-      <div class="cell" data-row="jon"></div><div class="cell" data-row="jon"></div>
-      <div class="cell" data-row="jon"><button class="tk coll" type="button" data-k="k1" data-card="coll"><span class="course k1"></span>Thread groups</button><div class="tk" data-k="k1"><span class="course k1"></span>Push for questions</div></div>
-      <div class="cell" data-row="jon"></div><div class="cell" data-row="jon"></div>
-      <div class="cell" data-row="jon"><div class="tk" data-k="k1"><span class="course k1"></span>Offline banner</div></div>
-
-      <div class="pc" data-row="sam"><span class="av c4">SO</span><div>Sam<i>Engineer</i></div></div>
-      <div class="cell" data-row="sam"></div><div class="cell" data-row="sam"></div>
-      <div class="cell" data-row="sam"><button class="tk" type="button" data-k="k0" data-card="unplanned"><span class="course k0"></span>Pricing page</button></div>
-      <div class="cell" data-row="sam"><div class="tk" data-k="k1"><span class="course k1"></span>Mobile sign-in copy</div></div>
-      <div class="cell" data-row="sam"></div><div class="cell" data-row="sam"></div>
-
-      <div class="pc row-nc" data-row="lee"><span class="av c0">LA</span><div>Lee<i style="color:var(--red)">Not checked · 2 h</i></div></div>
-      <button class="cell row-nc" type="button" data-row="lee" data-card="nc" style="grid-column:2 / span 6;justify-content:center;align-items:center;flex-direction:row;color:var(--label3);font-size:13px;text-align:center">Lee’s Mac is asleep or offline. Last seen in progress on “Relay retries”. Nothing older is shown as live.</button>
-    </div></div>
-    <div class="legend"><span><span class="lg coll"></span>Overlap</span><span><span class="lg sauce"></span>Shared code change</span><span><span class="course k0"></span>Unplanned</span><span data-fb-legend hidden><span class="lg wait"></span>Waits for you to merge</span></div>
-  </section>
-</div>
-<div class="toast" id="toast" role="status" aria-live="polite"><span data-msg></span><button type="button" data-undo>Undo <kbd>Z</kbd></button></div>
-
-<script>import "../../demo/team";</script>
-</body>
+<html lang="en" data-team="open">
+  <head>
+    <script is:inline set:html={shim}></script>
+    <!-- After the shim, which gives the page its own storage: the demo opens on Your team. -->
+    <script is:inline>localStorage.setItem('yc.scope', 'team');</script>
+    <Fragment set:html={head} />
+  </head>
+  <body class="pass-app">
+    <Fragment set:html={body} />
+    <script>import '../../demo/boot';</script>
+  </body>
 </html>

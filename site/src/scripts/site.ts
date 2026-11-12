@@ -171,14 +171,14 @@ type View = 'solo' | 'team';
   // The buttons under the modes drive the demo: back up to it, then set it to what the card describes. The
   // demo pages are on this site, so the page reaches into them directly.
   var reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-  function inDemo(act: (document: Document) => void) {
+  function inDemo(act: (document: Document, win: Window) => void) {
     const frame = loadDemo(root.getAttribute("data-view") === "solo" ? "solo" : "team");
     if (!frame) return;
     frame.scrollIntoView({ behavior: reducedMotion.matches ? "auto" : "smooth", block: "center" });
     var run = function () {
       try {
         frame.contentWindow?.__demoTouch?.();
-        if (frame.contentDocument) act(frame.contentDocument);
+        if (frame.contentDocument && frame.contentWindow) act(frame.contentDocument, frame.contentWindow);
       } catch (e) {}
     };
     var doc = frame.contentDocument;
@@ -189,13 +189,11 @@ type View = 'solo' | 'team';
     var link = event.target instanceof Element && event.target.closest("[data-demo-mode], [data-demo-rules]");
     if (!link) return;
     var mode = link.getAttribute("data-demo-mode");
-    inDemo(function (doc) {
-      if (mode) {
-        // The mode chip flips between Open and Brigade (Open kitchen and French Brigade until 2026-11-10); click it only
-        // to change.
-        var name = doc.querySelector("[data-mode-name]");
-        var now = name && /Brigade/.test((name.textContent ?? "")) ? "brigade" : "open";
-        if (now !== mode) doc.querySelector<HTMLElement>("[data-mode]")?.click();
+    inDemo(function (doc, win) {
+      if (mode === "open" || mode === "brigade") {
+        // The app has no mode switch of its own (a team's mode is its lead's setting), so the team demo takes it
+        // from here (site/src/demo/boot.ts).
+        win.__demoMode?.(mode);
       } else {
         // Settings, then its Rules tab, as a visitor would open them.
         var open = doc.querySelector<HTMLElement>("[data-settings]");

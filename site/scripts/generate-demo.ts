@@ -1,11 +1,12 @@
 // Builds the site's live demo (site/demo/), the real Pass on a made-up kitchen, from the app in client/.
 // Run it from the repo root after a change to the app's UI:  npm run demo:generate --prefix site -- [port]
 //
-// It copies the app's board, calls, kitchen, actions, you and open-kitchen modules, and the client modules they import,
+// It copies the app's board, calls, kitchen, actions, you, open-kitchen and demo-team modules, and the client modules they import,
 // to site/demo/lib/ unchanged, and the made-up projects' icons and screenshots from tools/hero-art/. Then it starts
 // client/server.ts in a temp folder with a stand-in for client/t3mcp.ts that answers from the typed demo kitchen. It never signs in
 // to T3 Code. It saves site/demo/app.html as an input to Astro; src/pages/demo/app.astro supplies the
-// typed bootstrap. The generated snapshot is not a standalone page.
+// typed bootstrap. The generated snapshot is not a standalone page. It also saves site/demo/team.html, the same page with
+// the made-up team below the visitor (client/demo-team.ts), drawn by the browser kitchen: the server has no team.
 import { spawn } from 'node:child_process';
 import { copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -25,7 +26,7 @@ const SHIMMED = new Set(['node:crypto', 'node:fs', 'node:path']);
 rmSync(join(DEMO, 'lib'), { recursive: true, force: true });
 mkdirSync(join(DEMO, 'lib'), { recursive: true });
 // The list grows as it goes: each client module a copy imports is copied too.
-const copy = ['board.ts', 'calls.ts', 'kitchen.ts', 'actions.ts', 'you.ts', 'open-kitchen.ts'];
+const copy = ['board.ts', 'calls.ts', 'kitchen.ts', 'actions.ts', 'you.ts', 'open-kitchen.ts', 'demo-team.ts'];
 for (const f of copy) {
   const src = readFileSync(join(ROOT, 'client', f), 'utf8');
   for (const m of src.matchAll(/^import [^;]*? from '([^']+)';/gm)) {
@@ -135,6 +136,16 @@ export function createLive({ onChange }) {
   }
   writeFileSync(join(DEMO, 'app.html'), html);
   console.log(`site/demo/app.html: ${html.length} bytes, ${browser.board().tickets.length} tickets`);
+
+  // 5. The team demo (Dan, 2026-11-12): the same page, Dana's team below her in Open kitchen. The site's mode cards
+  // switch it to French Brigade (site/src/pages/demo/team.astro).
+  const teamKitchen = createKitchen({ where: (dir) => ({ icon: `icons/${dir}.svg` }), shot: (name) => `img/${name}-dark.png`, later: null, team: 'open' });
+  const main = html.indexOf('<main id="app">') + 15, end = html.indexOf('</main>');
+  if (main < 15 || end < main) throw new Error('app.html has no <main id="app"> to draw the team into');
+  const team = html.slice(0, main).replace('<title>Yes Chef demo</title>', '<title>Yes Chef for teams demo</title>') + teamKitchen.page('') + html.slice(end);
+  for (const want of ['<title>Yes Chef for teams demo</title>', 'id="yc-team"', '"mode":"open"']) if (!team.includes(want)) throw new Error(`team.html is missing ${want}`);
+  writeFileSync(join(DEMO, 'team.html'), team);
+  console.log(`site/demo/team.html: ${team.length} bytes`);
 } finally {
   server?.kill();
   rmSync(tmp, { recursive: true, force: true });
