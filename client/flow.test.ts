@@ -2,7 +2,7 @@
 import { test } from 'vite-plus/test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { ageOf, layout, drawFlow, youFlow, fitFrom, strands, FLOW_KEY, CLOCHE, DAY, W } from './flow.ts';
+import { ageOf, layout, drawFlow, youFlow, fitFrom, strands, ribbon, FLOW_KEY, CLOCHE, DAY, W } from './flow.ts';
 import type { FlowItem, FlowStage } from './flow.ts';
 import { grab } from './test/expect.ts';
 import { servedSource } from './test/served.ts';
@@ -302,4 +302,13 @@ test('the page says its chart size as fx=WxH; anything else draws the chart at i
   assert.doesNotMatch(youFlow(LINE, NOW), /data-fit/);
   // The key rides in the chart's corner, after the chart.
   assert.ok(html.endsWith(FLOW_KEY));
+});
+
+test('a band stops dead at its stage: a flat end, no cap past it (Dan, 2026-11-12: no laffy taffy)', () => {
+  const d = ribbon([{ x: 10, y: 20, c: false }, { x: 200, y: 60, c: true }, { x: 300, y: 60, c: false }], 24);
+  assert.doesNotMatch(d, /A/, 'no arc');
+  // From the top edge's last point straight down to the bottom edge's, at the same x.
+  assert.match(d, /L300,60L300,84/);
+  const xs = [...d.matchAll(/(-?\d+(?:\.\d+)?),-?\d+(?:\.\d+)?/g)].map((m) => Number(m[1]));
+  assert.equal(Math.max(...xs), 300, 'nothing reaches past the stage');
 });

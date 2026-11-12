@@ -1,7 +1,7 @@
 // The expanded views' flow charts, drawn as SVG strings the way client/board.ts draws (Dan, 2026-11-11, stack A: our
 // own layout in strict TypeScript, no chart library). This file is You's Sankey (flow mock v3.3, locked 2026-11-11):
 // your threads run left to right from their project, through checks and review, to you, then to the branch they merged
-// into. The columns are the stages: a thread's band ends, with a round cap, inside the column of the stage it is in, and
+// into. The columns are the stages: a thread's band stops dead, flat, inside the column of the stage it is in, and
 // crosses a column's dashed edge only when it took that step. Nothing else draws a line (Dan, 2026-11-12: no node bars,
 // which sat inside a column and read as a step that was not there). Width is threads. Gray is how long since a thread last changed, in three labelled steps (dark mode inverts it, so
 // old is bright). No red, orange or yellow fills. What waits on you is The Pass's job (Dan, 2026-11-12): its threads
@@ -176,8 +176,8 @@ export function layout(items: readonly FlowItem[], now: number, drill: string | 
 
 /** A point on a band's top edge: straight to it, or curved like a Sankey link (c). */
 export interface Pt { x: number; y: number; c: boolean }
-/** A band as one ribbon h high through its points, ending in a round cap: one outline, so no seam shows where its
- *  straight and curved parts meet. */
+/** A band as one ribbon h high through its points, ending flat at the stage it is in (Dan, 2026-11-12: a round cap
+ *  read as the band looping back on itself): one outline, so no seam shows where its straight and curved parts meet. */
 const go = (a: Pt, b: Pt, dy: number): string => {
   if (!b.c) return `L${f1(b.x)},${f1(b.y + dy)}`;
   const m = (a.x + b.x) / 2;
@@ -187,7 +187,7 @@ export const ribbon = (p: readonly Pt[], h: number): string => {
   const [first] = p, last = p[p.length - 1]!;
   let d = `M${f1(first!.x)},${f1(first!.y)}`;
   for (let i = 1; i < p.length; i++) d += go(p[i - 1]!, p[i]!, 0);
-  d += `A${f1(Math.min(5, h / 2))},${f1(h / 2)} 0 0 1 ${f1(last.x)},${f1(last.y + h)}`;
+  d += `L${f1(last.x)},${f1(last.y + h)}`;
   for (let i = p.length - 1; i > 0; i--) d += go(p[i]!, { ...p[i - 1]!, c: p[i]!.c }, h);
   return `${d}Z`;
 };
