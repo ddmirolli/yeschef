@@ -62,7 +62,7 @@ const SIZES = 'calc(100vw - 32px)';
 
         <!-- The live demo (Dan, 2026-11-09): the agents view runs the app itself on a made-up kitchen (demo/app.html,
              built by site/scripts/generate-demo.ts); the devs view runs it too, with a made-up team below you (demo/team.html,
-             client/demo-team.ts; Dan, 2026-11-12).
+             client/demo-team.ts; Dan, 2026-11-12). Its caption is Dan's line, verbatim (2026-11-12).
              site.ts loads the frame for the view on screen, and the other one on the first flip. -->
         <div class="demo swap" data-rise style="--d:520ms">
           <figure class="board demo-fig" data-swap="solo">
@@ -73,7 +73,7 @@ const SIZES = 'calc(100vw - 32px)';
           <figure class="board demo-fig" data-swap="team">
             <div class="board-frame demo-frame"><iframe data-src="/demo/team.html" title="Yes Chef demo: the app with a made-up team"></iframe></div>
             <div class="board-frame demo-shot"><picture><source media="(prefers-color-scheme: light)" srcset={shots.team.light.srcSet.attribute} sizes={SIZES} /><img src={shots.team.dark.src} srcset={shots.team.dark.srcSet.attribute} sizes={SIZES} alt={shots.team.alt} width="1440" height="900" loading="lazy" decoding="async" /></picture></div>
-            <figcaption>The app itself, with a made-up team below you. Open a call, flip to the expanded view, switch the mode.</figcaption>
+            <figcaption><span aria-hidden="true">↑</span> clickable demo — click the logo to expand the view</figcaption>
           </figure>
         </div>
       </div>
