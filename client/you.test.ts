@@ -322,7 +322,7 @@ test('hover lights the chart and The Pass both ways; a project click picks that 
     return { dataset, hidden: false, textContent: '', cls, classList: { toggle: (c, on) => { if (on) cls.add(c); else cls.delete(c); }, contains: (c) => cls.has(c) } };
   };
   const board = el();
-  const band = el({ k: 'fl:0 g:Fernpay t:p-1 t:p-2 n:review' }), other = el({ k: 'fl:1 g:Fernpay t:p-3' }), card = el({ plate: 'p-2' }), card3 = el({ plate: 'p-9' });
+  const band = el({ k: 'fl:0 g:Fernpay t:p-1 t:p-2' }), other = el({ k: 'fl:1 g:Fernpay t:p-3' }), card = el({ plate: 'p-2' }), card3 = el({ plate: 'p-9' });
   // The project's logo holds every thread's key, p-9's too (Dan, 2026-11-12: any of its threads lights it).
   const logo = el({ k: 'g:Fernpay t:p-1 t:p-2 t:p-3 t:p-9' }); logo.cls.add('glogo');
   const one: Record<string, El> = { '.board': board };
