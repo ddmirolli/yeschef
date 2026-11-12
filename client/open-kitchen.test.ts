@@ -843,3 +843,14 @@ test('the page measures the rows’ column from its parts, so a panel that alrea
   assert.match(grab(src, /function fitFlow[\s\S]*?\n {2}\}/), /if \(fitRows\(\)\) return;/);
   assert.match(grab(src, /function watchFlow[\s\S]*?\n {2}\}/), /flowRO\.observe\(tb\)/);
 });
+
+test("a teammate's reviewers reach the lead's copy cleaned; a PR whose summary has none reads not checked", () => {
+  const v = view();
+  const k = who(v, 'maya').summary.tickets.find((t: Wire) => t.prs?.length);
+  k.prs[0].reviewers = [{ who: 'ada', team: false, state: 'approved', at: NOW - 60000 }, { who: '<img src=x>', state: 'approved' }, { who: 'jon', state: 'lgtm' }];
+  const ok = read(v);
+  const mine = ok.tickets.find((t) => t.k.thread === k.thread)!;
+  assert.deepEqual(mine.k.prs[0]!.reviewers, [{ who: 'ada', team: false, state: 'approved', at: NOW - 60000 }]);
+  delete k.prs[0].reviewers;
+  assert.equal(read(v).tickets.find((t) => t.k.thread === k.thread)!.k.prs[0]!.reviewers, null);
+});

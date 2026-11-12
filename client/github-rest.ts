@@ -55,8 +55,13 @@ export const PullRequest = Schema.Struct({
   base: Schema.optional(Schema.Struct({ ref: Schema.optional(Schema.String), sha: Schema.optional(Schema.String) })),
   additions: Schema.optional(Schema.Number), deletions: Schema.optional(Schema.Number), changed_files: Schema.optional(Schema.Number),
   commits: Schema.optional(Schema.Number), merge_commit_sha: maybe(Schema.String), created_at: Schema.optional(Schema.String),
+  // Who is asked to review now: people and teams. GitHub takes a person off when they review, and puts them back on a re-request.
+  requested_reviewers: Schema.optional(Schema.Array(Schema.NullOr(Schema.Struct({ login: Schema.optional(Schema.String) })))),
+  requested_teams: Schema.optional(Schema.Array(Schema.NullOr(Schema.Struct({ slug: Schema.optional(Schema.String) })))),
 });
 export type PullRequest = typeof PullRequest.Type;
+/** One review on a pull request: who, their verdict, and when they sent it. */
+export const Review = Schema.Struct({ user: maybe(Schema.Struct({ login: Schema.optional(Schema.String) })), state: Schema.optional(Schema.String), submitted_at: maybe(Schema.String) });
 /** One file a pull request changes. */
 export const PrFile = Schema.Struct({ filename: Schema.String, additions: Schema.optional(Schema.Number), deletions: Schema.optional(Schema.Number) });
 /** One commit in a list: a pull request's commits, or a branch's history. */
@@ -70,6 +75,7 @@ export const Rules = Schema.Array(Rule);
 export const PrFiles = Schema.Array(PrFile);
 export const Commits = Schema.Array(Commit);
 export const IssueEvents = Schema.Array(IssueEvent);
+export const Reviews = Schema.Array(Review);
 
 /** A GitHub reply the Pass cannot read. Its reason is what "not checked" says. */
 export class GitHubReadError extends Schema.TaggedError<GitHubReadError>()('GitHubReadError', { reason: Schema.String }) {

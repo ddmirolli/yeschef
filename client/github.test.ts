@@ -303,7 +303,7 @@ test('the facts beside a PR and a base: runs with an open PR, only the merge wit
   };
   const runs = async (a: { number: number; merged?: boolean }): Promise<PrRuns> => {
     calls.push(['runs', a.number]);
-    return { state: 'checked', at: 1, host: 'github.com', repo: 'o/r', number: a.number, head: null, draft: false, readyAt: null, mergeSha: a.merged ? 'm'.repeat(40) : null, checks: null };
+    return { state: 'checked', at: 1, host: 'github.com', repo: 'o/r', number: a.number, head: null, draft: false, readyAt: null, mergeSha: a.merged ? 'm'.repeat(40) : null, checks: null, reviewers: null };
   };
   const open = await readPrFacts({ repo: 'o/r', number: 7, merged: false }, { size, runs, get });
   assert.ok(open.state === 'checked' && 'size' in open && open.runs?.state === 'checked');
