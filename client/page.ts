@@ -275,8 +275,10 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     if (crumb) crumb.hidden = !drill;
     if (nm) nm.textContent = drill;
     var wrap = $('.you .fx-wrap'); if (wrap) wrap.classList.toggle('drilled', !!drill);
-    if (clear) fxKeys = null;
-    fxNow = null; flowFocus(fxKeys);
+    // A band's own key (fl:) is its place in the chart, which a refresh can give another band: only the keys of threads,
+    // projects and stops come back (PR-Agent r1 on #49).
+    var keep = clear || !fxKeys ? [] : fxKeys.filter(function(k){ return k.indexOf('fl:') !== 0; });
+    fxNow = null; flowFocus(keep.length ? keep : null);
   }
   // Hover links the chart and The Pass both ways (Dan, 2026-11-11). A chart part lights what it names (data-f) in the
   // chart: every element that belongs to one of those keys (data-k). Its Pass cards light too: the cards of the threads
@@ -301,9 +303,14 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     var html = n && n.getAttribute('data-tip');
     box.hidden = !html; if (!html) return;
     box.innerHTML = html;
-    var r = wrap.getBoundingClientRect();
-    box.style.left = Math.max(0, Math.min(ev.clientX - r.left + wrap.scrollLeft + 14, wrap.scrollWidth - 260)) + 'px';
-    box.style.top = (ev.clientY - r.top + wrap.scrollTop + 14) + 'px';
+    // Beside the pointer, inside the part of the chart you can see: it flips left or up at the scroller's edge (PR-Agent
+    // r1 on #49: a narrow window clipped it).
+    var r = wrap.getBoundingClientRect(), sc = (wrap.closest('.you-b') || wrap).getBoundingClientRect();
+    var x = ev.clientX + 14, y = ev.clientY + 14, w = box.offsetWidth, h = box.offsetHeight;
+    if (x + w > sc.right) x = Math.max(sc.left, ev.clientX - 14 - w);
+    if (y + h > sc.bottom) y = Math.max(sc.top, ev.clientY - 14 - h);
+    box.style.left = (x - r.left) + 'px';
+    box.style.top = (y - r.top) + 'px';
   }
   document.addEventListener('mouseover', function(ev){
     if (!root.classList.contains('v-kitchen')) return;
@@ -312,6 +319,23 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     flowFocus(part ? (part.getAttribute('data-f') || '').split(' ') : card ? ['t:' + card.dataset.plate] : null);
     flowTip(part || null, ev);
   });
+  // A keyboard reaches each project's name and, opened, each thread's band: focus lights them as hover does, and Enter
+  // or Space acts as a click (PR-Agent r1 on #49). Capture, so the board's own Enter never also runs.
+  document.addEventListener('focusin', function(ev){
+    var part = (ev.target as Element).closest && (ev.target as Element).closest<Element>('.you .fx-view [data-f][tabindex]');
+    if (part) flowFocus((part.getAttribute('data-f') || '').split(' '));
+  });
+  document.addEventListener('focusout', function(ev){
+    var part = (ev.target as Element).closest && (ev.target as Element).closest('.you .fx-view [tabindex]');
+    if (part) flowFocus(null);
+  });
+  document.addEventListener('keydown', function(ev){
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    var part = (ev.target as Element).closest && (ev.target as Element).closest('.you .fx-view [tabindex][role=button]');
+    if (!part || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+    ev.preventDefault(); ev.stopPropagation();
+    part.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  }, true);
   // The tip follows the pointer, and comes back on the next move after a refresh drew a fresh chart under it.
   document.addEventListener('mousemove', function(ev){
     var box = $('.you .fx-tip'), t = ev.target as Element, part = t.closest && t.closest<Element>('.you .fx-view [data-f]');

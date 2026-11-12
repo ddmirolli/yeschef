@@ -157,3 +157,23 @@ test('the key names the three gray steps and how to read the chart', () => {
   assert.deepEqual([...FLOW_KEY.matchAll(/<i class="sw a(\d)"><\/i>([^<]+)/g)].map((m) => m[2]), ['under 1 day', '1 to 3 days', 'over 3 days']);
   assert.match(FLOW_KEY, /Gray is time since the last change:/);
 });
+
+test('every thread keeps a positive width, even with more projects than the chart has room for (PR-Agent r1 on #49)', () => {
+  const many = Array.from({ length: 75 }, (_, i) => I(`t${i}`, `P${String(i).padStart(2, '0')}`, 'In review'));
+  const L = layout(many, NOW);
+  assert.ok(L.bands.every((b) => b.h >= 3));
+  assert.ok(L.groups.every((g) => g.h > 0));
+  assert.ok(L.nodes.review && L.nodes.review.h > 0);
+  // The chart grows to hold them, so nothing leaves the drawing.
+  assert.ok(L.groups.every((g) => g.y >= 0 && g.y + g.h <= L.H));
+  assert.doesNotMatch(drawFlow(L, NOW), /height="-|,-\d/);
+});
+
+test('a keyboard reaches every project by its name and, opened, every thread (PR-Agent r1 on #49)', () => {
+  const top = drawFlow(layout(LINE, NOW), NOW);
+  assert.deepEqual([...top.matchAll(/<text class="gname"[^>]*tabindex="0" role="button" aria-label="([^"]+)"/g)].map((m) => m[1]), ['Open Fernpay: 6 threads', 'Open Yes Chef: 2 threads']);
+  assert.doesNotMatch(grab(top, /<g class="bands">[\s\S]*?<\/g>/), /tabindex/);
+  const yc = drawFlow(layout(LINE, NOW, 'Yes Chef'), NOW);
+  assert.match(yc, /<path class="band a0 wait"[^>]*data-plate="y1" tabindex="0" role="button" aria-label="y1, Ready to merge, waiting on you"/);
+  assert.match(yc, /<path class="band a1"[^>]*data-plate="m2" tabindex="0" role="button" aria-label="m2, Merged"/);
+});

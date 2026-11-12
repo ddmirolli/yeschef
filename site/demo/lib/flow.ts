@@ -86,7 +86,9 @@ export function layout(items: readonly FlowItem[], now: number, drill: string | 
   bands.forEach((b, i) => { b.id = String(i); });
   const names = [...new Set(bands.map((b) => b.group))].sort((a, b) => a.localeCompare(b));
   const total = pick.length, gap = drill === null ? 6 : 0, gaps = gap * Math.max(0, names.length - 1), laneGap = 5;
-  const u = drill !== null ? 11 : Math.min(12, (440 - gaps) / Math.max(1, total));
+  // Every thread keeps at least 3 px (PR-Agent r1 on #49: 75 projects' gaps alone passed 440 px); past that the chart
+  // grows and scrolls inside the view.
+  const u = drill !== null ? 11 : Math.max(3, Math.min(12, (440 - gaps) / Math.max(1, total)));
   for (const b of bands) b.h = b.items.length * u;
   const leftH = drill !== null ? total * u + Math.max(0, total - 1) * laneGap : 0;
   const span = Math.max(200, drill !== null ? leftH : total * u + gaps);
@@ -211,7 +213,9 @@ export function drawFlow(L: Layout, now: number): string {
       px = NODE_X[s] + NW; py = b.yOut[s] ?? 0;
     }
     // Every project open: a click opens the project. One project open: a click opens the thread, as its card does.
-    const act = L.drill === null ? ` data-drill="${e(b.group)}"` : t0 ? ` data-plate="${e(t0.id)}"` : '';
+    // Opened, each thread's band is a button a keyboard reaches too (PR-Agent r1 on #49); every project is reached by its name.
+    const act = L.drill === null ? ` data-drill="${e(b.group)}"`
+      : t0 ? ` data-plate="${e(t0.id)}" tabindex="0" role="button" aria-label="${e(`${t0.title}, ${t0.stage}${t0.waits ? ', waiting on you' : ''}`)}"` : '';
     bands += `<path class="${cls}"${attrs}${act} d="${segs.join('')}"/>`;
     // Waiting on you: the cloche just inside the band's end, where the thread stopped.
     if (b.waits) {
@@ -231,7 +235,7 @@ export function drawFlow(L: Layout, now: number): string {
       + (L.drill === null ? '<div class="m">Click to open its threads</div>' : '');
     const dr = L.drill === null ? ` data-drill="${e(g.name)}"` : '';
     out += `<rect class="node"${hov([gk(g.name)], [gk(g.name)], tip)}${dr} x="${XG}" y="${f1(g.y)}" width="${NW}" height="${f1(Math.max(1, g.h))}" rx="1.5"/>`;
-    if (L.drill === null) out += `<text class="gname"${hov([gk(g.name)], [gk(g.name)], tip)}${dr} x="${XB - 8}" y="${f1(g.y + g.h / 2)}" text-anchor="end" dominant-baseline="central">${e(cut(g.name, 16))}</text>`;
+    if (L.drill === null) out += `<text class="gname"${hov([gk(g.name)], [gk(g.name)], tip)}${dr} tabindex="0" role="button" aria-label="${e(`Open ${g.name}: ${plural(mine.length, 'thread')}`)}" x="${XB - 8}" y="${f1(g.y + g.h / 2)}" text-anchor="end" dominant-baseline="central">${e(cut(g.name, 16))}</text>`;
   }
   // The stops. A node's queue is the threads that end there.
   const ends = (s: Stop) => L.bands.filter((b) => b.path[b.path.length - 1] === s).flatMap((b) => b.items);

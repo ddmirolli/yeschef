@@ -274,6 +274,14 @@ test('hover lights the chart and The Pass both ways; opening a project shows its
   band.cls.delete('lit'); card.cls.delete('lit');
   run(`applyDrill(false)`);
   assert.ok(board.cls.has('fx-focus') && band.cls.has('lit') && card.cls.has('lit'));
+  // A band's own key is its place, which a refresh can hand another band: only thread, project and stop keys come back.
+  run(`flowFocus(['fl:1'])`);
+  assert.ok(other.cls.has('lit'));
+  run(`applyDrill(false)`);
+  assert.ok(!board.cls.has('fx-focus') && !other.cls.has('lit'));
+  run(`flowFocus(['fl:0', 't:p-1', 't:p-2'])`);
+  run(`applyDrill(false)`);
+  assert.ok(band.cls.has('lit') && !other.cls.has('lit'));
   run(`flowFocus(null)`);
   assert.ok(!board.cls.has('fx-focus') && !band.cls.has('lit') && !card.cls.has('lit'));
   run(`flowFocus(['t:p-1'])`);
@@ -289,6 +297,8 @@ test('hover lights the chart and The Pass both ways; opening a project shows its
   assert.match(src, /closest\s*(?:<Element>)?\s*\('\.you \[data-drill\]'\)[\s\S]{0,200}drill = /);
   assert.match(src, /closest\('\.you \[data-undrill\]'\)\) \{ drill = ''; applyDrill\(true\)/);
   assert.match(src, /normalizePicked\(\); applyDrill\(false\); fades\(\);/);
+  // Enter or Space on a focused project name or thread band clicks it, before the board's own keys see it.
+  assert.match(src, /closest\('\.you \.fx-view \[tabindex\]\[role=button\]'\)[\s\S]{0,200}dispatchEvent\(new MouseEvent\('click'[\s\S]{0,80}\}, true\);/);
 });
 
 test('a stale page hides the rail bar with the counts (PR-Agent on #74)', () => {

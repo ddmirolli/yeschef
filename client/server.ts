@@ -1220,6 +1220,8 @@ html .plate .dock .q-set{max-width:640px}
 .fx .atp circle{fill:var(--bg)}
 .fx .atp path{stroke-width:2.4}
 .fx [data-drill],.fx .band[data-plate]{cursor:pointer}
+.fx [tabindex]{outline:none}
+.fx [tabindex]:focus-visible{outline:2px solid var(--fx-hov);outline-offset:2px}
 .fx .node{fill:var(--label2)}
 .fx .node.you{fill:var(--label)}
 .fx .node.lit{fill:var(--fx-hov)}
