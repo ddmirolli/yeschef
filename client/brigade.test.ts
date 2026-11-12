@@ -151,6 +151,20 @@ test('a band of several threads shows each one, as You\'s does', () => {
   assert.equal(drawBrigade(items, tree, NOW).match(/<path class="strand"/g)?.length ?? 0, want);
 });
 
+test('twenty threads for every dev still fit the space the page gives, opened or not (Dan\'s scale check, 2026-11-12)', () => {
+  const v: Wire = brigadeView(NOW);
+  const places = ['In progress', 'In review', 'Ready to merge', 'Merged'];
+  for (const p of v.people) if (p.summary) p.summary.tickets = Array.from({ length: 20 }, (_, i) => ({ thread: `mcp:${p.id}-s${i}`, title: `t${i}`, project: 'Quillo',
+    place: places[i % 4], atPass: false, working: 0, asks: 0, call: false, updatedAt: new Date(NOW - (i * 397 + 30) * 60000).toISOString(),
+    prs: i % 4 ? [{ repo: 'acme/quillo', n: 900 + i, state: i % 4 === 3 ? 'merged' : 'open', url: null, base: 'main', draft: false, mergedAt: null, size: null, checks: null, reviewers: [] }] : [] }));
+  const { tree, items } = setup(v);
+  assert.ok(items.length >= 14 * 20);
+  for (const fitH of [500, 700, 900]) for (const drill of [null, 'f:priya', 'f:sam', 'p:kai', 'p:jon']) {
+    const L = brigadeLayout(items, tree, NOW, drill, fitH);
+    assert.ok(L.H <= fitH + 1e-6, `${drill} at ${fitH}: ${L.H} high`);
+  }
+});
+
 test('a PR whose reviewers were not read says so in its tooltip', () => {
   const { tree, items } = setup();
   const svg = drawBrigade(items, tree, NOW, { drill: 'f:sam' });
@@ -170,21 +184,27 @@ test('hover keys: each band carries its group and every node on its path; each n
   assert.equal(grab(svg, /<text class="zlbl" x="\d+" y="19">Staging<\/text><text class="zcount"[^>]*>([^<]*)</, 1), 'not checked');
 });
 
-test('?who opens one group: its threads one band each, with a way back; an unknown group shows everyone', () => {
+test('?who opens a folded team as its people, and a person as their threads one band each; an unknown key shows everyone', () => {
   const v = brigadeView(NOW);
-  const open = page(v, 'f:priya');
-  assert.match(open, /data-unwho/);
-  assert.match(open, /Priya&#39;s team|Priya's team/);
-  const svg = grab(open, /<svg class="fx okr fbr"[\s\S]*?<\/svg>/);
-  assert.doesNotMatch(svg, /data-who=/, 'opened: no further drill');
-  const { tree, items } = setup(v);
-  const inPriya = items.filter((t) => tree.up(t.author).includes('priya'));
-  assert.equal(bandKeys(svg).length, inPriya.length, 'one band per thread');
+  const { items } = setup(v);
+  const team = page(v, 'f:priya');
+  assert.match(team, /data-unwho/);
+  assert.match(team, /Priya&#39;s team|Priya's team/);
+  const tsvg = grab(team, /<svg class="fx okr fbr"[\s\S]*?<\/svg>/);
+  for (const id of ['jon', 'ada', 'omar', 'ben']) assert.match(tsvg, new RegExp(`data-who="p:${id}"`), `${id} opens from their team`);
+  assert.doesNotMatch(tsvg, /data-who="f:/, 'a team opens into people, not teams');
 
-  assert.doesNotMatch(page(v, 'p:jon'), /data-unwho/, 'Jon draws inside Priya\'s team: p:jon is not a group');
-  const none = page(v, 'f:nobody');
-  assert.doesNotMatch(none, /data-unwho/);
-  assert.match(none, /data-who="f:priya"/);
+  const jon = page(v, 'p:jon');
+  assert.match(jon, /data-unwho/, 'Jon, reached from Priya\'s team, opens');
+  const jsvg = grab(jon, /<svg class="fx okr fbr"[\s\S]*?<\/svg>/);
+  assert.doesNotMatch(jsvg, /data-who=/, 'a person opened: no further drill');
+  assert.equal(bandKeys(jsvg).length, items.filter((t) => t.author === 'jon').length, 'one band per thread');
+
+  for (const k of ['f:nobody', 'p:nobody', 'p:me']) {
+    const none = page(v, k);
+    assert.doesNotMatch(none, /data-unwho/, k);
+    assert.match(none, /data-who="f:priya"/, k);
+  }
 });
 
 test('French Brigade says not checked while the team link is down, and nothing in flight when no one below you has work', () => {

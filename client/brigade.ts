@@ -147,7 +147,11 @@ export function brigadeLayout(items: readonly FbItem[], tree: Tree, now: number,
     if (!nodes.has(n.key)) nodes.set(n.key, n);
     return n.key;
   };
-  const pick = drill === null ? items : items.filter((t) => groupOf(t.author).key === drill);
+  // Opened: a person's threads one band each (p:<id>), or a folded team as its people, bundled as the full chart is
+  // (f:<id>), so a team of any size reads the same way one level down (Dan's scale check, 2026-11-12).
+  const one = !!drill?.startsWith('p:');
+  const pick = drill === null ? items : items.filter((t) => (one ? t.author === drill.slice(2) : groupOf(t.author).key === drill));
+  const rowOf = (id: string) => (drill?.startsWith('f:') ? { key: `p:${id}`, label: tree.name(id) } : groupOf(id));
   const map = new Map<string, FbBand>();
   for (const t of pick) {
     const { signers, merger } = ladder(tree, t.author);
@@ -161,18 +165,18 @@ export function brigadeLayout(items: readonly FbItem[], tree: Tree, now: number,
       for (const s of signers) add(nodeOf(s, false));
       if (merger) add(nodeOf(merger, true));
     }
-    const age = ageOf(t.since, now), g = groupOf(t.author);
-    const key = drill !== null || t.calls.length ? `t|${t.id}` : `${g.key}|${t.stage}|${age}|${stops.join('>')}|${signed}`;
+    const age = ageOf(t.since, now), g = rowOf(t.author);
+    const key = one || t.calls.length ? `t|${t.id}` : `${g.key}|${t.stage}|${age}|${stops.join('>')}|${signed}`;
     let b = map.get(key);
-    if (!b) map.set(key, b = { id: '', group: drill !== null ? `t:${t.id}` : g.key, stage: t.stage, age, items: [], stops, h: 0, y0: 0, y: {}, signed });
+    if (!b) map.set(key, b = { id: '', group: one ? `t:${t.id}` : g.key, stage: t.stage, age, items: [], stops, h: 0, y0: 0, y: {}, signed });
     b.items.push(t);
   }
   const bands = [...map.values()];
   bands.forEach((b, i) => { b.id = String(i); });
-  const labels = new Map(pick.map((t) => [groupOf(t.author).key, groupOf(t.author).label]));
+  const labels = new Map(pick.map((t) => [rowOf(t.author).key, rowOf(t.author).label]));
   // People in name order; opened, threads by stage, furthest first.
   const stageOf = (g: string) => RANK[bands.find((b) => b.group === g)!.stage];
-  const names = [...new Set(bands.map((b) => b.group))].sort((a, z) => (drill === null ? (labels.get(a) ?? a).localeCompare(labels.get(z) ?? z) : stageOf(a) - stageOf(z)) || a.localeCompare(z));
+  const names = [...new Set(bands.map((b) => b.group))].sort((a, z) => (!one ? (labels.get(a) ?? a).localeCompare(labels.get(z) ?? z) : stageOf(a) - stageOf(z)) || a.localeCompare(z));
   const total = pick.length, n = names.length;
 
   // Columns: review levels deepest first (left), then who merges.
@@ -183,24 +187,25 @@ export function brigadeLayout(items: readonly FbItem[], tree: Tree, now: number,
   const xOf = (d: Node): number => (d.merge ? X_MERGE : cols[levels.indexOf(d.level)] ?? X_MERGE);
 
   let gap = 6, laneGap = 5;
-  let u = drill !== null ? 11 : Math.max(3, Math.min(12, (440 - gap * Math.max(0, n - 1)) / Math.max(1, total)));
+  let u = one ? 11 : Math.max(3, Math.min(12, (440 - gap * Math.max(0, n - 1)) / Math.max(1, total)));
   let room = 200;
   if (fitH !== undefined && Number.isFinite(fitH)) {
     room = Math.max(200, fitH - TOP - FOOT);
     const avail = room - 2 * clamp(room * 0.07, 20, 52);
-    if (drill === null) {
-      u = clamp((avail - 14 * Math.max(0, n - 1)) / Math.max(1, total), 3, 30);
+    // Thinner bands, never a chart past its panel: a thread may be a single unit high when the team is large.
+    if (!one) {
+      u = clamp((avail - 14 * Math.max(0, n - 1)) / Math.max(1, total), 1, 30);
       if (n > 1) gap = Math.max(6, (avail - total * u) / (n - 1));
     } else {
-      u = clamp((avail - 5 * Math.max(0, total - 1)) / Math.max(1, total), 11, 24);
-      if (total > 1) laneGap = clamp((avail - total * u) / (total - 1), 5, 60);
+      u = clamp((avail - 5 * Math.max(0, total - 1)) / Math.max(1, total), 2, 24);
+      if (total > 1) laneGap = clamp((avail - total * u) / (total - 1), 1, 60);
     }
   }
   for (const b of bands) b.h = b.items.length * u;
   // A name needs about 14 px: a person with one thin band keeps that much room.
   const gh = (g: string) => bands.filter((b) => b.group === g).reduce((h, b) => h + b.h, 0);
-  if (drill === null && n > 1) gap = Math.max(gap, 14 - Math.min(...names.map(gh)));
-  const sepG = drill !== null ? laneGap : gap;
+  if (!one && n > 1) gap = Math.max(gap, 14 - Math.min(...names.map(gh)));
+  const sepG = one ? laneGap : gap;
   // Separation tightens left to right (Dan, 2026-11-12), down to touching at the merge.
   const sepAt = (x: number): number => sepG * clamp((X_MERGE - x) / (X_MERGE - XG), 0, 1);
   const sep = (a: FbBand, b: FbBand, x: number): number => (a.group !== b.group ? sepAt(x) : 0);
@@ -313,8 +318,8 @@ export function drawBrigade(items: readonly FbItem[], tree: Tree, now: number, {
         + `<div class="m">Last change ${ago(t0.since, now)} ago</div>${reviewWords(t0, names)}${t0.project ? `<div class="m">${e(t0.project)}</div>` : ''}`
       : `<b>${e(L.groups.find((g) => g.key === b.group)?.label ?? '')}</b><div>${plural(b.items.length, 'thread')} · ${b.stage}${WHERE(b, L)}</div>`
         + `<div class="m">Last change ${b.age === null ? 'not checked' : AGE_WORD[b.age]}</div>`;
-    // A person opened: their threads run from the left edge. A folded team opened: each thread keeps its author's name.
-    const xs = L.drill !== null && !L.drill.startsWith('f:') ? 10 : XB;
+    // A person opened: their threads run from the left edge. Else each group's name sits at the left.
+    const one = !!L.drill?.startsWith('p:'), xs = one ? 10 : XB;
     const pts: Pt[] = [{ x: xs, y: b.y0, c: false }, { x: XG, y: b.y0, c: false }];
     if (b.stage === 'In progress') pts.push({ x: END_PROG, y: b.y0, c: false });
     else if (b.stage === 'In review' && !b.stops.length) pts.push({ x: END_REVIEW, y: b.y0, c: false });
@@ -322,18 +327,16 @@ export function drawBrigade(items: readonly FbItem[], tree: Tree, now: number, {
     if (b.stage === 'Merged') { const p = pts[pts.length - 1]!; pts.push({ x: END_MERGED, y: p.y, c: false }); }
     // Every person shown: a click opens their threads. Opened: a thread with a call opens it in The Pass.
     const plate = t0?.calls[0]?.slice(2);
-    const act = L.drill === null ? ` data-who="${e(b.group)}"` : plate ? ` data-team-open="${e(plate)}" tabindex="0" role="button" aria-label="${e(t0!.title)}"` : '';
+    const act = !one ? ` data-who="${e(b.group)}"` : plate ? ` data-team-open="${e(plate)}" tabindex="0" role="button" aria-label="${e(t0!.title)}"` : '';
     bands += `<path class="band ${ageCls(b.age)}"${hov(k, f, tip)}${act} d="${ribbon(pts, b.h)}"/>${strands(pts, b.h, b.items.length)}`;
   }
   // The names: each person (or folded team) at the left, each sign-off node over its pile. Leads above you are outlined.
-  if (L.drill === null) for (const g of L.groups) {
+  if (!L.drill?.startsWith('p:')) for (const g of L.groups) {
     const mineB = L.bands.filter((b) => b.group === g.key), n = mineB.reduce((s, b) => s + b.items.length, 0);
     const tip = `<b>${e(g.label)}</b><div>${plural(n, 'thread')}</div>`
       + `<div class="m">${STAGES.map((s) => [s, mineB.filter((b) => b.stage === s).reduce((c, b) => c + b.items.length, 0)] as const).filter(([, c]) => c).map(([s, c]) => `${c} ${s.toLowerCase()}`).join(' · ')}</div><div class="m">Click to open their threads</div>`;
     labels += `<text class="rowname fbg" x="${XN}" y="${f1(g.y + g.h / 2)}" dominant-baseline="central" text-anchor="end"${hov([`g:${g.key}`, ...mineB.flatMap((b) => b.items.flatMap((t) => t.calls))], [`g:${g.key}`], tip)} data-who="${e(g.key)}" tabindex="0" role="button" aria-label="${e(`Open ${g.label}: ${plural(n, 'thread')}`)}">${e(g.label)}</text>`;
   }
-  // A folded team opened: each thread keeps its author's name at the left, as people's names sit on the full chart.
-  if (L.drill?.startsWith('f:')) for (const b of L.bands) { const t0 = b.items[0]; if (t0) labels += `<text class="rowname" x="${XN}" y="${f1(b.y0 + b.h / 2)}" dominant-baseline="central" text-anchor="end">${e(tree.name(t0.author))}</text>`; }
   for (const d of L.nodes) {
     // Waiting here: its last stop, and not merged (a merged thread passed through). Past it: signed off, or merged.
     const here = L.bands.filter((b) => b.stops.includes(d.key)), n = (f: (b: FbBand) => boolean) => here.filter(f).reduce((s, b) => s + b.items.length, 0);

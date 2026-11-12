@@ -778,8 +778,9 @@ function brigadeOf({ ok, view, now, want, who, menu, menuBare, fit, plateOf }: {
   const tree = treeOf(view);
   const items = tree && ok.status === 'live' ? brigadeItems(ok, tree, { want, plateOf }) : [];
   const quiet = ok.people.filter((p) => p.reporting !== true).length;
-  // Opened: only a group the chart draws (a person, or a folded team); else every person.
-  const open = who && tree && items.some((t) => groupOfIn(tree, t.author).key === who) ? who : null;
+  // Opened: a folded team the chart draws, or anyone below you with a thread on it (reached from their team); else
+  // every person.
+  const open = who && tree && items.some((t) => groupOfIn(tree, t.author).key === who || who === `p:${t.author}`) ? who : null;
   const back = open ? `<button type="button" class="fx-back" data-unwho aria-label="Back to everyone" title="Back to everyone">${svg('chev')}</button>`
     : want && want.size === 1 ? `<button type="button" class="fx-back" data-unpick aria-label="Back to all projects" title="Back to all projects">${svg('chev')}</button>` : '';
   const whoName = open && tree ? (open.startsWith('f:') ? `${tree.name(open.slice(2))}'s team` : tree.name(open.slice(2))) : '';
