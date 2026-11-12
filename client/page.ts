@@ -344,10 +344,12 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     // r1 on #49: a narrow window clipped it).
     var r = wrap.getBoundingClientRect(), sc = (wrap.closest('.you-b, .tboard') || wrap).getBoundingClientRect();
     var x = ev.clientX + 14, y = ev.clientY + 14, w = box.offsetWidth, h = box.offsetHeight;
-    if (x + w > sc.right) x = Math.max(sc.left, ev.clientX - 14 - w);
+    var right = Math.min(sc.right, r.right), left = Math.max(sc.left, r.left);
+    if (x + w > right) x = Math.max(left, ev.clientX - 14 - w);
     if (y + h > sc.bottom) y = Math.max(sc.top, ev.clientY - 14 - h);
-    box.style.left = (x - r.left) + 'px';
-    box.style.top = (y - r.top) + 'px';
+    // The team rows scroll across inside their wrap, which holds the tip: add its scroll (PR-Agent r1 on #53).
+    box.style.left = (x - r.left + wrap.scrollLeft) + 'px';
+    box.style.top = (y - r.top + wrap.scrollTop) + 'px';
   }
   document.addEventListener('mouseover', function(ev){
     if (!root.classList.contains('v-kitchen')) return;

@@ -554,7 +554,10 @@ export function kitchenBoard(ok: OpenKitchen | null | undefined, { now, want = n
   const people = ok.people.map((p) => {
     const t = top(p), pod = (lines.get(t)?.length ?? 0) > 1 ? t : null;
     const quietAt = p.state === 'quiet' ? num(p.lastSeen) ?? num(p.at) : null;
-    return { person: p.id, pod, state: p.state, quiet: p.reporting === false ? { since: quietAt } : null, agents: agentsOf(p.id), merged: mergedBy.get(p.id) ?? 0 };
+    // A Mac Yes Chef cannot read (reporting not checked) has no agents and no merges to show: both are not checked,
+    // never 0 (PR-Agent r1 on #53).
+    const known = p.reporting !== null;
+    return { person: p.id, pod, state: p.state, known, quiet: p.reporting === false ? { since: quietAt } : null, agents: known ? agentsOf(p.id) : [], merged: known ? mergedBy.get(p.id) ?? 0 : null };
   });
   people.sort((a, z) => nm(a.pod ?? a.person).localeCompare(nm(z.pod ?? z.person)) || String(a.pod ?? a.person).localeCompare(String(z.pod ?? z.person))
     || Number(z.person === z.pod) - Number(a.person === a.pod) || nm(a.person).localeCompare(nm(z.person)) || a.person.localeCompare(z.person));

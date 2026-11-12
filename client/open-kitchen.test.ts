@@ -503,7 +503,7 @@ test('expanded: the rows draw a square per agent, cells per area, and no line bu
   assert.equal((svg.match(/<rect class="cell red"/g) || []).length, 2);
   assert.match(svg, /<rect class="cell n1" data-k="c:kai:5 /);
   // A square whose call is in The Pass opens that call, as its card does, and lights it: both carry its plate.
-  const opens = [...svg.matchAll(/<rect class="ag [^"]*" data-team-open="([^"]+)" data-k="([^"]+)"/g)];
+  const opens = [...svg.matchAll(/<rect class="ag [^"]*" data-team-open="([^"]+)"[^>]*? data-k="([^"]+)"/g)];
   assert.equal(opens.length, 5, 'Kai, Jon, Iris, Nina, Omar: the calls in The Pass');
   for (const [, id, k] of opens) {
     assert.ok(k!.split(' ').includes(`p:${id}`));
@@ -887,4 +887,52 @@ test('a click on a sub-lead’s team folds it: the page keeps the fold in the ad
   vm.runInContext("toggleFold('ben')", ctx);
   vm.runInContext("toggleFold('')", ctx);
   assert.deepEqual(calls, ['/?p=Fernpay&fold=ben&fold=kai', 'wake', '/?p=Fernpay&fold=kai', 'wake']);
+});
+
+// ---- Open kitchen rows, PR-Agent round 1 (#53) ----
+test('rows r1: a Mac Yes Chef cannot read shows Not checked for agents and merges, never 0', () => {
+  const v = viewL();
+  Object.assign(who(v, 'sam'), { summary: null, at: null, lastSeen: null });
+  const sam = one(board(v).rows.people, (r) => r.person === 'sam', 'sam');
+  assert.deepEqual([sam.known, sam.agents.length, sam.merged], [false, 0, null]);
+  const svg = grab(page({ view: v, now: NOWL }), /<svg class="fx okr"[^]*?<\/svg>/);
+  assert.match(svg, /Agents and merges not checked/);
+  assert.ok(!svg.includes('0 of 0 agents'));
+});
+
+test('rows r1: a square that opens its call is a button a keyboard reaches', () => {
+  const svg = grab(page({ view: viewL(), now: NOWL }), /<svg class="fx okr"[^]*?<\/svg>/);
+  const btns = [...svg.matchAll(/<rect class="ag [^"]*" data-team-open="[^"]+" tabindex="0" role="button" aria-label="Open the call: ([^"]+)"/g)].map((m) => m[1]);
+  assert.equal(btns.length, 5);
+  assert.ok(btns.includes('Group threads by parent, Overlap'));
+});
+
+test('rows r1: an Overlap side that waits keeps its cell, so the link has both ends', () => {
+  const v = viewL();
+  ticket(v, 'jon').working = 0;
+  const svg = grab(page({ view: v, now: NOWL }), /<svg class="fx okr"[^]*?<\/svg>/);
+  assert.match(svg, /<rect class="cell red" data-k="c:jon:4 /);
+  assert.equal((svg.match(/<line class="olink"/g) || []).length, 1);
+});
+
+test('rows r1: a folded team keeps its people’s calls, and shades a cell as a person’s cell would', () => {
+  const v = viewL();
+  // Kai leads Jon and Iris: Iris's Too big is in The Pass, and folding must not lose it.
+  for (const p of v.people) p.under = p.id === 'jon' || p.id === 'iris' ? 'kai' : v.me.id;
+  const svg = grab(page({ view: v, now: NOWL }, { fold: ['kai'] }), /<svg class="fx okr"[^]*?<\/svg>/);
+  const k = grab(svg, /<text class="rowname strong" role="button" tabindex="0" data-fold="kai"[^>]*>/);
+  assert.equal((k.match(/p:p-[0-9a-f]{12}/g) || []).length, 2, 'the Overlap and the Too big');
+  // Two of the team's agents in Loopline contracts: n2, as two agents of one person would be.
+  assert.match(svg, /<rect class="cell red" data-k="pc:kai:4 /);
+  const v2 = viewL();
+  for (const p of v2.people) p.under = p.id === 'ada' ? 'kai' : v2.me.id;
+  const svg2 = grab(page({ view: v2, now: NOWL }, { fold: ['kai'] }), /<svg class="fx okr"[^]*?<\/svg>/);
+  assert.match(svg2, /<rect class="cell n2" data-k="pc:kai:5 /, 'Kai and Ada both in Loopline web');
+});
+
+test('rows r1: the tip counts the rows’ sideways scroll', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('./page.ts', import.meta.url), 'utf8');
+  assert.match(src, /box\.style\.left = \(x - r\.left \+ wrap\.scrollLeft\) \+ 'px';/);
+  assert.match(src, /box\.style\.top = \(y - r\.top \+ wrap\.scrollTop\) \+ 'px';/);
 });

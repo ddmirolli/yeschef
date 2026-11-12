@@ -839,7 +839,10 @@ function okRows({ R, now, want, fold, name, people, plateOf }: { R: Rows; now: n
   people: ReadonlyMap<string, Person>; plateOf: (id: string) => string | null }): string {
   const W = 860, ROW = 48, TOPK = 62, XA = 112, SQ = 16, GAP = 4, SLOTS = 8, XM = XA + SLOTS * (SQ + GAP) + 14, MW = 112;
   // Columns: as many as fit at 24 px; past that the least busy fold into one "Other areas" column at the end.
-  const busy = (c: { project: string; area: string }) => R.people.reduce((n, r) => n + r.agents.filter((a) => !a.out && a.working && a.project === c.project && a.areas?.includes(c.area)).length, 0);
+  // An area cell shows the agents at work in it, and an Overlap's side even while it waits: the link needs both ends
+  // (PR-Agent r1 on #53).
+  const busyIn = (a: Rows['people'][number]['agents'][number]) => a.working || a.call?.kind === 'overlap';
+  const busy = (c: { project: string; area: string }) => R.people.reduce((n, r) => n + r.agents.filter((a) => !a.out && busyIn(a) && a.project === c.project && a.areas?.includes(c.area)).length, 0);
   const room = W - XM - MW - 10, MAXC = Math.max(1, Math.floor(room / 24));
   let cols: { project: string | null; area: string; of: { project: string; area: string }[] }[] = R.columns.map((c) => ({ ...c, of: [c] }));
   if (cols.length > MAXC) {
@@ -866,7 +869,7 @@ function okRows({ R, now, want, fold, name, people, plateOf }: { R: Rows; now: n
     if (!pod || !fold.has(pod)) lines.push({ kind: 'dev', r, pod });
   }
   const H = TOPK + lines.length * ROW + 6;
-  const maxM = Math.max(1, ...R.people.map((r) => r.merged));
+  const maxM = Math.max(1, ...R.people.map((r) => r.merged ?? 0));
   // A Mac quiet since an earlier day says the day, never an hour that reads as today's.
   const when = (t: number) => (new Date(t).toDateString() === new Date(now).toDateString() ? hm(t) : new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }));
   const nA = (a: Rows['people'][number]['agents'][number]) => `${a.title || 'Untitled thread'}`;
@@ -890,31 +893,38 @@ function okRows({ R, now, want, fold, name, people, plateOf }: { R: Rows; now: n
       for (const m of l.members) if (l.folded) rowAt.set(m, i);
       const rs = R.people.filter((r) => l.members.includes(r.person)), ag = rs.flatMap((r) => r.agents);
       // One Overlap is one call, though two of the team's agents are in it.
-      const calls = new Set(ag.flatMap((a) => (a.call && !a.out ? [a.call.id] : []))).size, m = rs.reduce((s, r) => s + r.merged, 0);
-      const k = [`pod:${l.lead}`];
+      const calls = new Set(ag.flatMap((a) => (a.call && !a.out ? [a.call.id] : []))).size;
+      const m = rs.some((r) => r.merged === null) ? null : rs.reduce((s, r) => s + r.merged!, 0);
+      // The team's name carries every call of its people, so a folded team still lights their cards and they light it.
+      const k = [`pod:${l.lead}`, ...new Set(ag.flatMap((a) => (a.out ? [] : callKey(a.call))))];
       rows += `<rect class="podband" x="0" y="${y - 4}" width="${W}" height="${ROW}"/>`;
-      rows += `<text class="rowname strong" role="button" tabindex="0" data-fold="${e(l.lead)}" aria-expanded="${!l.folded}"${att(k, k[0]!, `<b>${e(name(l.lead))}’s team</b><div>${e(l.members.map(name).join(', '))}</div><div class="m">${ag.filter((a) => a.working).length} of ${plural(ag.length, 'agent')} working · ${m} merged today</div>`)} x="0" y="${y + 16}" dominant-baseline="central">${l.folded ? '▸' : '▾'} ${e(name(l.lead))}’s team</text>`;
+      rows += `<text class="rowname strong" role="button" tabindex="0" data-fold="${e(l.lead)}" aria-expanded="${!l.folded}"${att(k, k[0]!, `<b>${e(name(l.lead))}’s team</b><div>${e(l.members.map(name).join(', '))}</div><div class="m">${ag.filter((a) => a.working).length} of ${plural(ag.length, 'agent')} working · ${m === null ? 'merged today not checked' : `${m} merged today`}</div>`)} x="0" y="${y + 16}" dominant-baseline="central">${l.folded ? '▸' : '▾'} ${e(name(l.lead))}’s team</text>`;
       rows += `<text class="mnum" x="${XA}" y="${y + 16}" dominant-baseline="central">${plural(ag.length, 'agent')}${calls ? ` · ${plural(calls, 'call')}` : ''}</text>`;
       cols.forEach((_, c) => {
-        const here = ag.filter((a) => a.working && inCol(a, c));
+        const here = ag.filter((a) => busyIn(a) && inCol(a, c));
         if (!here.length) return;
         const hot = shared(l.members, c);
-        const lvl = hot ? 'red' : here.length >= 5 ? 'n3' : here.length >= 3 ? 'n2' : 'n1';
+        // The same shades as a person's cells, so folding never changes what a shade means.
+        const lvl = hot ? 'red' : `n${Math.min(3, here.length)}`;
         const ks = [`pc:${l.lead}:${c}`, ...k, `ar:${c}`, ...here.map((a) => `a:${a.thread}`), ...linkKeys(l.members, c)];
         rows += `<rect class="cell ${lvl}"${att(ks, `pc:${l.lead}:${c}`, `<b>${e(name(l.lead))}’s team · ${e(cols[c]!.area)}</b><div>${plural(here.length, 'agent')}</div>${hot ? '<div class="m red">Overlap</div>' : ''}`)} x="${XM + c * CW}" y="${y + 4}" width="${CW - 6}" height="${ROW - 24}" rx="4"/>`;
       });
-      rows += `<text class="mnum strong" x="${XT}" y="${y + 16}" dominant-baseline="central">${m}</text>`;
+      rows += `<text class="mnum strong${m === null ? ' nc' : ''}" x="${XT}" y="${y + 16}" dominant-baseline="central">${m === null ? 'Not checked' : m}</text>`;
       return;
     }
     const r = l.r, p = people.get(r.person), d = [`d:${r.person}`, ...(l.pod ? [`pod:${l.pod}`] : [])];
     rowAt.set(r.person, i);
     const ix = l.pod ? 14 : 0;
     const lead = l.pod === r.person ? ' · leads this team' : l.pod ? ` · reports to ${name(l.pod)}` : '';
-    const dt = `<b>${e(name(r.person))}</b><div>${r.agents.filter((a) => a.working).length} of ${plural(r.agents.length, 'agent')} working</div><div class="m">${r.merged} merged today${e(lead)}</div>`;
+    const quietWords = r.quiet ? `Not reporting${r.quiet.since !== null ? ` since ${when(r.quiet.since)}` : ''}` : '';
+    const dt = r.known ? `<b>${e(name(r.person))}</b><div>${r.quiet ? e(quietWords) : `${r.agents.filter((a) => a.working).length} of ${plural(r.agents.length, 'agent')} working`}</div><div class="m">${r.merged} merged today${e(lead)}</div>`
+      : `<b>${e(name(r.person))}</b><div>Agents and merges not checked</div>${lead ? `<div class="m">${e(lead.slice(3))}</div>` : ''}`;
     rows += `<text class="rowname${p ? '' : ' muted'}" tabindex="0"${att(d, d[0]!, dt)} x="${ix}" y="${y + 16}" dominant-baseline="central">${e(name(r.person))}</text>`;
-    if (r.quiet) {
+    if (!r.known) {
+      rows += `<text class="mnum" x="${XA}" y="${y + 16}" dominant-baseline="central">Not checked</text>`;
+    } else if (r.quiet) {
       // A Mac that is not reporting: its agents are not known now, so none are drawn.
-      rows += `<text class="mnum" x="${XA}" y="${y + 16}" dominant-baseline="central">Not reporting${r.quiet.since !== null ? ` since ${when(r.quiet.since)}` : ''}</text>`;
+      rows += `<text class="mnum" x="${XA}" y="${y + 16}" dominant-baseline="central">${e(quietWords)}</text>`;
     } else {
       const shown = r.agents.length > SLOTS ? r.agents.slice(0, SLOTS - 1) : r.agents;
       shown.forEach((a, j) => {
@@ -923,22 +933,24 @@ function okRows({ R, now, want, fold, name, people, plateOf }: { R: Rows; now: n
         const call = a.call ? `<div class="m ${KINDS[a.call.kind].tone}">${e(KINDS[a.call.kind].word)}${a.call.mine ? ', in The Pass' : `, ${e(name(r.person))} holds it`}</div>` : '';
         const tip = `<b>${e(nA(a))}</b><div>${e(a.project || 'Project not checked')} · ${e(a.place || '')}</div><div class="m">${a.working ? 'Working' : 'Idle'}${a.areas ? '' : ' · changed files not checked'}</div>${a.out ? '<div class="m">Outside the picked projects</div>' : ''}${call}`;
         const open = a.call && a.call.mine && !a.out ? plateOf(a.call.id) : null;
-        rows += `<rect class="ag ${a.out ? 'out' : tone(a)}"${open ? ` data-team-open="${e(open)}"` : ''}${att(ks, `a:${a.thread}`, tip)} x="${x}" y="${y + 8}" width="${SQ}" height="${SQ}" rx="3.5"/>`;
+        // A square that opens its call is a button: a keyboard reaches it and Enter opens the call (PR-Agent r1 on #53).
+        const btn = open ? ` data-team-open="${e(open)}" tabindex="0" role="button" aria-label="${e(`Open the call: ${nA(a)}, ${KINDS[a.call!.kind].word}`)}"` : '';
+        rows += `<rect class="ag ${a.out ? 'out' : tone(a)}"${btn}${att(ks, `a:${a.thread}`, tip)} x="${x}" y="${y + 8}" width="${SQ}" height="${SQ}" rx="3.5"/>`;
       });
       if (r.agents.length > SLOTS) rows += `<text class="mnum" x="${XA + (SLOTS - 1) * (SQ + GAP) + SQ / 2}" y="${y + 16}" text-anchor="middle" dominant-baseline="central">+${r.agents.length - SLOTS + 1}</text>`;
       if (!r.agents.length) rows += `<text class="mnum" x="${XA}" y="${y + 16}" dominant-baseline="central">No agents</text>`;
     }
     cols.forEach((_, c) => {
-      const here = r.agents.filter((a) => a.working && inCol(a, c));
+      const here = r.agents.filter((a) => busyIn(a) && inCol(a, c));
       if (!here.length) return;
       const hot = shared([r.person], c);
       const ks = [`c:${r.person}:${c}`, ...d, `ar:${c}`, ...here.map((a) => `a:${a.thread}`), ...(l.pod ? [`pc:${l.pod}:${c}`] : []), ...linkKeys([r.person], c)];
       const files = here.flatMap((a) => (a.files ?? []).filter((f) => cols[c]!.of.some((o) => o.project === a.project && areaOf(f) === o.area)).slice(0, 3).map((f) => `<div class="m mono">${e(f)}</div>`));
       rows += `<rect class="cell ${hot ? 'red' : `n${Math.min(3, here.length)}`}"${att(ks, `c:${r.person}:${c}`, `<b>${e(name(r.person))} · ${e(cols[c]!.area)}</b><div>${plural(here.length, 'agent')}</div>${files.join('')}${hot ? '<div class="m red">Overlap</div>' : ''}`)} x="${XM + c * CW}" y="${y}" width="${CW - 6}" height="${ROW - 16}" rx="4"/>`;
     });
-    const bw = (r.merged / maxM) * (W - XT - 30);
+    const bw = ((r.merged ?? 0) / maxM) * (W - XT - 30);
     if (r.merged) rows += `<rect class="mbar"${att(d, d[0]!, dt)} x="${XT}" y="${y + 10}" width="${bw.toFixed(1)}" height="12" rx="3"/>`;
-    rows += `<text class="mnum" x="${(XT + bw + (r.merged ? 6 : 0)).toFixed(1)}" y="${y + 16}" dominant-baseline="central">${r.merged}</text>`;
+    rows += `<text class="mnum" x="${(XT + bw + (r.merged ? 6 : 0)).toFixed(1)}" y="${y + 16}" dominant-baseline="central">${r.merged === null ? 'Not checked' : r.merged}</text>`;
   });
   // Overlap: the one line on the chart. It joins the two people's cells in the column of the file both change.
   for (const l of R.links) {
