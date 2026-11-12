@@ -152,7 +152,8 @@ test('who reviews an open PR: the latest verdict stands, a comment keeps it, a d
   const reviews = [
     rv('ada', 'APPROVED', 1), rv('ada', 'COMMENTED', 2), // a comment after an approval: still approved, at the comment
     rv('jon', 'CHANGES_REQUESTED', 1), rv('jon', 'APPROVED', 3), // the latest verdict stands
-    rv('maya', 'CHANGES_REQUESTED', 1), rv('maya', 'DISMISSED', 2), // dismissed: commented, at the dismissed review
+    rv('maya', 'CHANGES_REQUESTED', 1), rv('maya', 'DISMISSED', 2), // dismissed: commented, at the dismissed review's time
+    rv('ada_acme', 'APPROVED', 3), // an Enterprise Managed User
     rv('ravi', 'COMMENTED', 4), rv('lee', 'PENDING', 4), rv(null, 'APPROVED', 4), // a draft review and a deleted user drop
     rv('Kai', 'APPROVED', 2), // asked again since: requested, one entry whatever the case
     rv('coderabbitai[bot]', 'COMMENTED', 5),
@@ -161,7 +162,8 @@ test('who reviews an open PR: the latest verdict stands, a comment keeps it, a d
   assert.deepEqual(r.state === 'checked' && r.reviewers, [
     { who: 'ada', team: false, state: 'approved', at: Date.parse(iso(2)) },
     { who: 'jon', team: false, state: 'approved', at: Date.parse(iso(3)) },
-    { who: 'maya', team: false, state: 'commented', at: Date.parse(iso(1)) },
+    { who: 'maya', team: false, state: 'commented', at: Date.parse(iso(2)) },
+    { who: 'ada_acme', team: false, state: 'approved', at: Date.parse(iso(3)) },
     { who: 'ravi', team: false, state: 'commented', at: Date.parse(iso(4)) },
     { who: 'kai', team: false, state: 'requested', at: null },
     { who: 'coderabbitai[bot]', team: false, state: 'commented', at: Date.parse(iso(5)) },

@@ -146,7 +146,7 @@ async function readyAt(get: Get, host: string, repo: string, number: number, pr:
 
 /** Who reviews an open PR (the French Brigade Sankey's In review column, and the sign-off ladder; brief v0.5). Reviews
  *  come oldest first: each person's latest approval or change request stands, a comment after it leaves it standing,
- *  and a dismissal clears it. Then who is asked now: a request outranks an older review, since GitHub puts a reviewer
+ *  and a dismissal clears it (no verdict is claimed after one). `at` is always their latest review's time. Then who is asked now: a request outranks an older review, since GitHub puts a reviewer
  *  back on a re-request. Null (not checked) when the reviews run past the pages read or a page is not GitHub's. */
 async function readReviewers(get: Get, host: string, repo: string, number: number, pr: PullRequest): Promise<Reviewer[] | null> {
   // GitHub logins ignore case: one entry per person, keyed lower case.
@@ -161,7 +161,7 @@ async function readReviewers(get: Get, host: string, repo: string, number: numbe
       // PENDING is a review its author has not sent: no one else sees it.
       if (r.state === 'APPROVED') set({ who, team: false, state: 'approved', at });
       else if (r.state === 'CHANGES_REQUESTED') set({ who, team: false, state: 'changes', at });
-      else if (r.state === 'DISMISSED') set({ who, team: false, state: 'commented', at: was(who)?.at ?? at });
+      else if (r.state === 'DISMISSED') set({ who, team: false, state: 'commented', at });
       else if (r.state === 'COMMENTED') set({ who, team: false, state: was(who)?.state ?? 'commented', at });
     }
     if (got.value.length < 100) break;

@@ -11,9 +11,10 @@ export const REVIEW_STATES: readonly ReviewState[] = ['requested', 'approved', '
 /** At most this many reviewers per PR travel in a summary. */
 export const REVIEWERS_MAX = 20;
 
-// GitHub's own name rules: a login is up to 39 letters, digits and single hyphens (an app's ends in [bot]); a team's
-// slug is lower case, under its org's login. Anything else is not GitHub's and is left out.
-const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}(?:\[bot\])?$/;
+// GitHub's own name rules: a login is up to 39 letters, digits and single hyphens (an app's ends in [bot]; an Enterprise
+// Managed User's ends in _shortcode); a team's slug is lower case, under its org's login. Anything else is not GitHub's
+// and is left out.
+const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9_]|-(?=[A-Za-z0-9])){0,38}(?:\[bot\])?$/;
 const SLUG = /^[a-z0-9][a-z0-9._-]{0,99}$/;
 /** A GitHub login, or null when the value is not one. */
 export const loginOf = (v: unknown): string | null => (typeof v === 'string' && LOGIN.test(v) ? v : null);
