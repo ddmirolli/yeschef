@@ -1229,6 +1229,7 @@ html .plate .dock .q-set{max-width:640px}
 /* Dashed, with no fill, yet its whole ribbon answers the pointer (PR-Agent r3 on #49). */
 .fx .band.anc{fill:none;stroke:var(--fx-a1);stroke-dasharray:3 2;pointer-events:all}
 .fx .band.lit{fill:var(--fx-hov)}
+.fx .strand{fill:none;stroke:var(--bg);stroke-width:1px;vector-effect:non-scaling-stroke;pointer-events:none}
 .fx-focus .fx .band:not(.lit){opacity:.5}
 .fx [data-drill],.fx .band[data-plate]{cursor:pointer}
 .fx [tabindex]{outline:none}

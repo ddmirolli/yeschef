@@ -13,7 +13,7 @@
 //
 // Drawn as client/flow.ts draws You's chart: our own layout, one SVG string. Width is threads. Gray is time since the
 // last change. No red, orange or yellow fills; The Pass holds the calls, and hover links them both ways (data-k, data-f).
-import { AGE_WORD, ageCls, ageOf, ago, clamp, e, f1, hov, plural, ribbon, type Age, type Fit, type Pt } from './flow.ts';
+import { AGE_WORD, ageCls, ageOf, ago, clamp, e, f1, hov, plural, ribbon, strands, type Age, type Fit, type Pt } from './flow.ts';
 import { loginOf } from './reviewers.ts';
 import type { OpenKitchen, TeamPr, TeamView } from './open-kitchen.ts';
 
@@ -209,48 +209,54 @@ export function brigadeLayout(items: readonly FbItem[], tree: Tree, now: number,
     .sort((a, z) => RANK[a.stage] - RANK[z.stage] || (z.age ?? -1) - (a.age ?? -1) || a.id.localeCompare(z.id));
   const heights = names.map((g) => stack(mine(g), XG));
   const leftH = heights.reduce((a, h) => a + h, 0) + sepG * Math.max(0, n - 1);
-  // Each column's height before any is placed: the chart is as tall as the tallest. A node's bands are ordered only as
-  // they are placed (by where they arrive), so this counts a gap between every two of them, the most they can need
-  // (PR-Agent r2 on #56).
   const placed = used.map((d) => ({ ...d, x: xOf(d), y: 0, h: 0 }));
   const xs = [...new Set(placed.map((d) => d.x))].sort((a, z) => a - z);
-  const colH = (x: number) => {
-    const here = placed.filter((d) => d.x === x);
-    return here.reduce((h, d) => { const list = bands.filter((b) => b.stops.includes(d.key)); return h + list.reduce((s, b) => s + b.h, 0) + sepAt(x) * Math.max(0, list.length - 1); }, 0)
-      + NG * Math.max(0, here.length - 1);
-  };
-  const span = Math.max(room, leftH, ...xs.map((x) => colH(x) + 14));
-  const H = TOP + span + FOOT;
-  const mid = (h: number, lift = 0): number => Math.max(TOP + lift, (H - h) / 2);
-
   const groups: FbLayout['groups'] = [];
-  let y = mid(leftH);
-  names.forEach((g, k) => {
-    const list = mine(g);
-    groups.push({ key: g, label: labels.get(g) ?? '', y, h: heights[k]! });
-    let acc = y;
-    list.forEach((b, i) => { if (i) acc += sep(list[i - 1]!, b, XG); b.y0 = acc; acc += b.h; });
-    y += heights[k]! + sepG;
-  });
-  // Column by column, left to right. Into each node: work passing through on top, work waiting there below, each in the
-  // order it arrives, so the pile at a node is its queue. Nodes in a column sit in the order their work arrives.
+  // Every band and node for a chart H high; returns the height the columns took. A node's bands are ordered as they
+  // arrive, so a column's height is known only once it is placed (PR-Agent r2 and r3 on #56).
   const prior = (b: FbBand, key: string): number => { const i = b.stops.indexOf(key); const p = b.stops[i - 1]; return p ? b.y[p] ?? b.y0 : b.y0; };
-  for (const x of xs) {
-    const here = placed.filter((d) => d.x === x).map((d) => {
-      const list = bands.filter((b) => b.stops.includes(d.key));
-      const last = (b: FbBand) => b.stops[b.stops.length - 1] === d.key;
-      list.sort((a, z) => Number(last(a)) - Number(last(z)) || prior(a, d.key) - prior(z, d.key));
-      return { d, list, at: list.reduce((s, b) => s + prior(b, d.key), 0) / Math.max(1, list.length) };
-    }).sort((a, z) => a.at - z.at || a.d.key.localeCompare(z.d.key));
-    // Centred by the height it really takes, once its bands are in order.
-    let acc = mid(here.reduce((h, { list }) => h + stack(list, x), 0) + NG * Math.max(0, here.length - 1), 14);
-    for (const { d, list } of here) {
-      d.y = acc; d.h = stack(list, x);
-      let yy = acc;
-      list.forEach((b, i) => { if (i) yy += sep(list[i - 1]!, b, x); b.y[d.key] = yy; yy += b.h; });
-      acc += d.h + NG;
+  const place = (H: number): number => {
+    const mid = (h: number, lift = 0): number => Math.max(TOP + lift, (H - h) / 2);
+    groups.length = 0;
+    let y = mid(leftH);
+    names.forEach((g, k) => {
+      const list = mine(g);
+      groups.push({ key: g, label: labels.get(g) ?? '', y, h: heights[k]! });
+      let acc = y;
+      list.forEach((b, i) => { if (i) acc += sep(list[i - 1]!, b, XG); b.y0 = acc; acc += b.h; });
+      y += heights[k]! + sepG;
+    });
+    // Column by column, left to right. Into each node: work passing through on top, work waiting there below, each in
+    // the order it arrives, so the pile at a node is its queue. Nodes in a column sit in the order their work arrives.
+    let need = 0;
+    for (const x of xs) {
+      const here = placed.filter((d) => d.x === x).map((d) => {
+        const list = bands.filter((b) => b.stops.includes(d.key));
+        const last = (b: FbBand) => b.stops[b.stops.length - 1] === d.key;
+        list.sort((a, z) => Number(last(a)) - Number(last(z)) || prior(a, d.key) - prior(z, d.key));
+        return { d, list, at: list.reduce((s, b) => s + prior(b, d.key), 0) / Math.max(1, list.length) };
+      }).sort((a, z) => a.at - z.at || a.d.key.localeCompare(z.d.key));
+      const colH = here.reduce((h, { list }) => h + stack(list, x), 0) + NG * Math.max(0, here.length - 1);
+      need = Math.max(need, colH + 14);
+      let acc = mid(colH, 14);
+      for (const { d, list } of here) {
+        d.y = acc; d.h = stack(list, x);
+        let yy = acc;
+        list.forEach((b, i) => { if (i) yy += sep(list[i - 1]!, b, x); b.y[d.key] = yy; yy += b.h; });
+        acc += d.h + NG;
+      }
     }
+    return need;
+  };
+  // As tall as the left side or the tallest column, whichever needs more: place, and again while a column needs more.
+  let H = TOP + Math.max(room, leftH) + FOOT;
+  for (let pass = 0; pass < 4; pass++) {
+    const want = TOP + Math.max(room, leftH, place(H)) + FOOT;
+    if (want <= H + 1e-6) break;
+    H = want;
   }
+  // Never below the foot, however the passes ended.
+  H = Math.max(H, ...placed.map((d) => d.y + d.h + FOOT));
   return { H, W, drill, nodes: placed, groups, bands, cols: xs };
 }
 
@@ -317,7 +323,7 @@ export function drawBrigade(items: readonly FbItem[], tree: Tree, now: number, {
     // Every person shown: a click opens their threads. Opened: a thread with a call opens it in The Pass.
     const plate = t0?.calls[0]?.slice(2);
     const act = L.drill === null ? ` data-who="${e(b.group)}"` : plate ? ` data-team-open="${e(plate)}" tabindex="0" role="button" aria-label="${e(t0!.title)}"` : '';
-    bands += `<path class="band ${ageCls(b.age)}"${hov(k, f, tip)}${act} d="${ribbon(pts, b.h)}"/>`;
+    bands += `<path class="band ${ageCls(b.age)}"${hov(k, f, tip)}${act} d="${ribbon(pts, b.h)}"/>${strands(pts, b.h, b.items.length)}`;
   }
   // The names: each person (or folded team) at the left, each sign-off node over its pile. Leads above you are outlined.
   if (L.drill === null) for (const g of L.groups) {

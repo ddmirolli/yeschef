@@ -178,18 +178,31 @@ export function layout(items: readonly FlowItem[], now: number, drill: string | 
 export interface Pt { x: number; y: number; c: boolean }
 /** A band as one ribbon h high through its points, ending in a round cap: one outline, so no seam shows where its
  *  straight and curved parts meet. */
+const go = (a: Pt, b: Pt, dy: number): string => {
+  if (!b.c) return `L${f1(b.x)},${f1(b.y + dy)}`;
+  const m = (a.x + b.x) / 2;
+  return `C${f1(m)},${f1(a.y + dy)} ${f1(m)},${f1(b.y + dy)} ${f1(b.x)},${f1(b.y + dy)}`;
+};
 export const ribbon = (p: readonly Pt[], h: number): string => {
-  const go = (a: Pt, b: Pt, dy: number): string => {
-    if (!b.c) return `L${f1(b.x)},${f1(b.y + dy)}`;
-    const m = (a.x + b.x) / 2;
-    return `C${f1(m)},${f1(a.y + dy)} ${f1(m)},${f1(b.y + dy)} ${f1(b.x)},${f1(b.y + dy)}`;
-  };
   const [first] = p, last = p[p.length - 1]!;
   let d = `M${f1(first!.x)},${f1(first!.y)}`;
   for (let i = 1; i < p.length; i++) d += go(p[i - 1]!, p[i]!, 0);
   d += `A${f1(Math.min(5, h / 2))},${f1(h / 2)} 0 0 1 ${f1(last.x)},${f1(last.y + h)}`;
   for (let i = p.length - 1; i > 0; i--) d += go(p[i]!, { ...p[i - 1]!, c: p[i]!.c }, h);
   return `${d}Z`;
+};
+/** A band that carries n threads shows each one (Dan, 2026-11-12: threads and strings, not linguini): n - 1 hairlines
+ *  along the ribbon, splitting it into equal strands. Every Sankey draws them after its bands. */
+export const strands = (p: readonly Pt[], h: number, n: number): string => {
+  if (n < 2 || p.length < 2) return '';
+  let out = '';
+  for (let k = 1; k < n; k++) {
+    const dy = (h * k) / n;
+    let d = `M${f1(p[0]!.x)},${f1(p[0]!.y + dy)}`;
+    for (let i = 1; i < p.length; i++) d += go(p[i - 1]!, p[i]!, dy);
+    out += `<path class="strand" d="${d}"/>`;
+  }
+  return out;
 };
 /** What a hover element belongs to (k), what it lights (f), and its tooltip. */
 export const hov = (k: readonly string[], f: readonly string[], tip: string): string => ` data-k="${e(k.join(' '))}" data-f="${e(f.join(' '))}" data-tip="${e(tip)}"`;
@@ -255,7 +268,7 @@ export function drawFlow(L: Layout, now: number): string {
     // Opened, each thread's band is a button a keyboard reaches too (PR-Agent r1 on #49); every project is reached by its name.
     const act = L.drill === null ? ` data-drill="${e(b.group)}"`
       : t0 ? ` data-plate="${e(t0.id)}" tabindex="0" role="button" aria-label="${e(`${t0.title}, ${t0.stage}${t0.waits ? ', waiting on you' : ''}`)}"` : '';
-    bands += `<path class="${cls}"${attrs}${act} d="${ribbon(pts, b.h)}"/>`;
+    bands += `<path class="${cls}"${attrs}${act} d="${ribbon(pts, b.h)}"/>${strands(pts, b.h, b.items.length)}`;
   }
   // The river fills the column down to The Pass's foot (Dan, 2026-11-12): the page stretches .fx-body to the height that
   // is free (data-span is its natural height under data-top), and moves each name to its node's new place (data-y) at its own size.

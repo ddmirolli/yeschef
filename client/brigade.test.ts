@@ -137,8 +137,18 @@ test('no node or band falls below the chart, from any lead\'s seat and at any he
       const L = brigadeLayout(items, tree, NOW, drill, fitH);
       for (const d of L.nodes) if (d.h) assert.ok(d.y + d.h <= L.H + 1e-6, `${me} ${fitH} ${drill}: ${d.key} ends at ${d.y + d.h} past ${L.H}`);
       for (const b of L.bands) for (const y of [b.y0, ...Object.values(b.y)]) assert.ok(y >= 0 && y + b.h <= L.H + 1e-6, `${me} ${fitH} ${drill}: band ${b.id}`);
+      // Room to spare: exactly the height the page gave, never taller (PR-Agent r3 on #56).
+      if (fitH === 1600) assert.ok(L.H <= 1600 + 1e-6, `${me} ${drill}: ${L.H} high for 1600`);
     }
   }
+});
+
+test('a band of several threads shows each one, as You\'s does', () => {
+  const { tree, items } = setup();
+  const L = brigadeLayout(items, tree, NOW);
+  const want = L.bands.reduce((s, b) => s + Math.max(0, b.items.length - 1), 0);
+  assert.ok(want > 0);
+  assert.equal(drawBrigade(items, tree, NOW).match(/<path class="strand"/g)?.length ?? 0, want);
 });
 
 test('a PR whose reviewers were not read says so in its tooltip', () => {

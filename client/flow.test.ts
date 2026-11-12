@@ -2,7 +2,7 @@
 import { test } from 'vite-plus/test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { ageOf, layout, drawFlow, youFlow, fitFrom, FLOW_KEY, CLOCHE, DAY, W } from './flow.ts';
+import { ageOf, layout, drawFlow, youFlow, fitFrom, strands, FLOW_KEY, CLOCHE, DAY, W } from './flow.ts';
 import type { FlowItem, FlowStage } from './flow.ts';
 import { grab } from './test/expect.ts';
 import { servedSource } from './test/served.ts';
@@ -15,6 +15,16 @@ const LINE: FlowItem[] = [
   I('r1', 'Fernpay', 'In review', 4), I('r2', 'Fernpay', 'In review', 4), I('m1', 'Fernpay', 'Merged', 0, { base: 'main' }),
   I('y1', 'Yes Chef', 'Ready to merge', 0, { waits: true, pr: 12 }), I('m2', 'Yes Chef', 'Merged', 1, { base: 'main' }),
 ];
+
+test('a band of several threads shows each one: one hairline between every two (Dan, 2026-11-12: threads, not linguini)', () => {
+  const L = layout(LINE, NOW);
+  const svg = drawFlow(L, NOW);
+  const want = L.bands.reduce((s, b) => s + Math.max(0, b.items.length - 1), 0);
+  assert.ok(want > 0, 'the line has a band of two');
+  assert.equal(svg.match(/<path class="strand"/g)?.length ?? 0, want);
+  assert.equal(strands([{ x: 0, y: 0, c: false }, { x: 10, y: 0, c: false }], 9, 1), '', 'one thread: no line');
+  assert.equal(strands([{ x: 0, y: 0, c: false }, { x: 10, y: 0, c: false }], 9, 3), '<path class="strand" d="M0,3L10,3"/><path class="strand" d="M0,6L10,6"/>');
+});
 
 test('gray is time since the last change in three steps; no time is "not checked"', () => {
   assert.equal(ageOf(NOW - 1000, NOW), 0);
