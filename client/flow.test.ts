@@ -41,14 +41,21 @@ test('every project: threads of one project, stage and age share a band; one tha
 test('what goes into a node comes out of it: heights add up at every project and stop', () => {
   for (const drill of [null, 'Fernpay', 'Yes Chef']) {
     const L = layout(LINE, NOW, drill);
-    for (const g of L.groups) assert.equal(Math.round(g.h * 1000), Math.round(L.bands.filter((b) => b.group === g.name).reduce((s, b) => s + b.h, 0) * 1000));
+    // A node runs from its first band's top to its last band's foot: the bands, and the space between them that closes
+    // left to right.
+    for (const g of L.groups) {
+      const mine = L.bands.filter((b) => b.group === g.name);
+      assert.ok(g.h + 1e-6 >= mine.reduce((s, b) => s + b.h, 0));
+      assert.ok(Math.abs(Math.min(...mine.map((b) => b.y0)) - g.y) < 1e-6 && Math.abs(Math.max(...mine.map((b) => b.y0 + b.h)) - (g.y + g.h)) < 1e-6);
+    }
     for (const s of ['review', 'you', 'main'] as const) {
       const n = L.nodes[s], at = L.bands.filter((b) => b.path.includes(s));
       if (!at.length) { assert.equal(n, undefined); continue; }
       assert.ok(n);
-      assert.equal(Math.round(n.h * 1000), Math.round(at.reduce((a, b) => a + b.h, 0) * 1000));
+      assert.ok(n.h + 1e-6 >= at.reduce((a, b) => a + b.h, 0));
       // No two bands overlap at a node, and all of them sit inside it.
       const spans = at.map((b) => [b.yIn[s]!, b.yIn[s]! + b.h] as const).sort((a, b) => a[0] - b[0]);
+      assert.ok(Math.abs(spans[0]![0] - n.y) < 1e-6 && Math.abs(Math.max(...spans.map((r) => r[1])) - (n.y + n.h)) < 1e-6);
       spans.forEach(([y0, y1], i) => {
         assert.ok(y0 >= n.y - 1e-6 && y1 <= n.y + n.h + 1e-6);
         if (i) assert.ok(y0 >= spans[i - 1]![1] - 1e-6);
@@ -199,7 +206,9 @@ test('the chart fills the height the page gives it', () => {
   assert.match(svg, /<\/g><g class="fx-names"><text class="gname"[^>]*data-y="[\d.]+"/);
 });
 
-test('given the room the page has, the river spreads to fill it with matching margins, and the stops stay packed', () => {
+const left0 = (L: ReturnType<typeof layout>): (readonly [number, number])[] =>
+  (L.drill === null ? L.groups.map((g) => [g.y, g.y + g.h] as const) : L.bands.map((b) => [b.lane!, b.lane! + b.h] as const));
+test('given the room the page has, the river spreads to fill it with matching margins, and closes up left to right', () => {
   // Dan, 2026-11-12: the threads on the left should use the height, branching out, never edge to edge.
   for (const fitH of [400, 760, 1400]) {
     for (const drill of [null, 'Fernpay'] as const) {
@@ -214,9 +223,17 @@ test('given the room the page has, the river spreads to fill it with matching ma
       // Threads grow, but to a cap; the rest is space between projects (or, opened, threads, to a cap: their lanes fan into one node).
       const u = L.bands[0]!.h / L.bands[0]!.items.length;
       assert.ok(u <= (drill === null ? 30 : 24) && u >= (drill === null ? 3 : 11));
-      // The stops hold their bands edge to edge: a node is as tall as what passes through it.
-      const review = L.nodes.review!;
-      assert.equal(review.h, L.bands.filter((b) => b.path.includes('review')).reduce((n, b) => n + b.h, 0));
+      // Separation closes left to right (Dan, 2026-11-12): the widest space between neighbours (opened: threads; else
+      // projects) shrinks at each stop, and the branch holds them touching.
+      // Stops that hold one band have no space to measure, so they drop out.
+      const widest = (ys: (readonly [number, number])[]) => { const r = [...ys].sort((a, b) => a[0] - b[0]); return r.length < 2 ? null : Math.max(0, ...r.slice(1).map((v, i) => v[0] - r[i]![1])); };
+      const at = (s: 'review' | 'you' | 'main') => widest(L.bands.filter((b) => b.path.includes(s)).map((b) => [b.yIn[s]!, b.yIn[s]! + b.h] as const));
+      const main = at('main');
+      const steps = [widest(left0(L)), ...(drill === null ? [] : [widest(L.bands.map((b) => [b.y0, b.y0 + b.h] as const))]), at('review'), at('you')]
+        .filter((v): v is number => v !== null);
+      assert.ok(steps.length >= 2);
+      for (let i = 1; i < steps.length; i++) assert.ok(steps[i]! < steps[i - 1]! && steps[i]! > 0, `${drill} ${fitH}: ${steps.join(' > ')}`);
+      if (main !== null) assert.equal(main, 0);
     }
   }
   // More room, a wider spread at the left: it never sits at one size in a tall column.

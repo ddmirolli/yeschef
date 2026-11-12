@@ -115,39 +115,45 @@ export function layout(items: readonly FlowItem[], now: number, drill: string | 
   // Centred in the whole chart, not under the stage names, so the margins above and below match; never over the names.
   const mid = (h: number): number => Math.max(TOP, (H - h) / 2);
 
+  // Separation tightens left to right (Dan, 2026-11-12): the space between projects (opened: between threads) at the
+  // left shrinks at each stop in step with how far right it is, until the branch they merged into holds them touching.
+  // In every project view, a project's own bands touch from its node on; opened, each thread is its own.
+  const x0 = drill !== null ? XFAN : XG, x1 = NODE_X.main;
+  const sepAt = (x: number): number => (drill !== null ? laneGap : gap) * clamp((x1 - x) / (x1 - x0), 0, 1);
+  const sep = (a: Band, b: Band, x: number): number => (drill !== null || a.group !== b.group ? sepAt(x) : 0);
+  /** Bands stacked at x: their heights and the space between neighbours. */
+  const stack = (list: readonly Band[], x: number): number =>
+    list.reduce((h, b, k) => h + b.h + (k ? sep(list[k - 1]!, b, x) : 0), 0);
+
+  // Out of each project's node, top to bottom: furthest along first, then oldest, a band that waits on you last.
+  const mine = (name: string): Band[] => bands.filter((b) => b.group === name)
+    .sort((a, b) => RANK[a.stage] - RANK[b.stage] || (b.age ?? -1) - (a.age ?? -1) || Number(a.waits) - Number(b.waits) || a.id.localeCompare(b.id));
   // The projects' nodes, centred.
   const groups: Layout['groups'] = [];
-  let y = mid(total * u + gaps);
-  for (const name of names) {
-    const h = bands.filter((b) => b.group === name).reduce((s, b) => s + b.h, 0);
+  const heights = names.map((name) => stack(mine(name), XG));
+  let y = mid(heights.reduce((a, h) => a + h, 0) + gaps);
+  names.forEach((name, k) => {
+    const h = heights[k]!, list = mine(name);
     groups.push({ name, y, h });
+    let acc = y;
+    list.forEach((b, i) => { if (i) acc += sep(list[i - 1]!, b, XG); b.y0 = acc; acc += b.h; });
     y += h + gap;
-  }
-  // One node per stop, centred in its column: it holds every band that reaches it.
-  const nodes: Layout['nodes'] = {};
-  for (const s of ['review', 'you', 'main'] as const) {
-    const h = bands.filter((b) => b.path.includes(s)).reduce((a, b) => a + b.h, 0);
-    if (h) nodes[s] = { y: mid(h), h };
-  }
-  // Out of each project's node, top to bottom: furthest along first, then oldest, a band that waits on you last.
-  for (const g of groups) {
-    let acc = g.y;
-    const mine = bands.filter((b) => b.group === g.name)
-      .sort((a, b) => RANK[a.stage] - RANK[b.stage] || (b.age ?? -1) - (a.age ?? -1) || Number(a.waits) - Number(b.waits) || a.id.localeCompare(b.id));
-    for (const b of mine) { b.y0 = acc; acc += b.h; }
-  }
+  });
   // Into each node: work passing through on top, work waiting there below, each in the order it arrives, so the pile at
-  // a node is its queue. Out of it, in the order it came in.
+  // a node is its queue. Out of it, in the order it came in. One node per stop, centred in its column.
+  const nodes: Layout['nodes'] = {};
   const before = (b: Band, s: Stop): number => { const i = b.path.indexOf(s); const p = b.path[i - 1]; return p ? (b.yOut[p] ?? 0) : b.y0; };
   for (const s of ['review', 'you', 'main'] as const) {
-    const node = nodes[s];
-    if (!node) continue;
     const here = bands.filter((b) => b.path.includes(s));
+    if (!here.length) continue;
     const last = (b: Band) => b.path[b.path.length - 1] === s;
     const order = [...here.filter((b) => !last(b)), ...here.filter(last)];
     order.sort((a, b) => Number(last(a)) - Number(last(b)) || before(a, s) - before(b, s));
+    const h = stack(order, NODE_X[s]);
+    const node = { y: mid(h), h };
+    nodes[s] = node;
     let acc = node.y;
-    for (const b of order) { b.yIn[s] = acc; b.yOut[s] = acc; acc += b.h; }
+    order.forEach((b, i) => { if (i) acc += sep(order[i - 1]!, b, NODE_X[s]); b.yIn[s] = acc; b.yOut[s] = acc; acc += b.h; });
   }
   // Drilled in, each thread starts in its own lane at the left.
   if (drill !== null) {
