@@ -134,8 +134,8 @@ try {
       const name = `${view}-${scheme}-${width}`;
       await ready(before, `http://before.local/?view=${view}`);
       await ready(after, `http://after.local/?view=${view}`);
-      const frame = after.frameLocator(`.demo [data-swap="${view}"] iframe`);
-      await frame.locator('#app .tile:visible').first().waitFor();
+      // Under 1024 px the hero shows a picture, not the demo (Dan, 2026-11-11), so there is no frame to wait for.
+      if (width >= 1024) await after.frameLocator(`.demo [data-swap="${view}"] iframe`).locator('#app .tile:visible').first().waitFor();
       assert.deepEqual(await geometry(after), await geometry(before), `${name}: section layout changed`);
       const beforePixels = await before.screenshot({ fullPage: true, mask: [before.locator('iframe')] });
       const afterPixels = await after.screenshot({ fullPage: true, mask: [after.locator('iframe')] });
@@ -156,9 +156,12 @@ try {
   await page.locator('.hero button[data-view="solo"]').press('ArrowRight');
   assert.equal(await page.locator('html').getAttribute('data-view'), 'team');
   assert.equal(await page.locator('button[data-view="team"][aria-pressed="true"]').count(), 2);
+  // Each mode's demo button sits in its own pane of the modes section, so the toggle picks the pane first.
+  await page.locator('[data-mode-pick="brigade"]').click();
   await page.locator('[data-demo-mode="brigade"]').click();
   const team = page.frameLocator('.demo [data-swap="team"] iframe');
   await team.locator('.tboard .fx-wrap:not(.ok-box)').first().waitFor({ state: 'attached' });
+  await page.locator('[data-mode-pick="open"]').click();
   await page.locator('[data-demo-mode="open"]').click();
   await team.locator('.tboard .ok-p').first().waitFor({ state: 'attached' });
   assert.equal(await team.locator('.tboard .fx-wrap:not(.ok-box)').count(), 0);
