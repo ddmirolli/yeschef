@@ -833,3 +833,13 @@ test('r15: a copy that leaves out readyAt never hides another copy\'s time for t
   assert.equal(R.count, R0.count);
   assert.deepEqual(R.ages, R0.ages);
 });
+
+// ---- 2026-11-12: the now label ----
+test('the now label sits left of its line, inside the chart, never past the edge', async () => {
+  const { readFileSync } = await import('node:fs');
+  const css = readFileSync(new URL('./server.ts', import.meta.url), 'utf8');
+  const rule = grab(css, /\.tl \.now span\{[^}]*\}/);
+  assert.match(rule, /right:4px/);
+  assert.doesNotMatch(rule, /left:/);
+  assert.match(rule, /white-space:nowrap/);
+});
