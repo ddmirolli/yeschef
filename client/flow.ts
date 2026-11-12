@@ -50,7 +50,7 @@ const PATH: Record<FlowStage, Stop[]> = {
 };
 // Out of a project's node, work that went furthest sits on top.
 const RANK: Record<FlowStage, number> = { Merged: 0, 'Ready to merge': 1, 'In review': 2, 'In progress': 3, Planned: 4, Backlog: 5 };
-const AGE_WORD = ['under 1 day', '1 to 3 days', 'over 3 days'] as const;
+export const AGE_WORD = ['under 1 day', '1 to 3 days', 'over 3 days'] as const;
 /** The Pass's cloche, the at-the-pass mark on a thread's card (client/board.ts ICON.cloche: the same paths). */
 export const CLOCHE = '<path d="M4.25 17.4a7.75 7.75 0 0 1 15.5 0" stroke-width="1.5" stroke-linecap="butt"/><circle cx="12" cy="7.4" r="1.75" fill="currentColor" stroke="none"/><path d="M2.75 19h18.5l-1.5 1.5H4.25z" fill="currentColor" stroke="none"/>';
 const clocheIc = (cls: string): string => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">${CLOCHE}</svg>`;
@@ -60,10 +60,10 @@ export const ageOf = (since: number, now: number): Age => {
   const d = now - since;
   return d < DAY ? 0 : d < 3 * DAY ? 1 : 2;
 };
-const e = (s: unknown): string => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[c]!);
-const f1 = (n: number): string => (Math.round(n * 10) / 10).toString();
-const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
-const ago = (since: number, now: number): string => {
+export const e = (s: unknown): string => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[c]!);
+export const f1 = (n: number): string => (Math.round(n * 10) / 10).toString();
+export const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
+export const ago = (since: number, now: number): string => {
   if (!Number.isFinite(since)) return 'not checked';
   const m = Math.max(0, Math.round((now - since) / 60000));
   return m < 1 ? 'under 1 min' : m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h` : `${Math.floor(m / 1440)} d`;
@@ -77,7 +77,7 @@ const logo = (name: string, t: FlowItem | undefined): string => (t?.icon
   ? `<image href="${e(t.icon)}" width="${LOGO}" height="${LOGO}" preserveAspectRatio="xMidYMid meet"/>`
   : `<rect width="${LOGO}" height="${LOGO}" rx="6" fill="hsl(${t?.hue ?? 0} 48% 42%)"/><text class="pml" x="${LOGO / 2}" y="${LOGO / 2}" text-anchor="middle" dominant-baseline="central">${e(name.slice(0, 1).toUpperCase())}</text>`);
 
-const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+export const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 /** Where every band and node sits. drill: a project's name to open its threads, one band each; null for every project.
  *  fitH: the height (in viewBox units) the page has free for the chart. With it the river spreads to fill that height
  *  with a margin above and below (Dan, 2026-11-12): threads grow to a cap, and the rest goes between projects (or, opened,
@@ -175,10 +175,10 @@ export function layout(items: readonly FlowItem[], now: number, drill: string | 
 }
 
 /** A point on a band's top edge: straight to it, or curved like a Sankey link (c). */
-interface Pt { x: number; y: number; c: boolean }
+export interface Pt { x: number; y: number; c: boolean }
 /** A band as one ribbon h high through its points, ending in a round cap: one outline, so no seam shows where its
  *  straight and curved parts meet. */
-const ribbon = (p: readonly Pt[], h: number): string => {
+export const ribbon = (p: readonly Pt[], h: number): string => {
   const go = (a: Pt, b: Pt, dy: number): string => {
     if (!b.c) return `L${f1(b.x)},${f1(b.y + dy)}`;
     const m = (a.x + b.x) / 2;
@@ -192,8 +192,8 @@ const ribbon = (p: readonly Pt[], h: number): string => {
   return `${d}Z`;
 };
 /** What a hover element belongs to (k), what it lights (f), and its tooltip. */
-const hov = (k: readonly string[], f: readonly string[], tip: string): string => ` data-k="${e(k.join(' '))}" data-f="${e(f.join(' '))}" data-tip="${e(tip)}"`;
-const ageCls = (a: Age): string => (a === null ? 'anc' : `a${a}`);
+export const hov = (k: readonly string[], f: readonly string[], tip: string): string => ` data-k="${e(k.join(' '))}" data-f="${e(f.join(' '))}" data-tip="${e(tip)}"`;
+export const ageCls = (a: Age): string => (a === null ? 'anc' : `a${a}`);
 const WHERE: Partial<Record<FlowStage, string>> = { 'In review': ' · waiting on checks and review', 'Ready to merge': ' · waiting on you to merge', Merged: ' · merged' };
 
 function threadTip(t: FlowItem, now: number): string {

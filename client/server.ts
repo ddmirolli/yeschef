@@ -26,7 +26,8 @@ import type { HostProject, TeamStore } from './teamhost.ts';
 import { createKeys, createLive } from './t3live.ts';
 import { boardThreads, changeTargets, githubTargets } from './shells.ts';
 import { createChanges } from './changes.ts';
-import { createBaseChecks, createPrSizes, prKey, readBaseFacts, readPrFacts } from './github.ts';
+import { createBaseChecks, createPrSizes, ghGet, prKey, readBaseFacts, readPrFacts } from './github.ts';
+import { loginOf } from './reviewers.ts';
 import { buildBoard, renderApp, kitchenPane, pickedFrom, ICON } from './board.ts';
 import { fitFrom } from './flow.ts';
 import { readRuns, dayStart, trackWaits, mayRunToday } from './you.ts';
@@ -357,7 +358,18 @@ function tick(): void {
 }
 // What the team summary reads beside the board (3b PR 4): each thread's changed files, its base branch's checks, and
 // each open PR's size. A reader's news republishes the summary, only when it changed.
-const teamReaders: Readers = { changes: (id) => changes.get(id), base: (id) => baseChecks.get(id), pr: (x) => prSizes.get(prKey(x)) };
+// This Mac's GitHub login rides in the team summary (French Brigade matches a PR's reviewers to teammates by it). It is
+// read from gh's sign-in the first time a summary asks, so a Mac with no team never asks; a failed read is asked again
+// on a summary 10 minutes on. Until it is read, the summary says null: not checked.
+let ghLogin: string | null = null, ghAskedAt = -Infinity;
+const login = (): string | null => {
+  if (ghLogin === null && Date.now() - ghAskedAt > 600_000) {
+    ghAskedAt = Date.now();
+    ghGet('user').then((u) => { ghLogin = loginOf(u && typeof u === 'object' ? (u as { login?: unknown }).login : null); if (ghLogin) team?.readersMoved?.(); }, () => {});
+  }
+  return ghLogin;
+};
+const teamReaders: Readers = { changes: (id) => changes.get(id), base: (id) => baseChecks.get(id), pr: (x) => prSizes.get(prKey(x)), login };
 for (const r of [changes, baseChecks, prSizes]) r.subscribe(() => team?.readersMoved?.());
 
 // Never two refreshes at once: a change during one queues one more. A burst of changes is gathered for 150 ms.
@@ -1432,6 +1444,14 @@ html.v-kitchen .tp-live .tcol{display:flex;flex-direction:column;gap:8px}
 .okr .rowname.strong{font-weight:700}.okr .rowname.muted{fill:var(--label2)}
 .okr [data-fold],.okr [data-team-open],.okr [data-drill]{cursor:pointer}
 .okr .need{font-weight:600;fill:var(--red)}
+/* French Brigade (client/brigade.ts): names at the left and over each sign-off node; leads above you outlined. */
+.fbr .fbg{cursor:pointer;transition:fill .15s}.fbr .fbg.lit{fill:var(--fx-hov)}
+.fbr .fbn text{font-size:11.5px;font-weight:600;fill:var(--label);transition:fill .15s}
+.fbr .fbn.lit text{fill:var(--fx-hov)}
+.fbr .fbn text{paint-order:stroke;stroke:var(--card);stroke-width:3px;stroke-linejoin:round}
+.fbr .fbn.r-above text{fill:var(--label2)}.fbr .fbn.r-above rect{fill:none;stroke:var(--label3,var(--label2));stroke-width:1}
+.fbr .band[data-who],.fbr [data-team-open]{cursor:pointer}
+.fbk .sw.up{background:none;box-shadow:inset 0 0 0 1px var(--label2)}
 .okr .podband{fill:var(--fx-zone-b)}
 .okr .mnum{font-size:11.5px;fill:var(--label2);font-variant-numeric:tabular-nums}
 .okr .mnum.strong{fill:var(--label);font-weight:600}
@@ -1657,7 +1677,7 @@ function route(url: URL): Routed {
   // ?p=A&p=B: the projects picked in the view menu; no p is All projects.
   const picked = pickedFrom(url.searchParams);
   // fx=WxH: the size the page has for You's chart, so the river fills it (client/flow.ts fitFrom).
-  const app = (): string => renderApp({ board, picked, link, status, origin: ORIGIN, answered, projects, rules: rulesNow(), fit: fitFrom(url.searchParams), fold: url.searchParams.getAll('fold') });
+  const app = (): string => renderApp({ board, picked, link, status, origin: ORIGIN, answered, projects, rules: rulesNow(), fit: fitFrom(url.searchParams), fold: url.searchParams.getAll('fold'), who: url.searchParams.get('who') });
   const html = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' };
   const teamPage = team.route(url);
   if (teamPage) return teamPage;

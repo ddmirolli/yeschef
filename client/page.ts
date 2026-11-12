@@ -1339,6 +1339,20 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     if (q === location.search) return;
     history.pushState({ fxPick: 1 }, '', location.pathname + q); state.sel = null; wake();
   }
+  // French Brigade: a person (or a folded team) opens their threads (?who=<key>); the back button closes them, back
+  // where the click came from.
+  function openWho(key: string): void {
+    if (!key) return;
+    var u = new URLSearchParams(location.search); u.set('who', key);
+    flowFocus(null);
+    history.pushState({ fxWho: 1 }, '', location.pathname + '?' + u.toString()); state.sel = null; wake();
+  }
+  function unwho(): void {
+    if (history.state && history.state.fxWho) { history.back(); return; }
+    var u = new URLSearchParams(location.search); u.delete('who'); var q = u.toString();
+    history.pushState(null, '', location.pathname + (q ? '?' + q : '')); state.sel = null; wake();
+  }
+  function hideTips(): void { document.querySelectorAll<HTMLElement>('.fx-tip').forEach(function(tp){ tp.hidden = true; }); }
   // The back button beside the picker: back where the click came from, else every project.
   function unpick(): void {
     if (history.state && history.state.fxPick) { history.back(); return; }
@@ -1584,9 +1598,13 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     // Your team, expanded: a sub-lead's name folds their team into one row and back.
     var fo = t.closest<Element>('.tboard [data-fold]');
     if (fo) { toggleFold(fo.getAttribute('data-fold') || ''); return; }
+    // French Brigade: a person's name or band opens their threads; the back button beside the picker closes them.
+    var wh = t.closest<Element>('.tboard [data-who]');
+    if (wh) { hideTips(); openWho(wh.getAttribute('data-who') || ''); return; }
+    if (t.closest('.tboard [data-unwho]')) { unwho(); return; }
     // Your team, expanded does the same: a project's name opens it, and the back button beside its picker returns.
     var dr = t.closest<Element>(':is(.you, .tboard) [data-drill]');
-    if (dr) { $$('.fx-tip').forEach(function(tp){ tp.hidden = true; }); pickOnly(dr.getAttribute('data-drill') || ''); return; }
+    if (dr) { hideTips(); pickOnly(dr.getAttribute('data-drill') || ''); return; }
     if (t.closest(':is(.you, .tboard) [data-unpick]')) { unpick(); return; }
     var nf = t.closest<HTMLElement>('.nf[data-folder]');
     // In You, expanded, a stage row opens that stage's list in the pass view, with no ticket open.

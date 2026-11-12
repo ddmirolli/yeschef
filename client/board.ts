@@ -5,6 +5,7 @@ import { imagesIn, imageUrl, withoutImages, recommendLines } from './calls.ts';
 import { missingShots, ASK_SHOTS } from './kitchen.ts';
 import { trackWaits, withoutWaits } from './you.ts';
 import { youFlow } from './flow.ts';
+import { brigadeItems, drawBrigade, groupOfIn, treeOf } from './brigade.ts';
 import type { Fit } from './flow.ts';
 import type { FlowItem, FlowStage } from './flow.ts';
 import { openKitchen, kitchenBoard, KINDS, may, areaOf } from './open-kitchen.ts';
@@ -769,6 +770,26 @@ function boardOf({ ok, now, want, fold, name, people, plateOf, menu, fit }: { ok
   return `<section class="tboard" aria-labelledby="tb-t">${top}<div class="you-b">${okRows({ R: B.rows, now, want, fold, name, people, plateOf, fit })}</div></section>`;
 }
 
+/** Your team, expanded, in French Brigade (client/brigade.ts): the Sankey by person, beside the team's Pass. The header
+ *  is the project picker, as in Open kitchen; with one person's threads open, a back button sits beside it. */
+function brigadeOf({ ok, view, now, want, who, menu, fit, plateOf }: { ok: OpenKitchen; view: TeamView; now: number; want: ReadonlySet<string> | null; who: string | null;
+  menu: string; fit: Fit | null; plateOf: (id: string) => string | null }): string {
+  const title = want ? [...want].sort((a, b) => a.localeCompare(b)).join(', ') : 'All projects';
+  const tree = treeOf(view);
+  const items = tree && ok.status === 'live' ? brigadeItems(ok, tree, { want, plateOf }) : [];
+  // Opened: only a group the chart draws (a person, or a folded team); else every person.
+  const open = who && tree && items.some((t) => groupOfIn(tree, t.author).key === who) ? who : null;
+  const back = open ? `<button type="button" class="fx-back" data-unwho aria-label="Back to everyone" title="Back to everyone">${svg('chev')}</button>`
+    : want && want.size === 1 ? `<button type="button" class="fx-back" data-unpick aria-label="Back to all projects" title="Back to all projects">${svg('chev')}</button>` : '';
+  const whoName = open && tree ? (open.startsWith('f:') ? `${tree.name(open.slice(2))}'s team` : tree.name(open.slice(2))) : '';
+  const top = `<header class="you-h"><h2 id="tb-t" class="vh">French Brigade, ${e(title)}${whoName ? `, ${e(whoName)}` : ''}</h2>${menu}${back}</header>`;
+  const body = ok.status !== 'live' || !tree
+    ? `<p class="nc-l"><b>Not checked</b> ${e(ok.why === 'offline' ? 'Yes Chef’s team connection is down.' : 'No one on your team has reported yet.')}</p>`
+    : !items.length ? '<p class="nc-l"><b>Nothing in flight</b> No one below you has a thread from In progress to Merged.</p>'
+    : drawBrigade(items, tree, now, { drill: open, fit });
+  return `<section class="tboard" aria-labelledby="tb-t">${top}<div class="you-b">${body}</div></section>`;
+}
+
 type Rows = NonNullable<ReturnType<typeof kitchenBoard>>['rows'];
 /** Open kitchen's rows (Dan, 2A on the flow mock, locked 2026-11-11): one fixed row per person with their agents as
  *  squares, the code areas those agents touch as cells that darken with more agents, and merged today. Two people in
@@ -940,7 +961,8 @@ function okRows({ R, now, want, fold, name, people, plateOf, fit }: { R: Rows; n
 }
 
 /** Everything Your team draws when the page has a team reading. ctx: { icons } from the board, for project marks. */
-function teamParts(team: TeamInput, view: TeamView, icons: ReadonlyMap<string, string | null>, want: ReadonlySet<string> | null = null, menu = '', fold: ReadonlySet<string> = new Set(), fit: Fit | null = null) {
+function teamParts(team: TeamInput, view: TeamView, icons: ReadonlyMap<string, string | null>, want: ReadonlySet<string> | null = null, menu = '', fold: ReadonlySet<string> = new Set(), fit: Fit | null = null, opened: string | null = null) {
+  const brigade = team.mode === 'brigade';
   const now = typeof team.now === 'number' && Number.isFinite(team.now) ? team.now : Date.now();
   const ok = openKitchen(view, { now });
   const me = view.me;
@@ -974,7 +996,7 @@ function teamParts(team: TeamInput, view: TeamView, icons: ReadonlyMap<string, s
   const segs = live ? GROUPS.flatMap(([k, , tone]) => by[k].map(() => `<i class="c-${tone}"></i>`)).join('') : '';
   const rows = live ? GROUPS.filter(([k]) => k !== 'unknown' || by[k].length).map(([k, word, tone]) => `<p class="nf tst"><i class="gd c-${tone}"></i><span>${word}</span><span class="n">${by[k].length}</span></p>`).join('')
     : `<p class="nf tst"><i class="gd c-nc"></i><span>${NC_V}</span><span class="n">–</span></p>`;
-  const card = `<div class="nav-card team-card" role="group" aria-label="Your team"><div class="idrow">${svg('skillet', 'ic who')}<span class="vh">Open kitchen</span><span class="segbar" aria-hidden="true">${segs}</span></div>${rows}</div>`;
+  const card = `<div class="nav-card team-card" role="group" aria-label="Your team"><div class="idrow">${svg(brigade ? 'toque' : 'skillet', 'ic who')}<span class="vh">${brigade ? 'French Brigade' : 'Open kitchen'}</span><span class="segbar" aria-hidden="true">${segs}</span></div>${rows}</div>`;
 
   // The quiet line: who else there is, so an empty Pass never reads as "nobody is working".
   const held = new Map<string, TeamCall>(); for (const c of ok.held) for (const id of c.who) if (!held.has(id)) held.set(id, c);
@@ -1000,11 +1022,12 @@ function teamParts(team: TeamInput, view: TeamView, icons: ReadonlyMap<string, s
   const col = calls.length ? `<div class="tcol" role="list" aria-label="Your team’s calls">${calls.map(xcard).join('')}</div>` : '';
   const pass = !live ? `<div class="clear team-pass">${svg('cloche')}<p><b>${NC_V}</b></p><p class="muted">${e(why)} Your team’s calls show once it is back.</p></div>`
     : `<div class="team-pass tp-live"><div class="folder" data-folder="team">${calls.map(tile).join('')}</div>${col}${calm}</div>`;
-  const board = boardOf({ ok, now, want, fold, name, people, menu, fit, plateOf: (id) => (calls.some((x) => x.c.id === id) ? teamPlateId({ id }) : null) });
+  const callPlate = (id: string) => (calls.some((x) => x.c.id === id) ? teamPlateId({ id }) : null);
+  const board = brigade ? brigadeOf({ ok, view, now, want, who: opened, menu, fit, plateOf: callPlate }) : boardOf({ ok, now, want, fold, name, people, menu, fit, plateOf: callPlate });
   return {
     ok, card, pass, board, count: live ? calls.length : '–',
     plates: calls.map(plateOf).join(''),
-    meta: { name: [view.teamName, team.name].find((x) => typeof x === 'string' && x) || null, below: ok.people.length, mode: 'open' },
+    meta: { name: [view.teamName, team.name].find((x) => typeof x === 'string' && x) || null, below: ok.people.length, mode: brigade ? 'brigade' : 'open' },
   };
 }
 
@@ -1072,8 +1095,10 @@ export interface RenderInput {
   fit?: Fit | null;
   /** The sub-leads whose groups Open kitchen's rows draw folded (?fold=<id>). */
   fold?: readonly string[] | null;
+  /** The person (or folded team) whose threads French Brigade draws opened (?who=<key>), or null for everyone. */
+  who?: string | null;
 }
-export function renderApp({ board, picked = null, link, status, origin, answered = new Map(), projects = [], rules = null, team = null, fit = null, fold = null }: RenderInput): string {
+export function renderApp({ board, picked = null, link, status, origin, answered = new Map(), projects = [], rules = null, team = null, fit = null, fold = null, who = null }: RenderInput): string {
   const want = picked && picked.length ? new Set(picked) : null;
   // Missing data renders "not checked": without a good poll, show no tickets at all, never an older board.
   const shown = status.ok ? board.tickets.filter((k) => !want || want.has(k.project)) : [];
@@ -1097,8 +1122,8 @@ export function renderApp({ board, picked = null, link, status, origin, answered
   const footMenu = viewMenu({ team, projs, picked: want ? [...want] : null, icons, ok: status.ok });
   // Your team, from a team reading (team.view, client/team.ts's shape). Without one it says "Not checked".
   // Expanded Team's header picker, on the board and on the waiting panel alike, since the rail's chip hides there.
-  const teamHead = team ? viewMenu({ team, projs, picked: want ? [...want] : null, icons, ok: status.ok, head: 'skillet' }) : '';
-  const T = team?.view ? teamParts(team, team.view, icons, want, teamHead, new Set(fold ?? []), fit) : null;
+  const teamHead = team ? viewMenu({ team, projs, picked: want ? [...want] : null, icons, ok: status.ok, head: team.mode === 'brigade' ? 'toque' : 'skillet' }) : '';
+  const T = team?.view ? teamParts(team, team.view, icons, want, teamHead, new Set(fold ?? []), fit, typeof who === 'string' && who ? who : null) : null;
   const active = STAGES.reduce((x, s) => x + (spots[s] || []).length, 0), held = HELD.reduce((x, s) => x + (spots[s] || []).length, 0);
   // Unknown is not zero: without a good poll the counts read "not checked".
   const n = (v: number | string) => (status.ok ? v : 'not checked');
