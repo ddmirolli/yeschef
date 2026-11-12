@@ -326,7 +326,12 @@ test('hover lights the chart and The Pass both ways; a project click picks that 
   // The project's logo holds every thread's key, p-9's too (Dan, 2026-11-12: any of its threads lights it).
   const logo = el({ k: 'g:Fernpay t:p-1 t:p-2 t:p-3 t:p-9' }); logo.cls.add('glogo');
   const one: Record<string, El> = { '.board': board };
-  const many: Record<string, El[]> = { '.you .fx-view:not([hidden]) [data-k]': [band, other, logo], '.head-b .folder[data-folder="pass"] .call-tile[data-plate]': [card, card3] };
+  // Your team's rows take part too: a square carries its call's p: key and lights that call's card in the team Pass.
+  const square = el({ k: 'a:mcp:kai-1 d:kai p:p-7' }), xc = el({ teamOpen: 'p-7' }), xc2 = el({ teamOpen: 'p-8' });
+  const many: Record<string, El[]> = {
+    '.you .fx-view:not([hidden]) [data-k], .tboard .fx-view [data-k]': [band, other, logo, square],
+    '.head-b .folder[data-folder="pass"] .call-tile[data-plate]': [card, card3], '.tcol .xc[data-team-open]': [xc, xc2],
+  };
   const ctx = vm.createContext({ window: {}, $: (s: string) => one[s] ?? null, $$: (s: string) => many[s] ?? [] });
   vm.runInContext(fns, ctx);
   const run = (code: string) => vm.runInContext(code, ctx);
@@ -353,8 +358,13 @@ test('hover lights the chart and The Pass both ways; a project click picks that 
   run(`flowFocus(['fl:0', 't:p-1', 't:p-2'])`);
   run(`applyFlow(false)`);
   assert.ok(band.cls.has('lit') && !other.cls.has('lit'));
+  // A team square lights its call's card, and the card lights the square; the other call stays dark.
+  run(`flowFocus(['a:mcp:kai-1'])`);
+  assert.ok(square.cls.has('lit') && xc.cls.has('lit') && !xc2.cls.has('lit') && !band.cls.has('lit'));
+  run(`flowFocus(['p:p-7'])`);
+  assert.ok(square.cls.has('lit') && xc.cls.has('lit') && !xc2.cls.has('lit'));
   run(`flowFocus(null)`);
-  assert.ok(!board.cls.has('fx-focus') && !band.cls.has('lit') && !card.cls.has('lit'));
+  assert.ok(!board.cls.has('fx-focus') && !band.cls.has('lit') && !card.cls.has('lit') && !xc.cls.has('lit'));
   // A click on a project picks it alone, as the header picker does, and the picker goes back.
   assert.match(src, /closest\s*(?:<Element>)?\s*\('\.you \[data-drill\]'\)[\s\S]{0,200}pickOnly\(dr\.getAttribute\('data-drill'\)/);
   assert.match(grab(src, /function pickOnly[\s\S]*?\n {2}\}/), /drawPicked\(\[name\]\);[\s\S]*?history\.pushState\(\{ fxPick: 1 \}, '', location\.pathname \+ q\); state\.sel = null; wake\(\);/);
@@ -367,7 +377,7 @@ test('hover lights the chart and The Pass both ways; a project click picks that 
   assert.doesNotMatch(src, /applyDrill|data-undrill|fx-crumb/);
   assert.match(src, /normalizePicked\(\); applyFlow\(false\); fades\(\);/);
   // Enter or Space on a focused project name or thread band clicks it, before the board's own keys see it.
-  assert.match(src, /closest\('\.you \.fx-view \[tabindex\]\[role=button\]'\)[\s\S]{0,200}dispatchEvent\(new MouseEvent\('click'[\s\S]{0,80}\}, true\);/);
+  assert.match(src, /closest\(PART \+ ' \[tabindex\]\[role=button\]'\)[\s\S]{0,200}dispatchEvent\(new MouseEvent\('click'[\s\S]{0,80}\}, true\);/);
 });
 
 test('a stale page hides the rail bar with the counts (PR-Agent on #74)', () => {

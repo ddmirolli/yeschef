@@ -409,8 +409,19 @@ export function openKitchen(view: TeamView | null | undefined, { now = Date.now(
 
 /** Local midnight on `now`'s day: "today" is the lead's own day. */
 const dayStart = (now: number): number => { const d = new Date(now); d.setHours(0, 0, 0, 0); return d.getTime(); };
-const HOUR = 60 * MIN;
-const ORDER: Readonly<Record<PersonState, number>> = { pass: 0, alarm: 1, quiet: 2, track: 3, unknown: 4 };
+/** An agent on the rows: one live thread, its project, whether it works now, its call, and the code areas of its changed
+ *  files (null: its files were not read). out: it works outside the picked projects. */
+export interface Agent { thread: string; title: string | null; project: string | null; place: string | null; working: boolean;
+  call: { id: string; kind: Kind; mine: boolean } | null; out: boolean; files: string[] | null; areas: string[] | null }
+// Workspace folders hold one package per folder, so their area is one level deeper.
+const WORKSPACE = new Set(['apps', 'packages', 'libs', 'services', 'crates', 'modules']);
+/** A file's code area: its top folder, or the package under a workspace folder (packages/export). Rules (step 6) will
+ *  name areas per project; until then the folder is the area. A file at the root is in "root". */
+export function areaOf(path: string): string {
+  const s = path.split('/').filter(Boolean);
+  if (s.length < 2) return 'root';
+  return WORKSPACE.has(s[0]!) && s.length > 2 ? `${s[0]}/${s[1]}` : s[0]!;
+}
 
 /** The board for Your team, expanded (mock v2, approved 2026-11-10; the brief's Expanded parts): four instruments,
  *  Who's on what, and the files two live threads change. ok: what openKitchen returned. want: the picked projects as a
@@ -510,54 +521,56 @@ export function kitchenBoard(ok: OpenKitchen | null | undefined, { now, want = n
   const liveTickets = all.filter(({ k, live }) => live && Object.hasOwn(STAGE_RANK, k.place ?? '') && k.place !== 'Merged');
   const agents = { count: liveTickets.reduce((n, { k }) => n + k.working, 0), threads: liveTickets.filter(({ k }) => k.working > 0).length, gap };
 
-  // Who's on what: one row per person, In The Pass first. Each thread is a bar from its start to its merge, or to now
-  // (to the last report for a dev who is not reporting). A thread with no start time is counted, not drawn.
+  // The rows (Dan, 2A on the flow mock, locked 2026-11-11 as round 3.3): one fixed row per person, their agents as
+  // squares, the code areas those agents touch as cells, and merged today. Rows and columns never move: people sort by
+  // name under their sub-lead, areas by name under their project. Every agent shows, in any project: one working outside
+  // the picked projects shows dashed. The calls tone the squares: red acts now, amber decides soon.
   const callOf = new Map<string, { id: string; kind: Kind; mine: boolean }>();
   for (const { c, mine } of calls) {
     const threads = c.kind === 'overlap' ? c.facts.sides.map((s) => s.ticket.thread) : [c.thread];
     for (const t of threads) if (t && !callOf.has(t)) callOf.set(t, { id: c.id, kind: c.kind, mine });
   }
-  // A thread is done at its last PR's merge: with any merged PR's time missing, when it was done is not known.
-  const mergedAt = (k: TeamTicket) => { const ts = k.prs.filter((pr) => pr.state === 'merged').map((pr) => pr.mergedAt); return ts.length && ts.every((t) => t !== null) ? Math.max(...ts) : null; };
-  type Bar = { thread: string; title: string | null; place: string | null; pr: TeamPr | null; start: number; end: number; merged: number | null;
-    call: { id: string; kind: Kind; mine: boolean } | null; lane?: number | null; clip?: boolean };
-  const rowsAll: { person: string; state: PersonState; bars: Bar[]; more: number; untimed: number; quiet: { since: number } | null }[] = [];
-  for (const p of ok.people) {
+  const agentsOf = (person: string): Agent[] => ok.tickets
+    .filter(({ k, person: p, live }) => p === person && live && Object.hasOwn(STAGE_RANK, k.place ?? '') && k.place !== 'Merged')
+    .map(({ k }) => {
+      const read = k.changes?.state === 'checked' ? k.changes.files.flatMap((f) => (typeof f.p === 'string' && f.p ? [f.p] : [])) : null;
+      return { thread: k.thread, title: k.title, project: k.project, place: k.place, working: k.working > 0, call: callOf.get(k.thread) || null,
+        out: !inProj(k.project), files: read, areas: read ? [...new Set(read.map(areaOf))].sort() : null };
+    })
+    .sort((a, z) => String(a.title).localeCompare(String(z.title)) || a.thread.localeCompare(z.thread));
+  const mergedBy = new Map<string, number>();
+  for (const m of merges) mergedBy.set(m.person, (mergedBy.get(m.person) ?? 0) + 1);
+  // Sub-leads: each person sits under the one directly below me on their line (roster `under`). A line of one is a
+  // plain row; a flat team draws no groups.
+  const ids = new Set(ok.people.map((p) => p.id));
+  const top = (p: Person): string => {
+    let at = p, hops = 0;
+    while (typeof at.under === 'string' && ids.has(at.under) && hops++ < ok.people.length) at = byPerson.get(at.under)!;
+    return at.id;
+  };
+  const lines = new Map<string, string[]>();
+  for (const p of ok.people) { const t = top(p); lines.set(t, [...(lines.get(t) ?? []), p.id]); }
+  const nm = (id: string) => String(byPerson.get(id)?.name || '');
+  const people = ok.people.map((p) => {
+    const t = top(p), pod = (lines.get(t)?.length ?? 0) > 1 ? t : null;
     const quietAt = p.state === 'quiet' ? num(p.lastSeen) ?? num(p.at) : null;
-    const mine = all.filter(({ person }) => person === p.id);
-    let untimed = 0;
-    const bars: Bar[] = [];
-    for (const { k } of mine) {
-      if (!Object.hasOwn(STAGE_RANK, k.place ?? '')) continue;
-      const m = k.place === 'Merged' ? mergedAt(k) : null;
-      if (k.place === 'Merged' && (m === null || m < d0)) continue; // merged before today, or with no time
-      if (k.startedAt === null) { untimed++; continue; }
-      const end = m ?? (quietAt !== null ? Math.min(now, Math.max(k.startedAt, quietAt)) : now);
-      bars.push({ thread: k.thread, title: k.title, place: k.place, pr: k.prs.find((pr) => pr.state === 'open') || k.prs[0] || null,
-        start: Math.min(k.startedAt, end), end, merged: m, call: callOf.get(k.thread) || null });
-    }
-    if (want && !bars.length && !untimed) continue; // a picked project's board shows only who works in it
-    bars.sort((a, z) => a.start - z.start || String(a.thread).localeCompare(String(z.thread)));
-    // Up to two lanes: each bar takes the first lane free at its start; the rest are counted.
-    const lanes = [-Infinity, -Infinity];
-    let more = 0;
-    for (const b of bars) {
-      const i = lanes.findIndex((end) => end <= b.start);
-      if (i < 0) { b.lane = null; more++; continue; }
-      b.lane = i; lanes[i] = b.end;
-    }
-    rowsAll.push({ person: p.id, state: p.state, bars: bars.filter((b) => b.lane !== null), more, untimed, quiet: quietAt !== null ? { since: quietAt } : null });
-  }
-  rowsAll.sort((a, z) => ORDER[a.state] - ORDER[z.state] || String(byPerson.get(a.person)?.name || '').localeCompare(String(byPerson.get(z.person)?.name || '')));
-  // The window: from the hour of the earliest start today (never before midnight), at least two hours back.
-  const starts = rowsAll.flatMap((r) => r.bars.map((b) => b.start));
-  const from = Math.min(Math.floor((now - 2 * HOUR - d0) / HOUR) * HOUR + d0, ...starts.map((t) => d0 + Math.floor((Math.max(d0, t) - d0) / HOUR) * HOUR));
-  const winFrom = Math.max(d0, from);
-  for (const r of rowsAll) for (const b of r.bars) { b.clip = b.start < winFrom; b.start = Math.max(b.start, winFrom); b.end = Math.max(b.start, b.end); }
-  // An Overlap joins the two people's rows at the time it rose, labeled with the file.
-  const links = calls.filter(({ c }) => c.kind === 'overlap' && c.who.length === 2).map(({ c, mine }) => ({
-    id: c.id, mine, a: c.who[0]!, b: c.who[1]!, at: Math.min(now, Math.max(winFrom, c.since ?? now)), file: c.kind === 'overlap' ? c.facts.files[0]!.path : '',
-  }));
+    return { person: p.id, pod, state: p.state, quiet: p.reporting === false ? { since: quietAt } : null, agents: agentsOf(p.id), merged: mergedBy.get(p.id) ?? 0 };
+  });
+  people.sort((a, z) => nm(a.pod ?? a.person).localeCompare(nm(z.pod ?? z.person)) || String(a.pod ?? a.person).localeCompare(String(z.pod ?? z.person))
+    || Number(z.person === z.pod) - Number(a.person === a.pod) || nm(a.person).localeCompare(nm(z.person)) || a.person.localeCompare(z.person));
+  const pods = [...lines.entries()].filter(([, m]) => m.length > 1).map(([lead, members]) => ({ lead, members: people.filter((r) => members.includes(r.person)).map((r) => r.person) }));
+  // Columns: the areas the picked projects' agents touch, by project. Agents whose files were not read add none.
+  const cols = new Map<string, { project: string; area: string }>();
+  for (const r of people) for (const a of r.agents) if (!a.out && a.project && a.areas) for (const ar of a.areas) cols.set(`${a.project}\n${ar}`, { project: a.project, area: ar });
+  const columns = [...cols.values()].sort((a, z) => a.project.localeCompare(z.project) || a.area.localeCompare(z.area));
+  // An Overlap joins the two people's cells in the column of the file both change.
+  const links = calls.flatMap(({ c, mine }) => {
+    if (c.kind !== 'overlap' || c.facts.sides.length !== 2 || !c.project || !c.facts.files.length) return [];
+    const path = c.facts.files[0]!.path;
+    return [{ id: c.id, mine, a: c.facts.sides[0]!.person, b: c.facts.sides[1]!.person, project: c.project, area: areaOf(path), path,
+      threads: c.facts.sides.map((s) => s.ticket.thread).filter((t): t is string => !!t) }];
+  });
+  const rows = { people, pods, columns, links, labs: null };
 
   // Files two live threads change: one row per file, in one repo and base. Same lines is the Overlap call; different
   // lines are fine; a side with no ranges read is not checked.
@@ -602,9 +615,9 @@ export function kitchenBoard(ok: OpenKitchen | null | undefined, { now, want = n
   const filesAt = reads.length && reads.every((t) => t !== null) ? Math.min(...reads as number[]) : null;
 
   return {
-    people: rowsAll.length, threads: liveTickets.length,
+    people: people.length, threads: liveTickets.length,
     base, merged, review, agents,
-    timeline: { from: winFrom, to: now, day: d0, rows: rowsAll, links },
+    rows,
     files: { rows: files, at: filesAt, compared: reads.length, unread, partial, capped: gap.capped },
   };
 }
