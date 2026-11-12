@@ -1440,7 +1440,7 @@ html.v-kitchen .tp-live .tcol{display:flex;flex-direction:column;gap:8px}
 .sw{display:inline-block;width:14px;height:8px;border-radius:2px;background:var(--fill2)}
 .ok-p .ph .lg{display:flex;flex-wrap:wrap;gap:4px 12px;font-weight:500}
 .ok-p .ph .lg>span{display:inline-flex;align-items:center;gap:5px}
-.ok-wrap{position:relative;overflow-x:auto;overscroll-behavior-x:contain}
+.ok-box{position:relative}.ok-wrap{overflow-x:auto;overscroll-behavior-x:contain}
 .okr{display:block;width:100%;min-width:640px;height:auto;font-size:12px}
 .okr .dot{fill:var(--fx-dot)}
 .okr .zlbl{font-size:11.5px;font-weight:600;fill:var(--label2)}

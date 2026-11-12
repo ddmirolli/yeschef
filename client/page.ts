@@ -322,12 +322,16 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     var key = keys ? keys.join(' ') : ''; if (key === fxNow) return; fxNow = key;
     board.classList.toggle('fx-focus', !!keys);
     var lit: Record<string, boolean> = {};
-    function card(k: string): void { if (k.indexOf('t:') === 0 || k.indexOf('p:') === 0) lit[k] = true; }
+    function isCard(k: string): boolean { return k.indexOf('t:') === 0 || k.indexOf('p:') === 0; }
+    function card(k: string): void { if (isCard(k)) lit[k] = true; }
+    // What names its cards (a Pass card, a band) lights those alone: a part that holds several, such as a team's
+    // name, never passes its other cards on (PR-Agent r2 on #53).
+    var named = !!keys && keys.some(isCard);
     $$('.you .fx-view:not([hidden]) [data-k], .tboard .fx-view [data-k]').forEach(function(n){
       var mine = (n.dataset.k || '').split(' '), on = !!keys && keys.some(function(k){ return mine.indexOf(k) >= 0; });
       n.classList.toggle('lit', on);
       // A project's logo carries every thread's key so any of them lights it; it never lights their cards in turn.
-      if (on && !n.classList.contains('glogo')) mine.forEach(card);
+      if (on && !named && !n.classList.contains('glogo')) mine.forEach(card);
     });
     if (keys) keys.forEach(card);
     $$('.head-b .folder[data-folder="pass"] .call-tile[data-plate]').forEach(function(t){ t.classList.toggle('lit', !!keys && !!(lit['t:' + t.dataset.plate] || lit['p:' + t.dataset.plate])); });
@@ -347,7 +351,8 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     var right = Math.min(sc.right, r.right), left = Math.max(sc.left, r.left);
     if (x + w > right) x = Math.max(left, ev.clientX - 14 - w);
     if (y + h > sc.bottom) y = Math.max(sc.top, ev.clientY - 14 - h);
-    // The team rows scroll across inside their wrap, which holds the tip: add its scroll (PR-Agent r1 on #53).
+    // The tip is placed in its wrap's own coordinates, so a wrap that scrolls adds its scroll (PR-Agent r1 on #53). The
+    // team rows scroll in an inner box, so their tip is never clipped by the scroller (r2).
     box.style.left = (x - r.left + wrap.scrollLeft) + 'px';
     box.style.top = (y - r.top + wrap.scrollTop) + 'px';
   }
@@ -1276,9 +1281,19 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
       if (!nav.hasAttribute('data-nc') && !ticked.some(gone) && ticked.length === boxes.filter(function(b){ return !gone(b); }).length) names = null;
     }
     drawPicked(names);
-    var q = names ? '?' + names.map(function(n){ return 'p=' + encodeURIComponent(n); }).join('&') : '';
+    var q = withPicked(names);
     if (q === location.search) return;
     history.pushState(null, '', location.pathname + q); state.sel = null; wake();
+  }
+  // The address with these picks (null: All projects) and every other parameter kept, so a pick never unfolds a
+  // folded team (PR-Agent r2 on #53).
+  function withPicked(names: string[] | null): string {
+    var out = new URLSearchParams();
+    new URLSearchParams(location.search).forEach(function(v, k){ if (k !== 'p') out.append(k, v); });
+    var rest = out.toString();
+    var picks = names ? names.map(function(n){ return 'p=' + encodeURIComponent(n); }).join('&') : '';
+    var all = [picks, rest].filter(Boolean).join('&');
+    return all ? '?' + all : '';
   }
   // A folded team is a URL parameter, so a refresh draws it folded too.
   function toggleFold(id: string): void {
@@ -1296,7 +1311,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   function pickOnly(name: string): void {
     if (!name) return;
     drawPicked([name]);
-    var q = '?p=' + encodeURIComponent(name);
+    var q = withPicked([name]);
     if (q === location.search) return;
     history.pushState({ fxPick: 1 }, '', location.pathname + q); state.sel = null; wake();
   }

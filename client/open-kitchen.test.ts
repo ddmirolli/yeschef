@@ -787,7 +787,7 @@ test('r8: one repo with two base branches reads as one repo and two branches, ne
 test('r8: the rows chart scrolls across inside its panel and keeps the scroll over a refresh', async () => {
   const { readFileSync } = await import('node:fs');
   const css = readFileSync(new URL('./server.ts', import.meta.url), 'utf8');
-  assert.ok(css.includes('.ok-wrap{position:relative;overflow-x:auto;'));
+  assert.ok(css.includes('.ok-box{position:relative}.ok-wrap{overflow-x:auto;'));
   assert.ok(readFileSync(new URL('./page.ts', import.meta.url), 'utf8').includes("swapAny('.tboard', fresh, '.head', '.you-b, .ok-wrap')"));
 });
 
@@ -935,4 +935,44 @@ test('rows r1: the tip counts the rows’ sideways scroll', async () => {
   const src = readFileSync(new URL('./page.ts', import.meta.url), 'utf8');
   assert.match(src, /box\.style\.left = \(x - r\.left \+ wrap\.scrollLeft\) \+ 'px';/);
   assert.match(src, /box\.style\.top = \(y - r\.top \+ wrap\.scrollTop\) \+ 'px';/);
+});
+
+// ---- Open kitchen rows, PR-Agent round 2 (#53) ----
+test('rows r2: a quiet Mac’s merges are a floor: at least n, and a 0 is not checked', () => {
+  const v = viewL();
+  const R = board(v).rows;
+  const lee = one(R.people, (r) => r.person === 'lee', 'lee');
+  assert.deepEqual([lee.merged, lee.floor], [0, true]);
+  const svg = grab(page({ view: v, now: NOWL }), /<svg class="fx okr"[^]*?<\/svg>/);
+  assert.match(svg, /<text class="rowname"[^>]*data-tip="[^"]*Lee[^"]*not checked merged today/);
+  const sam = who(v, 'sam'); Object.assign(sam, { online: false, lastSeen: agoL(60), at: agoL(60) });
+  const svg2 = grab(page({ view: v, now: NOWL }), /<svg class="fx okr"[^]*?<\/svg>/);
+  assert.match(svg2, />at least 2</);
+});
+
+test('rows r2: a call with no agent at work lights its person’s name: Ravi’s merge broke main', () => {
+  const v = viewL();
+  const ravi = one(board(v).rows.people, (r) => r.person === 'ravi', 'ravi');
+  assert.deepEqual(ravi.calls.map((c) => c.kind), ['main']);
+  const html = page({ view: v, now: NOWL });
+  const svg = grab(html, /<svg class="fx okr"[^]*?<\/svg>/);
+  const name = grab(svg, /<text class="rowname" tabindex="0" data-k="d:ravi [^"]*"/);
+  const plate = grab(name, /p:(p-[0-9a-f]{12})/).slice(2);
+  assert.ok(html.includes(`<div class="xc" role="listitem" data-team-open="${plate}">`));
+});
+
+test('rows r2: a pick keeps the folds; the rows’ tip sits outside their scroller', async () => {
+  const { readFileSync } = await import('node:fs');
+  const vm = await import('node:vm');
+  const { pageScript } = await import('./test/served.ts');
+  const fn = grab(pageScript(), /function withPicked[\s\S]*?\n {2}\}/);
+  const ctx = vm.createContext({ URLSearchParams, location: { search: '?p=A&fold=kai&fx=860x600' } });
+  vm.runInContext(fn, ctx);
+  assert.equal(vm.runInContext("withPicked(['B', 'C d'])", ctx), '?p=B&p=C%20d&fold=kai&fx=860x600');
+  assert.equal(vm.runInContext('withPicked(null)', ctx), '?fold=kai&fx=860x600');
+  ctx.location.search = '?p=A';
+  assert.equal(vm.runInContext('withPicked(null)', ctx), '');
+  const src = readFileSync(new URL('./page.ts', import.meta.url), 'utf8');
+  assert.equal((src.match(/withPicked\(/g) || []).length, 3, 'defined once, used by the menu and the chart click');
+  assert.match(page({ view: viewL(), now: NOWL }), /<div class="fx-wrap ok-box"><div class="ok-wrap"><div class="fx-view"><svg[^]*?<\/svg><\/div><\/div><div class="fx-tip" hidden><\/div><\/div>/);
 });
