@@ -15,8 +15,8 @@ const firstPaint = inlineScript('src/scripts/first-paint.ts');
 // 1440x900, shot at 2x on Browserbase (site/README, "Phone screenshots").
 const shot = (src: ImageMetadata) => getImage({ src, widths: [800, 1200, 1600], format: 'webp', quality: 90 });
 const shots = {
-  solo: { light: await shot(soloLight), dark: await shot(soloDark), alt: 'Yes Chef on a made-up kitchen: The Pass with a ticket open' },
-  team: { light: await shot(teamLight), dark: await shot(teamDark), alt: 'Yes Chef with a made-up team: The Pass with a main-broken call open' },
+  solo: { light: await shot(soloLight), dark: await shot(soloDark), alt: 'Yes Chef on a made-up kitchen, expanded: threads from six projects flow left to right to merged, with The Pass on the right' },
+  team: { light: await shot(teamLight), dark: await shot(teamDark), alt: 'Yes Chef with a made-up team in French Brigade, expanded: each person\'s threads flow through the stages, with The Pass on the right' },
 };
 const SIZES = 'calc(100vw - 32px)';
 // The modes section (Dan, 1C, 2026-11-12): each mode's expanded view in the team demo, 1440x900 at 2x. A click opens it
@@ -74,18 +74,20 @@ const MODE_SIZES = '(min-width: 1024px) 760px, calc(100vw - 32px)';
 
         <!-- The live demo (Dan, 2026-11-09): the agents view runs the app itself on a made-up kitchen (demo/app.html,
              built by site/scripts/generate-demo.ts); the devs view runs it too, with a made-up team below you (demo/team.html,
-             client/demo-team.ts; Dan, 2026-11-12). Its caption is Dan's line, verbatim (2026-11-12).
+             client/demo-team.ts; Dan, 2026-11-12). Both open expanded, the team in French Brigade (Dan, 2026-11-13). The
+             caption is Dan's line (2026-11-12), with collapse for expand now that the demos open expanded.
+             Each frame holds the app at 1440x900, scaled to fit (site.ts), so the app lays out as it does on a Mac.
              site.ts loads the frame for the view on screen, and the other one on the first flip. -->
         <div class="demo swap" data-rise style="--d:520ms">
           <figure class="board demo-fig" data-swap="solo">
             <div class="board-frame demo-frame"><iframe data-src="/demo/app.html" title="Yes Chef demo: the app on a made-up kitchen"></iframe></div>
             <div class="board-frame demo-shot"><picture><source media="(prefers-color-scheme: light)" srcset={shots.solo.light.srcSet.attribute} sizes={SIZES} /><img src={shots.solo.dark.src} srcset={shots.solo.dark.srcSet.attribute} sizes={SIZES} alt={shots.solo.alt} width="1440" height="900" loading="lazy" decoding="async" /></picture></div>
-            <figcaption>The app itself, on a made-up kitchen. Pick a ticket, answer it, send it out or refire it. The agents answer in a few seconds.</figcaption>
+            <figcaption><span aria-hidden="true">↑</span> clickable demo — click the logo to collapse the view</figcaption>
           </figure>
           <figure class="board demo-fig" data-swap="team">
             <div class="board-frame demo-frame"><iframe data-src="/demo/team.html" title="Yes Chef demo: the app with a made-up team"></iframe></div>
             <div class="board-frame demo-shot"><picture><source media="(prefers-color-scheme: light)" srcset={shots.team.light.srcSet.attribute} sizes={SIZES} /><img src={shots.team.dark.src} srcset={shots.team.dark.srcSet.attribute} sizes={SIZES} alt={shots.team.alt} width="1440" height="900" loading="lazy" decoding="async" /></picture></div>
-            <figcaption><span aria-hidden="true">↑</span> clickable demo — click the logo to expand the view</figcaption>
+            <figcaption><span aria-hidden="true">↑</span> clickable demo — click the logo to collapse the view</figcaption>
           </figure>
         </div>
       </div>

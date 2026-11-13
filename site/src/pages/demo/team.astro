@@ -13,11 +13,12 @@ if (!head || !body) throw new Error('Regenerate the team demo before building th
 const shim = inlineScript('src/demo/shim.ts');
 ---
 <!doctype html>
-<html lang="en" data-team="open">
+<html lang="en" data-team="brigade">
   <head>
     <script is:inline set:html={shim}></script>
-    <!-- After the shim, which gives the page its own storage: the demo opens on Your team. -->
-    <script is:inline>localStorage.setItem('yc.scope', 'team');</script>
+    <!-- After the shim, which gives the page its own storage: the demo opens on Your team, expanded, in French
+         Brigade (Dan, 2026-11-13). The modes section's buttons switch it to Open kitchen. -->
+    <script is:inline>localStorage.setItem('yc.scope', 'team'); localStorage.setItem('yc.view', 'kitchen');</script>
     <Fragment set:html={head} />
   </head>
   <body class="pass-app">

@@ -1,7 +1,7 @@
 import type { DemoKitchen, DemoMode, DemoOptions, DemoPr, DemoThread, DemoItem, DemoQuestion, DemoRun, DemoToolArgs } from './types.ts';
 // The made-up kitchen behind the site's hero demo (agents view). It plays T3 Code for the app's own modules
 // (lib/board.ts, lib/actions.ts, copied unchanged from client/), so the demo is the real app UI.
-// Three made-up products: Fernpay, Loopline, Quillo. Nothing here reaches T3 Code or any server.
+// Six made-up products: Fernpay, Loopline, Quillo, Ledgerly, Pinecast, Orbitly. Nothing here reaches T3 Code or any server.
 // Nothing leaves the pass on its own: every ticket there waits for the visitor's call. The agents answer a
 // call a few seconds later, the way a real agent would, and two tickets in progress finish while the visitor watches.
 import { buildBoard, renderApp, pickedFrom } from '../../demo/lib/board.ts';
@@ -19,7 +19,30 @@ function requiredThread(thread: DemoThread | undefined): DemoThread {
   return thread;
 }
 
-const PAY = 'fernpay/fernpay', LOOP = 'loopline/dispatch', QUILL = 'quillo/quillo';
+const PAY = 'fernpay/fernpay', LOOP = 'loopline/dispatch', QUILL = 'quillo/quillo', LEDGER = 'ledgerly/ledgerly', PINE = 'pinecast/app', ORBIT = 'orbitly/web';
+
+// The rest of a solo dev's week in T3 Code (Dan, 2026-11-13: about five times the threads, across many projects, so
+// the expanded view shows every thread's texture). One project carries most of it, as a real week does. Each
+// project's PR numbers sit below the ones the story threads use.
+const WEEK: [projectId: string, repo: string, firstPr: number, titles: string[]][] = [
+  ['p-pay', PAY, 150, ['Refund reasons', 'Payout schedule page', 'Card on file', 'Dispute evidence upload', 'Tax ID check', 'Currency rounding', 'Statement descriptors',
+    'Failed charge emails', 'Stripe webhook replay', 'Team roles', 'Export to CSV', 'Ledger reconcile job', 'Login with passkeys', 'Rate limit the API',
+    'Saved filters', 'Invoice reminders', 'Partial refunds', 'Payout holds', 'Fee breakdown', 'Onboarding checklist', 'Fraud score badge', 'Bank account verify',
+    'Receipt branding', 'Audit trail export', 'API keys page', 'Session timeout', 'Multi-currency wallets', 'Chargeback alerts']],
+  ['p-loop', LOOP, 60, ['Route optimizer', 'Driver shift swaps', 'Proof of delivery photos', 'Depot map layers', 'ETA accuracy report', 'Late stop alerts',
+    'Vehicle checklists', 'Customer tracking link', 'Bulk import stops', 'Driver ratings']],
+  ['p-quill', QUILL, 100, ['Mentions', 'Offline drafts', 'Export to Markdown', 'Comment threads', 'Version history', 'Share links', 'Spell check', 'Table blocks']],
+  ['p-ledger', LEDGER, 20, ['Bank feed sync', 'Receipt OCR', 'Chart of accounts', 'Quarterly VAT', 'Expense rules', 'Year-end close', 'Mileage log',
+    'Accountant invite', 'Profit and loss', 'Vendor bills']],
+  ['p-pine', PINE, 30, ['Episode scheduler', 'Transcript search', 'RSS validator', 'Chapter markers', 'Listener stats', 'Guest booking page', 'Clip sharing']],
+  ['p-orbit', ORBIT, 40, ['Landing page A/B', 'Changelog page', 'Docs search', 'Pricing table', 'Blog RSS']],
+];
+// The stages they spread over, in order, again and again: most in flight (PRs in review, agents running), so the
+// expanded view draws most threads. Finished threads are settled, as a dev settles them through the week (merged ones
+// show as Verified, open PRs stay In review), so The Pass holds what waits on you: a few merged ones to check and the
+// plans.
+const WEEK_STAGES = ['review', 'merged', 'running', 'review', 'verified', 'review', 'planned', 'running', 'review', 'merged', 'verified', 'review', 'running',
+  'backlog', 'review', 'verified', 'running'] as const;
 const pr = (repository: string, number: number, state: string) => ({ repository, number, state, url: `https://github.com/${repository}/pull/${number}` });
 const decision = (title: string) => `**Decision for you**\n1. ${title}: merge it or request changes?\n   - a. Merge (recommended)\n   - b. Request changes`;
 
@@ -35,7 +58,8 @@ export function createKitchen({ now = Date.now, where, shot, onChange = () => {}
   // its id is still there, so a team made again at each 3 s tick closed every call you opened. Ages still grow.
   const crew = team ? demoTeam(now()) : null;
   const ago = (min: number) => new Date(now() - min * 60000).toISOString();
-  const projects = [['p-pay', 'Fernpay', 'fernpay'], ['p-loop', 'Loopline', 'loopline'], ['p-quill', 'Quillo', 'quillo']]
+  const projects = [['p-pay', 'Fernpay', 'fernpay'], ['p-loop', 'Loopline', 'loopline'], ['p-quill', 'Quillo', 'quillo'],
+    ['p-ledger', 'Ledgerly', 'ledgerly'], ['p-pine', 'Pinecast', 'pinecast'], ['p-orbit', 'Orbitly', 'orbitly']]
     .map(([id, title, dir]) => ({ id, title, ...where(dir) }));
   let n = 0, pos = 0, nextPr = 215;
   const threads: DemoThread[] = [];
@@ -82,6 +106,25 @@ export function createKitchen({ now = Date.now, where, shot, onChange = () => {}
   T('Audit log', 'p-pay', 'completed', { min: 130, settled: true, settledAt: ago(Math.min(40, Math.max(0, (now() - new Date(now()).setHours(0, 0, 0, 0)) / 60000 - 1))), pullRequests: [pr(PAY, 190, 'merged')] });
   const tokens = T('Dark mode tokens', 'p-quill', 'cancelled', { min: 400 });
   const digest = T('Weekly digest email', 'p-pay', 'completed', { min: 600, snoozed: true });
+  // The rest of the week (WEEK above): times spread over the day and the day before, fixed, so every shot and tick
+  // shows the same threads.
+  const sinceMidnight = Math.max(1, (now() - new Date(now()).setHours(0, 0, 0, 0)) / 60000);
+  let w = 0;
+  for (const [projectId, repo, firstPr, titles] of WEEK) {
+    titles.forEach((title, i) => {
+      // Ages a half minute off the story threads' whole minutes, and apart from each other, so no two threads tie.
+      const k = w++, stage = WEEK_STAGES[k % WEEK_STAGES.length]!, min = 15.5 + ((k * 97) % 1300), took = 25 + ((k * 29) % 120);
+      const model = k % 3 === 2 ? 'gpt-6.1' : 'claude-opus-5-5';
+      if (stage === 'running') { const t = T(title, projectId, 'running', { min: 1.5 + k * 0.1, model }); ran(t, [12 + ((k * 13) % 70), null]); return; }
+      if (stage === 'backlog') { T(title, projectId, 'idle', { min, model }); return; }
+      if (stage === 'planned') { const t = T(title, projectId, 'idle', { ran: true, min, model }); ran(t, [min + took, min]); return; }
+      const merged = stage !== 'review', check = stage === 'merged' && k % 7 === 0;
+      const t = T(title, projectId, 'completed', { min, model, pullRequests: [pr(repo, firstPr + i, merged ? 'merged' : 'open')],
+        // Each one settles at its own time, today, so no two tie in the Verified order.
+        ...(check ? {} : { settled: true, settledAt: ago(Math.max(0, Math.min(min - 10, sinceMidnight - 2) - k * 0.05)) }) });
+      ran(t, [min + took, min]);
+    });
+  }
   const audit = requiredThread(threads.find((t) => t.title === 'Audit log'));
   const invoice = requiredThread(threads.find((t) => t.title === 'Invoice PDFs'));
   ran(prep, [70, 52]);
