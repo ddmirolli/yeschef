@@ -103,6 +103,8 @@ export const KINDS: Readonly<Record<Kind, { word: string; tone: 'red' | 'amber' 
 const TONE_RANK: Readonly<Record<string, number>> = { red: 0, blue: 1, amber: 2 };
 const STAGE_RANK: Readonly<Record<string, number>> = { Backlog: 0, Planned: 1, 'In progress': 2, 'In review': 3, 'Ready to merge': 4, Merged: 5 };
 const MIN = 60000;
+/** How long an It's fine mark lasts: a day, as Seen (team-summaries.ts SEEN_MS). */
+const FINE_MS = 24 * 3600000;
 
 /** A call's id: `kind:subject:since`. Every Mac derives the same id from the same summary, so a dev's Seen (kept by
  *  their own Yes Chef and sent in their summary) matches the lead's call. subject: the thread, or repo@branch for main. */
@@ -372,13 +374,34 @@ export function sortCalls<C extends Pick<Detected, 'id' | 'kind' | 'holds' | 'si
 
 // What a role may do from Your team, by its boxes (3b's client/roles.ts NEEDS, which step 4 reads once that lands):
 // Reply needs "reply"; Request changes, Hold, an answer and a roll back need "merge". Settle clears the call from your
-// own Pass only, so every role that sees it may. An Engineer starts at See only (Dan, 2026-11-10).
-const NEED: Readonly<Record<string, string>> = { reply: 'reply', rebase: 'reply', refire: 'merge', hold: 'merge', answer: 'merge', rollback: 'merge', settle: 'see' };
+// own Pass only, so every role that sees it may. It's fine clears it from every Pass, so it needs "merge" (proposed,
+// 2026-11-13). An Engineer starts at See only (Dan, 2026-11-10).
+const NEED: Readonly<Record<string, string>> = { reply: 'reply', rebase: 'reply', refire: 'merge', hold: 'merge', answer: 'merge', rollback: 'merge', settle: 'see', fine: 'merge' };
 export function may(me: Me | null | undefined, action: string): boolean {
   const need = NEED[action];
   if (!need || !me) return false;
   if (me.role === 'lead') return true;
   return Array.isArray(me.perms) && (need === 'see' || (me.perms as unknown[]).includes(need));
+}
+
+/** The calls marked It's fine, each with who marked it and when: this Mac's own marks (view.fine), and each
+ *  teammate's from their summary (`fine`: call id -> time). A mark counts only from a role that may clear (may). */
+export function finesOf(view: TeamView | null | undefined, now: number): Map<string, { by: string; at: number }> {
+  const out = new Map<string, { by: string; at: number }>();
+  // A mark lasts a day, as this Mac keeps its own (team-summaries.ts keepSeen): a summary the relay kept from a Mac that
+  // went away stops clearing the call when the mark would have expired there (PR-Agent r1 on #75).
+  const mark = (marks: unknown, by: string): void => {
+    for (const [id, at] of Object.entries(obj(marks) || {})) {
+      const t = num(at);
+      if (t !== null && t <= now + MIN && now - t < FINE_MS && id.length <= 300 && !out.has(id)) out.set(id, { by, at: t });
+    }
+  };
+  const me = view?.me;
+  if (typeof me?.id === 'string' && may(me, 'fine')) mark(view?.fine, me.id);
+  for (const p of arr(view?.people)) {
+    if (typeof p.id === 'string' && p.id !== me?.id && may({ role: p.role, perms: p.perms } as Me, 'fine')) mark(obj(p.summary)?.fine, p.id);
+  }
+  return out;
 }
 
 /** Everything Your team draws, for me (view.me) at `now`.
@@ -405,8 +428,12 @@ export function openKitchen(view: TeamView | null | undefined, { now = Date.now(
     return { ...c, seen, reach: reach(c, { seen, quiet, now, rules }),
       quiet: c.who.filter((id) => quiet.has(id)).map((id) => ({ person: id, since: num(byId.get(id)?.lastSeen) ?? num(byId.get(id)?.at) })) };
   });
-  const pass = sortCalls(calls.filter((c) => c.reach.lead));
-  const held = sortCalls(calls.filter((c) => !c.reach.lead));
+  // It's fine (Dan, 2026-11-13, "A"): a call someone allowed to clear it marked fine leaves every Pass while it is the
+  // same call. Its id holds when it rose, so the same trouble rising again later is a new call.
+  const fine = finesOf(view, now);
+  const open = calls.filter((c) => !fine.has(c.id));
+  const pass = sortCalls(open.filter((c) => c.reach.lead));
+  const held = sortCalls(open.filter((c) => !c.reach.lead));
   const inPass = new Set(pass.flatMap((c) => c.who)), holding = new Set(held.flatMap((c) => c.who));
   // A dev counts once: Not reporting first (their data is old), then In The Pass, Fixing an alarm, On track.
   for (const p of people) {

@@ -952,7 +952,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
       if (custom) { qShow(f, qSets(f).indexOf(custom.closest('fieldset') as HTMLFieldSetElement)); return 'Write your own answer first.'; }
     }
     // Hold and Settle send the agent nothing: a written note would be lost, so they wait (council 3, Opus).
-    if ((kind === 'hold' || kind === 'settle') && f.elements.note && f.elements.note.tagName === 'TEXTAREA' && f.elements.note.value.trim()) return (kind === 'hold' ? 'Hold' : 'Settle') + ' sends the agent nothing, so your note would be lost. Send it with Reply (R) first, or clear it.';
+    if ((kind === 'hold' || kind === 'settle' || kind === 'fine') && f.elements.note && f.elements.note.tagName === 'TEXTAREA' && f.elements.note.value.trim()) return (kind === 'hold' ? 'Hold' : kind === 'fine' ? 'It’s fine' : 'Settle') + ' sends the agent nothing, so your note would be lost. Send it with Reply (R) first, or clear it.';
     if (btn && btn.hasAttribute('data-note') && !(f.elements.note && f.elements.note.value.trim())) return kind === 'refire' ? 'Request changes needs a note: what should the agent fix?' : 'Write the reply first.';
     if (kind === 'launch') {
       if (!f.elements.project!.value) return 'Pick a project.';
@@ -1346,7 +1346,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     $$<HTMLInputElement>('input[data-custom]:checked', f).forEach(function(r){ fd.set(r.name, $<HTMLInputElement>('.custom', r.parentNode)!.value); });
     if (kind !== 'call' && kind !== 'answer') $$<HTMLInputElement>('fieldset.q-set input[type=radio]', f).forEach(function(r){ fd.delete(r.name); });
     // A call on a teammate's ticket goes as a team action: sealed to the dev's Yes Chef, which runs it (team-acts.ts).
-    if (f.classList.contains('team-act')) { fd.set('act', kind); fd.set('kind', 'team'); fd.set('op', 'act'); }
+    if (f.classList.contains('team-act')) { fd.set('act', kind); fd.set('kind', 'team'); fd.set('op', kind === 'fine' ? 'fine' : 'act'); }
     var body = new URLSearchParams(fd as unknown as Record<string, string>).toString();
     var isLaunch = kind === 'launch';
     var id = isLaunch ? 'launch' : f.dataset.plate!, p = isLaunch ? null : plateNode(id);

@@ -182,6 +182,24 @@ test('the lead\'s Rules ride the signed roster to every Mac: thresholds, areas a
   lead.h.stop(); dev.h.stop();
 });
 
+test('It’s fine: a lead clears a call and the server hears; a See-only dev may not; a note or no call is refused', async () => {
+  const { lead, dev, link } = await pair();
+  await dev.h.act({ op: 'join', link: nth(link.split('#'), 1), name: 'Ada Lovelace', shared: 'p-app' });
+  await until(() => lead.h.view()?.pending.length === 1, 'the ask');
+  const r = await lead.h.act({ op: 'approve', m: nth(lead.h.view()!.pending, 0).m, role: 'engineer', perms: 'see' });
+  assert.equal(r.status, 200, r.text);
+  await until(() => dev.h.view()?.status === 'member', 'the dev in');
+  assert.equal((await lead.h.act({ op: 'fine', call: 'overlap:th-1:5', note: 'hm' })).status, 400, 'a note would be lost');
+  assert.equal((await lead.h.act({ op: 'fine', call: '' })).status, 409);
+  const before = lead.changes();
+  const ok = await lead.h.act({ op: 'fine', call: 'overlap:th-1:5' });
+  assert.deepEqual([ok.status, ok.text], [200, 'Cleared for your team.']);
+  assert.ok(lead.changes() > before, 'the server redraws');
+  assert.ok(lead.h.view()?.fine?.['overlap:th-1:5']);
+  assert.equal((await dev.h.act({ op: 'fine', call: 'overlap:th-1:5' })).status, 403);
+  lead.h.stop(); dev.h.stop();
+});
+
 test('decline, then the dev\'s page says so and OK forgets the team on this Mac', async () => {
   const { lead, dev, link } = await pair();
   await dev.h.act({ op: 'join', link: nth(link.split('#'), 1), name: 'Ada', shared: '' });

@@ -325,6 +325,15 @@ export function createKitchen({ now = Date.now, where, shot, onChange = () => {}
       }
       // A call on a teammate's ticket (client/teamhost.ts op act): checked as the app checks it, then answered as the
       // teammate's Yes Chef would. The demo has no relay and no teammate's agent, so it says the demo sent nothing.
+      // It's fine (client/teamhost.ts op fine): the demo keeps the mark as the app does, so the call leaves the Pass.
+      if (input.kind === 'team' && crew && input.op === 'fine') {
+        const call = String(input.call || '');
+        if (!call || call.length > 300) return [409, 'Not checked: this card names no call to clear.'];
+        if (String(input.note ?? '').trim()) return [400, 'It’s fine sends the agent nothing, so your note would be lost. Send it with Reply first, or clear it.'];
+        crew.fine = { ...(crew.fine as Record<string, number> | undefined), [call]: now() };
+        onChange();
+        return [200, 'Cleared for your team. Demo: in the app every Pass that shows it drops it too.'];
+      }
       if (input.kind === 'team' && crew && input.op === 'act') {
         const out = outgoing(input);
         if (!('action' in out)) return [out.status, out.text];

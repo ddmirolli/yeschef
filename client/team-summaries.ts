@@ -49,7 +49,7 @@ export interface Readers {
   changes?: ((threadId: string) => ChangesIn | null | undefined) | undefined;
   pr?: ((pr: { host: string; repo: string; number: number }) => PrIn | null | undefined) | undefined;
   base?: ((threadId: string) => BaseIn | null | undefined) | undefined;
-  seen?: unknown; over?: unknown; keepOver?: ((over: Record<string, number>) => void) | undefined; now?: number | undefined;
+  seen?: unknown; fine?: unknown; over?: unknown; keepOver?: ((over: Record<string, number>) => void) | undefined; now?: number | undefined;
   /** This Mac's GitHub login (gh's sign-in), so a lead's Mac can match a PR's reviewers to its teammates. */
   login?: (() => unknown) | undefined;
 }
@@ -181,6 +181,17 @@ export const summaries = {
     this.publish();
   },
 
+  /** It's fine on a team call (Dan, 2026-11-13, "A"): its id goes in this Mac's summary's `fine`, with when, so every
+   *  Pass that shows the call drops it and says who cleared it. Kept on disk for a day, as Seen is. A Mac that shares
+   *  no project sends no summary, so its marks clear the call on this Mac only. */
+  markFine(callId: unknown): boolean {
+    if (typeof callId !== 'string' || !callId || callId.length > 300) return false;
+    this.state.fineCalls = keepSeen({ ...(this.state.fineCalls || {}), [callId]: this.now() }, this.now());
+    this.save();
+    this.publish();
+    return true;
+  },
+
   /** Queue this dev's summary as it is now, if it differs from the one the relay took. */
   publish(): void {
     if (this.state.status !== 'member' || !(this.me && shares(this.me.role)) || !this.state.shared?.length) return;
@@ -202,9 +213,11 @@ export const summaries = {
     const health: Health = { ok: this.healthOk ?? null, since: this.healthSince };
     if (!this.lastBoard) {
       const held = this.heldBody;
-      return { v: 1, tickets: Array.isArray(held?.tickets) ? held!.tickets as unknown[] : [], more: Number(held?.more) || 0, health };
+      // This Mac's It's fine marks go too: else the summary after a restart would take them off every other Pass until
+      // the first board read (PR-Agent r1 on #75).
+      return { v: 1, tickets: Array.isArray(held?.tickets) ? held!.tickets as unknown[] : [], more: Number(held?.more) || 0, health, fine: keepSeen(this.state.fineCalls, this.now()) };
     }
-    const readers: Readers = { ...(this.readers || {}), seen: this.state.seenCalls, now: this.now(), over: this.state.overAt,
+    const readers: Readers = { ...(this.readers || {}), seen: this.state.seenCalls, fine: this.state.fineCalls, now: this.now(), over: this.state.overAt,
       // Kept on disk, so a restart keeps Too big's age; saved only when it changed.
       keepOver: (m) => { if (JSON.stringify(m) !== JSON.stringify(this.state.overAt || {})) { this.state.overAt = m; this.save(); } } };
     return { ...summarize(this.lastBoard, this.state.shared, this.limits.summaryMax, readers), at: this.lastBoardAt, health };
@@ -472,7 +485,7 @@ export function summarize(board: Pick<Board, 'tickets'> | null | undefined, shar
   }
   get(readers.keepOver, over);
   // gh: this Mac's GitHub login, or null when gh's sign-in was not read (not checked).
-  const top = { gh: loginOf(get(readers.login)), bases: [...bases.values()], seen: keepSeen(readers.seen, now) };
+  const top = { gh: loginOf(get(readers.login)), bases: [...bases.values()], seen: keepSeen(readers.seen, now), fine: keepSeen(readers.fine, now) };
   let n = Math.min(tickets.length, SUMMARY_TICKETS);
   // A sealed summary is about 4/3 of its JSON's UTF-8 bytes plus the signature. Shed the changed files of the least
   // recent tickets first (a ticket without them reads "Not checked"), then halve the list until it fits. Sealing checks

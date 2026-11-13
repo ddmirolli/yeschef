@@ -328,7 +328,7 @@ const hidden = (name: string, value: unknown): string => `<input type="hidden" n
 // The form values stay "go" and "refire" (identifiers; saved drafts carry them). Only the words and keys changed
 // (Dan, 2026-11-10): Merge is M, Request changes is F ("say what to fix").
 // What the Undo toast says while the send waits (hill climb r2, Fable).
-const VERB: Record<string, string> = { go: 'Merging {t}', refire: 'Requesting changes on {t}', reply: 'Replying to {t}', hold: 'Holding {t} until 8:00 tomorrow', settle: 'Settling {t}', call: 'Sending your answer{p} for {t}', answer: 'Sending your answer{p} for {t}' };
+const VERB: Record<string, string> = { fine: 'Clearing {t} for your team', go: 'Merging {t}', refire: 'Requesting changes on {t}', reply: 'Replying to {t}', hold: 'Holding {t} until 8:00 tomorrow', settle: 'Settling {t}', call: 'Sending your answer{p} for {t}', answer: 'Sending your answer{p} for {t}' };
 // The action bar (Dan, 2026-11-10; mock v1, calls 1a, 2a and 3a), like Gmail's: one row, bottom-left and pinned to the
 // ticket's foot in every view, the same at any width. The recommended action is blue; then Changes and Reply, an icon
 // and one word each; then Hold and Settle as icons after a thin divider; then More (⋯, key "."), a floating card with
@@ -363,6 +363,8 @@ const keys = (list: readonly KeySpec[]): string => list.map((k): [string, string
 // The tooltip: the full name, then the keys. Screen readers get the button's own name; the keys are for the eye.
 const tip = (name: string, list: readonly KeySpec[]): string => `<span class="tip" aria-hidden="true"><span class="tn">${name}</span>${keys(list)}</span>`;
 /** One action. a: an ACT entry, labelled when it has a word, else an icon; lead: the blue recommended action. */
+// It's fine on a team call: the call leaves every Pass that shows it (Dan, 2026-11-13, "A").
+const FINE: ActEntry = { ic: 'settle', word: 'It’s fine', name: 'It’s fine: clear this call for your team', key: '' };
 const btn = (kind: string, a: ActEntry, lead = false, extra = ''): string => `<button type="submit" name="kind" value="${kind}" class="${a.word ? 'ab' : 'ib'}${lead ? ' fill primary' : ''}"`
   + ` data-toast="${a.toast || VERB[kind] || 'Sending {t}'}"${a.word ? '' : ` aria-label="${a.name}"`}${extra}>${svg(a.ic)}${a.word ? `<span class="bl">${a.word}</span>` : ''}${tip(a.name, [[a.key, a.cmd], lead ? ['⌘↵', 'ticket.suggested'] : ''])}</button>`;
 const noteField = (need: string, value = ''): string => `<label class="note"><span>Note to the agent <span class="muted">${need}</span></span><textarea name="note" rows="2" maxlength="4000" placeholder="What should the agent know?">${e(value)}</textarea></label>`;
@@ -821,7 +823,8 @@ function callWords(c: TeamCall, { name, now, people }: { name: Namer; now: numbe
 /** The call's dock. Each action shows only for a role whose boxes allow it (open-kitchen.ts may); the blue one only
  *  when it is the suggested action. The page posts it as a team action: it goes sealed to the dev's Yes Chef, which
  *  checks the role again and runs it through the dev's own T3 sign-in (client/team-acts.ts; Dan, 2026-11-13, "A").
- *  Settle is not here: a teammate never settles a dev's thread, and clearing a call on this Mac only is not built. */
+ *  Settle is not here: a teammate never settles a dev's thread. It's fine clears the call itself from every Pass that
+ *  shows it (Dan, 2026-11-13, "A"; client/teamhost.ts op fine), for a role that may. */
 function teamDock(c: TeamCall, w: Words, me: Me | null | undefined, id: string): string {
   const t = w.target && w.target.to && w.target.thread ? w.target : null;
   const allowed = t ? w.acts.filter(([kind]) => may(me, kind)) : [];
@@ -829,6 +832,7 @@ function teamDock(c: TeamCall, w: Words, me: Me | null | undefined, id: string):
   // Names come from teammates' summaries, so the tooltip's name is escaped here (btn writes it as markup).
   const labelled = allowed.map(([kind, word, name]) => btn(kind, { ic: kind === 'reply' ? 'reply' : kind === 'refire' ? 'changes' : 'send', word, name: e(name), key: '' }, kind === blue, ` data-what="${e(name)}"${kind === 'reply' || kind === 'refire' ? ' data-note' : ''}`));
   const hold = t && may(me, 'hold') ? btn('hold', ACT.hold, false, ' data-what="Hold until 8:00 tomorrow"') : '';
+  const fine = may(me, 'fine') ? btn('fine', FINE, false, ' data-what="It’s fine"') : '';
   const rows = [hold ? phoneRow('hold', ACT.hold.name) : '', allowed.length ? MORE_NOTE : ''];
   // A hand-back call's options are letters; a T3 question's are its labels, sent back as they came. Keys a to f by place.
   const opts = (w.ask && Array.isArray(w.ask.options) ? w.ask.options : []).filter((o) => o?.k).slice(0, 6);
@@ -842,12 +846,14 @@ function teamDock(c: TeamCall, w: Words, me: Me | null | undefined, id: string):
   // refuses one (team-inbox.ts incoming), so the hint says Reply only (PR-Agent r3 on #73).
   const t3q = kinds[0] === 'answer' && !opts.every((o) => /^[a-i]$/.test(o.k!));
   const note = !allowed.length ? '' : noteField(kinds.includes('refire') ? 'needed for Changes and Reply' : t3q ? 'needed for Reply, not sent with an answer' : kinds.includes('reply') ? `optional with ${kinds[0] === 'reply' ? 'Hold' : allowed[0]![1]}, needed for Reply` : 'optional');
-  const only = allowed.length ? '' : `<p class="dock-who">${t ? 'Your role can see this call. Acting on it needs more from your lead.' : 'Not checked: this call names no thread to act on.'}</p>`;
+  const only = allowed.length || fine ? '' : `<p class="dock-who">${t ? 'Your role can see this call. Acting on it needs more from your lead.' : 'Not checked: this call names no thread to act on.'}</p>`;
   // An answer carries the question and every option as the lead read them (team-inbox.ts optionsKey), so the dev's Mac
   // answers only that same question.
   const seen = w.ask ? hidden('q', w.ask.q ?? '') + hidden('opts', JSON.stringify((Array.isArray(w.ask.options) ? w.ask.options : []).map((o) => [o.k, o.t]))) : '';
-  const fields = t && allowed.length ? hidden('nonce', randomUUID()) + hidden('to', t.to) + hidden('thread', t.thread) + (t.say ? hidden('say', t.say) : '') + seen : '';
-  return `<aside class="dock dock-plain" aria-label="Your move"><form class="act team-act" method="post" action="/act" data-plate="${e(id)}">${fields}${only}${ask}${note}${allowed.length ? bar(labelled, [hold], rows) : ''}</form></aside>`;
+  // Hold goes to the dev's thread too, so it carries the routing fields even when no other action is allowed: a role
+  // with Merge but not Reply on an Overlap has Hold and It's fine only (PR-Agent r2 on #75).
+  const fields = (t && (allowed.length || hold) ? hidden('nonce', randomUUID()) + hidden('to', t.to) + hidden('thread', t.thread) + (t.say ? hidden('say', t.say) : '') + seen : '') + (fine ? hidden('call', c.id) : '');
+  return `<aside class="dock dock-plain" aria-label="Your move"><form class="act team-act" method="post" action="/act" data-plate="${e(id)}">${fields}${only}${ask}${note}${allowed.length || fine ? bar([...labelled, fine].filter(Boolean), [hold], rows) : ''}</form></aside>`;
 }
 
 /** Your team, expanded: the rows alone (flow mock round 3.3, locked 2026-11-11), filling the column beside the team's
