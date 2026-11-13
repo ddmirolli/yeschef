@@ -1413,9 +1413,9 @@ html.s-team .bar .stats{display:none}
 .dp-l{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0}
 .dpr{display:flex;align-items:center;gap:8px;height:32px;padding:0 16px;font-size:13px}
 .dpr>.ic{flex:none;width:14px;height:14px;color:var(--label2)}
-.dpr .pa{display:flex;flex:1;min-width:0;white-space:nowrap}
-.dpr .dir{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.dpr .fn{flex:none}
+.dpr .pa{display:flex;flex:1;min-width:0;overflow:hidden;white-space:nowrap}
+.dpr :is(.dir,.fn){min-width:0;overflow:hidden;text-overflow:ellipsis}
+.dpr .dir{flex:0 1000 auto}.dpr .fn{flex:0 1 auto}
 .dpr .dst{flex:none}
 .dpr.x{opacity:.45}
 .dpm{display:inline-flex;align-items:center;height:24px;margin:4px 8px;padding:0 8px;border-radius:6px;font-size:12px;font-weight:500;color:var(--label2);text-decoration:none}

@@ -590,13 +590,15 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
         plateSrc.set(p, now);
         var s = $('.plate-scroll', mounted), d = $('.dock', mounted), top = s ? s.scrollTop : 0, dtop = d ? d.scrollTop : 0;
         $$<HTMLDetailsElement>('details.more', mounted).forEach(function(x, i){ var y = $$<HTMLDetailsElement>('details.more', p)[i]; if (y) y.open = x.open; });
-        // So does Too big's diff panel, open at the same place in its list.
+        // So does Too big's diff panel, open at the same place in its list. (With focus in it, dirty() keeps the plate.)
         var dpl = $('.dp.open .dp-l', mounted), dpTop = dpl ? dpl.scrollTop : 0;
-        if (dpl) { dpSet(p, true, false); var ndl = $('.dp-l', p); if (ndl) ndl.scrollTop = dpTop; }
+        if (dpl) dpSet(p, true, false);
         // The question card you were reading stays in front through a refresh.
         $$('form.act', mounted).forEach(function(x, i){ var y = $$('form.act', p)[i]; if (y && qAt(x) > 0) qShow(y, qAt(x)); });
         mounted.replaceWith(p); mounted = p;
+        // Scroll only takes once the new copy is in the page (PR-Agent r1 on #64).
         var s2 = $('.plate-scroll', p), d2 = $('.dock', p); if (s2) s2.scrollTop = top; if (d2) d2.scrollTop = dtop;
+        var ndl = dpl && $('.dp-l', p); if (ndl) ndl.scrollTop = dpTop;
       }
     });
     // A ticket with a send waiting (Undo), in flight, or not confirmed keeps its own form: its picks and note stay.
