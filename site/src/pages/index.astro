@@ -219,7 +219,7 @@ const MODE_SIZES = '(min-width: 1024px) 760px, calc(100vw - 32px)';
         </div>
         <div class="gains">
           <div class="gain swap"><div data-swap="solo"><h3>Agents wait less.</h3><p>A question lands at the pass the moment the agent asks it. You answer with a letter key from the ticket, without opening the thread. J and K walk the pass, and ⌘↵ takes the agent’s pick.</p></div><div data-swap="team"><h3>Devs wait less.</h3><p>Nobody waits for standup to find out who is in their file. A collision lands at your pass while both tickets cook, and one Reply tells the dev who rebases.</p></div></div>
-          <div class="gain swap"><div data-swap="solo"><h3>The bar holds.</h3><p>Plating waits for your call. Kitchen rules make agents wait for your reviewer and show screenshots of anything you can see, and a visual call with none gets flagged.</p></div><div data-swap="team"><h3>The bar holds.</h3><p>A broken main names the merge that broke it, and Roll back goes to that dev’s agent. Shared code waits for a Go in both modes, and in French Brigade every ticket waits at Plating for you or a sous chef. <i class="next">Next</i></p></div></div>
+          <div class="gain swap"><div data-swap="solo"><h3>The bar holds.</h3><p>Plating waits for your call. Kitchen rules make agents wait for your reviewer and show screenshots of anything you can see, and a visual call with none gets flagged.</p></div><div data-swap="team"><h3>The bar holds.</h3><p>A broken main names the merge that broke it, and Roll back goes to that dev’s agent. In French Brigade, each area’s owner reviews its pull requests, and you look once per feature before it ships. <i class="next">Next</i></p></div></div>
         </div>
 
         <div class="bill" id="bill">
@@ -293,10 +293,8 @@ const MODE_SIZES = '(min-width: 1024px) 760px, calc(100vw - 32px)';
                 <li><b class="flag f-coll">Overlap</b><span>Two devs’ tickets change the same file at the same time.</span></li>
                 <li><b class="flag f-nc">Main broken</b><span>Main went red after a merge. The card names the merge.</span></li>
                 <li><b class="flag f-hb">Failing</b><span>A ticket’s checks failed three runs in a row.</span></li>
-                <li><b class="flag f-shared">Shared code</b><span>A ticket changes code others build on: contracts, protocol, auth. <i class="next">Next</i></span></li>
-                <li><b class="flag f-unpl">Unplanned</b><span>Work that fits no project. <i class="next">Next</i></span></li>
                 <li><b class="flag f-nc">Not checked</b><span>A dev’s Mac stopped reporting. Its tickets show when it was last seen.</span></li>
-                <li><b class="flag f-plate">Ready to merge</b><span>Brigade only: every ticket waits for you or a deputy to merge it. <i class="next">Next</i></span></li>
+                <li><b class="flag f-plate">Ready for your look</b><span>French Brigade: every ticket of a feature is merged to staging and its checks are green. <i class="next">Next</i></span></li>
               </ul>
               <p class="how-foot">The full kitchen shows every dev’s tickets at their stage, by person or by project.</p>
             </div>
@@ -324,12 +322,11 @@ const MODE_SIZES = '(min-width: 1024px) 760px, calc(100vw - 32px)';
               <h3>Your calls, on each card</h3>
               <dl class="keys">
                 <dt><span class="act">Reply</span></dt><dd>A note to the dev’s agent</dd>
-                <dt><span class="act act-go">Merge</span></dt><dd>Merge a shared code change, or a Brigade ticket <i class="next">Next</i></dd>
+                <dt><span class="act act-go">Ship</span></dt><dd>French Brigade: ship a feature after your look <i class="next">Next</i></dd>
                 <dt><span class="act">Request changes</span></dt><dd>Back to In progress, with what to fix</dd>
                 <dt><span class="act">Rebase</span> <span class="act">Roll back</span></dt><dd>On an overlap or a broken main, to the dev who has to act</dd>
                 <dt><span class="act">Hold</span></dt><dd>Hold it until 8:00 tomorrow</dd>
                 <dt><span class="act">It’s fine</span></dt><dd>Clear the card. The dev keeps working. <i class="next">Next</i></dd>
-                <dt><span class="act">Add to a project</span></dt><dd>Put unplanned work in a project <i class="next">Next</i></dd>
                 <dt><kbd>J</kbd> <kbd>K</kbd></dt><dd>Next and previous card</dd>
                 <dt><kbd>Z</kbd></dt><dd>Undo, for 4 seconds</dd>
               </dl>
