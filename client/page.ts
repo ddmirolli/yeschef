@@ -26,6 +26,9 @@ interface Draft {
   note: string; picks: Record<string, string>; custom: Record<string, string>; intent?: string;
   latest?: string; at?: number; nonce?: string; kind?: string; sig?: string; sentBefore?: boolean; wroteBefore?: boolean;
 }
+/** What /diff answers (client/diffs.ts): Too big's files, folded, or one file's code, or why there is none. */
+interface DiffFileRow { path: string; header: string }
+interface DiffReply { ok: boolean; why?: string; stale?: boolean; style?: string; sprite?: string; files?: DiffFileRow[]; rest?: boolean; code?: string }
 /** A draft as saved: it always has its time and the hand-back it was written against. */
 type SavedDraft = Draft & { at: number; latest: string };
 /** A form on the board, with what the script keeps on it: the launch it queued, and whether a draft is being put back. */
@@ -81,15 +84,129 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   function $<E extends Element = HTMLElement>(sel: string, el?: ParentNode | null): E | null { return (el || document).querySelector<E>(sel); }
   function $$<E extends Element = HTMLElement>(sel: string, el?: ParentNode | null): E[] { return Array.prototype.slice.call((el || document).querySelectorAll<E>(sel)); }
   function focusView(){ return state.view === 'pass'; }
-  // Too big's diff panel, T3 Code's right panel sheet: Open diff slides it in over the reader, and Close, a click beside
-  // it or Esc slides it out. Focus goes to its list, so the keys scroll it, and back to Open diff after. While it is
-  // open, the reader it covers is inert, so Tab skips it; the Pass beside it stays live.
+  // Too big's diff panel, as T3 Code's right panel. In a window over 980 px it is T3's inline panel, beside the reader,
+  // which narrows. At 980 px or less it is T3's sheet (rightPanelLayout.ts, RightPanelSheet.tsx): at the window's right
+  // edge, over the dimmed page, modal, and Esc or a click beside it closes it. The bar's toggle opens it and closes it.
+  // Focus goes to its list, so the keys scroll it, and back to the toggle after.
+  var DP_SHEET = window.matchMedia('(max-width: 980px)');
+  var dpDlg: HTMLDialogElement | null = null;
+  function dpOf(plate: Element | null): HTMLElement | null {
+    if (!plate) return null;
+    return $('.dp', plate) || (dpDlg ? $('.dp[data-home="' + CSS.escape(plate.id) + '"]', dpDlg) : null);
+  }
+  function dpHome(): Plate | null { var dp = dpDlg && $('.dp', dpDlg); return dp ? plateNode(dp.dataset.home) : null; }
+  function dpSheet(): HTMLDialogElement {
+    if (dpDlg) return dpDlg;
+    var d = document.createElement('dialog'); d.className = 'dp-sheet';
+    d.addEventListener('cancel', function(ev){ ev.preventDefault(); var h = dpHome(); if (h) dpSet(h, false, true); else d.close(); });
+    d.addEventListener('click', function(ev){ if (ev.target !== d) return; var h = dpHome(); if (h) dpSet(h, false, true); else d.close(); });
+    document.body.appendChild(d); dpDlg = d; return d;
+  }
+  function dpPlace(plate: Element, dp: HTMLElement, open: boolean): void {
+    if (open && DP_SHEET.matches) {
+      var d = dpSheet(); dp.dataset.home = plate.id;
+      if (dp.parentElement !== d) d.replaceChildren(dp);
+      d.setAttribute('aria-label', dp.getAttribute('aria-label') || '');
+      if (!d.open) d.showModal();
+      return;
+    }
+    // Home again: the panel is the ticket's last part.
+    if (dp.parentElement !== plate) plate.appendChild(dp);
+    if (dpDlg && dpDlg.open && !$('.dp', dpDlg)) dpDlg.close();
+  }
+  /** A ticket leaving the reader takes its panel back from the sheet. */
+  function dpPark(plate: Element | null): void {
+    var dp = plate && dpDlg && $('.dp[data-home="' + CSS.escape(plate.id) + '"]', dpDlg);
+    if (!plate || !dp) return;
+    plate.appendChild(dp); if (dpDlg!.open) dpDlg!.close();
+  }
   function dpSet(plate: Element, open: boolean, focus: boolean): void {
-    var dp = $('.dp', plate), b = $('[data-dp-open]', plate); if (!dp) return;
-    dp.classList.toggle('open', open); if (b) b.setAttribute('aria-expanded', String(open));
-    $$(':scope > :not(.dp)', plate).forEach(function(x){ x.inert = open; });
+    var b = $('[data-dp-toggle]', plate), dp = dpOf(plate); if (!b || !dp) return;
+    plate.classList.toggle('dp-on', open); b.setAttribute('aria-pressed', String(open));
+    if (open) { dpSized(plate as HTMLElement); dpCode(dp); }
+    dpPlace(plate, dp, open);
     if (!focus) return;
     var to = open ? $('.dp-l', dp) : b; if (to) to.focus({ preventScroll: true });
+  }
+  // A window crossing 980 px moves an open panel between beside the reader and the sheet.
+  DP_SHEET.addEventListener('change', function(){ if (mounted && mounted.classList.contains('dp-on')) dpSet(mounted, true, false); });
+  // Its left edge resizes it, as T3 Code's does (usePreviewPanelInlineSize.ts): 540 px at first, at least 360, at most
+  // 70% of the window with 360 left for the reader. Each ticket keeps its own width, as T3 keeps one per thread.
+  function dpSized(plate: HTMLElement): void { var w = Number(store('yc.dpw:' + plate.id)); if (w >= 360) plate.style.setProperty('--dpw', Math.round(w) + 'px'); }
+  document.addEventListener('pointerdown', function(ev){
+    var h = ev.button === 0 && (ev.target as Element).closest ? (ev.target as Element).closest<HTMLElement>('.dp-rz') : null;
+    var dp = h && h.parentElement, plate = dp && dp.closest<HTMLElement>('.plate'); if (!h || !dp || !plate) return;
+    var x0 = ev.clientX, w0 = dp.getBoundingClientRect().width, w = w0, grip = h, at = plate;
+    ev.preventDefault(); grip.setPointerCapture(ev.pointerId);
+    function move(m: PointerEvent): void { var max = Math.max(360, Math.min(window.innerWidth * 0.7, at.clientWidth - 360)); w = Math.min(max, Math.max(360, w0 + x0 - m.clientX)); at.style.setProperty('--dpw', Math.round(w) + 'px'); }
+    function up(): void { grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', up); grip.removeEventListener('pointercancel', up); store('yc.dpw:' + at.id, String(Math.round(w))); }
+    grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', up); grip.addEventListener('pointercancel', up);
+  });
+  // The code, from T3 Code (client/diffs.ts), the first time the panel opens: T3's diff panel, drawn by its renderer,
+  // in a shadow root so its styles stay there. Every file starts folded, as T3's does, and a file's code comes when it
+  // opens. Without T3 Code the list from the teammate's summary stays, and says why there is no code.
+  var DPV_CSS = ':host{display:block}.f[data-folded] pre,.f[data-folded] .ld{display:none}[data-diffs-header]{cursor:pointer}'
+    + 'button[data-fold]{display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px;height:20px;margin-inline-start:-2px;padding:0;border:0;border-radius:4px;background:transparent;color:inherit;opacity:.8;cursor:pointer}'
+    + 'button[data-fold]:hover{opacity:1;background:color-mix(in srgb,currentColor 10%,transparent)}button[data-fold] svg{width:16px;height:16px;transition:transform .12s}'
+    + 'button[data-fold][aria-expanded=true] svg{transform:rotate(90deg)}button[data-fold]:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}'
+    + '.ld{padding:6px 16px;font:12px var(--sans);color:var(--label2)}';
+  function dpWhy(list: Element, why: string): void {
+    var n = $('.dpn-why', list) || list.appendChild(document.createElement('p')); n.className = 'dpn dpn-why';
+    n.textContent = 'Code: not checked. ' + why.replace(/\.?$/, '.');
+  }
+  function dpCode(dp: HTMLElement): void {
+    var src = dp.getAttribute('data-diff'), list = $('.dp-l', dp);
+    if (!src || !list || $('.dpv', list)) return;
+    var host = document.createElement('div'); host.className = 'dpv'; host.hidden = true; host.dataset.src = src; list.appendChild(host);
+    var gone = function(why: string): void { var l = host.parentElement; host.remove(); if (l) dpWhy(l, why); };
+    fetch(src, { cache: 'no-store' }).then(function(r){ return r.json() as Promise<DiffReply>; }).then(function(d){
+      if (!d || !d.ok || !d.files) { gone((d && d.why) || 'T3 Code gave no diff'); return; }
+      var root = host.attachShadow({ mode: 'open' });
+      root.innerHTML = (d.style || '') + '<style>' + DPV_CSS + '</style>' + (d.sprite || '')
+        + d.files.map(function(f){ return '<div class="f" data-folded data-path="' + escH(f.path) + '">' + f.header + '</div>'; }).join('');
+      root.addEventListener('click', dpFold);
+      var l = host.parentElement; if (!l) return;
+      // T3's files take the place of the summary's list. Files GitHub withheld are in it, with their counts; only pages
+      // left unread link to the rest on GitHub, as the list did.
+      $$('.dpr, .dpm, .dpn', l).forEach(function(x){ x.remove(); });
+      host.hidden = false;
+      if (d.rest) {
+        var out = $<HTMLAnchorElement>('.dp-i', dp), a = document.createElement('a');
+        a.className = 'dpm'; a.target = '_blank'; a.rel = 'noopener'; a.href = out ? out.href : '#';
+        a.textContent = 'More files in the full diff';
+        l.appendChild(a);
+      }
+    }, function(){ gone('Yes Chef could not reach the board server'); });
+  }
+  /** A file's header opens and folds it, as in T3's diff panel; its code comes the first time it opens. */
+  function dpFold(ev: Event): void {
+    var t = ev.target as Element, head = t.closest && t.closest('[data-diffs-header]');
+    if (!head || t.closest('a')) return;
+    var f = head.parentElement as HTMLElement | null, b = $<HTMLButtonElement>('button[data-fold]', head);
+    var host = (head.getRootNode() as ShadowRoot).host as HTMLElement | undefined;
+    if (!f || !b || !host) return;
+    var open = f.hasAttribute('data-folded'), path = f.dataset.path || '';
+    f.toggleAttribute('data-folded', !open);
+    b.setAttribute('aria-expanded', String(open)); b.setAttribute('aria-label', (open ? 'Collapse ' : 'Expand ') + path); b.title = open ? 'Collapse diff' : 'Expand diff';
+    if (!open) return;
+    // A file that failed to load tries again each time it opens; one that loaded, or is loading, stays as it is.
+    var failed = $('.ld[data-retry]', f);
+    if (failed) failed.remove(); else if ($('pre, .ld', f)) return;
+    var ld = document.createElement('p'); ld.className = 'ld'; ld.textContent = 'Loading'; f.appendChild(ld);
+    fetch(host.dataset.src + '&f=' + encodeURIComponent(path), { cache: 'no-store' }).then(function(r){ return r.json() as Promise<DiffReply>; }).then(function(d){
+      if (d && d.ok && typeof d.code === 'string') { ld.remove(); f!.insertAdjacentHTML('beforeend', d.code); }
+      // The server no longer keeps the read this list came from: read the list again, rather than mix two versions.
+      else if (d && d.stale) { var dp = host!.closest<HTMLElement>('.dp'); host!.remove(); if (dp) dpCode(dp); }
+      else { ld.setAttribute('data-retry', ''); ld.textContent = 'Code: not checked. ' + ((d && d.why) || 'T3 Code gave no diff').replace(/\.?$/, '.'); }
+    }, function(){ ld.setAttribute('data-retry', ''); ld.textContent = 'Code: not checked. Yes Chef could not reach the board server.'; });
+  }
+  /** A new copy of the open ticket keeps the code already drawn, folds and all. */
+  function dpCarry(from: Element, to: Element): void {
+    var a = dpOf(from), b = dpOf(to), v = a && $('.dpv', a), l = b && $('.dp-l', b);
+    if (!v || !l || !b || b.getAttribute('data-diff') !== v.dataset.src) return;
+    if (!v.hidden) $$('.dpr, .dpm, .dpn', l).forEach(function(x){ x.remove(); });
+    l.appendChild(v);
+    $$('.dpm, .dpn-why', a!).forEach(function(x){ if (!v!.hidden || x.classList.contains('dpn-why')) l!.appendChild(x); });
   }
 
   // ----- Views -----
@@ -185,6 +302,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   function plateNode(id: string | null | undefined): Plate | null { return id ? document.getElementById(id) : null; }
   function mark(){ $$('[data-plate].sel').forEach(function(t){ t.classList.remove('sel'); }); if (state.sel) $$('[data-plate="' + state.sel + '"]').forEach(function(t){ if (t.tagName !== 'FORM') t.classList.add('sel'); }); }
   function unmount(){
+    dpPark(mounted);
     if (mounted && mounted.parentNode !== $('#plates')) { var store_ = $('#plates'); if (store_) store_.appendChild(mounted); }
     mounted = null;
   }
@@ -490,6 +608,8 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   function dirty(p: Plate | null): boolean {
     if (!p) return false;
     if (p.contains(document.activeElement) && document.activeElement !== p) return true;
+    // So does one whose diff panel is open as the sheet, with focus in it.
+    var dps = dpDlg && dpDlg.open && dpOf(p); if (dps && dpDlg!.contains(dps) && dpDlg!.contains(document.activeElement)) return true;
     if (p.querySelector('form.act[data-busy], form.act[data-touched]')) return true;
     // An open More menu stays put: a refresh would close it under the pointer.
     if (openMenu(p)) return true;
@@ -591,14 +711,15 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
         var s = $('.plate-scroll', mounted), d = $('.dock', mounted), top = s ? s.scrollTop : 0, dtop = d ? d.scrollTop : 0;
         $$<HTMLDetailsElement>('details.more', mounted).forEach(function(x, i){ var y = $$<HTMLDetailsElement>('details.more', p)[i]; if (y) y.open = x.open; });
         // So does Too big's diff panel, open at the same place in its list. (With focus in it, dirty() keeps the plate.)
-        var dpl = $('.dp.open .dp-l', mounted), dpTop = dpl ? dpl.scrollTop : 0;
+        var dpm = dpOf(mounted), dpl = mounted.classList.contains('dp-on') && dpm ? $('.dp-l', dpm) : null, dpTop = dpl ? dpl.scrollTop : 0;
+        dpCarry(mounted, p);
         if (dpl) dpSet(p, true, false);
         // The question card you were reading stays in front through a refresh.
         $$('form.act', mounted).forEach(function(x, i){ var y = $$('form.act', p)[i]; if (y && qAt(x) > 0) qShow(y, qAt(x)); });
         mounted.replaceWith(p); mounted = p;
         // Scroll only takes once the new copy is in the page (PR-Agent r1 on #64).
         var s2 = $('.plate-scroll', p), d2 = $('.dock', p); if (s2) s2.scrollTop = top; if (d2) d2.scrollTop = dtop;
-        var ndl = dpl && $('.dp-l', p); if (ndl) ndl.scrollTop = dpTop;
+        var dpn = dpOf(p), ndl = dpl && dpn ? $('.dp-l', dpn) : null; if (ndl) ndl.scrollTop = dpTop;
       }
     });
     // A ticket with a send waiting (Undo), in flight, or not confirmed keeps its own form: its picks and note stay.
@@ -611,7 +732,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     hideActed(); setFolder(state.folder); applyScope(); normalizePicked(); applyFlow(false); fades(); if (KST.changed || !K.mac) relabel(document); restoreDrafts(app); restoreDrafts($('#plates'));
     if (focusSel && document.activeElement !== null && (document.activeElement === document.body || !document.activeElement.isConnected)) { var back = $(focusSel); if (back) back.focus({ preventScroll: true }); }
     // The open ticket left the board on its own: show the next one, unless you are working in it.
-    if (gone && !keep) { var id = mounted!.id; mounted!.remove(); mounted = null; if (acted[id]) { state.sel = null; place(); } else advance(id); return; }
+    if (gone && !keep) { var id = mounted!.id; dpPark(mounted); mounted!.remove(); mounted = null; if (acted[id]) { state.sel = null; place(); } else advance(id); return; }
     // The open ticket left the list you are working (an agent picked it up, or it moved stage): the next one opens,
     // unless you are typing or picking in it. The list's own order decides "next".
     if (focusView() && state.sel && !keep && !acted[state.sel] && !tiles().some(function(x){ return x.dataset.plate === state.sel; })) {
@@ -1609,9 +1730,9 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     if (pk) { pickProject(pk); return; }
     var sc = t.closest<HTMLElement>('.vmenu .seg [data-scope]');
     if (sc) { setScope(sc.dataset.scope!); return; }
-    // Too big: Open diff slides the diff panel in; Close, or a click on the reader beside it, slides it out.
-    var dpo = t.closest('[data-dp-open], [data-dp-close]'), dpPlate = dpo && dpo.closest('.plate');
-    if (dpo && dpPlate) { dpSet(dpPlate, dpo.hasAttribute('data-dp-open'), true); return; }
+    // Too big: the bar's toggle opens the diff panel beside the reader, and closes it.
+    var dpo = t.closest('[data-dp-toggle]'), dpPlate = dpo && dpo.closest('.plate');
+    if (dpo && dpPlate) { dpSet(dpPlate, !dpPlate.classList.contains('dp-on'), true); return; }
     // The chart: a project opens its threads, ‹ All projects goes back. A thread's band carries data-plate, so a click
     // on it opens the ticket below, as its card does.
     // Your team, expanded: a sub-lead's name folds their team into one row and back.
@@ -1773,12 +1894,12 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     // A key an input method uses while it composes text (Japanese, Chinese) is the method's alone, as in the action bar:
     // Esc or ⌘↵ then never leaves, or sends half a word. Safari's last key of a composition reads as keyCode 229.
     if (ev.isComposing || ev.keyCode === 229) return;
-    // Too big's diff panel, while open, comes first: Esc closes it, as Esc closes T3 Code's sheet. With focus in it, a
-    // plain key is the browser's, so the arrows, Space and Page Down scroll its list and never move the Pass or page the
-    // reader it covers (PR-Agent r2 on #64). A key with ⌘, Ctrl or Alt still reaches the shortcuts (⌘K).
-    var dpOpen = mounted && $('.dp.open', mounted);
-    if (dpOpen && ev.key === 'Escape') { ev.preventDefault(); dpSet(mounted!, false, true); return; }
-    if (dpOpen && dpOpen.contains(document.activeElement) && !(ev.metaKey || ev.ctrlKey || ev.altKey)) return;
+    // Too big's diff panel, with focus in it, comes first: Esc closes it, back to its toggle, and a plain key is the
+    // browser's, so the arrows, Space and Page Down scroll its list and never move the Pass or page the reader (PR-Agent
+    // r2 on #64). A key with ⌘, Ctrl or Alt still reaches the shortcuts (⌘K).
+    var dpIn = mounted && mounted.classList.contains('dp-on') && document.activeElement && document.activeElement.closest('.dp');
+    if (dpIn && ev.key === 'Escape') { ev.preventDefault(); dpSet(mounted!, false, true); return; }
+    if (dpIn && !(ev.metaKey || ev.ctrlKey || ev.altKey)) return;
     if (!KST.changed) { onKey(ev); return; }
     var c = K.comboOf(ev), t = ev.target as Element | null;
     var typing = !!(t && t.closest && t.closest('textarea, input[type=text], input[type=search], [contenteditable]'));

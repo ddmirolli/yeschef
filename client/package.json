@@ -7,6 +7,7 @@
     "typecheck": "effect-tsgo tsrs --noEmit"
   },
   "dependencies": {
+    "@pierre/diffs": "catalog:",
     "effect": "catalog:"
   },
   "devDependencies": {

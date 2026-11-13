@@ -61,13 +61,14 @@ test('the demo’s readers tell a real story: Nina’s fixes are commits, and Ir
     team: { view: demoTeam(NOW), now: NOW, mode: 'open' } });
   const plates = html.split('<article class="plate team-plate"').slice(1);
   const plate = (title: string) => plates.find((p) => p.includes(title)) ?? '';
-  const nina = plate('#428 checks failed');
+  const nina = plate('#428</a> checks failed');
   assert.deepEqual([...nina.matchAll(/<li><svg[^]*?<\/svg><span>([^<]+)<\/span><code>([0-9a-f]{7})<\/code>/g)].map((m) => m[1]),
     ['Skip the offline flush test on CI', 'Raise the sync test timeout to 30 s', 'Retry the flush on reconnect', 'Mock the network clock in sync tests',
       'Wait for the queue to flush in the sync test', 'Queue drafts in IndexedDB while offline']);
   // The reader keeps one row; the 41 files are in the side panel, in git's order, the lockfile faded (Dan, 2026-11-12).
-  const iris = plate('#440 changes');
-  assert.match(iris, /<div class="tvis dpo"><span class="n">41 changed files<span class="dst" role="group" aria-label="1079 additions, 161 deletions">/);
+  const iris = plate('#440</a> changes');
+  assert.match(iris, /<button type="button" class="dp-t" data-dp-toggle aria-controls="p-[0-9a-f]{12}-dp"/);
+  assert.match(iris, /<section class="dp" id="p-[0-9a-f]{12}-dp" aria-label="Changes in #440" data-diff="\/diff\?repo=fernpay%2Ffernpay&amp;n=440&amp;v=\d+\.1079\.161">[^]*<span class="dst" role="group" aria-label="1079 additions, 161 deletions">/);
   const rows = [...iris.matchAll(/<div class="dpr( x)?" title="([^"]+)">/g)];
   assert.equal(rows.filter((m) => !m[1]).length, 41);
   assert.deepEqual(rows.map((m) => m[2]), [...rows.map((m) => m[2])].sort());

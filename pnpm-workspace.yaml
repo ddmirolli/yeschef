@@ -19,6 +19,8 @@ allowBuilds:
 
 catalog:
   "@cloudflare/workers-types": 4.20260702.1
+  # T3 Code's diff renderer, at T3's pin (its patch only touches find in the diff, which Yes Chef does not use).
+  "@pierre/diffs": 1.7.0-beta.3
   "@types/node": 24.12.4
   effect: 4.1.2
   vite: npm:@voidzero-dev/vite-plus-core@1.4.0

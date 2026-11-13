@@ -41,6 +41,9 @@ import { keysCore } from './keys.ts';
 import { passScript } from './page.ts';
 import { appendFileSync } from 'node:fs';
 import { teamHost } from './teamhost.ts';
+import { createDiffs, diffRoute } from './diffs.ts';
+import type { PrRef } from './diffs.ts';
+import { openKitchen } from './open-kitchen.ts';
 
 /** A message from the desktop app over the pipe (desktop/main.ts). Each handler checks the fields it reads. */
 interface AppMessage { type?: unknown; id?: unknown; body?: unknown; path?: unknown; state?: unknown; error?: unknown; auth?: unknown }
@@ -1360,10 +1363,11 @@ html.s-team .bar .stats{display:none}
 .tv .kv span{display:block;font-size:11.5px;color:var(--label2)}
 .tv .kv b{display:block;font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tv .kv b.mono{font-size:12px;color:var(--label)}
-.tv .tsug{display:flex;gap:12px;align-items:flex-start;margin-top:16px;padding:12px 14px;border-radius:12px;background:var(--pass-t);font-size:13.5px;line-height:1.45}
-.tv .tsug b{flex:none;color:var(--pass);font-size:12px;font-weight:700;padding-top:1px}
-.tv .tseen{margin:0;font-size:13px;color:var(--label2)}
-.tv .tseen b{margin-right:4px;font-weight:600}.tv .tseen .ok{color:var(--green)}.tv .tseen .no{color:var(--red)}
+/* The reader's bar says whether they have seen it, Not seen in red (docs/pass-definitions-v1_0.md); a PR the words
+   name links in place (Dan, 2026-11-12: one place). */
+.plate-bar .tsn{font-size:12px;color:var(--label2)}.plate-bar .tsn.no{color:var(--red);font-weight:600}
+.team-plate .prl{color:inherit;text-decoration:underline;text-decoration-color:var(--sep);text-decoration-thickness:1px;text-underline-offset:.15em}
+.team-plate .prl:hover{text-decoration-color:currentColor}
 .tv .tquiet{display:flex;gap:10px;align-items:flex-start;margin:0 0 12px;padding:10px 12px;border-radius:10px;background:var(--fill);font-size:13px;line-height:1.45;color:var(--label2)}
 .tv .tquiet b{color:var(--label);font-weight:600}
 .tv .hz{flex:none;display:inline-block;width:22px;height:12px;margin-top:2px;border-radius:3px;background:repeating-linear-gradient(135deg,var(--fill2) 0 2px,transparent 2px 5px);box-shadow:inset 0 0 0 1px var(--fill2)}
@@ -1389,29 +1393,49 @@ html.s-team .bar .stats{display:none}
 .tv .truns time{min-width:5ch;text-align:right;font-size:12px;color:var(--label2);font-variant-numeric:tabular-nums}
 .tv .tmsg{margin:0;font-size:14px;line-height:1.5}
 .tv :is(.truns span,.tmsg).nc{color:var(--label2)}
-/* Too big: the reader keeps T3 Code's changed-files header; Open diff slides in its right panel sheet over the reader
-   (RightPanelSheet.tsx: min(42vw, 28rem), at least 20rem; 200 ms, in from 32 px with a fade; the reader dimmed and
-   blurred behind it). The page script opens and closes it. */
-.tv .tvis.dpo{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 8px 8px 16px}
-.tv .dpo .n{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;font-size:12px;font-weight:500}
+/* Too big's diff panel: T3 Code's inline right panel (PreviewPanelShell.tsx, usePreviewPanelInlineSize.ts). The bar's
+   toggle opens it beside the reader, which narrows; it does not cover it. 540 px by default, at least 360, at most 70%
+   of the window, and the reader keeps 360; its left edge drags (RightPanelResizeHandle.tsx). It opens at once, as T3
+   Code's panels do by default (panel animation 0 ms). A reader too narrow for both shows the panel alone, under the bar
+   and its toggle. */
+.plate-bar .dp-t{display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;margin-left:auto;padding:0;border:0;border-radius:6px;background:transparent;color:var(--label2);cursor:pointer}
+.plate-bar .dp-t:hover{background:var(--fill);color:var(--label)}
+.plate-bar .dp-t[aria-pressed="true"]{background:var(--fill);color:var(--label)}
+.plate-bar .dp-t .ic{width:16px;height:16px}
+.dp{display:none}
+.team-plate.dp-on{display:grid;grid-template:auto minmax(0,1fr)/minmax(0,1fr) auto}
+.team-plate.dp-on>.plate-bar{grid-column:1/-1}
+/* The reader's column is the action bar's container while the panel is open, so the bar fits the column, not the plate. */
+.team-plate.dp-on>.plate-main{grid-area:2/1;min-width:0;container-type:inline-size}
+.team-plate.dp-on>.dp{position:relative;grid-area:2/2;display:flex;flex-direction:column;min-height:0;width:min(var(--dpw,540px),max(360px,min(70vw,100cqw - 360px)));border-left:.5px solid var(--sep)}
+/* At 980 px or less, T3 Code's right panel is its sheet (rightPanelLayout.ts, RightPanelSheet.tsx, ui/sheet.tsx): modal
+   at the window's right edge, over the page at 60% and blurred, 42% of the window wide up to 28rem and at least 20rem.
+   (T3's narrower sheet from 760 px down never shows here: at that width the page is the phone screen.) No resize edge,
+   and no slide: T3's panel animations are off by default. */
+dialog.dp-sheet{position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;margin:0;padding:0;border:0;background:transparent;color:inherit;display:flex;justify-content:flex-end;overflow:hidden}
+dialog.dp-sheet:not([open]){display:none}
+dialog.dp-sheet::backdrop{background:color-mix(in srgb,var(--bg) 60%,transparent);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
+dialog.dp-sheet>.dp{display:flex;flex-direction:column;min-height:0;height:100%;width:min(42vw,28rem);min-width:20rem;max-width:28rem;background:var(--pop);border-left:.5px solid var(--sep);box-shadow:0 10px 15px -3px rgba(0,0,0,.05),0 4px 6px -4px rgba(0,0,0,.05)}
+dialog.dp-sheet .dp-rz{display:none}
+.dp-rz{position:absolute;top:0;bottom:0;left:0;z-index:2;width:4px;cursor:col-resize;touch-action:none;user-select:none}
+.dp-rz::after{content:"";position:absolute;top:0;bottom:0;left:0;width:1px;transform:translateX(-50%);transition:background-color .15s}
+.dp-rz:hover::after,.dp-rz:active::after{background:var(--sep)}
 .team-plate .dst{display:inline-flex;gap:4px;font:11px var(--mono);font-variant-numeric:tabular-nums}
 .team-plate .dst .a{color:var(--green)}.team-plate .dst .d{color:var(--red)}
-:is(.dpo-b,.dp-i){display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:none;height:24px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--label2);font:500 12px/1 var(--sans);text-decoration:none;cursor:pointer}
-:is(.dpo-b,.dp-i):hover{background:var(--fill);color:var(--label)}
-:is(.dpo-b,.dp-i) .ic{flex:none;width:13px;height:13px}
-.team-plate{position:relative}
-.dp{position:absolute;inset:0;z-index:6;visibility:hidden;pointer-events:none;transition:visibility 0s .2s}
-.dp.open{visibility:visible;pointer-events:auto;transition:none}
-.dp-bg{position:absolute;inset:0;background:color-mix(in srgb,var(--bg) 60%,transparent);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);opacity:0;transition:opacity .2s}
-.dp-p{position:absolute;top:0;right:0;bottom:0;display:flex;flex-direction:column;width:min(42vw,28rem);min-width:20rem;max-width:100%;border-left:.5px solid var(--sep);background:var(--card);box-shadow:var(--sh3);opacity:0;transform:translateX(32px);transition:opacity .2s ease-in-out,transform .2s ease-in-out}
-.dp.open .dp-bg,.dp.open .dp-p{opacity:1;transform:none}
 .dp-h{display:flex;align-items:center;gap:8px;flex:none;height:40px;padding:0 8px 0 16px;border-bottom:.5px solid var(--sep);font-size:13px}
 .dp-h>:not(.base,.dp-sp){flex:none}.dp-h .vs{color:var(--label2)}
 .dp-h .base{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:12px var(--mono)}
 .dp-sp{flex:1}
-.dp-i{width:28px;padding:0}
+.dp-i{display:inline-flex;align-items:center;justify-content:center;width:28px;height:24px;border-radius:6px;color:var(--label2)}
+.dp-i:hover{background:var(--fill);color:var(--label)}
+.dp-i .ic{width:13px;height:13px}
 .dp-l{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0}
 .dp-l:focus{outline:none}.dp-l:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+/* The code, as T3 Code's diff panel draws it: @pierre/diffs's own styles in the host's shadow root, on the panel's
+   surface and in the board's fonts, as T3 sets them (index.css), light or dark with the board. */
+.dpv{color-scheme:light dark;--diffs-font-family:var(--mono);--diffs-header-font-family:var(--sans);--diffs-bg:var(--card);--diffs-light-bg:var(--card);--diffs-dark-bg:var(--card)}
+dialog.dp-sheet .dpv{--diffs-bg:var(--pop);--diffs-light-bg:var(--pop);--diffs-dark-bg:var(--pop)}
+:root[data-theme=dark] .dpv{color-scheme:dark}:root[data-theme=light] .dpv{color-scheme:light}
 .dpr{display:flex;align-items:center;gap:8px;height:32px;padding:0 16px;font-size:13px}
 .dpr>.ic{flex:none;width:14px;height:14px;color:var(--label2)}
 .dpr .pa{display:flex;flex:1;min-width:0;overflow:hidden;white-space:nowrap}
@@ -1422,7 +1446,6 @@ html.s-team .bar .stats{display:none}
 .dpm{display:inline-flex;align-items:center;height:24px;margin:4px 8px;padding:0 8px;border-radius:6px;font-size:12px;font-weight:500;color:var(--label2);text-decoration:none}
 .dpm:hover{background:var(--fill);color:var(--label)}
 .dpn{margin:8px 16px;font-size:12.5px;color:var(--label2)}
-@media (prefers-reduced-motion:reduce){.dp,.dp-bg,.dp-p{transition:none}}
 /* Overlap: the two threads, then the file's line map with the shared lines boxed. */
 .tv .duo{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
 .tv .tcard{padding:12px 14px;border-radius:12px;background:var(--card)}
@@ -1722,6 +1745,20 @@ if (pipe) {
 /** The pages and images, for both doors: the web prototype's HTTP server and the desktop app's pipe. */
 /** A page or a file: its status, headers and body. */
 interface Routed { status: number; headers: Record<string, string>; body: string | Buffer }
+// Too big's code, from T3 Code as its diff panel reads it, through the board's read-only key (client/diffs.ts). With
+// host github.com, any T3 project can ask for any PR its GitHub sign-in sees, so the first one does.
+const diffs = createDiffs({ origin: ORIGIN, keys, project: () => projects[0]?.id ?? null });
+/** The PRs the Too big calls on the board name: the only ones /diff reads. */
+function bigPrs(): PrRef[] {
+  const v = team.view();
+  const ok = openKitchen(v && { ...v, me: { ...v.me, id: v.me.id ?? null } }, { now: Date.now() });
+  return ok.pass.filter((c) => c.kind === 'big').flatMap((c) => c.prs.map((pr) => ({ repo: pr.repo, n: pr.n })));
+}
+/** A page, a file, or a PR's code: the code is the one answer that waits on T3 Code. */
+async function routeAny(url: URL): Promise<Routed> {
+  return (await diffRoute(url, { diffs, shown: bigPrs })) ?? route(url);
+}
+
 function route(url: URL): Routed {
   // ?p=A&p=B: the projects picked in the view menu; no p is All projects.
   const picked = pickedFrom(url.searchParams);
@@ -1761,10 +1798,11 @@ function route(url: URL): Routed {
 if (pipe) {
   pipe.on((m) => {
     if (!m || m.type !== 'get' || typeof m.path !== 'string') return;
-    let out: Routed;
-    try { out = route(new URL(m.path, 'http://x')); } catch { out = { status: 500, headers: {}, body: 'The Pass could not build that page.' }; }
-    const body = Buffer.isBuffer(out.body) ? out.body : Buffer.from(String(out.body));
-    pipe.send({ type: 'got', id: m.id, status: out.status, headers: out.headers, body: body.toString('base64') });
+    const id = m.id;
+    Promise.resolve().then(() => routeAny(new URL(m.path as string, 'http://x'))).catch((): Routed => ({ status: 500, headers: {}, body: 'The Pass could not build that page.' })).then((out) => {
+      const body = Buffer.isBuffer(out.body) ? out.body : Buffer.from(String(out.body));
+      pipe.send({ type: 'got', id, status: out.status, headers: out.headers, body: body.toString('base64') });
+    });
   });
 }
 
@@ -1792,7 +1830,7 @@ const web = createServer(async (req, res) => {
     req.on('close', () => clients.delete(res));
     return;
   }
-  const out = route(url);
+  const out = await routeAny(url).catch((): Routed => ({ status: 500, headers: {}, body: 'The Pass could not build that page.' }));
   res.writeHead(out.status, out.headers).end(out.body);
 });
 // The desktop app opens no port (Dan, 2026-11-08): its window reads the pages over the IPC pipe instead

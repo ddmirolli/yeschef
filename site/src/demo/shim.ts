@@ -58,8 +58,23 @@ window.__demoTick = () => {
 setInterval(window.__demoTick, 3000);
 
 const realFetch = window.fetch.bind(window);
+const NOT_SHOWN = { ok: false, why: 'Not a PR this board shows' };
+// Too big's code. The app's own diff pipe drew the made-up PR into these files when the demo was made
+// (scripts/generate-demo.ts): the PR's file list, then each file's code by its place in that list.
+async function demoDiff(q: URLSearchParams): Promise<Response> {
+  const repo = q.get('repo') ?? '', n = q.get('n') ?? '', path = q.get('f');
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo) || !/^\d+$/.test(n)) return Response.json(NOT_SHOWN, { status: 404 });
+  const name = `diff/${repo.replace('/', '-')}-${n}`;
+  const list = await realFetch(`${name}.json`);
+  if (!list.ok) return Response.json(NOT_SHOWN, { status: 404 });
+  if (path === null) return list;
+  const { files = [] } = await list.json() as { files?: { path: string }[] };
+  const at = files.findIndex((f) => f.path === path);
+  return at < 0 ? Response.json({ ok: false, why: 'This file is not in the PR now' }) : realFetch(`${name}/${at}.json`);
+}
 window.fetch = async (input, init) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  if (url.startsWith('/diff?')) return demoDiff(new URLSearchParams(url.slice(6)));
   if (/^\/app(\?|$)/.test(url)) {
     const kitchen = await ready;
     return new Response(kitchen.page(url.slice(4)), { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } });
