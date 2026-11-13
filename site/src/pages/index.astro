@@ -16,7 +16,7 @@ const firstPaint = inlineScript('src/scripts/first-paint.ts');
 const shot = (src: ImageMetadata) => getImage({ src, widths: [800, 1200, 1600], format: 'webp', quality: 90 });
 const shots = {
   solo: { light: await shot(soloLight), dark: await shot(soloDark), alt: 'Yes Chef on a made-up kitchen, expanded: threads from six projects flow left to right to merged, with The Pass on the right' },
-  team: { light: await shot(teamLight), dark: await shot(teamDark), alt: 'Yes Chef with a made-up team in French Brigade, expanded: each person\'s threads flow through the stages, with The Pass on the right' },
+  team: { light: await shot(teamLight), dark: await shot(teamDark), alt: 'Yes Chef with a made-up team in French Brigade, expanded: each feature\'s threads flow through the stages, with The Pass on the right' },
 };
 const SIZES = 'calc(100vw - 32px)';
 // The modes section (Dan, 1C, 2026-11-12): each mode's expanded view in the team demo, 1440x900 at 2x. A click opens it
@@ -24,7 +24,7 @@ const SIZES = 'calc(100vw - 32px)';
 const big = (src: ImageMetadata) => getImage({ src, widths: [800, 1200, 1600, 2880], format: 'webp', quality: 90 });
 const modeShots = {
   open: { light: await big(openLight), dark: await big(openDark), alt: 'Open kitchen, expanded: one row per person, their agents as squares, the code areas they touch, and what each merged today, beside The Pass' },
-  brigade: { light: await big(brigadeLight), dark: await big(brigadeDark), alt: 'French Brigade, expanded: every thread by person, left to right from In progress through the leads who sign it off to Merged, beside The Pass' },
+  brigade: { light: await big(brigadeLight), dark: await big(brigadeDark), alt: 'French Brigade, expanded: every thread by feature, left to right from In progress through the leads who sign it off to Merged, beside The Pass' },
 };
 const MODE_SIZES = '(min-width: 1024px) 760px, calc(100vw - 32px)';
 ---
@@ -138,7 +138,7 @@ const MODE_SIZES = '(min-width: 1024px) 760px, calc(100vw - 32px)';
               </div>
               <div class="mode-text mode-pane" data-pane="brigade" inert>
                 <p>Work moves up your team. Each thread runs left to right, from In progress through each lead who signs it off, to the lead who merges it.</p>
-                <ul class="mode-pts"><li>A thread passes a lead once their GitHub approval is in.</li><li>Open a team for its people, a person for each of their threads.</li></ul>
+                <ul class="mode-pts"><li>Threads group by feature, the Linear project of their tickets, or by person.</li><li>A thread passes a lead once their GitHub approval is in.</li><li>Open a feature or a person for each of their threads, a team for its people.</li></ul>
                 <button type="button" class="demo-link" data-demo-mode="brigade">Run the demo as a French Brigade</button>
               </div>
             </div>

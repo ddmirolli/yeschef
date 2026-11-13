@@ -2,8 +2,8 @@
 // for a Claude and a Codex call; the tickets in them are made up.
 import { test } from 'vite-plus/test';
 import assert from 'node:assert/strict';
-import { cleanIssue, createLinearReads, linearCall } from './linear.ts';
-import type { LinearThread } from './linear.ts';
+import { cleanIssue, createLinearReads, featureOf, linearCall } from './linear.ts';
+import type { LinearLink, LinearThread } from './linear.ts';
 
 const issue = (id: string, more: Record<string, unknown> = {}) => ({ id, title: `Ticket ${id}`, status: 'In Progress', statusType: 'started',
   url: `https://linear.app/acme/issue/${id}/ticket-${id.toLowerCase()}`, assignee: 'Ada', ...more });
@@ -16,7 +16,7 @@ const codexItem = (tool: string, input: unknown, body: unknown) => JSON.stringif
 test('a Claude get_issue and a Codex list_issues give their tickets', () => {
   const one = linearCall(claudeItem('get_issue', { id: 'ENG-12' }, issue('ENG-12')), 1000);
   assert.deepEqual(one, { tool: 'get_issue', about: ['ENG-12'], at: 1000,
-    issues: [{ id: 'ENG-12', title: 'Ticket ENG-12', status: 'In Progress', statusType: 'started', url: 'https://linear.app/acme/issue/ENG-12/ticket-eng-12', assignee: 'Ada' }] });
+    issues: [{ id: 'ENG-12', title: 'Ticket ENG-12', status: 'In Progress', statusType: 'started', url: 'https://linear.app/acme/issue/ENG-12/ticket-eng-12', assignee: 'Ada', project: '', projectId: '' }] });
   const list = linearCall(codexItem('list_issues', { limit: 2 }, { issues: [issue('ENG-1'), issue('ENG-2', { status: 'Done', statusType: 'completed' })], hasNextPage: false }), 2000);
   assert.equal(list?.tool, 'list_issues');
   // A list is about no one ticket: it links no thread.
@@ -39,7 +39,7 @@ test('each field is checked once, here at the edge; anything else is dropped', (
   assert.equal(cleanIssue(['ENG-1']), null);
   assert.deepEqual(cleanIssue({ identifier: 'ENG-3', state: { name: 'Todo' } }), { id: 'ENG-3', status: 'Todo' });
   const bad = cleanIssue({ id: 'ENG-4', title: 'x'.repeat(5000), statusType: 'on fire', url: 'https://evil.example/issue/ENG-4', assignee: { name: 'Ada' }, status: 'a\u0000b\nc' });
-  assert.deepEqual(bad, { id: 'ENG-4', title: 'x'.repeat(300), status: 'a b c' });
+  assert.deepEqual(bad, { id: 'ENG-4', title: 'x'.repeat(300), status: 'a b c', project: '', projectId: '' });
   // The address must be Linear's, for this ticket.
   assert.equal(cleanIssue({ id: 'ENG-5', url: 'https://linear.app/acme/issue/ENG-6/other' })?.url, undefined);
   assert.equal(cleanIssue({ id: 'ENG-5', url: 'javascript:alert(1)' })?.url, undefined);
@@ -49,6 +49,62 @@ test('each field is checked once, here at the edge; anything else is dropped', (
     const out = cleanIssue({ id: a, identifier: b, title: a, status: b, statusType: a, url: b, assignee: a, state: b });
     assert.ok(out === null || /^[A-Z][A-Z0-9_]{0,9}-[0-9]{1,7}$/.test(out.id!));
   }
+});
+
+test('a ticket\'s Linear project is its feature: read as the MCP gives it; a whole ticket in none says so; a part read says nothing', () => {
+  // As read 2026-11-13: `project` is the name, `projectId` the id, both left out for a ticket in no project.
+  assert.deepEqual(cleanIssue(issue('ENG-1', { project: 'Payouts v2', projectId: 'ed93ef9c-3f61-4ee9-97e3-aa4a25b32da3' })), { ...cleanIssue(issue('ENG-1')), project: 'Payouts v2', projectId: 'ed93ef9c-3f61-4ee9-97e3-aa4a25b32da3' });
+  assert.deepEqual(cleanIssue(issue('ENG-1', { project: { id: 'p-1', name: 'Sharing' } }))?.project, 'Sharing');
+  assert.deepEqual([cleanIssue(issue('ENG-1'))?.project, cleanIssue(issue('ENG-1'))?.projectId], ['', '']);
+  // A part read (no title) says nothing about the project; a broken id or name drops both, never half.
+  assert.equal('project' in cleanIssue({ id: 'ENG-1', status: 'Done' })!, false);
+  for (const bad of [{ project: 'X', projectId: 'not an id' }, { project: '', projectId: 'p-1' }, { project: 'X' }, { projectId: 'p-1' }, { project: ['X'], projectId: 'p-1' }]) {
+    const out = cleanIssue(issue('ENG-1', bad))!;
+    assert.equal('project' in out || 'projectId' in out, false, JSON.stringify(bad));
+  }
+});
+
+test('a thread\'s feature is the project most of its read tickets are in; none read is not checked', () => {
+  const r = (id: string, project: string | null, projectId: string | null): LinearLink => ({ state: 'read', id, title: id, status: null, statusType: null, url: null, assignee: null, project, projectId, at: 1, by: 'a' });
+  assert.equal(featureOf(undefined), undefined);
+  assert.equal(featureOf([{ state: 'not-checked', id: 'ENG-1', url: null }]), undefined);
+  assert.equal(featureOf([r('ENG-1', null, null)]), null);
+  assert.deepEqual(featureOf([r('ENG-1', 'A', 'a'), r('ENG-2', 'B', 'b'), r('ENG-3', 'B', 'b'), r('ENG-4', null, null)]), { id: 'b', name: 'B' });
+  // None in a project, and one ticket's project not read yet (a part read): not checked, never "No feature".
+  const part: LinearLink = { state: 'read', id: 'ENG-5', title: null, status: 'Done', statusType: null, url: null, assignee: null, at: 1, by: 'a' };
+  assert.equal(featureOf([r('ENG-1', null, null), part]), undefined);
+  assert.deepEqual(featureOf([r('ENG-1', 'A', 'a'), part]), { id: 'a', name: 'A' });
+  // A tie: the first.
+  assert.deepEqual(featureOf([r('ENG-1', 'A', 'a'), r('ENG-2', 'B', 'b')]), { id: 'a', name: 'A' });
+});
+
+test('a part read of a ticket leaves its project not read: no project keys, so the thread is not checked', async () => {
+  const items = {
+    a: [{ itemId: 'm0', type: 'user_message', text: 'look at ENG-7', updatedAt: at(25) },
+      { itemId: 't1', type: 'dynamic_tool', text: claudeItem('get_issue', { id: 'ENG-7' }, { id: 'ENG-7', status: 'Done' }), updatedAt: at(20) }],
+  };
+  const reads = createLinearReads({ call: fakeT3(items), now: () => NOW });
+  reads.want([{ threadId: 'a', updatedAt: at(20), itemCount: 2 }]);
+  for (let i = 0; i < 5; i++) await settle();
+  const got = reads.get('ENG-7')!;
+  assert.equal(got.status, 'Done');
+  assert.equal('project' in got || 'projectId' in got, false);
+  assert.equal(featureOf([{ state: 'read', ...got }]), undefined);
+});
+
+test('a ticket moved out of its project leaves it at the newer read', async () => {
+  const items = {
+    a: [{ itemId: 'm0', type: 'user_message', text: 'look at ENG-12', updatedAt: at(25) },
+      { itemId: 't1', type: 'dynamic_tool', text: claudeItem('get_issue', { id: 'ENG-12' }, issue('ENG-12', { project: 'Payouts v2', projectId: 'p-1' })), updatedAt: at(20) }],
+  };
+  const reads = createLinearReads({ call: fakeT3(items), now: () => NOW });
+  reads.want([{ threadId: 'a', updatedAt: at(20), itemCount: 2 }]);
+  for (let i = 0; i < 5; i++) await settle();
+  assert.deepEqual([reads.get('ENG-12')?.project, reads.get('ENG-12')?.projectId], ['Payouts v2', 'p-1']);
+  items.a.push({ itemId: 't2', type: 'dynamic_tool', text: claudeItem('get_issue', { id: 'ENG-12' }, issue('ENG-12')), updatedAt: at(5) });
+  reads.want([{ threadId: 'a', updatedAt: at(5), itemCount: 3 }]);
+  for (let i = 0; i < 5; i++) await settle();
+  assert.deepEqual([reads.get('ENG-12')?.project, reads.get('ENG-12')?.projectId], [null, null]);
 });
 
 // A stand-in for T3's t3_thread_read: activity pages with short text, and each item in full by its itemId.

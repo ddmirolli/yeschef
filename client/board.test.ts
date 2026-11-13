@@ -2,6 +2,8 @@
 import { test } from 'vite-plus/test';
 import assert from 'node:assert/strict';
 import { buildBoard, shownPrs } from './board.ts';
+import { summarize } from './team-summaries.ts';
+import { one } from './test/expect.ts';
 import type { Status, Ticket } from './board.ts';
 import type { PullRequestLink, QuestionItem, ThreadRow } from './contracts.ts';
 
@@ -380,11 +382,24 @@ test('PR-Agent r6 on #50: a closed pull request has its own dot, and the count a
   assert.match(html, /<span class="chip c-blue">2 questions<\/span>/);
 });
 
+test('a summary ticket carries its feature: the Linear project of its read tickets, null for none, left out when none was read', () => {
+  const board = buildBoard({ projects: [{ id: 'p', title: 'P' }], questions: new Map(), threads: [T('a'), T('b'), T('c')] });
+  const [a, b] = [one(board.tickets, (k) => k.thread.threadId === 'a', 'a'), one(board.tickets, (k) => k.thread.threadId === 'b', 'b')];
+  const r = { state: 'read' as const, title: 't', status: null, statusType: null, url: null, assignee: null, at: 1, by: 'a' };
+  a.linear = [{ ...r, id: 'ENG-1', project: 'Payouts v2 '.repeat(20), projectId: 'p-1' }];
+  b.linear = [{ ...r, id: 'ENG-2', project: null, projectId: null }];
+  const tickets = summarize(board, ['p'], 65536, { now: 1 }).tickets;
+  const by = (id: string) => one(tickets, (t) => t.thread === id, id);
+  assert.deepEqual(by('a').feature, { id: 'p-1', name: 'Payouts v2 '.repeat(20).trim().slice(0, 80) });
+  assert.equal(by('b').feature, null);
+  assert.equal('feature' in by('c'), false);
+});
+
 test('a reader shows its Linear tickets beside its pull requests: a read one with its status, a named one "Not checked"', () => {
   const board = buildBoard({ projects: [{ id: 'p', title: 'P' }], questions: new Map(), threads: [T('a', { pullRequests: [pr(4, 'open')] })] });
   const k = only(board.tickets);
   k.linear = [
-    { state: 'read', id: 'ENG-12', title: 'Fix <b>import</b>', status: 'In Progress', statusType: 'started', url: 'https://linear.app/acme/issue/ENG-12/fix', assignee: null, at: Date.now() - 3 * 3_600_000, by: 'a' },
+    { state: 'read', id: 'ENG-12', title: 'Fix <b>import</b>', status: 'In Progress', statusType: 'started', url: 'https://linear.app/acme/issue/ENG-12/fix', assignee: null, project: null, projectId: null, at: Date.now() - 3 * 3_600_000, by: 'a' },
     { state: 'not-checked', id: 'ENG-13', url: null },
   ];
   const html = renderApp({ board, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });

@@ -21,6 +21,8 @@ export type DemoPr = { repo: string; n: number; state: string; url: string | nul
 /** A ticket as the summary sends it. */
 export type DemoTicket = { thread: string; title: string; project: string; place: string; atPass: boolean; working: number; asks: number; call: boolean;
   prs: DemoPr[]; updatedAt: string | null; startedAt: number | null; last: string | null;
+  /** Its feature, as a dev's Yes Chef reads it from Linear (step 7): null for tickets in no project. */
+  feature?: { id: string; name: string } | null;
   ask: { at: number | null; q: string; rec: string | null; n: number; options: { k: string | null; t: string | null }[] } | null;
   changes?: { state: 'checked'; at: number | null; repo: string | null; base: string | null; mergeBase: string | null; head: string | null; headAt: number | null;
     files: DemoFile[]; more: number; size: { files: number | null; added: number | null; removed: number | null } } };
@@ -154,9 +156,19 @@ export function demoTeam(now: number): DemoTeam {
     { id: 'a-dispatch', name: 'Dispatch', projects: ['Loopline'], mode: 'open', budget: 10 },
     { id: 'a-shared', name: 'Shared code', projects: ['Fernpay', 'Loopline', 'Quillo'], mode: 'brigade', budget: 10 },
   ];
+  // Each product's Linear projects, the features French Brigade groups by; about one ticket in seven is in none.
+  const FEATURES: Record<Project, { id: string; name: string }[]> = {
+    Fernpay: [{ id: 'f-payouts', name: 'Payouts v2' }, { id: 'f-merchant', name: 'Merchant tools' }],
+    Loopline: [{ id: 'f-dispatch', name: 'Dispatch map' }, { id: 'f-driver', name: 'Driver app' }],
+    Quillo: [{ id: 'f-offline', name: 'Offline sync' }, { id: 'f-sharing', name: 'Sharing' }],
+  };
+  const withFeature = (k: DemoTicket): DemoTicket => {
+    const sum = [...k.title].reduce((a, ch) => a + ch.charCodeAt(0), 0);
+    return { ...k, feature: sum % 7 === 0 ? null : FEATURES[k.project as Project][sum % 2]! };
+  };
   const people: DemoPerson[] = NAMES.map(([id, name]) => {
     const away = id === 'lee';
-    const tickets = [...(story[id] ?? []), ...calm(id)];
+    const tickets = [...(story[id] ?? []), ...calm(id)].map(withFeature);
     return { id, name, role: OWNS[id] ? 'owner' : 'engineer', perms: ['see'], area: OWNS[id] ?? null, under: under[id] ?? null,
       online: !away, at: away ? ago(122) : ago(1), live: !away, notCheckedSince: away ? ago(112) : null,
       summary: { v: 1, tickets, more: 0, gh: login(id), bases: id === 'ravi' ? [ravisBase] : [], seen: seen[id] ?? {}, fine: {}, at: away ? ago(122) : ago(1), health: { ok: true, since: ago(600) } } };

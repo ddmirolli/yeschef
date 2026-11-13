@@ -1,5 +1,8 @@
 // French Brigade, the Your team view's Sankey (flow mock v3.3, locked 2026-11-11; Dan, 2026-11-12, "A": grouped by
-// person until a tracker reader brings features). Each teammate below you is a group on the left; their threads run
+// person until a tracker reader brings features). Since step 7 PR 1 (Dan, 3A, 2026-11-13) it groups by feature, the
+// Linear project of each thread's tickets, with a Feature | Person toggle (1A, 2026-11-11); threads whose tickets are
+// in no project read "No feature", and threads with no ticket read "Not checked". By person, each teammate below you is
+// a group on the left; their threads run
 // left to right through the stages: In progress, In review up the sign-off ladder, Ready to merge at the person who
 // merges, then Merged. Staging and Release are "not checked": no reader brings them yet.
 //
@@ -70,7 +73,19 @@ export function treeOf(view: TeamView | null | undefined): Tree | null {
 /** One teammate's thread on the chart. calls: the hover keys of the calls on it in your Pass (p:<plate>). */
 export interface FbItem {
   id: string; title: string; project: string | null; stage: FbStage; since: number; author: string; prs: TeamPr[]; calls: string[];
+  /** Its feature: null when its tickets are in no project; left out when no ticket was read (not checked). */
+  feature?: { id: string; name: string } | null;
 }
+/** How the chart groups threads on the left. */
+export type FbBy = 'feature' | 'person';
+/** A thread's feature group on the left (x:<id>), or the threads in no feature (x:-), or with no ticket read (x:?). */
+export function featureGroup(t: FbItem): { key: string; label: string } {
+  return t.feature ? { key: `x:${t.feature.id}`, label: t.feature.name } : t.feature === null ? { key: 'x:-', label: 'No feature' } : { key: 'x:?', label: 'Not checked' };
+}
+// A group's name fits the left margin; the tooltip has it whole.
+const short = (s: string): string => (s.length > 17 ? `${s.slice(0, 16).trimEnd()}…` : s);
+// Opened: one person's or one feature's threads, one band each.
+const isOne = (drill: string | null | undefined): boolean => !!drill && (drill.startsWith('p:') || drill.startsWith('x:'));
 /** The threads the chart draws: the picked projects' threads below you, in the four stages. */
 export function brigadeItems(ok: OpenKitchen, tree: Tree, { want = null, plateOf }: { want?: ReadonlySet<string> | null; plateOf: (callId: string) => string | null }): FbItem[] {
   if (ok.status !== 'live') return [];
@@ -85,7 +100,9 @@ export function brigadeItems(ok: OpenKitchen, tree: Tree, { want = null, plateOf
     const stage = STAGES.find((s) => s === k.place);
     if (!stage || !tree.up(person).includes(tree.me)) return [];
     if (want && (k.project === null || !want.has(k.project))) return [];
-    return [{ id: k.thread, title: k.title || 'Untitled thread', project: k.project, stage, since: k.updatedAt ?? NaN, author: person, prs: k.prs, calls: keys.get(k.thread) ?? [] }];
+    const item: FbItem = { id: k.thread, title: k.title || 'Untitled thread', project: k.project, stage, since: k.updatedAt ?? NaN, author: person, prs: k.prs, calls: keys.get(k.thread) ?? [] };
+    if (k.feature !== undefined) item.feature = k.feature;
+    return [item];
   });
 }
 
@@ -135,7 +152,7 @@ export function groupOfIn(tree: Tree, id: string): { key: string; label: string 
 
 /** Where every band and node sits. drill: a group's key to open its threads, one band each. fitH: the height (in
  *  viewBox units) the page has free, as client/flow.ts layout reads it. */
-export function brigadeLayout(items: readonly FbItem[], tree: Tree, now: number, drill: string | null = null, fitH?: number): FbLayout {
+export function brigadeLayout(items: readonly FbItem[], tree: Tree, now: number, drill: string | null = null, fitH?: number, by: FbBy = 'person'): FbLayout {
   const fold = (id: string) => foldOf(tree, id), groupOf = (id: string) => groupOfIn(tree, id);
   const nodes = new Map<string, Node>();
   const nodeOf = (id: string, merge: boolean): string => {
@@ -151,9 +168,10 @@ export function brigadeLayout(items: readonly FbItem[], tree: Tree, now: number,
   // person's bundle reads in the full chart, never as loose strands apart (Dan, 2026-11-12: "detailed threads with
   // texture rather than the linguini"). Or a folded team as its people, bundled as the full chart is (f:<id>), so a
   // team of any size reads the same way one level down (Dan's scale check, 2026-11-12).
-  const one = !!drill?.startsWith('p:');
-  const pick = drill === null ? items : items.filter((t) => (one ? t.author === drill.slice(2) : groupOf(t.author).key === drill));
-  const rowOf = (id: string) => (drill?.startsWith('f:') ? { key: `p:${id}`, label: tree.name(id) } : groupOf(id));
+  // Opened, a feature (x:<id>) reads as a person does: its threads one band each.
+  const one = isOne(drill);
+  const pick = drill === null ? items : items.filter((t) => (drill.startsWith('p:') ? t.author === drill.slice(2) : drill.startsWith('x:') ? featureGroup(t).key === drill : groupOf(t.author).key === drill));
+  const rowOf = (t: FbItem) => (drill?.startsWith('f:') ? { key: `p:${t.author}`, label: tree.name(t.author) } : by === 'feature' ? featureGroup(t) : groupOf(t.author));
   const map = new Map<string, FbBand>();
   for (const t of pick) {
     const { signers, merger } = ladder(tree, t.author);
@@ -167,7 +185,7 @@ export function brigadeLayout(items: readonly FbItem[], tree: Tree, now: number,
       for (const s of signers) add(nodeOf(s, false));
       if (merger) add(nodeOf(merger, true));
     }
-    const age = ageOf(t.since, now), g = rowOf(t.author);
+    const age = ageOf(t.since, now), g = rowOf(t);
     const key = one || t.calls.length ? `t|${t.id}` : `${g.key}|${t.stage}|${age}|${stops.join('>')}|${signed}`;
     let b = map.get(key);
     if (!b) map.set(key, b = { id: '', group: one && drill ? drill : g.key, stage: t.stage, age, items: [], stops, h: 0, y0: 0, y: {}, signed });
@@ -175,9 +193,11 @@ export function brigadeLayout(items: readonly FbItem[], tree: Tree, now: number,
   }
   const bands = [...map.values()];
   bands.forEach((b, i) => { b.id = String(i); });
-  const labels = new Map(pick.map((t) => [rowOf(t.author).key, rowOf(t.author).label]));
-  // People in name order. Within each, threads by stage, furthest first (mine, below).
-  const names = [...new Set(bands.map((b) => b.group))].sort((a, z) => (labels.get(a) ?? a).localeCompare(labels.get(z) ?? z) || a.localeCompare(z));
+  const labels = new Map(pick.map((t) => [rowOf(t).key, rowOf(t).label]));
+  // People (or features) in name order, with No feature and Not checked last. Within each, threads by stage, furthest
+  // first (mine, below).
+  const last = (g: string): number => (g === 'x:-' ? 1 : g === 'x:?' ? 2 : 0);
+  const names = [...new Set(bands.map((b) => b.group))].sort((a, z) => last(a) - last(z) || (labels.get(a) ?? a).localeCompare(labels.get(z) ?? z) || a.localeCompare(z));
   const total = pick.length, n = names.length;
 
   // Columns: review levels deepest first (left), then who merges.
@@ -288,8 +308,9 @@ function reviewWords(t: FbItem, names: ReadonlyMap<string, string>): string {
 
 /** The chart as one panel, the way Open kitchen's rows sit (client/board.ts okRows): the page sends the size it has
  *  (fx=WxH), so it fills the column down to the foot of The Pass. */
-export function drawBrigade(items: readonly FbItem[], tree: Tree, now: number, { drill = null, fit = null }: { drill?: string | null; fit?: Fit | null } = {}): string {
-  const L = brigadeLayout(items, tree, now, drill, fit ? (fit.h * W) / fit.w : undefined);
+export function drawBrigade(items: readonly FbItem[], tree: Tree, now: number, { drill = null, fit = null, by = 'person' }: { drill?: string | null; fit?: Fit | null; by?: FbBy } = {}): string {
+  const L = brigadeLayout(items, tree, now, drill, fit ? (fit.h * W) / fit.w : undefined, by);
+  const opened = isOne(L.drill);
   const all = L.bands.flatMap((b) => b.items);
   const count = (s: FbStage) => String(all.filter((t) => t.stage === s).length);
   const zones: [string, string][] = [['In progress', count('In progress')], ['In review', count('In review')], ['Ready to merge', count('Ready to merge')],
@@ -297,7 +318,7 @@ export function drawBrigade(items: readonly FbItem[], tree: Tree, now: number, {
   // GitHub login to the teammate's name, for the reviewers in a tooltip.
   const names = new Map<string, string>();
   for (const id of new Set([tree.me, ...all.flatMap((t) => [t.author, ...tree.up(t.author)])])) { const l = tree.login(id); if (l) names.set(l.toLowerCase(), id === tree.me ? 'You' : tree.name(id)); }
-  let out = `<svg class="fx okr fbr${L.drill?.startsWith('p:') ? ' fb-one' : ''}"${fit ? ` data-fit="${fit.w}x${fit.h}"` : ''} viewBox="0 0 ${W} ${f1(L.H)}" role="img" aria-label="${e(`French Brigade: ${plural(all.length, 'thread')} from start to merge, by person`)}">`;
+  let out = `<svg class="fx okr fbr${opened ? ' fb-one' : ''}"${fit ? ` data-fit="${fit.w}x${fit.h}"` : ''} viewBox="0 0 ${W} ${f1(L.H)}" role="img" aria-label="${e(`French Brigade: ${plural(all.length, 'thread')} from start to merge, by ${by}`)}">`;
   out += `<defs><pattern id="fb-dots" width="14" height="14" patternUnits="userSpaceOnUse"><circle cx="7" cy="7" r="1" class="dot"/></pattern></defs><rect width="${W}" height="100%" fill="url(#fb-dots)"/>`;
   zones.forEach(([name, n], i) => {
     const x0 = ZONE_X[i] ?? 0, x1 = ZONE_X[i + 1] ?? W;
@@ -317,7 +338,7 @@ export function drawBrigade(items: readonly FbItem[], tree: Tree, now: number, {
       : `<b>${e(L.groups.find((g) => g.key === b.group)?.label ?? '')}</b><div>${plural(b.items.length, 'thread')} · ${b.stage}${WHERE(b, L)}</div>`
         + `<div class="m">Last change ${b.age === null ? 'not checked' : AGE_WORD[b.age]}</div>`;
     // A person opened: their threads run from the left edge. Else each group's name sits at the left.
-    const one = !!L.drill?.startsWith('p:'), xs = one ? 10 : XB;
+    const one = opened, xs = one ? 10 : XB;
     const pts: Pt[] = [{ x: xs, y: b.y0, c: false }, { x: XG, y: b.y0, c: false }];
     if (b.stage === 'In progress') pts.push({ x: END_PROG, y: b.y0, c: false });
     else if (b.stage === 'In review' && !b.stops.length) pts.push({ x: END_REVIEW, y: b.y0, c: false });
@@ -329,11 +350,11 @@ export function drawBrigade(items: readonly FbItem[], tree: Tree, now: number, {
     bands += `<path class="band ${ageCls(b.age)}"${hov(k, f, tip)}${act} d="${ribbon(pts, b.h)}"/>${strands(pts, b.h, b.items.length)}`;
   }
   // The names: each person (or folded team) at the left, each sign-off node over its pile. Leads above you are outlined.
-  if (!L.drill?.startsWith('p:')) for (const g of L.groups) {
+  if (!opened) for (const g of L.groups) {
     const mineB = L.bands.filter((b) => b.group === g.key), n = mineB.reduce((s, b) => s + b.items.length, 0);
     const tip = `<b>${e(g.label)}</b><div>${plural(n, 'thread')}</div>`
-      + `<div class="m">${STAGES.map((s) => [s, mineB.filter((b) => b.stage === s).reduce((c, b) => c + b.items.length, 0)] as const).filter(([, c]) => c).map(([s, c]) => `${c} ${s.toLowerCase()}`).join(' · ')}</div><div class="m">Click to open their threads</div>`;
-    labels += `<text class="rowname fbg" x="${XN}" y="${f1(g.y + g.h / 2)}" dominant-baseline="central" text-anchor="end"${hov([`g:${g.key}`, ...mineB.flatMap((b) => b.items.flatMap((t) => t.calls))], [`g:${g.key}`], tip)} data-who="${e(g.key)}" tabindex="0" role="button" aria-label="${e(`Open ${g.label}: ${plural(n, 'thread')}`)}">${e(g.label)}</text>`;
+      + `<div class="m">${STAGES.map((s) => [s, mineB.filter((b) => b.stage === s).reduce((c, b) => c + b.items.length, 0)] as const).filter(([, c]) => c).map(([s, c]) => `${c} ${s.toLowerCase()}`).join(' · ')}</div>${g.key === 'x:?' ? '<div class="m">No Linear ticket read for these threads</div>' : g.key === 'x:-' ? '<div class="m">Their Linear tickets are in no project</div>' : ''}<div class="m">Click to open ${g.key.startsWith('x:') ? 'its' : 'their'} threads</div>`;
+    labels += `<text class="rowname fbg" x="${XN}" y="${f1(g.y + g.h / 2)}" dominant-baseline="central" text-anchor="end"${hov([`g:${g.key}`, ...mineB.flatMap((b) => b.items.flatMap((t) => t.calls))], [`g:${g.key}`], tip)} data-who="${e(g.key)}" tabindex="0" role="button" aria-label="${e(`Open ${g.label}: ${plural(n, 'thread')}`)}">${e(short(g.label))}</text>`;
   }
   for (const d of L.nodes) {
     // Waiting here: its last stop, and not merged (a merged thread passed through). Past it: signed off, or merged.

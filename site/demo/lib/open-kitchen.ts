@@ -41,7 +41,9 @@ export interface TeamChanges { state: string | null; at: number | null; repo: st
   headAt: number | null; more: number | null; files: ChangedFile[] }
 /** A teammate's ticket, cleaned (cleanTicket). */
 export interface TeamTicket { thread: string | null; title: string | null; project: string | null; place: string | null; working: number;
-  startedAt: number | null; updatedAt: number | null; last: string | null; prs: TeamPr[]; ask: TeamAsk | null; changes: TeamChanges | null }
+  startedAt: number | null; updatedAt: number | null; last: string | null; prs: TeamPr[]; ask: TeamAsk | null; changes: TeamChanges | null;
+  /** Its feature (a Linear project): null when its tickets are in none; left out when no ticket was read (not checked). */
+  feature?: { id: string; name: string } | null }
 /** A base branch a teammate's Mac read, cleaned (cleanBase). */
 export interface Base { repo: string | null; branch: string | null; sha: string | null; title: string | null; requiredResult: string | null;
   redSha: string | null; redSince: number | null; at: number | null; failing: string[] }
@@ -125,6 +127,14 @@ const obj = (v: unknown): Raw | null => (v && typeof v === 'object' ? v as Raw :
 // A PR from a teammate's summary counts only with a whole number and an owner/name repo: both reach the page's markup.
 const okPr = (pr: Raw): pr is Raw & { n: number; repo: string } => Number.isInteger(pr.n) && (pr.n as number) > 0 && typeof pr.repo === 'string' && /^[\w.-]+\/[\w.-]+$/.test(pr.repo);
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+// A ticket's feature from a summary (step 7): { feature } when it names one or says none (null); {} when it says nothing
+// (not checked) or something else.
+const featureIn = (v: unknown): { feature?: { id: string; name: string } | null } => {
+  if (v === null) return { feature: null };
+  const f = obj(v), id = typeof f?.id === 'string' ? f.id.trim() : '', name = typeof f?.name === 'string' ? f.name.trim() : '';
+  // The id is a Linear project id, as client/linear.ts reads it: it keys the chart's hover sets, which split on spaces.
+  return /^[A-Za-z0-9-]{1,64}$/.test(id) && name && name.length <= 80 ? { feature: { id, name } } : {};
+};
 // A commit from a teammate's summary: a hex sha (it reaches the page as text), and a title cut to one line.
 const hex = (v: unknown): string | null => (typeof v === 'string' && /^[0-9a-f]{7,64}$/i.test(v) ? v.toLowerCase() : null);
 const line = (v: unknown, max: number): string | null => (typeof v === 'string' && v.trim() ? v.split('\n')[0]!.slice(0, max) : null);
@@ -142,7 +152,7 @@ function cleanTicket(k: Raw): TeamTicket {
   const c = obj(k.changes);
   const a = obj(k.ask);
   return {
-    thread: str(k.thread), title: str(k.title), project: str(k.project), place: str(k.place), working: num(k.working) ?? 0,
+    ...featureIn(k.feature), thread: str(k.thread), title: str(k.title), project: str(k.project), place: str(k.place), working: num(k.working) ?? 0,
     startedAt: ms(k.startedAt), updatedAt: ms(k.updatedAt), last: str(k.last),
     prs: arr(k.prs).filter(okPr).map(pr),
     ask: a ? { at: ms(a.at), q: str(a.q), rec: str(a.rec), options: arr(a.options).map((o) => ({ k: str(o.k), t: str(o.t) })) } : null,

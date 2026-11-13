@@ -1841,6 +1841,15 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     // Your team, expanded: a sub-lead's name folds their team into one row and back.
     var fo = t.closest<Element>('.tboard [data-fold]');
     if (fo) { toggleFold(fo.getAttribute('data-fold') || ''); return; }
+    // French Brigade's Feature | Person toggle (?by=person; by feature is the default).
+    var byB = t.closest<HTMLElement>('.tboard [data-by]');
+    if (byB) {
+      var ub = new URLSearchParams(location.search);
+      if (byB.dataset.by === 'person') ub.set('by', 'person'); else ub.delete('by');
+      ub.delete('who'); var qb = ub.toString();
+      flowFocus(null); hideTips();
+      history.replaceState(history.state, '', location.pathname + (qb ? '?' + qb : '')); state.sel = null; wake(); return;
+    }
     // French Brigade: a person's name or band opens their threads; the back button beside the picker closes them.
     var wh = t.closest<Element>('.tboard [data-who]');
     if (wh) { hideTips(); openWho(wh.getAttribute('data-who') || ''); return; }

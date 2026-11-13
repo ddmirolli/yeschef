@@ -1,7 +1,7 @@
 // French Brigade, the Your team view's Sankey. Run: vp test run brigade.test.ts, in client/
 import { test } from 'vite-plus/test';
 import assert from 'node:assert/strict';
-import { brigadeItems, brigadeLayout, drawBrigade, treeOf } from './brigade.ts';
+import { brigadeItems, brigadeLayout, drawBrigade, featureGroup, treeOf } from './brigade.ts';
 import type { FbItem, Tree } from './brigade.ts';
 import { brigadeView } from './brigade.fixture.ts';
 import { fixtureView } from './open-kitchen.fixture.ts';
@@ -22,8 +22,18 @@ const setup = (v: Wire = brigadeView(NOW)) => {
   return { v, tree, ok, items: brigadeItems(ok, tree, { plateOf: () => null }) };
 };
 const item = (items: readonly FbItem[], id: string): FbItem => one(items, (t) => t.id === id, id);
-const page = (view: TeamView, who: string | null = null) => renderApp({ board: { tickets: [], runsChecked: false }, link: () => 'x', status: { ok: true, at: NOW, ms: 1 },
-  origin: 'https://t3.example', team: { view, now: NOW, mode: 'brigade' }, who });
+const page = (view: TeamView, who: string | null = null, by: string | null = null) => renderApp({ board: { tickets: [], runsChecked: false }, link: () => 'x', status: { ok: true, at: NOW, ms: 1 },
+  origin: 'https://t3.example', team: { view, now: NOW, mode: 'brigade' }, who, by });
+/** The made-up team with features on its tickets: every third in Payouts v2, every third in no project, the rest not read. */
+const withFeatures = (): Wire => {
+  const v = brigadeView(NOW);
+  let i = 0;
+  for (const p of v.people) for (const t of (p.summary as Wire)?.tickets ?? []) {
+    const n = i++ % 3;
+    if (n === 0) t.feature = { id: 'p-pay', name: 'Payouts v2' }; else if (n === 1) t.feature = null;
+  }
+  return v;
+};
 const fitted = (view: TeamView, who: string | null) => renderApp({ board: { tickets: [], runsChecked: false }, link: () => 'x', status: { ok: true, at: NOW, ms: 1 },
   origin: 'https://t3.example', team: { view, now: NOW, mode: 'brigade' }, who, fit: { w: 860, h: 700 } });
 /** Where a band sits at a node. */
@@ -216,9 +226,9 @@ test('opened, the header names who, and a person\'s threads pack into one bundle
   const { tree, items } = setup(v);
   const head = (h: string) => grab(h, /<section class="tboard"[^>]*><header class="you-h">[\s\S]*?<\/header>/);
   assert.doesNotMatch(head(page(v)), /you-who/, 'everyone: no name');
-  assert.match(head(page(v, 'f:priya')), /data-unwho[^]*<\/button><span class="you-who" aria-hidden="true">Priya&#39;s team<\/span>/);
+  assert.match(head(page(v, 'f:priya')), /data-unwho[^]*<\/button><span class="you-who" aria-hidden="true" title="[^"]*">Priya&#39;s team<\/span>/);
   const jon = fitted(v, 'p:jon');
-  assert.match(head(jon), /<span class="you-who" aria-hidden="true">Jon<\/span><\/header>/);
+  assert.match(head(jon), /<span class="you-who" aria-hidden="true" title="[^"]*">Jon<\/span><\/header>/);
   // "Detailed threads with texture rather than the linguini": no gap between two threads, at the left or at any node.
   const mine = items.filter((t) => t.author === 'jon');
   for (const fitH of [undefined, 500, 900]) {
@@ -256,6 +266,61 @@ test('French Brigade says not checked while the team link is down, and nothing i
   const lee = one<Wire>(idle.people, (p: Wire) => p.id === 'lee');
   lee.summary = null;
   assert.match(page(idle), /<b>Not checked<\/b> 1 teammate is not reporting/, 'Lee has sent nothing: no threads is not nothing in flight');
+});
+
+test('by feature (step 7): a group per Linear project, then No feature, then Not checked; the toggle and ?by=person', () => {
+  const v = withFeatures();
+  const { tree, items } = setup(v);
+  assert.ok(items.some((t) => t.feature) && items.some((t) => t.feature === null) && items.some((t) => t.feature === undefined));
+  const L = brigadeLayout(items, tree, NOW, null, undefined, 'feature');
+  assert.deepEqual(L.groups.map((g) => [g.key, g.label]), [['x:p-pay', 'Payouts v2'], ['x:-', 'No feature'], ['x:?', 'Not checked']]);
+  // Every thread sits in its feature's group.
+  for (const b of L.bands) for (const t of b.items) assert.equal(featureGroup(t).key, b.group);
+  // The page: by feature by default, with the toggle; ?by=person groups by person.
+  const html = page(v);
+  assert.match(html, /aria-label="French Brigade: \d+ threads from start to merge, by feature"/);
+  assert.match(html, /<div class="fb-by" role="radiogroup" aria-label="Group threads by"><button type="button" role="radio" aria-checked="true" data-by="feature">Feature<\/button><button type="button" role="radio" aria-checked="false" data-by="person">Person<\/button><\/div>/);
+  assert.match(html, /data-who="x:p-pay"/);
+  const people = page(v, null, 'person');
+  assert.match(people, /by person"/);
+  assert.match(people, /aria-checked="true" data-by="person"/);
+  assert.match(people, /data-who="f:priya"/);
+  // No feature read anywhere: by person, and no toggle.
+  const plain = page(brigadeView(NOW));
+  assert.match(plain, /by person"/);
+  assert.doesNotMatch(plain, /fb-by/);
+});
+
+test('?who opens a feature as its threads, one band each, and the header names it; a long name is cut on the chart only', () => {
+  const v = withFeatures();
+  for (const p of v.people) for (const t of (p.summary as Wire)?.tickets ?? []) if (t.feature) t.feature = { id: 'p-pay', name: 'Payouts version two for merchants' };
+  const { items } = setup(v);
+  const all = page(v);
+  assert.match(all, />Payouts version…<\/text>/);
+  assert.match(all, /="[^"]*Payouts version two for merchants[^"]*"/, 'the tooltip has it whole');
+  const open = page(v, 'x:p-pay');
+  assert.match(open, /data-unwho/);
+  assert.match(open, /<span class="you-who" aria-hidden="true" title="[^"]*">Payouts version two for merchants<\/span>/);
+  assert.doesNotMatch(open, /fb-by/, 'opened: no toggle');
+  const svg = grab(open, /<svg class="fx okr fbr[^"]*"[\s\S]*?<\/svg>/);
+  assert.equal(bandKeys(svg).length, items.filter((t) => t.feature?.id === 'p-pay').length, 'one band per thread');
+  // Not checked opens too; an unknown feature shows everyone.
+  assert.match(page(v, 'x:?'), /<span class="you-who" aria-hidden="true" title="[^"]*">Not checked<\/span>/);
+  assert.doesNotMatch(page(v, 'x:nope'), /data-unwho/);
+});
+
+test('the team reading takes a ticket\'s feature only when it is well formed', () => {
+  const v = brigadeView(NOW);
+  const ts = (v.people.find((p: Wire) => p.id === 'kai') as Wire).summary.tickets;
+  const base = ts[0];
+  const cases: [unknown, unknown][] = [[{ id: 'p-1', name: 'A' }, { id: 'p-1', name: 'A' }], [null, null], ['A', undefined], [{ id: 'p-1' }, undefined],
+    [{ id: 'x'.repeat(65), name: 'A' }, undefined], [{ id: 'p-1', name: 'n'.repeat(81) }, undefined], [{ id: ' ', name: 'A' }, undefined], [{ id: 'a b', name: 'A' }, undefined], [{ id: 'a"<', name: 'A' }, undefined]];
+  for (const [given, want] of cases) {
+    ts[0] = { ...base, feature: given };
+    const k = one(openKitchen(v, { now: NOW }).tickets, (x) => x.k.thread === base.thread, 'kai').k;
+    assert.deepEqual(k.feature, want, JSON.stringify(given));
+    assert.equal('feature' in k, want !== undefined);
+  }
 });
 
 test('the summary sends this Mac\'s GitHub login, or null when it was not read', () => {
