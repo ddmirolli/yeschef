@@ -4,7 +4,8 @@ import SiteLayout from '../layouts/SiteLayout.astro';
 <SiteLayout title="Download Yes Chef for Mac" description="Download Yes Chef for Mac.">
   <main id="main">
     <section class="dl-page" id="download-page" data-channel="stable" aria-labelledby="dl-title">
-      <div class="dl-sky" aria-hidden="true"></div>
+      <div class="dl-sky" aria-hidden="true"><span class="dl-sky-layer dl-sky-back"></span><span class="dl-sky-layer dl-sky-stars"></span><span class="dl-sky-layer dl-sky-clouds"></span></div>
+      <div class="dl-scrim" aria-hidden="true"></div>
       <div class="container dl-inner">
         <span class="dl-mark" aria-hidden="true"><img class="dl-mark-stable" src="/assets/yeschef-icon.svg" alt="" width="96" height="96"><img class="dl-mark-nightly" src="/assets/yeschef-icon-nightly.svg" alt="" width="96" height="96"></span>
         <h1 id="dl-title" class="display dl-title">Yes Chef</h1>
@@ -22,4 +23,11 @@ import SiteLayout from '../layouts/SiteLayout.astro';
       </div>
     </section>
   </main>
+  <script>
+    // The Nightly sky's stars and clouds move with the pointer at different depths, as the home hero's marks do
+    // (Dan, 2026-11-13).
+    import { startHomeMotion } from '../scripts/motion.ts';
+    const page = document.querySelector<HTMLElement>('.dl-page'), sky = document.querySelector<HTMLElement>('.dl-sky');
+    if (page && sky) startHomeMotion(page, sky, [], '.dl-sky-layer');
+  </script>
 </SiteLayout>

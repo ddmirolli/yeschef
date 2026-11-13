@@ -31,6 +31,14 @@ export function dmgOf(release: unknown): Dmg | null {
 
 /** "Built 3 hours ago": the line under /download's toggle, as on t3.codes/download, for both channels (Dan,
  *  2026-11-13). Never the version: no version text on the site (Dan, 2026-11-10). Null when the time is unreadable. */
+/** "Built Nov 11, 2026": the Stable line, a date rather than an age (Dan, 2026-11-13). The viewer's own time zone
+ *  unless one is given (the tests). Null when the time is unreadable. */
+export function builtOn(publishedAt: unknown, timeZone?: string): string | null {
+  const at = typeof publishedAt === 'string' ? Date.parse(publishedAt) : NaN;
+  if (!Number.isFinite(at)) return null;
+  return `Built ${new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone }).format(at)}`;
+}
+
 export function builtAgo(publishedAt: unknown, now: number): string | null {
   const at = typeof publishedAt === 'string' ? Date.parse(publishedAt) : NaN;
   if (!Number.isFinite(at)) return null;

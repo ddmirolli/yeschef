@@ -1,4 +1,4 @@
-import { builtAgo, lookup, NIGHTLIES, PAGE, releasePage, type Channel, type ReleaseStore } from './releases.ts';
+import { builtAgo, builtOn, lookup, NIGHTLIES, PAGE, releasePage, type Channel, type ReleaseStore } from './releases.ts';
 
 export function initializeDownloads(): void {
   let store: ReleaseStore | null = null;
@@ -36,7 +36,8 @@ export function initializeDownloads(): void {
       if (result.state === 'ok') {
         card.href = result.dmg.url;
         // When the build was made, linking to that release (Dan, 2026-11-13).
-        const age = builtAgo(result.release.published_at, Date.now());
+        // Stable by its date, Nightly by its age (Dan, 2026-11-13).
+        const age = channel === 'stable' ? builtOn(result.release.published_at) : builtAgo(result.release.published_at, Date.now());
         if (built && age) {
           const arrow = document.createElement('span');
           arrow.setAttribute('aria-hidden', 'true');
