@@ -183,16 +183,11 @@ export const ICON = {
   // The modes (docs/icons/skillet.svg, toque.svg): Open kitchen and French Brigade. Filled parts take no stroke here,
   // because svg() strokes everything at 1.8.
   skillet: '<g transform="translate(8.98 10.62)"><circle r="3.50" fill="currentColor" fill-opacity=".28" stroke="none"/><circle r="5.1" stroke-width="1.0"/><g transform="rotate(30)"><path d="M-4.26 -2.8 L-6.98 -1.76 L-7.40 -1.15 L-7.40 1.15 L-6.98 1.76 L-4.26 2.8" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter"/><path d="M4.80 -0.8 L14.85 -1.1 L15.30 -0.65 L15.30 0.65 L14.85 1.1 L4.80 0.8 Z M13.25 0 a.5 .5 0 1 0 1 0 a.5 .5 0 1 0 -1 0 Z" fill="currentColor" fill-rule="evenodd" stroke="none"/></g></g>',
-  // T3 Code's lucide icons, for the team readers that copy its parts (Dan, 2026-11-12): a failed check, and the
-  // changed-files card's chevron, folders (closed has the line), file, Open diff and expand or collapse all.
+  // T3 Code's lucide icons, for the team readers that copy its parts (Dan, 2026-11-12): a failed check, a file and
+  // Open diff.
   circleX: '<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
-  chevR: '<path d="m9 18 6-6-6-6"/>',
-  folderShut: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="M2 10h20"/>',
-  folderOpen: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
   file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>',
   fileDiff: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M9 10h6"/><path d="M12 13V7"/><path d="M9 17h6"/>',
-  chevsUpDown: '<path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/>',
-  chevsDownUp: '<path d="m7 20 5-5 5 5"/><path d="m7 4 5 5 5-5"/>',
   toque: '<path d="M7.6 16.1V12.55A3.3 3.3 0 0 1 9.35 6.35A3.05 3.05 0 0 1 14.65 6.35A3.3 3.3 0 0 1 16.4 12.55V16.1" stroke-width="1.25" stroke-linecap="butt"/><path d="M10.55 12.1V15.3" stroke-width="0.75"/><path d="M13.45 12.1V15.3" stroke-width="0.75"/><path d="M6.9 17.75H17.1L16.10 19.15H7.90Z" fill="currentColor" stroke="none"/>',
 };
 type IconName = keyof typeof ICON;
@@ -595,71 +590,44 @@ const vlab = (left: string, right = '', tone = ''): string => `<div class="vl"><
 const NC_V = 'Not checked';
 
 // ---------- The readers' parts from T3 Code ----------
-// Its diff counts (DiffStatLabel.tsx): +added in green, -removed in red, past 999 as 1.1k.
+// Its diff counts (DiffStatLabel.tsx): +added in green, -removed in red, past 999 as 1.1k. Its diff panel's file rows
+// put the removed lines first and leave out a count of 0 (-1 +1, +3), so `row` draws them that way.
 const compact = (v: number): string => {
   const at = (n: number, u: string) => `${n < 10 ? n.toFixed(1).replace(/\.0$/, '') : Math.round(n)}${u}`;
   return v < 1000 ? String(v) : v < 999_500 ? at(v / 1000, 'k') : at(v / 1e6, 'm');
 };
 const okCount = (n: number | null): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0;
-const dstat = (a: number, d: number): string => `<span class="dst" role="group" aria-label="${a} additions, ${d} deletions"><span class="a" aria-hidden="true">+${compact(a)}</span><span class="d" aria-hidden="true">-${compact(d)}</span></span>`;
+const dstat = (a: number, d: number, row = false): string => {
+  const plus = `<span class="a" aria-hidden="true">+${compact(a)}</span>`, minus = `<span class="d" aria-hidden="true">-${compact(d)}</span>`;
+  return `<span class="dst" role="group" aria-label="${a} additions, ${d} deletions">${row ? (d ? minus : '') + (a ? plus : '') : plus + minus}</span>`;
+};
 
-/** Its changed-files tree (apps/web/src/lib/turnDiffTree.ts): folders, then files, each by name; a folder whose only
- *  child is a folder shows as one row (a/b/c); a folder counts its files' lines. Ours leaves lockfiles and generated
- *  files out of a folder's count, as the call's size does, and draws them faded. Where T3 Code sums only the files it
- *  has counts for, a folder here shows no count while any of its files has none: a part is not the total (PR-Agent
- *  r1 on #63). path is the folder's full path, which keeps it open through a refresh. */
-interface CfFile { kind: 'file'; name: string; a: number | null; d: number | null; x: boolean }
-interface CfDir { kind: 'dir'; name: string; path: string; a: number | null; d: number | null; kids: CfNode[] }
-type CfNode = CfFile | CfDir;
-const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
-function cfTree(files: readonly ChangedFile[]): CfNode[] {
-  interface Dir { name: string; path: string; a: number; d: number; unread: boolean; dirs: Map<string, Dir>; files: CfFile[] }
-  const root: Dir = { name: '', path: '', a: 0, d: 0, unread: false, dirs: new Map(), files: [] };
-  for (const f of files) {
-    const seg = String(f.p ?? '').split('/').filter(Boolean);
-    if (!seg.length) continue;
-    const up = [root];
-    let at = root;
-    for (const name of seg.slice(0, -1)) {
-      let next = at.dirs.get(name);
-      if (!next) { next = { name, path: at.path ? `${at.path}/${name}` : name, a: 0, d: 0, unread: false, dirs: new Map(), files: [] }; at.dirs.set(name, next); }
-      at = next; up.push(at);
-    }
-    at.files.push({ kind: 'file', name: seg[seg.length - 1]!, a: f.a, d: f.d, x: f.x });
-    if (f.x) continue;
-    if (okCount(f.a) && okCount(f.d)) for (const dir of up) { dir.a += f.a; dir.d += f.d; }
-    else for (const dir of up) dir.unread = true;
-  }
-  const nodes = (dir: Dir): CfNode[] => [
-    ...[...dir.dirs.values()].sort((p, q) => byName.compare(p.name, q.name)).map((sub) => {
-      let node: CfDir = { kind: 'dir', name: sub.name, path: sub.path, a: sub.unread ? null : sub.a, d: sub.unread ? null : sub.d, kids: nodes(sub) };
-      for (let only = node.kids[0]; node.kids.length === 1 && only?.kind === 'dir'; only = node.kids[0]) node = { ...only, name: `${node.name}/${only.name}` };
-      return node;
-    }),
-    ...dir.files.sort((p, q) => byName.compare(p.name, q.name)),
-  ];
-  return nodes(root);
-}
-/** Its rows: 28 px, 14 px a level; a folder opens and closes, and starts closed, as T3 Code's do. */
-function cfRows(nodes: readonly CfNode[], depth: number, dirs: boolean): string {
-  const pad = ` style="padding-left:${8 + depth * 14}px"`;
-  return nodes.map((n) => n.kind === 'dir'
-    ? `<details class="cfd" data-cf="${e(n.path)}"><summary class="cfr"${pad}>${svg('chevR', 'ic cv')}${svg('folderShut', 'ic fc')}${svg('folderOpen', 'ic fo')}<span class="nm">${e(n.name)}</span>${okCount(n.a) && okCount(n.d) && (n.a || n.d) ? dstat(n.a, n.d) : ''}</summary>${cfRows(n.kids, depth + 1, dirs)}</details>`
-    : `<div class="cfr f${n.x ? ' x' : ''}"${pad}>${dirs || depth ? '<i class="sp"></i>' : ''}${svg('file')}<span class="nm">${e(n.name)}</span>${okCount(n.a) && okCount(n.d) ? dstat(n.a, n.d) : ''}</div>`).join('');
-}
-/** Too big: T3 Code's changed-files card (ChangedFilesTree.tsx; Dan, 2026-11-10, "A"). The header is the PR's size,
- *  as the call's title; the tree is the thread's files, as its dev's Mac read them, or Not checked. */
-function changedFiles(size: { files: number; added: number; removed: number }, changes: TeamChanges | null, pr: TeamPr): string {
+/** Too big (Dan, 2026-11-12: the side panel, not the inline card, so the reader stays short). The reader keeps T3 Code's
+ *  changed-files header (ChangedFilesTree.tsx): the PR's size and Open diff. Open diff slides in T3 Code's right panel
+ *  sheet (RightPanelSheet.tsx, DiffPanel.tsx) over the reader: Changes vs the PR's base, and a row per file, path first,
+ *  removed then added lines. A summary carries no code, so a row has no diff to open; the panel links the full diff on
+ *  GitHub. Lockfiles and generated files show faded, as the call's size leaves them out. */
+function changedFiles(size: { files: number; added: number; removed: number }, changes: TeamChanges | null, pr: TeamPr): { body: string; panel: string } {
   const href = e(`${prHref(pr)}/files`);
-  const tree = changes ? cfTree(changes.files) : [];
-  const dirs = tree.some((n) => n.kind === 'dir');
+  const stat = okCount(size.added) && okCount(size.removed) ? dstat(size.added, size.removed) : '';
+  const body = `<div class="tvis dpo"><span class="n">${e(plural(size.files, 'changed file'))}${stat}</span>`
+    + `<button type="button" class="dpo-b" data-dp-open aria-haspopup="dialog" aria-expanded="false">${svg('fileDiff')}Open diff</button></div>`;
+  // By path, as git lists a diff's files.
+  const files = (changes?.files ?? []).flatMap((f) => (typeof f.p === 'string' && f.p ? [{ ...f, p: f.p }] : [])).sort((x, y) => (x.p < y.p ? -1 : x.p > y.p ? 1 : 0));
+  const row = (f: ChangedFile & { p: string }) => {
+    const cut = f.p.lastIndexOf('/') + 1;
+    return `<div class="dpr${f.x ? ' x' : ''}" title="${e(f.p)}">${svg('file')}<span class="pa"><span class="dir">${e(f.p.slice(0, cut))}</span><span class="fn">${e(f.p.slice(cut))}</span></span>`
+      + `${okCount(f.a) && okCount(f.d) ? dstat(f.a, f.d, true) : ''}</div>`;
+  };
   const more = changes && okCount(changes.more) ? changes.more : 0;
-  const all = (open: boolean) => `${open ? 'Collapse' : 'Expand'} all folders`;
-  return `<div class="tvis cf"><div class="cfh"><span class="n">${e(plural(size.files, 'changed file'))}${okCount(size.added) && okCount(size.removed) ? dstat(size.added, size.removed) : ''}</span><span class="cfb">`
-    + (dirs ? `<button type="button" class="cfa" data-cf-all aria-expanded="false" aria-label="${all(false)}" title="${all(false)}">${svg('chevsUpDown', 'ic up')}${svg('chevsDownUp', 'ic dn')}</button>` : '')
-    + `<a href="${href}" target="_blank" rel="noopener" title="Open the full diff">${svg('fileDiff')}Open diff</a></span></div>`
-    + (changes ? cfRows(tree, 0, dirs) + (more ? `<a class="cfm" href="${href}" target="_blank" rel="noopener">${e(nf(more))} more ${more === 1 ? 'file' : 'files'} in the full diff</a>` : '') : `<p class="cfn">${NC_V}</p>`)
-    + '</div>';
+  const list = changes ? files.map(row).join('') + (more ? `<a class="dpm" href="${href}" target="_blank" rel="noopener">${e(nf(more))} more ${more === 1 ? 'file' : 'files'} in the full diff</a>` : '')
+    : `<p class="dpn">${NC_V}</p>`;
+  const panel = `<div class="dp" data-dp><div class="dp-bg" data-dp-close></div><section class="dp-p" role="dialog" aria-label="Changes in #${pr.n}" tabindex="-1">`
+    + `<header class="dp-h"><b>Changes</b>${pr.base ? `<span class="vs">vs</span><span class="base">${e(pr.base)}</span>` : ''}${stat}<i class="dp-sp"></i>`
+    + `<a class="dp-i" href="${href}" target="_blank" rel="noopener" title="Open the full diff on GitHub" aria-label="Open the full diff on GitHub">${svg('fileDiff')}</a>`
+    + `<button type="button" class="dp-i" data-dp-close title="Close" aria-label="Close">${svg('x')}</button></header>`
+    + `<div class="dp-l">${list}</div></section></div>`;
+  return { body, panel };
 }
 /** Failing: the red runs in a row, newest first, each with the commit it ran on, as T3 Code's checks list draws a
  *  failed check. A run whose result is not failing is left out; a commit a summary does not name is Not checked. */
@@ -692,7 +660,7 @@ const quietBox = (c: TeamCall, name: Namer, now: number): string => c.quiet.map(
 /** The words and parts of each call: tile title and preview, the reader's lead, Suggested, its body and its actions.
  *  acts: [kind, word, tooltip], the first one blue. */
 /** A call's words and parts. acts: [kind, word, tooltip]; ask and rec only for a question. */
-interface Words { title: string; preview: string; lead: string; suggest: string; why: string; body: string;
+interface Words { title: string; preview: string; lead: string; suggest: string; why: string; body: string; panel?: string;
   acts: [string, string, string][]; reply: string | null; ask?: TeamAsk; rec?: string | null }
 function callWords(c: TeamCall, { name, now, people }: { name: Namer; now: number; people: ReadonlyMap<string, Person> }): Words {
   const { kind, facts: f } = c, who = name(c.who[0] ?? '');
@@ -815,7 +783,7 @@ function callWords(c: TeamCall, { name, now, people }: { name: Namer; now: numbe
         lead: 'The limit is 800 lines or 30 files, with lockfiles left out.',
         suggest: 'Split it',
         why: `Request changes: ask ${pos(who)} agent to split #${f.pr.n} into smaller PRs.`,
-        body: changedFiles(f.size, f.changes, f.pr),
+        ...changedFiles(f.size, f.changes, f.pr),
         acts: [['refire', 'Changes', `Request changes: ${pos(who)} agent gets your note`], ['reply', 'Reply', `Reply to ${pos(who)} agent`]],
         reply: who,
       };
@@ -1085,7 +1053,7 @@ function teamParts(team: TeamInput, view: TeamView, icons: ReadonlyMap<string, s
     + `<div class="plate-main"><div class="plate-scroll" tabindex="-1"><header class="plate-head"><h2 class="plate-t" id="${e(id)}-t">${e(w.title)}</h2>`
     + `<p class="lead"><span class="lead-q">${e(w.lead)}</span></p>${c.prs.length ? `<div class="pr-row">${c.prs.map(teamPrChip).join('')}</div>` : ''}</header>`
     + `<section class="msg tv">${quietBox(c, name, now)}${seenLine(c, name)}${w.body}<div class="tsug"><b>Suggested</b><span>${e(w.why)}</span></div></section></div>`
-    + teamDock(c, w, me, id) + '</div></article>';
+    + teamDock(c, w, me, id) + '</div>' + (w.panel ?? '') + '</article>';
 
   // The groups, each dev once (open-kitchen.ts sets the order of precedence): Not reporting, In The Pass, Fixing an
   // alarm, On track; and Not checked for a dev whose Mac has not reported at all.

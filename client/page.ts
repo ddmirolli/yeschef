@@ -81,8 +81,16 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   function $<E extends Element = HTMLElement>(sel: string, el?: ParentNode | null): E | null { return (el || document).querySelector<E>(sel); }
   function $$<E extends Element = HTMLElement>(sel: string, el?: ParentNode | null): E[] { return Array.prototype.slice.call((el || document).querySelectorAll<E>(sel)); }
   function focusView(){ return state.view === 'pass'; }
-  // A Too big card's Expand all says what it will do next, as T3 Code's does.
-  function cfAll(b: Element, open: boolean): void { var w = (open ? 'Collapse' : 'Expand') + ' all folders'; b.setAttribute('aria-expanded', String(open)); b.setAttribute('aria-label', w); b.setAttribute('title', w); }
+  // Too big's diff panel, T3 Code's right panel sheet: Open diff slides it in over the reader, and Close, a click beside
+  // it or Esc slides it out. Focus goes into it, and back to Open diff after. While it is open, the reader it covers is
+  // inert, so Tab skips it; the Pass beside it stays live.
+  function dpSet(plate: Element, open: boolean, focus: boolean): void {
+    var dp = $('.dp', plate), b = $('[data-dp-open]', plate); if (!dp) return;
+    dp.classList.toggle('open', open); if (b) b.setAttribute('aria-expanded', String(open));
+    $$(':scope > :not(.dp)', plate).forEach(function(x){ x.inert = open; });
+    if (!focus) return;
+    var to = open ? $('.dp-p', dp) : b; if (to) to.focus({ preventScroll: true });
+  }
 
   // ----- Views -----
   function setView(v: string): void {
@@ -582,11 +590,9 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
         plateSrc.set(p, now);
         var s = $('.plate-scroll', mounted), d = $('.dock', mounted), top = s ? s.scrollTop : 0, dtop = d ? d.scrollTop : 0;
         $$<HTMLDetailsElement>('details.more', mounted).forEach(function(x, i){ var y = $$<HTMLDetailsElement>('details.more', p)[i]; if (y) y.open = x.open; });
-        // So do a Too big card's folders, each by its path, so a folder that comes or goes moves no other one's state
-        // (PR-Agent r1 on #63), and its Expand all.
-        var cfOpen = new Set($$<HTMLDetailsElement>('details.cfd', mounted).filter(function(x){ return x.open; }).map(function(x){ return x.dataset.cf; }));
-        $$<HTMLDetailsElement>('details.cfd', p).forEach(function(y){ y.open = cfOpen.has(y.dataset.cf); });
-        $$('[data-cf-all]', mounted).forEach(function(x, i){ var y = $$('[data-cf-all]', p)[i]; if (y) cfAll(y, x.getAttribute('aria-expanded') === 'true'); });
+        // So does Too big's diff panel, open at the same place in its list.
+        var dpl = $('.dp.open .dp-l', mounted), dpTop = dpl ? dpl.scrollTop : 0;
+        if (dpl) { dpSet(p, true, false); var ndl = $('.dp-l', p); if (ndl) ndl.scrollTop = dpTop; }
         // The question card you were reading stays in front through a refresh.
         $$('form.act', mounted).forEach(function(x, i){ var y = $$('form.act', p)[i]; if (y && qAt(x) > 0) qShow(y, qAt(x)); });
         mounted.replaceWith(p); mounted = p;
@@ -1601,9 +1607,9 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     if (pk) { pickProject(pk); return; }
     var sc = t.closest<HTMLElement>('.vmenu .seg [data-scope]');
     if (sc) { setScope(sc.dataset.scope!); return; }
-    // Too big: Expand all opens every folder of T3 Code's changed-files card, and Collapse all closes them.
-    var cfa = t.closest<HTMLElement>('.tv [data-cf-all]'), cfc = cfa && cfa.closest('.cf');
-    if (cfa && cfc) { var cfo = cfa.getAttribute('aria-expanded') !== 'true'; $$<HTMLDetailsElement>('details.cfd', cfc).forEach(function(d){ d.open = cfo; }); cfAll(cfa, cfo); return; }
+    // Too big: Open diff slides the diff panel in; Close, or a click on the reader beside it, slides it out.
+    var dpo = t.closest('[data-dp-open], [data-dp-close]'), dpPlate = dpo && dpo.closest('.plate');
+    if (dpo && dpPlate) { dpSet(dpPlate, dpo.hasAttribute('data-dp-open'), true); return; }
     // The chart: a project opens its threads, ‹ All projects goes back. A thread's band carries data-plate, so a click
     // on it opens the ticket below, as its card does.
     // Your team, expanded: a sub-lead's name folds their team into one row and back.
@@ -1640,6 +1646,8 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   sheet.addEventListener('close', function(){ var id = state.sel; if (!focusView()) { unmount(); state.sel = null; mark(); } var back = id && $('[data-plate="' + id + '"]:not(form)'); if (back) back.focus({ preventScroll: true }); });
   // The page's keys, as each command's default key reads (client/keys.ts). The router below sends every key here.
   function onKey(ev: PageKey): void {
+    // Esc closes Too big's diff panel first, as Esc closes T3 Code's sheet.
+    var dpOpen = mounted && $('.dp.open', mounted); if (dpOpen && ev.key === 'Escape') { ev.preventDefault(); dpSet(mounted!, false, true); return; }
     // Esc closes the menu and puts focus back on its chip, so the keys go on from there.
     var m = $<HTMLDetailsElement>('details.pmenu[open]'); if (m && ev.key === 'Escape') { var back = m.contains(document.activeElement) && $('summary', m); m.open = false; if (back) back.focus(); return; }
     // More, while open: Esc or . closes it, the arrows move between its rows, and Enter or Space presses the row in

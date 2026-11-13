@@ -242,8 +242,10 @@ test('Your team draws The Pass’s calls, the rail card, the quiet line and a re
 });
 
 /** A call's reader, between Seen and Suggested, found by the word on its plate. */
-const readerOf = (html: string, word: string): string => grab(nth(html.split('<article class="plate team-plate"').slice(1).filter((p) => p.includes(`</i>${word}</span>`))),
-  /<section class="msg tv">([^]*?)<div class="tsug">/, 1);
+const plateWith = (html: string, word: string): string => nth(html.split('<article class="plate team-plate"').slice(1).filter((p) => p.includes(`</i>${word}</span>`)));
+const readerOf = (html: string, word: string): string => grab(plateWith(html, word), /<section class="msg tv">([^]*?)<div class="tsug">/, 1);
+/** Too big's side panel, the plate's last part. */
+const panelOf = (html: string, word: string): string => grab(plateWith(html, word), /<div class="dp" data-dp>([^]*?)<\/div><\/article>/, 1);
 
 test('the readers (Dan, 2026-11-12, 1A 2A 3A): fixes tried, the last message, no Waiting table, T3 Code’s changed-files card', () => {
   const html = page({ view: viewL(), now: NOWL });
@@ -256,18 +258,20 @@ test('the readers (Dan, 2026-11-12, 1A 2A 3A): fixes tried, the last message, no
   assert.match(readerOf(html, 'Stuck'), /<div class="tvis"><div class="vl"><span>Last message<\/span><\/div><p class="tmsg">Running the expiry migration/);
   // Waiting: the question is the reader; no facts table.
   assert.doesNotMatch(readerOf(html, 'Waiting'), /tvis/);
-  // Too big: the PR's size in the header, Open diff to its files, folders as T3 Code compresses them, the lockfile faded.
+  // Too big (Dan, 2026-11-12): the reader keeps one row, the PR's size and Open diff; the files wait in the side panel.
   const big = readerOf(html, 'Too big');
-  assert.match(big, /<span class="n">41 changed files<span class="dst" role="group" aria-label="1079 additions, 161 deletions"><span class="a" aria-hidden="true">\+1\.1k<\/span><span class="d" aria-hidden="true">-161<\/span>/);
-  assert.match(big, /<button type="button" class="cfa" data-cf-all aria-expanded="false" aria-label="Expand all folders"/);
-  assert.match(big, /<a href="https:\/\/github\.com\/acme\/fernpay\/pull\/440\/files" target="_blank" rel="noopener" title="Open the full diff">/);
-  assert.deepEqual([...big.matchAll(/<span class="nm">([^<]+)<\/span>/g)].map((m) => m[1]),
-    ['apps/web/src/export', 'c.ts', 'packages', 'contracts/src', 'd.ts', 'export/src', 'markdown', 'b.ts', 'tables', 'a.ts', 'pnpm-lock.yaml']);
-  assert.match(big, /<span class="nm">packages<\/span><span class="dst" role="group" aria-label="948 additions, 102 deletions">/);
-  // Each folder carries its full path, which keeps it open through a refresh (PR-Agent r1 on #63).
-  assert.deepEqual([...big.matchAll(/<details class="cfd" data-cf="([^"]+)">/g)].map((m) => m[1]),
-    ['apps/web/src/export', 'packages', 'packages/contracts/src', 'packages/export/src', 'packages/export/src/markdown', 'packages/export/src/tables']);
-  assert.match(big, /<div class="cfr f x" style="padding-left:8px"><i class="sp"><\/i><svg[^]*?<\/svg><span class="nm">pnpm-lock\.yaml<\/span><span class="dst"[^>]*><span class="a" aria-hidden="true">\+2\.1k<\/span>/);
+  assert.match(big, /^[^]*<div class="tvis dpo"><span class="n">41 changed files<span class="dst" role="group" aria-label="1079 additions, 161 deletions"><span class="a" aria-hidden="true">\+1\.1k<\/span><span class="d" aria-hidden="true">-161<\/span><\/span><\/span><button type="button" class="dpo-b" data-dp-open aria-haspopup="dialog" aria-expanded="false"><svg[^]*?<\/svg>Open diff<\/button><\/div>$/);
+  // T3 Code's right panel: Changes vs the base, the full diff on GitHub, Close, and a row per file in git's order, removed
+  // lines first, the lockfile faded.
+  const dp = panelOf(html, 'Too big');
+  assert.match(dp, /^<div class="dp-bg" data-dp-close><\/div><section class="dp-p" role="dialog" aria-label="Changes in #440" tabindex="-1"><header class="dp-h"><b>Changes<\/b><span class="vs">vs<\/span><span class="base">main<\/span><span class="dst"/);
+  assert.match(dp, /<a class="dp-i" href="https:\/\/github\.com\/acme\/fernpay\/pull\/440\/files" target="_blank" rel="noopener" title="Open the full diff on GitHub"/);
+  assert.match(dp, /<button type="button" class="dp-i" data-dp-close title="Close" aria-label="Close">/);
+  assert.deepEqual([...dp.matchAll(/<span class="dir">([^<]*)<\/span><span class="fn">([^<]+)<\/span>/g)].map((m) => `${m[1]}${m[2]}`),
+    ['apps/web/src/export/c.ts', 'packages/contracts/src/d.ts', 'packages/export/src/markdown/b.ts', 'packages/export/src/tables/a.ts', 'pnpm-lock.yaml']);
+  assert.match(dp, /<div class="dpr" title="packages\/export\/src\/tables\/a\.ts">[^]*?<span class="dst" role="group" aria-label="598 additions, 42 deletions"><span class="d" aria-hidden="true">-42<\/span><span class="a" aria-hidden="true">\+598<\/span>/);
+  // A count of 0 is left out, as T3 Code's panel rows leave it out.
+  assert.match(dp, /<div class="dpr x" title="pnpm-lock\.yaml">[^]*?<span class="dst" role="group" aria-label="2104 additions, 0 deletions"><span class="a" aria-hidden="true">\+2\.1k<\/span><\/span><\/div>/);
   // Only Main broken keeps a facts table.
   assert.equal((html.match(/class="kvs"/g) || []).length, 1);
 });
@@ -288,17 +292,19 @@ test('the readers say Not checked for what a summary does not say, and draw only
   assert.match(fail, /<li><svg[^]*?<\/svg><span class="nc">Not checked<\/span><code><\/code><time>/);
   assert.match(fail, /<code>abcdef1<\/code>/);
   assert.match(readerOf(html, 'Stuck'), /<p class="tmsg nc">Not checked<\/p>/);
-  const big = readerOf(html, 'Too big');
-  assert.match(big, /<a class="cfm" href="https:\/\/github\.com\/acme\/fernpay\/pull\/440\/files" target="_blank" rel="noopener">3 more files in the full diff<\/a>/);
-  assert.match(big, /<span class="nm">&lt;i&gt;x\.ts<\/span>/);
-  assert.match(big, /<span class="nm">b\.ts<\/span><\/div>/, 'a file with no count shows none');
-  // Nor does any folder it is in: a part is not the total (PR-Agent r1 on #63). A folder beside it keeps its count.
-  for (const dir of ['packages', 'export/src', 'markdown']) assert.match(big, new RegExp(`<span class="nm">${dir}</span></summary>`), dir);
-  assert.match(big, /<span class="nm">contracts\/src<\/span><span class="dst"/);
-  // Files the Mac did not read: the PR's size, and Not checked for the tree.
+  const dp = panelOf(html, 'Too big');
+  assert.match(dp, /<a class="dpm" href="https:\/\/github\.com\/acme\/fernpay\/pull\/440\/files" target="_blank" rel="noopener">3 more files in the full diff<\/a>/);
+  assert.match(dp, /<div class="dpr" title="packages\/export\/src\/tables\/&lt;i&gt;x\.ts">[^]*?<span class="fn">&lt;i&gt;x\.ts<\/span>/);
+  assert.match(dp, /<span class="fn">b\.ts<\/span><\/span><\/div>/, 'a file with no count shows none');
+  // Files the Mac did not read: the reader keeps the PR's size, and the panel says Not checked.
   iris.changes.state = 'reading';
   html = page({ view: v, now: NOWL });
-  assert.match(readerOf(html, 'Too big'), /<span class="n">41 changed files[^]*<p class="cfn">Not checked<\/p><\/div>$/);
+  assert.match(readerOf(html, 'Too big'), /<span class="n">41 changed files[^]*data-dp-open/);
+  assert.match(panelOf(html, 'Too big'), /<div class="dp-l"><p class="dpn">Not checked<\/p><\/div><\/section>$/);
+  // A PR whose base the summary does not name shows no "vs".
+  iris.changes.state = 'checked';
+  who(v, 'iris').summary.tickets[0].prs[0].base = null;
+  assert.match(panelOf(page({ view: v, now: NOWL }), 'Too big'), /<header class="dp-h"><b>Changes<\/b><span class="dst"/);
 });
 
 test('team actions show by role and never send: a see-only Engineer gets Settle and a line, no note', () => {

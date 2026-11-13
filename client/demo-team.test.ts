@@ -65,12 +65,12 @@ test('the demo’s readers tell a real story: Nina’s fixes are commits, and Ir
   assert.deepEqual([...nina.matchAll(/<li><svg[^]*?<\/svg><span>([^<]+)<\/span><code>([0-9a-f]{7})<\/code>/g)].map((m) => m[1]),
     ['Skip the offline flush test on CI', 'Raise the sync test timeout to 30 s', 'Retry the flush on reconnect', 'Mock the network clock in sync tests',
       'Wait for the queue to flush in the sync test', 'Queue drafts in IndexedDB while offline']);
+  // The reader keeps one row; the 41 files are in the side panel, in git's order, the lockfile faded (Dan, 2026-11-12).
   const iris = plate('#440 changes');
-  assert.match(iris, /<span class="n">41 changed files<span class="dst" role="group" aria-label="1079 additions, 161 deletions">/);
-  // T3 Code's folders: apps/web/src/statements and packages at the root, then contracts/src, statements/src/csv and its __tests__.
-  assert.deepEqual([...iris.matchAll(/<details class="cfd"[^>]*><summary[^>]*>(?:<svg[^]*?<\/svg>){3}<span class="nm">([^<]+)</g)].map((m) => m[1]),
-    ['apps/web/src/statements', 'packages', 'contracts/src', 'statements/src/csv', '__tests__']);
-  assert.equal((iris.match(/<div class="cfr f"/g) || []).length, 41);
-  assert.match(iris, /<span class="nm">apps\/web\/src\/statements<\/span>/);
-  assert.match(iris, /<div class="cfr f x"[^>]*><i class="sp"><\/i><svg[^]*?<\/svg><span class="nm">pnpm-lock\.yaml<\/span>/);
+  assert.match(iris, /<div class="tvis dpo"><span class="n">41 changed files<span class="dst" role="group" aria-label="1079 additions, 161 deletions">/);
+  const rows = [...iris.matchAll(/<div class="dpr( x)?" title="([^"]+)">/g)];
+  assert.equal(rows.filter((m) => !m[1]).length, 41);
+  assert.deepEqual(rows.map((m) => m[2]), [...rows.map((m) => m[2])].sort());
+  assert.equal(rows.at(-1)?.[2], 'pnpm-lock.yaml');
+  assert.equal(rows.at(-1)?.[1], ' x');
 });
