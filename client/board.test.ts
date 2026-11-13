@@ -378,3 +378,15 @@ test('PR-Agent r6 on #50: a closed pull request has its own dot, and the count a
   assert.doesNotMatch(html, /pr-merged[^>]*><i><\/i>#3</);
   assert.match(html, /<span class="chip c-blue">2 questions<\/span>/);
 });
+
+test('a reader shows its Linear tickets beside its pull requests: a read one with its status, a named one "Not checked"', () => {
+  const board = buildBoard({ projects: [{ id: 'p', title: 'P' }], questions: new Map(), threads: [T('a', { pullRequests: [pr(4, 'open')] })] });
+  const k = only(board.tickets);
+  k.linear = [
+    { state: 'read', id: 'ENG-12', title: 'Fix <b>import</b>', status: 'In Progress', statusType: 'started', url: 'https://linear.app/acme/issue/ENG-12/fix', assignee: null, at: Date.now() - 3 * 3_600_000, by: 'a' },
+    { state: 'not-checked', id: 'ENG-13', url: null },
+  ];
+  const html = renderApp({ board, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
+  assert.match(html, /<div class="pr-row"><a class="prc t-open"[^]*?<a class="prc lin" href="https:\/\/linear\.app\/acme\/issue\/ENG-12\/fix"[^>]*title="Fix &lt;b&gt;import&lt;\/b&gt;\. Read in T3 3 h ago\."><i><\/i>ENG-12<span>In Progress · 3 h ago<\/span>/);
+  assert.match(html, /<span class="prc lin" title="No agent has read this ticket in T3 yet\."><i><\/i>ENG-13<span>Not checked<\/span><\/span>/);
+});

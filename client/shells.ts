@@ -44,6 +44,7 @@ export interface Shell {
   lineage?: { parentThreadId?: string | null | undefined; relationshipToParent?: string | null | undefined; sideChat?: boolean | undefined } | null | undefined;
   visibleItemCount?: number | undefined;
   worktreePath?: string | null | undefined;
+  branch?: string | null | undefined;
   createdAt?: string | undefined;
   updatedAt: string;
 }

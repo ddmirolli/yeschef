@@ -14,6 +14,7 @@ import type { Call, Shot } from './calls.ts';
 import type { RunsEntry, WaitEntry } from './you.ts';
 import type { ChangedFile, CheckRun, Me, OpenKitchen, Person, PersonState, Side, TeamAsk, TeamCall, TeamChanges, TeamPr, TeamView } from './open-kitchen.ts';
 import type { Answered } from './actions.ts';
+import type { LinearLink } from './linear.ts';
 import type { Project, PullRequestLink, QuestionItem, ThreadRow } from './contracts.ts';
 
 /** Where a ticket sits: a stage on the line, Verified, a held place, or Coordinators. */
@@ -31,6 +32,8 @@ export interface Ticket {
   prs: PullRequestLink[]; open: PullRequestLink[]; merged: PullRequestLink[]; working: number; stations: number; asks: Ask[];
   yourTurn: boolean; lastWords: string | null; latestId: string | null; call: CallMessage | null; cut: boolean; atPass: boolean;
   updatedAt: string; runs: RunsEntry[] | null;
+  /** The Linear tickets its threads read, wrote or name (client/linear.ts), set by the board server. */
+  linear?: LinearLink[] | undefined;
 }
 /** The board: every ticket, how many were verified today, and whether run times were read. */
 export interface Board { tickets: Ticket[]; verifiedToday?: number; runsChecked: boolean }
@@ -528,6 +531,14 @@ function plate(k: Ticket, link: (t: ThreadRow) => string, origin: string, answer
   const twin = (p: PullRequestLink) => k.prs.some((o) => o !== p && base(o) === base(p));
   const prsSorted = [...k.prs].sort((a, b) => (named(a) - named(b)) || ((a.state === 'open' ? 0 : 1) - (b.state === 'open' ? 0 : 1)));
   const prChips = prsSorted.slice(0, 3).map((p) => `<a class="prc t-${PR_TONE[p.state ?? ''] || 'gray'}" href="${e(prUrl(p))}" target="_blank" rel="noopener"><i></i>${e(twin(p) ? p.repository : p.repository.split('/').pop())}#${p.number}<span>${e(p.state)}</span>${svg('out')}</a>`).join('');
+  // The Linear tickets beside them (Dan, 2026-11-13): the ones an agent read, from that read, with its age once it is
+  // more than an hour old; one only named in a title or branch says "Not checked". Yes Chef never calls Linear itself.
+  const linChips = (k.linear || []).slice(0, 3).map((l) => {
+    const tag = l.state === 'read' ? [l.status || 'Not checked', Date.now() - l.at > 3_600_000 ? since(new Date(l.at).toISOString()) : ''].filter(Boolean).join(' · ') : 'Not checked';
+    const tip = l.state === 'read' ? `${l.title ? `${l.title}. ` : ''}Read in T3 ${since(new Date(l.at).toISOString())}.` : 'No agent has read this ticket in T3 yet.';
+    const body = `<i></i>${e(l.id)}<span>${e(tag)}</span>`;
+    return l.url ? `<a class="prc lin" href="${e(l.url)}" target="_blank" rel="noopener" title="${e(tip)}">${body}${svg('out')}</a>` : `<span class="prc lin" title="${e(tip)}">${body}</span>`;
+  }).join('');
   const prs = prsSorted.slice(3).map((p) => `<li>${chip(p.state, PR_TONE[p.state ?? ''] || 'gray')}<a href="${e(prUrl(p))}" target="_blank" rel="noopener">${e(p.repository)}#${p.number}${svg('out')}</a></li>`).join('');
   // A ticket still cooking has no hand-back to read: say where it stands instead of an empty sheet.
   const facts = [HINT[k.place] || k.place, k.working ? `${k.working} working` : '', k.open.length ? `${k.open.length} PR${k.open.length === 1 ? '' : 's'} open` : k.merged.length ? `${k.merged.length} merged` : '', `updated ${since(k.updatedAt)}`].filter(Boolean);
@@ -561,7 +572,7 @@ function plate(k: Ticket, link: (t: ThreadRow) => string, origin: string, answer
     + `<button type="button" class="close" data-close aria-label="Close"><kbd>esc</kbd>${svg('x')}</button></div>`
     // The title, the ask, the pull requests and the screenshots stay pinned while the message scrolls (Dan, 2026-11-08).
     + `<div class="plate-main"><div class="plate-scroll" tabindex="-1"><header class="plate-head"><h2 class="plate-t" id="${e(id)}-t">${e(k.thread.title)}</h2>`
-    + lead + flag + (prChips ? `<div class="pr-row">${prChips}</div>` : '') + atts + status + '</header>'
+    + lead + flag + (prChips || linChips ? `<div class="pr-row">${prChips}${linChips}</div>` : '') + atts + status + '</header>'
     + (parts.length ? `<section class="msg">${parts.join('')}</section>` : '')
     + (prs ? `<details class="more"><summary>More pull requests <span class="muted">${k.prs.length - 3}</span></summary><ul class="links">${prs}</ul></details>` : '')
     + (stations ? `<details class="more"${live ? ' open' : ''}><summary>Stations <span class="muted">${crew.length}</span></summary><ul class="links">${stations}</ul>${more}</details>` : '')
