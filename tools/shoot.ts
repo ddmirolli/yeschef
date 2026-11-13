@@ -9,7 +9,8 @@
 // types into a field. {"hover":"<selector>"} rests the pointer on an element (a tooltip).
 // SHOOT_VIEWS picks other views than the four defaults, as scheme:width:height pairs, for example
 // SHOOT_VIEWS=light:2560:1440,dark:2560:1440 for a large display. SHOOT_SCALE=2 shoots a desktop view at 2x
-// (the site's phone screenshots of the app are 1440x900 at 2x).
+// (the site's phone screenshots of the app are 1440x900 at 2x). SHOOT_AT=<ISO time> stops the page's clock at that
+// time in UTC, so a demo whose times count back from now looks the same whenever it is shot.
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
 
@@ -62,6 +63,12 @@ for (const [scheme, w, h] of views) {
   const scaled = w >= 500 && Number(process.env.SHOOT_SCALE) > 1 ? await ctx.newCDPSession(page) : null;
   if (scaled) await scaled.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: Number(process.env.SHOOT_SCALE), mobile: false });
   await page.emulateMedia({ colorScheme: scheme as 'light' | 'dark' });
+  if (process.env.SHOOT_AT) {
+    const at = new Date(process.env.SHOOT_AT);
+    if (Number.isNaN(at.getTime())) throw new Error(`SHOOT_AT needs an ISO time. Got: ${process.env.SHOOT_AT}`);
+    await (await ctx.newCDPSession(page)).send('Emulation.setTimezoneOverride', { timezoneId: 'UTC' });
+    await page.clock.setFixedTime(at);
+  }
   await page.goto('http://pass.local/', { waitUntil: 'load', timeout: 60000 });
   await page.waitForTimeout(600);
   const key = `${label}-${scheme}-${w}`;
