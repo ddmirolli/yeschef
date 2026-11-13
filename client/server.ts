@@ -28,7 +28,7 @@ import { boardThreads, changeTargets, githubTargets } from './shells.ts';
 import { createChanges } from './changes.ts';
 import { createBaseChecks, createPrSizes, ghGet, prKey, readBaseFacts, readPrFacts } from './github.ts';
 import { loginOf } from './reviewers.ts';
-import { buildBoard, renderApp, kitchenPane, pickedFrom, ICON } from './board.ts';
+import { buildBoard, renderApp, kitchenPane, pickedFrom, teamInputOf, ICON } from './board.ts';
 import { fitFrom } from './flow.ts';
 import { readRuns, dayStart, trackWaits, mayRunToday } from './you.ts';
 import { normalize as normalRules, change as changeRule } from './kitchen.ts';
@@ -44,6 +44,7 @@ import { teamHost } from './teamhost.ts';
 import { createDiffs, diffRoute } from './diffs.ts';
 import type { PrRef } from './diffs.ts';
 import { openKitchen } from './open-kitchen.ts';
+import type { TeamView } from './open-kitchen.ts';
 
 /** A message from the desktop app over the pipe (desktop/main.ts). Each handler checks the fields it reads. */
 interface AppMessage { type?: unknown; id?: unknown; body?: unknown; path?: unknown; state?: unknown; error?: unknown; auth?: unknown }
@@ -1674,6 +1675,8 @@ const team = teamHost({
   // T3 Code's project list names each project it gives (t3_project_list).
   projectsOf: () => projects as readonly HostProject[],
   t3Ok: () => status.ok,
+  // A teammate's news reads the board again, so the page shows it now, with a tick that a real read sent.
+  changed: () => refreshSoon(),
 });
 
 // One path for every action, whichever door it came through (the tailnet page or the desktop app).
@@ -1759,9 +1762,13 @@ interface Routed { status: number; headers: Record<string, string>; body: string
 const diffs = createDiffs({ origin: ORIGIN, keys, project: () => projects[0]?.id ?? null });
 /** The PRs the Too big calls on the board name: the only ones /diff reads. */
 function bigPrs(): PrRef[] {
-  const v = team.view();
-  const ok = openKitchen(v && { ...v, me: { ...v.me, id: v.me.id ?? null } }, { now: Date.now() });
+  const ok = openKitchen(teamView(), { now: Date.now() });
   return ok.pass.filter((c) => c.kind === 'big').flatMap((c) => c.prs.map((pr) => ({ repo: pr.repo, n: pr.n })));
+}
+/** The team as the screens read it (client/open-kitchen.ts TeamView), from the relay through the team client. */
+function teamView(): TeamView | null {
+  const v = team.view();
+  return v && { ...v, me: { ...v.me, id: v.me.id ?? null } };
 }
 /** A page, a file, or a PR's code: the code is the one answer that waits on T3 Code. */
 async function routeAny(url: URL): Promise<Routed> {
@@ -1772,7 +1779,8 @@ function route(url: URL): Routed {
   // ?p=A&p=B: the projects picked in the view menu; no p is All projects.
   const picked = pickedFrom(url.searchParams);
   // fx=WxH: the size the page has for You's chart, so the river fills it (client/flow.ts fitFrom).
-  const app = (): string => renderApp({ board, picked, link, status, origin: ORIGIN, answered, projects, rules: rulesNow(), fit: fitFrom(url.searchParams), fold: url.searchParams.getAll('fold'), who: url.searchParams.get('who') });
+  // Your team, from the relay (PR D): only for a member with someone below them (teamInputOf).
+  const app = (): string => renderApp({ board, picked, link, status, origin: ORIGIN, answered, projects, rules: rulesNow(), team: teamInputOf(teamView(), Date.now()), fit: fitFrom(url.searchParams), fold: url.searchParams.getAll('fold'), who: url.searchParams.get('who') });
   const html = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' };
   const teamPage = team.route(url);
   if (teamPage) return teamPage;

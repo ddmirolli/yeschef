@@ -17,6 +17,9 @@ export interface HostProject { id: string; title: string }
 export interface HostOptions {
   store: TeamStore; run: TeamRun | null; boardOf: () => OwnBoard | null | undefined; projectsOf?: () => readonly HostProject[] | null | undefined;
   t3Ok?: () => boolean; net?: TeamNet; now?: () => number; timers?: TeamTimers; site?: string;
+  /** The team the screens draw changed: a teammate's summary, who is online, the roster, the relay link, or this Mac
+   *  joined or left. The server reads the board again, so Your team shows it (PR D). */
+  changed?: () => void;
 }
 /** A kind=team action's fields, as the page posts them. */
 export type TeamInput = Readonly<Record<string, string | undefined>>;
@@ -42,7 +45,7 @@ export function relayUrl(text: unknown): string | null {
 
 /** store: { load() -> state or null, save(state or null) }. run(input, prefix, extra): an action on this dev's board.
  *  boardOf(): { board, ok, at }. projectsOf(): T3 Code's projects. t3Ok(): whether the board reads T3 Code now. */
-export function teamHost({ store, run, boardOf, projectsOf = () => [], t3Ok = () => false, net = webNet, now = Date.now, timers = globalThis, site = SITE }: HostOptions) {
+export function teamHost({ store, run, boardOf, projectsOf = () => [], t3Ok = () => false, net = webNet, now = Date.now, timers = globalThis, site = SITE, changed = () => {} }: HostOptions) {
   let team: Team | null = null, state: TeamState | null = null, ready: Promise<void> | null = null, busy: Promise<unknown> = Promise.resolve(), lost = '', gen = 0;
   // The store's answer goes back to the team client: a save it awaits (an action's id) fails when the store did.
   const save = (s: TeamState | null): Promise<unknown> => {
@@ -55,13 +58,16 @@ export function teamHost({ store, run, boardOf, projectsOf = () => [], t3Ok = ()
   function live(s: TeamState | null): void {
     team?.stop();
     team = null; state = s;
-    if (!s) return;
+    if (!s) { changed(); return; }
     // Each client saves only while it is the live one: a save queued by a team this Mac left never lands after the
     // deletion (PR-Agent r3 on #8).
     const mine = ++gen;
     const own = (x: TeamState): Promise<unknown> => (mine === gen ? save(x) : Promise.reject(new Error('This team was left on this Mac.')));
     team = new Team({ state: s, save: own, net, now, timers, run, board: boardOf });
+    // Only what the screens draw: the roster, summaries and presence ('team'), the relay link, and this Mac's status.
+    team.on((ev) => { if (mine === gen && (ev.type === 'team' || ev.type === 'link' || ev.type === 'status')) changed(); });
     team.start();
+    changed();
   }
 
   /** Read the saved team, once, at start. A state that does not load is reported and left on disk untouched. */
@@ -137,6 +143,7 @@ export function teamHost({ store, run, boardOf, projectsOf = () => [], t3Ok = ()
       await t.writes?.catch(() => {});
       try { await save(null); } catch { live(was); return no('Not done: Yes Chef could not forget the team on this Mac. It is still saved; try again.', 503); }
       state = null;
+      changed();
       return ok('Left.');
     }
     if (op === 'saveAgain') {
