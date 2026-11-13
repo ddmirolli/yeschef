@@ -188,12 +188,15 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     var open = f.hasAttribute('data-folded'), path = f.dataset.path || '';
     f.toggleAttribute('data-folded', !open);
     b.setAttribute('aria-expanded', String(open)); b.setAttribute('aria-label', (open ? 'Collapse ' : 'Expand ') + path); b.title = open ? 'Collapse diff' : 'Expand diff';
-    if (!open || $('pre, .ld', f)) return;
+    if (!open) return;
+    // A file that failed to load tries again each time it opens; one that loaded, or is loading, stays as it is.
+    var failed = $('.ld[data-retry]', f);
+    if (failed) failed.remove(); else if ($('pre, .ld', f)) return;
     var ld = document.createElement('p'); ld.className = 'ld'; ld.textContent = 'Loading'; f.appendChild(ld);
     fetch(host.dataset.src + '&f=' + encodeURIComponent(path), { cache: 'no-store' }).then(function(r){ return r.json() as Promise<DiffReply>; }).then(function(d){
       if (d && d.ok && typeof d.code === 'string') { ld.remove(); f!.insertAdjacentHTML('beforeend', d.code); }
-      else ld.textContent = 'Code: not checked. ' + ((d && d.why) || 'T3 Code gave no diff').replace(/\.?$/, '.');
-    }, function(){ ld.textContent = 'Code: not checked. Yes Chef could not reach the board server.'; });
+      else { ld.setAttribute('data-retry', ''); ld.textContent = 'Code: not checked. ' + ((d && d.why) || 'T3 Code gave no diff').replace(/\.?$/, '.'); }
+    }, function(){ ld.setAttribute('data-retry', ''); ld.textContent = 'Code: not checked. Yes Chef could not reach the board server.'; });
   }
   /** A new copy of the open ticket keeps the code already drawn, folds and all. */
   function dpCarry(from: Element, to: Element): void {

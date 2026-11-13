@@ -226,11 +226,12 @@ export function createDiffs({ origin, keys, project, fetchImpl = fetch, now = Da
     }
   }
 
-  /** A PR's drawn patch, kept a minute so opening its files reads it once. */
-  function get(pr: PrRef): Kept['got'] {
-    const key = `${pr.repo.toLowerCase()}#${pr.n}`, t = now();
+  /** A PR's drawn patch at the board's revision of it. A list is read again after a minute; a file comes from the
+   *  read its list came from, so its code always matches the header it opens under. */
+  function get(pr: PrRef, rev: string | null, pinned: boolean): Kept['got'] {
+    const key = `${pr.repo.toLowerCase()}#${pr.n}@${rev ?? ''}`, t = now();
     const hit = kept.get(key);
-    if (hit && t - hit.at < LIMITS.keep) return hit.got;
+    if (hit && (pinned || t - hit.at < LIMITS.keep)) return hit.got;
     const got = pull(pr);
     kept.delete(key);
     kept.set(key, { at: t, got });
@@ -241,13 +242,13 @@ export function createDiffs({ origin, keys, project, fetchImpl = fetch, now = Da
   }
 
   return {
-    async view(pr: PrRef): Promise<DiffView> {
-      const g = await get(pr);
+    async view(pr: PrRef, rev: string | null = null): Promise<DiffView> {
+      const g = await get(pr, rev, false);
       if (!g.ok) return g;
       return { ok: true, style: g.drawn.style, sprite: g.drawn.sprite, files: g.drawn.files.map(({ code: _, ...f }) => f), rest: g.rest };
     },
-    async file(pr: PrRef, path: string): Promise<FileView> {
-      const g = await get(pr);
+    async file(pr: PrRef, path: string, rev: string | null = null): Promise<FileView> {
+      const g = await get(pr, rev, true);
       if (!g.ok) return g;
       const f = g.drawn.files.find((x) => x.path === path);
       return f ? { ok: true, code: f.code } : { ok: false, why: 'This file is not in the PR now' };
@@ -260,12 +261,13 @@ export type Diffs = ReturnType<typeof createDiffs>;
 const REPO = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
 /** /diff?repo=owner/name&n=440[&f=path], as Too big's panel asks (diffPanel in client/board.ts): the PR, checked, and
  *  the file asked for, or null for anything else. */
-export function readDiffUrl(url: URL): { pr: PrRef; file: string | null } | null {
+export function readDiffUrl(url: URL): { pr: PrRef; file: string | null; rev: string | null } | null {
   if (url.pathname !== '/diff') return null;
-  const repo = url.searchParams.get('repo') || '', n = Number(url.searchParams.get('n')), f = url.searchParams.get('f');
+  const repo = url.searchParams.get('repo') || '', n = Number(url.searchParams.get('n')), f = url.searchParams.get('f'), rev = url.searchParams.get('v');
   if (!REPO.test(repo) || repo.split('/').some((p) => p === '.' || p === '..') || !Number.isSafeInteger(n) || n < 1) return null;
   if (f !== null && (!f || f.length > 1000)) return null;
-  return { pr: { repo, n }, file: f };
+  if (rev !== null && !/^[\w.-]{1,64}$/.test(rev)) return null;
+  return { pr: { repo, n }, file: f, rev };
 }
 
 /** A page answer, as the board server's routes give them. */
@@ -278,5 +280,5 @@ export async function diffRoute(url: URL, { diffs, shown }: { diffs: Diffs; show
   const ask = readDiffUrl(url);
   const on = ask && shown().some((p) => p.repo.toLowerCase() === ask.pr.repo.toLowerCase() && p.n === ask.pr.n);
   if (!ask || !on) return json(404, { ok: false, why: 'Not a PR this board shows' });
-  return json(200, ask.file === null ? await diffs.view(ask.pr) : await diffs.file(ask.pr, ask.file));
+  return json(200, ask.file === null ? await diffs.view(ask.pr, ask.rev) : await diffs.file(ask.pr, ask.file, ask.rev));
 }

@@ -111,7 +111,7 @@ test('the team demo\'s diff panel has the app pipe\'s answers for its Too big PR
   // Written by scripts/generate-demo.ts from client/demo-diff.ts through client/diffs.ts; shim.ts answers /diff from them.
   const dir = new URL('../public/demo/diff/', import.meta.url);
   const team = readFileSync(new URL('../demo/team.html', import.meta.url), 'utf8');
-  assert.match(team, /data-diff="\/diff\?repo=fernpay%2Ffernpay&amp;n=440"/);
+  assert.match(team, /data-diff="\/diff\?repo=fernpay%2Ffernpay&amp;n=440&amp;v=\d+\.1079\.161"/);
   const list = JSON.parse(readFileSync(new URL('fernpay-fernpay-440.json', dir), 'utf8')) as { ok: boolean; rest: boolean; files: { path: string; add: number; del: number }[] };
   assert.equal(list.ok, true);
   assert.equal(list.rest, false);

@@ -629,7 +629,9 @@ function diffPanel(size: { added: number; removed: number }, changes: TeamChange
     + `<a class="dp-i" href="${href}" target="_blank" rel="noopener" title="Open the full diff on GitHub" aria-label="Open the full diff on GitHub">${svg('out')}</a></header>`
     + `<div class="dp-l" tabindex="0">${list}</div>`;
   // The page reads the code from T3 Code when the panel opens (client/diffs.ts); until then, and without it, the list.
-  return { label: `Changes in #${Number(pr.n)}`, html, src: `/diff?repo=${encodeURIComponent(String(pr.repo))}&n=${Number(pr.n)}` };
+  // The PR's revision as the board knows it: the head commit's time and the counts. A new one draws the code anew.
+  const rev = [Number(changes?.headAt) || 0, okCount(size.added) ? size.added : 0, okCount(size.removed) ? size.removed : 0].join('.');
+  return { label: `Changes in #${Number(pr.n)}`, html, src: `/diff?repo=${encodeURIComponent(String(pr.repo))}&n=${Number(pr.n)}&v=${rev}` };
 }
 /** Failing: the red runs in a row, newest first, each with the commit it ran on, as T3 Code's checks list draws a
  *  failed check. A run whose result is not failing is left out; a commit a summary does not name is Not checked. */

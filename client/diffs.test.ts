@@ -8,10 +8,11 @@ import type { Drawn, Withheld } from './diffs.ts';
 const url = (path: string) => new URL(path, 'http://x');
 
 test('the page asks for a PR by owner/name and number, and a file by its path; anything else is not an address', () => {
-  assert.deepEqual(readDiffUrl(url('/diff?repo=acme%2Ffernpay&n=440')), { pr: { repo: 'acme/fernpay', n: 440 }, file: null });
-  assert.deepEqual(readDiffUrl(url('/diff?repo=acme/fernpay&n=440&f=src%2Fa.ts')), { pr: { repo: 'acme/fernpay', n: 440 }, file: 'src/a.ts' });
+  assert.deepEqual(readDiffUrl(url('/diff?repo=acme%2Ffernpay&n=440')), { pr: { repo: 'acme/fernpay', n: 440 }, file: null, rev: null });
+  assert.deepEqual(readDiffUrl(url('/diff?repo=acme/fernpay&n=440&v=1762.41.9&f=src%2Fa.ts')), { pr: { repo: 'acme/fernpay', n: 440 }, file: 'src/a.ts', rev: '1762.41.9' });
   for (const bad of ['/diff', '/diff?repo=acme&n=1', '/diff?repo=a/b/c&n=1', '/diff?repo=../x&n=1', '/diff?repo=a/..&n=1', '/diff?repo=a%20b/c&n=1',
-    '/diff?repo=a/b&n=0', '/diff?repo=a/b&n=-1', '/diff?repo=a/b&n=1.5', '/diff?repo=a/b&n=x', '/diff?repo=a/b&n=1&f=', `/diff?repo=a/b&n=1&f=${'x'.repeat(1001)}`, '/other?repo=a/b&n=1']) {
+    '/diff?repo=a/b&n=0', '/diff?repo=a/b&n=-1', '/diff?repo=a/b&n=1.5', '/diff?repo=a/b&n=x', '/diff?repo=a/b&n=1&f=', `/diff?repo=a/b&n=1&f=${'x'.repeat(1001)}`, '/other?repo=a/b&n=1',
+    '/diff?repo=a/b&n=1&v=', '/diff?repo=a/b&n=1&v=a%20b', `/diff?repo=a/b&n=1&v=${'1'.repeat(65)}`]) {
     assert.equal(readDiffUrl(url(bad)), null, bad);
   }
 });
@@ -19,8 +20,8 @@ test('the page asks for a PR by owner/name and number, and a file by its path; a
 test('/diff reads only a PR a Too big call on the board names, and answers JSON nobody sniffs', async () => {
   const asked: string[] = [];
   const diffs = {
-    view: async (pr: { repo: string; n: number }) => { asked.push(`view ${pr.repo}#${pr.n}`); return { ok: false as const, why: 'stub' }; },
-    file: async (pr: { repo: string; n: number }, f: string) => { asked.push(`file ${pr.repo}#${pr.n} ${f}`); return { ok: true as const, code: '<pre></pre>' }; },
+    view: async (pr: { repo: string; n: number }, rev: string | null = null) => { asked.push(`view ${pr.repo}#${pr.n}@${rev}`); return { ok: false as const, why: 'stub' }; },
+    file: async (pr: { repo: string; n: number }, f: string, rev: string | null = null) => { asked.push(`file ${pr.repo}#${pr.n}@${rev} ${f}`); return { ok: true as const, code: '<pre></pre>' }; },
   };
   const shown = () => [{ repo: 'Acme/Fernpay', n: 440 }];
   assert.equal(await diffRoute(url('/app'), { diffs, shown }), null);
@@ -32,9 +33,9 @@ test('/diff reads only a PR a Too big call on the board names, and answers JSON 
   assert.equal(v!.headers['content-type'], 'application/json; charset=utf-8');
   assert.equal(v!.headers['x-content-type-options'], 'nosniff');
   assert.deepEqual(JSON.parse(v!.body), { ok: false, why: 'stub' });
-  const f = await diffRoute(url('/diff?repo=acme/fernpay&n=440&f=src/a.ts'), { diffs, shown });
+  const f = await diffRoute(url('/diff?repo=acme/fernpay&n=440&v=7.1.2&f=src/a.ts'), { diffs, shown });
   assert.deepEqual(JSON.parse(f!.body), { ok: true, code: '<pre></pre>' });
-  assert.deepEqual(asked, ['view acme/fernpay#440', 'file acme/fernpay#440 src/a.ts']);
+  assert.deepEqual(asked, ['view acme/fernpay#440@null', 'file acme/fernpay#440@7.1.2 src/a.ts']);
 });
 
 /** A stand-in T3 Code: each POST to /api/pull-requests/diff takes the next answer. */
@@ -93,6 +94,26 @@ test('the page limit stops the read, says the diff goes on, and a minute later T
   t = LIMITS.keep;
   await diffs.view({ repo: 'a/b', n: 1 });
   assert.equal(seen.length, LIMITS.pages * 2);
+});
+
+test('reads are kept per revision; a file always comes from the read its list came from, however old', async () => {
+  const one = { status: 200, body: { patch: 'a.ts', truncated: false, nextCursor: null } };
+  const two = { status: 200, body: { patch: 'b.ts', truncated: false, nextCursor: null } };
+  const { seen, fetchImpl } = t3([one, two, structuredClone(two)]);
+  let t = 0;
+  const diffs = createDiffs({ origin: 'http://127.0.0.1:3773', keys: keysOf(['k']), project: () => 'p', fetchImpl, draw: drawn, now: () => t });
+  const pr = { repo: 'a/b', n: 1 };
+  assert.deepEqual((await diffs.view(pr, 'r1')).ok && (await diffs.view(pr, 'r1') as { files: { path: string }[] }).files.map((f) => f.path), ['a.ts']);
+  assert.equal(seen.length, 1);
+  // Long after, the list's own read still answers its files, though T3 now has a newer patch.
+  t = LIMITS.keep * 10;
+  assert.deepEqual(await diffs.file(pr, 'a.ts', 'r1'), { ok: true, code: '<pre>a.ts</pre>' });
+  assert.equal(seen.length, 1);
+  // A new revision is a new read at once, and the old list read again after a minute is one too.
+  assert.deepEqual((await diffs.view(pr, 'r2') as { files: { path: string }[] }).files.map((f) => f.path), ['b.ts']);
+  assert.equal(seen.length, 2);
+  await diffs.view(pr, 'r1');
+  assert.equal(seen.length, 3);
 });
 
 test('a key T3 refuses is dropped and a new one tried once; any other failure says why and is not kept', async () => {

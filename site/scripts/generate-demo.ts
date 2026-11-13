@@ -156,7 +156,8 @@ export function createLive({ onChange }) {
   const { createDiffs, diffRoute } = await import('../../client/diffs.ts');
   const dd = demoDiff();
   const ask = `/diff?repo=${encodeURIComponent(dd.pr.repo)}&n=${dd.pr.n}`;
-  if (!team.includes(`data-diff="${ask.replaceAll('&', '&amp;')}"`)) throw new Error(`team.html has no diff panel asking ${ask}`);
+  // The page adds the PR's revision (&v=), which the demo's files do not depend on.
+  if (!team.includes(`data-diff="${ask.replaceAll('&', '&amp;')}&amp;v=`)) throw new Error(`team.html has no diff panel asking ${ask}`);
   const fromT3 = async (): Promise<Response> => Response.json({ patch: dd.patch, truncated: true, nextCursor: null, omittedFileStats: dd.withheld });
   const diffs = createDiffs({ origin: 'http://t3.invalid', keys: { get: async () => 'demo', drop: () => {} }, project: () => 'demo', fetchImpl: fromT3 });
   const answer = async (url: string): Promise<string> => {
