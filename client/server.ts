@@ -384,7 +384,7 @@ const login = (): string | null => {
   }
   return ghLogin;
 };
-const teamReaders: Readers = { changes: (id) => changes.get(id), base: (id) => baseChecks.get(id), pr: (x) => prSizes.get(prKey(x)), login };
+const teamReaders: Readers = { changes: (id) => changes.get(id), base: (id) => baseChecks.get(id), pr: (x) => prSizes.get(prKey(x)), login, project: (id) => linear.project(id) };
 for (const r of [changes, baseChecks, prSizes]) r.subscribe(() => team?.readersMoved?.());
 
 // Never two refreshes at once: a change during one queues one more. A burst of changes is gathered for 150 ms.

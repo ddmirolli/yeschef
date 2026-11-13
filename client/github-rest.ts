@@ -58,8 +58,12 @@ export const PullRequest = Schema.Struct({
   // Who is asked to review now: people and teams. GitHub takes a person off when they review, and puts them back on a re-request.
   requested_reviewers: Schema.optional(Schema.Array(Schema.NullOr(Schema.Struct({ login: Schema.optional(Schema.String) })))),
   requested_teams: Schema.optional(Schema.Array(Schema.NullOr(Schema.Struct({ slug: Schema.optional(Schema.String) })))),
+  // Its description: French Brigade reads a "Blocked by #N" or "Depends on #N" line from it (step 7 PR 2, 3C).
+  body: maybe(Schema.String),
 });
 export type PullRequest = typeof PullRequest.Type;
+/** An issue or pull request's state, as repos/<repo>/issues/<n> gives it ("open" or "closed"; a merged PR is closed). */
+export const IssueState = Schema.Struct({ state: Schema.optional(Schema.String) });
 /** One review on a pull request: who, their verdict, and when they sent it. */
 export const Review = Schema.Struct({ user: maybe(Schema.Struct({ login: Schema.optional(Schema.String) })), state: Schema.optional(Schema.String), submitted_at: maybe(Schema.String) });
 /** One file a pull request changes. */

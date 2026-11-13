@@ -23,6 +23,7 @@ export type DemoTicket = { thread: string; title: string; project: string; place
   prs: DemoPr[]; updatedAt: string | null; startedAt: number | null; last: string | null;
   /** Its feature, as a dev's Yes Chef reads it from Linear (step 7): null for tickets in no project. */
   feature?: { id: string; name: string } | null;
+  blocked?: { id: string; title: string | null; at: number }[];
   ask: { at: number | null; q: string; rec: string | null; n: number; options: { k: string | null; t: string | null }[] } | null;
   changes?: { state: 'checked'; at: number | null; repo: string | null; base: string | null; mergeBase: string | null; head: string | null; headAt: number | null;
     files: DemoFile[]; more: number; size: { files: number | null; added: number | null; removed: number | null } } };
@@ -30,7 +31,9 @@ export type DemoTicket = { thread: string; title: string; project: string; place
 export type DemoBase = { repo: string | null; branch: string | null; sha: string | null; title: string | null; committedAt: number | null; result: string | null;
   requiredResult: string | null; redSha: string | null; redSince: number | null; failing: string[]; at: number | null };
 /** One teammate's summary: summarize()'s result, with when it was made and the Mac's health. */
+export type DemoFeature = { id: string; name: string; lead?: string | null; leadAt?: number; list?: { n: number; closed: number; unread: number; at: number } };
 export type DemoSummary = { v: number; tickets: DemoTicket[]; more: number; gh: string | null; bases: DemoBase[]; seen: Record<string, number>; fine: Record<string, number>;
+  features: DemoFeature[];
   at: number; health: { ok: boolean | null; since: number | null } };
 type Role = 'lead' | 'deputy' | 'owner' | 'engineer' | 'viewer';
 type Perm = 'see' | 'reply' | 'projects' | 'merge' | 'invite' | 'rules';
@@ -171,7 +174,7 @@ export function demoTeam(now: number): DemoTeam {
     const tickets = [...(story[id] ?? []), ...calm(id)].map(withFeature);
     return { id, name, role: OWNS[id] ? 'owner' : 'engineer', perms: ['see'], area: OWNS[id] ?? null, under: under[id] ?? null,
       online: !away, at: away ? ago(122) : ago(1), live: !away, notCheckedSince: away ? ago(112) : null,
-      summary: { v: 1, tickets, more: 0, gh: login(id), bases: id === 'ravi' ? [ravisBase] : [], seen: seen[id] ?? {}, fine: {}, at: away ? ago(122) : ago(1), health: { ok: true, since: ago(600) } } };
+      summary: { v: 1, tickets, more: 0, gh: login(id), bases: id === 'ravi' ? [ravisBase] : [], seen: seen[id] ?? {}, fine: {}, features: [], at: away ? ago(122) : ago(1), health: { ok: true, since: ago(600) } } };
   });
   const me = { id: 'me', name: 'Dana', role: 'lead' as const, perms: ['see', 'reply', 'projects', 'merge', 'invite', 'rules'] as Perm[], area: null, under: null };
   return {

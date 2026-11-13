@@ -9,7 +9,8 @@ import { shares } from './roles.ts';
 import { clean } from './team-common.ts';
 import { RETRY } from './team-connection.ts';
 import { rangesOf } from './changes.ts';
-import { featureOf } from './linear.ts';
+import { CLOSED, featureOf } from './linear.ts';
+import type { LinearProject } from './linear.ts';
 import { RULES } from './open-kitchen.ts';
 import { cleanReviewers, loginOf, type Reviewer } from './reviewers.ts';
 import type { Board, Ticket } from './board.ts';
@@ -38,7 +39,7 @@ type FileIn = { path: string; hunks?: unknown; added?: unknown; removed?: unknow
 /** A PR's check runs (client/pr-runs.ts), as the summary reads them. */
 export type ChecksIn = { result?: unknown; redRuns?: unknown; at?: unknown; runs?: unknown };
 /** What the board server read of a PR from GitHub (client/github.ts readPrFacts), as the summary reads it. */
-export type PrIn = { state?: unknown; why?: unknown; draft?: unknown; base?: unknown; at?: unknown; mergeSha?: unknown;
+export type PrIn = { state?: unknown; why?: unknown; draft?: unknown; base?: unknown; at?: unknown; mergeSha?: unknown; blockedBy?: unknown;
   size?: { files?: unknown; added?: unknown; removed?: unknown } | null;
   runs?: { state?: unknown; why?: unknown; at?: unknown; readyAt?: unknown; checks?: ChecksIn | null; reviewers?: unknown } | null };
 /** One base branch's checks (client/github.ts readBaseChecks), as the summary reads them. */
@@ -53,7 +54,14 @@ export interface Readers {
   seen?: unknown; fine?: unknown; over?: unknown; keepOver?: ((over: Record<string, number>) => void) | undefined; now?: number | undefined;
   /** This Mac's GitHub login (gh's sign-in), so a lead's Mac can match a PR's reviewers to its teammates. */
   login?: (() => unknown) | undefined;
+  /** A Linear project as this Mac's agents read it (client/linear.ts), for French Brigade's features. */
+  project?: ((id: string) => LinearProject | null | undefined) | undefined;
 }
+/** A feature as the summary sends it (step 7 PR 2): its lead's name (null: none; left out: not read), and its whole
+ *  ticket list's count (left out: no whole list read). closed: done, canceled or duplicate; unread: no status read. */
+export type SummaryFeature = { id: string; name: string; lead?: string | null; leadAt?: number;
+  list?: { n: number; closed: number; unread: number; at: number } };
+const FEATURES_MAX = 50, BLOCKERS_MAX = 5;
 /** A PR's size as the summary sends it. */
 export type SummarySize = { files: number | null; added: number | null; removed: number | null; at: number | null; overAt?: number };
 /** A PR as the summary sends it. */
@@ -65,7 +73,9 @@ export type SummaryTicket = { thread: string; title: string; project: string; pl
   prs: SummaryPr[]; updatedAt: string | null; startedAt: number | null; last: string | null; ask: ReturnType<typeof summaryAsk>;
   changes?: NonNullable<ReturnType<typeof summaryChanges>>;
   /** Its feature, the Linear project of its tickets (step 7): null when none is in a project; left out when no ticket was read. */
-  feature?: { id: string; name: string } | null };
+  feature?: { id: string; name: string } | null;
+  /** The tickets that block it and are still open, as reads show (step 7 PR 2, 3C). Left out when none is known. */
+  blocked?: { id: string; title: string | null; at: number }[] };
 
 const SUMMARY_TICKETS = 100;
 
@@ -468,17 +478,33 @@ export function summarize(board: Pick<Board, 'tickets'> | null | undefined, shar
     .filter((k) => keep.has(k.thread.projectId) && k.place !== 'Coordinators')
     .sort((a, b) => (+b.atPass - +a.atPass) || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
   const tickets = picked.map((k) => {
+    // Each open or merged PR's read, once: its facts and what its description says it waits on.
+    const reads = k.prs.map((p) => (p.state === 'open' || p.state === 'merged' ? get(readers.pr, { host: p.host || 'github.com', repo: p.repository, number: p.number }) : null));
     const t: SummaryTicket = {
       thread: k.thread.threadId, title: clean(k.thread.title, 160), project: clean(k.project, 80), place: k.place,
       atPass: !!k.atPass, working: k.working || 0, asks: k.asks.length, call: !!k.call,
       // Every PR keeps its Too big age, also past the 5 the summary carries (PR-Agent r3 on #28).
-      prs: k.prs.map((p) => withOver(summaryPr(p, p.state === 'open' || p.state === 'merged' ? get(readers.pr, { host: p.host || 'github.com', repo: p.repository, number: p.number }) : null), p.host)).slice(0, 5),
+      prs: k.prs.map((p, i) => withOver(summaryPr(p, reads[i]), p.host)).slice(0, 5),
       updatedAt: k.updatedAt || null, startedAt: time(k.thread.createdAt), last: firstLine(k.lastWords, 160), ask: summaryAsk(k),
     };
     // Its feature (step 7, Dan 3A, 2026-11-13): the Linear project of the tickets its threads read. Left out when no
     // ticket was read (not checked); null when they were and none is in a project.
     const f = featureOf(k.linear);
     if (f !== undefined) t.feature = f && { id: f.id, name: clean(f.name, 80) };
+    // Blocked (3C, 2026-11-13): a Linear "blocked by" ticket a read shows still open. One whose status no read gave is
+    // not checked, so it raises nothing. at: when the relation was read.
+    const blocked = (k.linear || []).flatMap((l) => (l.state === 'read' ? (l.blockedBy || []).filter((b) => b.open === true).map((b) => ({ id: b.id, title: b.title ? clean(b.title, 120) : null, at: l.at })) : []));
+    // And an open PR whose description says it waits on an issue or PR that GitHub shows open ("owner/repo#N").
+    for (const [i, p] of k.prs.entries()) {
+      if (p.state !== 'open') continue;
+      const r = reads[i];
+      const at = time(r?.at);
+      if (r?.state !== 'checked' || at === null || !Array.isArray(r.blockedBy)) continue;
+      for (const b of r.blockedBy as { repo?: unknown; n?: unknown; open?: unknown }[]) {
+        if (b?.open === true && typeof b.repo === 'string' && Number.isInteger(b.n)) blocked.push({ id: `${clean(b.repo, 200)}#${b.n as number}`, title: null, at });
+      }
+    }
+    if (blocked.length) t.blocked = [...new Map(blocked.map((b) => [b.id, b])).values()].slice(0, BLOCKERS_MAX);
     const c = summaryChanges(get(readers.changes, k.thread.threadId));
     if (c) t.changes = c;
     return t;
@@ -491,8 +517,21 @@ export function summarize(board: Pick<Board, 'tickets'> | null | undefined, shar
     if (!bases.has(key)) bases.set(key, summaryBase(b));
   }
   get(readers.keepOver, over);
+  // Each feature this Mac's tickets are in, with what its agents read of the Linear project: the lead (Ship's target,
+  // 2A) and the whole ticket list (Ready for your look, 1A).
+  const features: SummaryFeature[] = [];
+  for (const id of [...new Set(tickets.flatMap((t) => (t.feature ? [t.feature.id] : [])))].slice(0, FEATURES_MAX)) {
+    const p = get(readers.project, id);
+    const out: SummaryFeature = { id, name: tickets.find((t) => t.feature?.id === id)!.feature!.name };
+    if (p && p.lead !== undefined && Number.isFinite(p.leadAt)) { out.lead = p.lead === null ? null : clean(p.lead, 80); out.leadAt = p.leadAt!; }
+    if (p?.tickets && Number.isFinite(p.listAt)) {
+      out.list = { n: p.tickets.length, closed: p.tickets.filter((x) => x.statusType !== null && CLOSED.has(x.statusType)).length,
+        unread: p.tickets.filter((x) => x.statusType === null).length, at: p.listAt! };
+    }
+    features.push(out);
+  }
   // gh: this Mac's GitHub login, or null when gh's sign-in was not read (not checked).
-  const top = { gh: loginOf(get(readers.login)), bases: [...bases.values()], seen: keepSeen(readers.seen, now), fine: keepSeen(readers.fine, now) };
+  const top = { gh: loginOf(get(readers.login)), bases: [...bases.values()], seen: keepSeen(readers.seen, now), fine: keepSeen(readers.fine, now), features };
   let n = Math.min(tickets.length, SUMMARY_TICKETS);
   // A sealed summary is about 4/3 of its JSON's UTF-8 bytes plus the signature. Shed the changed files of the least
   // recent tickets first (a ticket without them reads "Not checked"), then halve the list until it fits. Sealing checks

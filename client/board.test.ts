@@ -395,6 +395,24 @@ test('a summary ticket carries its feature: the Linear project of its read ticke
   assert.equal('feature' in by('c'), false);
 });
 
+test('a summary sends each feature\'s lead and whole-list count, and each ticket\'s open blockers (step 7 PR 2)', () => {
+  const pid = 'ed93ef9c-3f61-4ee9-97e3-aa4a25b32da3';
+  const board = buildBoard({ projects: [{ id: 'p', title: 'P' }], questions: new Map(), threads: [T('a', { pullRequests: [{ number: 5, repository: 'o/r', state: 'open', url: 'https://github.com/o/r/pull/5' } as PullRequestLink] }), T('b')] });
+  const [a, b] = [one(board.tickets, (k) => k.thread.threadId === 'a', 'a'), one(board.tickets, (k) => k.thread.threadId === 'b', 'b')];
+  const r = { state: 'read' as const, title: 't', status: null, statusType: null, url: null, assignee: null, at: 7, by: 'a', project: 'Payouts v2', projectId: pid };
+  a.linear = [{ ...r, id: 'ENG-1', blockedBy: [{ id: 'ENG-2', title: 'Ledger', open: true }, { id: 'ENG-3', title: 'Done one', open: false }, { id: 'ENG-4', title: 'Unread', open: null }] }];
+  b.linear = [{ ...r, id: 'ENG-5' }];
+  const project = (id: string) => (id === pid ? { id: pid, name: 'Payouts v2', lead: 'Priya Shah', leadAt: 3,
+    tickets: [{ id: 'ENG-1', statusType: 'completed' }, { id: 'ENG-5', statusType: 'canceled' }, { id: 'ENG-6', statusType: null }], listAt: 4 } : null);
+  const pr = () => ({ state: 'checked', at: 9, blockedBy: [{ repo: 'o/api', n: 3, open: true }, { repo: 'o/api', n: 4, open: false }] });
+  const s = summarize(board, ['p'], 65536, { now: 10, project, pr });
+  assert.deepEqual(s.features, [{ id: pid, name: 'Payouts v2', lead: 'Priya Shah', leadAt: 3, list: { n: 3, closed: 2, unread: 1, at: 4 } }]);
+  assert.deepEqual(one(s.tickets, (t) => t.thread === 'a', 'a').blocked, [{ id: 'ENG-2', title: 'Ledger', at: 7 }, { id: 'o/api#3', title: null, at: 9 }]);
+  assert.equal('blocked' in one(s.tickets, (t) => t.thread === 'b', 'b'), false);
+  // No project read: the feature goes with its name only.
+  assert.deepEqual(summarize(board, ['p'], 65536, { now: 10 }).features, [{ id: pid, name: 'Payouts v2' }]);
+});
+
 test('a reader shows its Linear tickets beside its pull requests: a read one with its status, a named one "Not checked"', () => {
   const board = buildBoard({ projects: [{ id: 'p', title: 'P' }], questions: new Map(), threads: [T('a', { pullRequests: [pr(4, 'open')] })] });
   const k = only(board.tickets);
