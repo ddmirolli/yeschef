@@ -138,10 +138,9 @@ export const roster = {
   /** A new roster from the lead: people is the full list as Map id -> { sign, dh, name, role, perms, area }; areas is
    *  the team's list of { id, name, projects, mode, budget }; rules, the team's Rules. Left out, each stays as it is. */
   async pushRoster(people: Edits, areas?: Area[], rules?: TeamRules): Promise<Reply> {
-    if (areas === undefined) areas = this.areas;
-    if (rules === undefined) rules = this.rules;
-    // One edit at a time, so two edits never sign two rosters with one version.
-    const next = this.rosterLock.then(() => this.pushRosterNow(people, areas, rules));
+    // One edit at a time, so two edits never sign two rosters with one version. What it leaves out is read inside the
+    // lock, from the team as the edit before left it (PR-Agent r3 on #69).
+    const next = this.rosterLock.then(() => this.pushRosterNow(people, areas ?? this.areas, rules ?? this.rules));
     this.rosterLock = next.catch(() => {});
     return next;
   },

@@ -1107,7 +1107,8 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
       $$('option', ar).forEach(function(o){ g.appendChild(o.cloneNode(true)); });
       s.appendChild(g);
     }
-    s.value = keep; if (s.value !== keep) s.value = '';
+    // A scope another window took away falls back to All projects, and the controls show All projects (PR-Agent r3 on #69).
+    s.value = keep; if (s.value !== keep) { s.value = ''; krRender(); }
   }
   // The team's rows as the last refresh sent them (client/board.ts teamRulesRows), parsed off the page.
   function trParse(): DocumentFragment { var t = $('#yc-team-rules'), tt = document.createElement('template'); tt.innerHTML = t ? t.textContent || '' : ''; return tt.content; }
