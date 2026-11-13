@@ -13,8 +13,13 @@ export type LinearTool = 'get_issue' | 'list_issues' | 'save_issue';
 /** A ticket as Yes Chef shows it: each field from the newest read that had it. at: when that newest read happened. */
 export interface LinearIssue {
   id: string; title: string | null; status: string | null; statusType: string | null; url: string | null;
-  assignee: string | null; at: number; by: string;
+  assignee: string | null;
+  /** The Linear project the ticket is in: French Brigade's feature (brief, "Feature": a Linear project by default). */
+  project: string | null; projectId: string | null;
+  at: number; by: string;
 }
+/** A feature: a Linear project, by its id and name. */
+export interface Feature { id: string; name: string }
 /** A ticket on a Yes Chef ticket: read (with its fields), or named but never read ("Not checked"). */
 export type LinearLink = ({ state: 'read' } & LinearIssue) | { state: 'not-checked'; id: string; url: string | null };
 /** One Linear call in a thread: the tool, the ticket ids it was about, the tickets it returned, and when. */
@@ -32,6 +37,8 @@ const str = (v: unknown, max: number): string | null => {
   const s = v.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim();
   return s ? s.slice(0, max) : null;
 };
+// A Linear project's id: a UUID (read 2026-11-13: projectId "ed93ef9c-..."), or any short id of that alphabet.
+const projectIdOf = (v: unknown): string | null => (typeof v === 'string' && /^[A-Za-z0-9-]{1,64}$/.test(v.trim()) ? v.trim() : null);
 const idOf = (v: unknown): string | null => (typeof v === 'string' && ID.test(v.trim().toUpperCase()) ? v.trim().toUpperCase() : null);
 /** Linear's own address for a ticket, and only that: https://linear.app/<workspace>/issue/<id>[/<slug>]. */
 const urlOf = (v: unknown, id: string): string | null => {
@@ -52,7 +59,31 @@ export function cleanIssue(raw: unknown): Partial<LinearIssue> | null {
   const type = str(r.statusType, 20); if (type && STATUS_TYPES.has(type)) out.statusType = type;
   const url = urlOf(r.url, id); if (url) out.url = url;
   const assignee = str(r.assignee, MAX.person); if (assignee) out.assignee = assignee;
+  // The project, as the Linear MCP gives it (read 2026-11-13): `project` (its name) and `projectId`, both left out when
+  // the ticket is in none. A whole ticket (one with a title) that names no project is in none: '' records that, so a
+  // ticket moved out of a project leaves it. A part read (no title) says nothing about the project.
+  const p = r.project && typeof r.project === 'object' && !Array.isArray(r.project) ? r.project as Record<string, unknown> : null;
+  const project = str(p ? p.name : r.project, MAX.title), projectId = projectIdOf(p ? p.id : r.projectId);
+  if (project && projectId) { out.project = project; out.projectId = projectId; }
+  else if (title && r.project == null && r.projectId == null) { out.project = ''; out.projectId = ''; }
   return out;
+}
+
+/** A ticket's feature, from the Linear tickets its threads read (Board ticket `linear`): the project most of them are
+ *  in (the first, on a tie). null: tickets were read and none is in a project. undefined: no ticket was read, so its
+ *  feature is not checked. */
+export function featureOf(links: readonly LinearLink[] | null | undefined): Feature | null | undefined {
+  const read = (links || []).filter((l): l is Extract<LinearLink, { state: 'read' }> => l.state === 'read');
+  if (!read.length) return undefined;
+  const count = new Map<string, { f: Feature; n: number }>();
+  for (const l of read) {
+    if (!l.projectId || !l.project) continue;
+    const had = count.get(l.projectId);
+    if (had) had.n++; else count.set(l.projectId, { f: { id: l.projectId, name: l.project }, n: 1 });
+  }
+  let best: { f: Feature; n: number } | null = null;
+  for (const c of count.values()) if (!best || c.n > best.n) best = c;
+  return best ? best.f : null;
 }
 
 /** The text of a tool's output: Claude's { content: [{ type: 'text', text }] }, Codex's [{ type: 'text', text }], or a string. */
@@ -114,7 +145,7 @@ export function createLinearReads({ call, now = Date.now, log = () => {}, days =
     let moved = false;
     for (const x of c.issues) {
       const s = issues.get(x.id!) ?? { fields: new Map(), at: 0, by: threadId };
-      for (const k of ['title', 'status', 'statusType', 'url', 'assignee'] as const) {
+      for (const k of ['title', 'status', 'statusType', 'url', 'assignee', 'project', 'projectId'] as const) {
         const v = x[k];
         if (typeof v !== 'string') continue;
         const had = s.fields.get(k);
@@ -196,7 +227,8 @@ export function createLinearReads({ call, now = Date.now, log = () => {}, days =
   const view = (id: string, s: Stored): LinearIssue => {
     const f = (k: keyof LinearIssue) => s.fields.get(k)?.v ?? null;
     const st = s.fields.get('status');
-    return { id, title: f('title'), status: f('status'), statusType: f('statusType'), url: f('url'), assignee: f('assignee'), at: st?.at ?? s.at, by: st?.by ?? s.by };
+    return { id, title: f('title'), status: f('status'), statusType: f('statusType'), url: f('url'), assignee: f('assignee'),
+      project: f('project') || null, projectId: f('projectId') || null, at: st?.at ?? s.at, by: st?.by ?? s.by };
   };
 
   return {

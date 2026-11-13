@@ -9,6 +9,7 @@ import { shares } from './roles.ts';
 import { clean } from './team-common.ts';
 import { RETRY } from './team-connection.ts';
 import { rangesOf } from './changes.ts';
+import { featureOf } from './linear.ts';
 import { RULES } from './open-kitchen.ts';
 import { cleanReviewers, loginOf, type Reviewer } from './reviewers.ts';
 import type { Board, Ticket } from './board.ts';
@@ -62,7 +63,9 @@ export type SummaryPr = { repo: string; n: number; state: string | null | undefi
 /** A ticket as the summary sends it. */
 export type SummaryTicket = { thread: string; title: string; project: string; place: string; atPass: boolean; working: number; asks: number; call: boolean;
   prs: SummaryPr[]; updatedAt: string | null; startedAt: number | null; last: string | null; ask: ReturnType<typeof summaryAsk>;
-  changes?: NonNullable<ReturnType<typeof summaryChanges>> };
+  changes?: NonNullable<ReturnType<typeof summaryChanges>>;
+  /** Its feature, the Linear project of its tickets (step 7): null when none is in a project; left out when no ticket was read. */
+  feature?: { id: string; name: string } | null };
 
 const SUMMARY_TICKETS = 100;
 
@@ -472,6 +475,10 @@ export function summarize(board: Pick<Board, 'tickets'> | null | undefined, shar
       prs: k.prs.map((p) => withOver(summaryPr(p, p.state === 'open' || p.state === 'merged' ? get(readers.pr, { host: p.host || 'github.com', repo: p.repository, number: p.number }) : null), p.host)).slice(0, 5),
       updatedAt: k.updatedAt || null, startedAt: time(k.thread.createdAt), last: firstLine(k.lastWords, 160), ask: summaryAsk(k),
     };
+    // Its feature (step 7, Dan 3A, 2026-11-13): the Linear project of the tickets its threads read. Left out when no
+    // ticket was read (not checked); null when they were and none is in a project.
+    const f = featureOf(k.linear);
+    if (f !== undefined) t.feature = f && { id: f.id, name: clean(f.name, 80) };
     const c = summaryChanges(get(readers.changes, k.thread.threadId));
     if (c) t.changes = c;
     return t;

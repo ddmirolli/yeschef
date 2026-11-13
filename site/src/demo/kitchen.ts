@@ -297,7 +297,7 @@ export function createKitchen({ now = Date.now, where, shot, onChange = () => {}
       // As client/server.ts route() reads them, plus the team a real Mac gets from its team connection.
       return renderApp({ board, picked, link: () => 'https://t3.codes/', status: { ok: true, at: now(), ms: 4 },
         origin: 'https://t3.codes', answered, projects, rules: { ...rules, rev }, fit: fitFrom(params), lead: crew,
-        ...(mode && crew ? { team: { view: crew, now: now(), mode }, fold: params.getAll('fold'), who: params.get('who') } : {}) })
+        ...(mode && crew ? { team: { view: crew, now: now(), mode }, fold: params.getAll('fold'), who: params.get('who'), by: params.get('by') } : {}) })
         .replace(/\/img\/([0-9a-f]{20})/g, (all, id) => (SHOTS.has(id) ? shot(SHOTS.get(id) ?? id) : all));
     },
     mode(next?: DemoMode) {

@@ -1541,6 +1541,12 @@ html.s-team.v-kitchen .tboard{display:flex;flex-direction:column;grid-area:you;m
 .fb-one .band{stroke-width:1px;vector-effect:non-scaling-stroke}
 .you-who{margin-left:10px;font-size:17px;font-weight:600;color:var(--label);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fbr .band[data-who],.fbr [data-team-open]{cursor:pointer}
+/* French Brigade's Feature | Person toggle, over the chart's bottom-left corner as the key is over its bottom-right. */
+.tboard>.you-b{position:relative}
+.fb-by{position:absolute;left:16px;bottom:14px;z-index:3;display:flex;padding:2px;border-radius:9px;background:var(--fill)}
+.fb-by button{height:26px;min-height:0;padding:0 11px;border:0;border-radius:7px;background:none;font:600 12.5px var(--sans);color:var(--label2);cursor:pointer}
+.fb-by button:hover{color:var(--label)}
+.fb-by button[aria-checked=true]{background:var(--card);color:var(--label);box-shadow:var(--sh1)}
 .fx-chip .sw.up{background:none;box-shadow:inset 0 0 0 1px var(--label2)}
 .okr .podband{fill:var(--fx-zone-b)}
 .okr .mnum{font-size:11.5px;fill:var(--label2);font-variant-numeric:tabular-nums}
@@ -1795,7 +1801,7 @@ function route(url: URL): Routed {
   const picked = pickedFrom(url.searchParams);
   // fx=WxH: the size the page has for You's chart, so the river fills it (client/flow.ts fitFrom).
   // Your team, from the relay (PR D): only for a member with someone below them (teamInputOf).
-  const app = (): string => renderApp({ board, picked, link, status, origin: ORIGIN, answered, projects, rules: rulesNow(), team: teamInputOf(teamView(), Date.now()), lead: team.view()?.lead ? teamView() : null, scopes: scopesOf, fit: fitFrom(url.searchParams), fold: url.searchParams.getAll('fold'), who: url.searchParams.get('who') });
+  const app = (): string => renderApp({ board, picked, link, status, origin: ORIGIN, answered, projects, rules: rulesNow(), team: teamInputOf(teamView(), Date.now()), lead: team.view()?.lead ? teamView() : null, scopes: scopesOf, fit: fitFrom(url.searchParams), fold: url.searchParams.getAll('fold'), who: url.searchParams.get('who'), by: url.searchParams.get('by') });
   const html = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' };
   const teamPage = team.route(url);
   if (teamPage) return teamPage;
