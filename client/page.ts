@@ -1074,7 +1074,15 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   function krScope(): string { var s = $<HTMLSelectElement>('#kr-scope'); return s ? s.value : ''; }
   function krRender(){
     if (!KR) return;
-    var sc = krScope(), own: Record<string, string | undefined> = sc ? (KR.projects[sc] || {}) : {}, val = function(k: string): string | undefined { return Object.prototype.hasOwnProperty.call(own, k) ? own[k] : (KR!.all as Record<string, string>)[k]; };
+    var sc = krScope(), own: Record<string, string | undefined> = sc ? (KR.projects[sc] || {}) : {};
+    // A project's areas sit between All projects and the project, later over earlier, as a launch reads them
+    // (client/kitchen.ts forProject; PR-Agent r2 on #69).
+    var base: Record<string, string | undefined> = Object.assign({}, KR.all as Record<string, string>);
+    if (sc && sc.indexOf('area:') !== 0) $$<HTMLOptionElement>('#kr-scope optgroup option').forEach(function(o){
+      var ids: unknown; try { ids = JSON.parse(o.dataset.ids || '[]'); } catch (x) { ids = []; }
+      if (Array.isArray(ids) && ids.indexOf(sc) >= 0) Object.assign(base, KR!.projects[o.value] || {});
+    });
+    var val = function(k: string): string | undefined { return Object.prototype.hasOwnProperty.call(own, k) ? own[k] : base[k]; };
     $$<HTMLInputElement>('#settings [data-kr]').forEach(function(el){
       var k = el.dataset.kr!, v = val(k);
       // Menus always show the saved value, so a failed choice can be picked again (PR-Agent r2 on #49). The notes box

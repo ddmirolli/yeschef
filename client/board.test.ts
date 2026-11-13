@@ -335,8 +335,8 @@ test('the team\'s Rules show for the lead only: saved values picked, each area w
   assert.match(h, /data-ta="mode" data-ta-id="a1"[^>]*><option value="open" selected>Open kitchen<\/option><option value="brigade">French Brigade<\/option>/);
   assert.equal((h.match(/Failed-change budget/g) || []).length, 1, 'only the French Brigade area has a budget');
   assert.match(h, /data-ta="budget" data-ta-id="a2"[^>]*>.*<option value="5" selected>5%<\/option>/);
-  // The areas for "Applies to".
-  assert.match(h, /<select data-areas hidden><option value="area:a1">Payments<\/option><option value="area:a2">&lt;Shared&gt;<\/option><\/select><\/script>$/);
+  // The areas for "Applies to", each with the T3 projects in it, so a project shows what its areas give it.
+  assert.match(h, /<select data-areas hidden><option value="area:a1" data-ids="\[&quot;p2&quot;\]">Payments<\/option><option value="area:a2" data-ids="\[&quot;p2&quot;\]">&lt;Shared&gt;<\/option><\/select><\/script>$/);
   // A name that tries to end the script early cannot.
   assert.doesNotMatch(teamRulesRows({ ...view, areas: [{ id: 'x', name: '</script><b>' }] }).slice(0, -'</script>'.length), /<\/script/i);
   // No areas yet: one row says where to add them.

@@ -1356,7 +1356,9 @@ export function teamRulesRows(view: TeamView, projects: readonly Pick<Project, '
   };
   const areaRows = areas.length ? areas.map(area).join('')
     : '<div class="kr-row" data-row="t-none"><div class="kr-l"><div class="kr-h"><h4>No areas yet</h4></div><p>Add areas on the Team page. Each starts in Open kitchen.</p></div></div>';
-  const scopes = areas.map((a) => `<option value="area:${e(a.id)}">${e(a.name)}</option>`).join('');
+  // Each area names the T3 projects in it, so Settings shows a project the value its areas give it (PR-Agent r2 on #69).
+  const ids = (a: (typeof areas)[number]) => projects.filter((p) => a.projects.includes(projectName(p.title))).map((p) => p.id);
+  const scopes = areas.map((a) => `<option value="area:${e(a.id)}" data-ids="${e(JSON.stringify(ids(a)))}">${e(a.name)}</option>`).join('');
   // Every name is escaped, so no "</script" can end it early; the replace is a second guard.
   const html = `${TR_ROWS.map(([g, rows]) => `<h3 class="kgroup">${g}</h3><div class="kr-group">${rows.map(row).join('')}</div>`).join('')}`
     + `<h3 class="kgroup">Areas</h3><div class="kr-group">${areaRows}</div><select data-areas hidden>${scopes}</select>`;
