@@ -2,7 +2,7 @@
 import { test } from 'vite-plus/test';
 import assert from 'node:assert/strict';
 import { outgoing } from './team-acts.ts';
-import { incoming } from './team-inbox.ts';
+import { incoming, optionsKey } from './team-inbox.ts';
 import type { Board } from './board.ts';
 
 const base = { to: 'm-ada', thread: 'th-1', nonce: 'n-1' };
@@ -13,7 +13,13 @@ test('outgoing: each button becomes the action the relay carries, or a refusal b
   // Rebase needs Reply and Roll back needs Merge (roles.ts), so they travel as those, with the reader's words first.
   assert.deepEqual(outgoing({ ...base, act: 'rebase', say: 'Rebase on #12.' }), { to: 'm-ada', action: { kind: 'reply', thread: 'th-1', note: 'Rebase on #12.' } });
   assert.deepEqual(outgoing({ ...base, act: 'rollback', say: 'Roll back #431.', note: 'Now.' }), { to: 'm-ada', action: { kind: 'refire', thread: 'th-1', note: 'Roll back #431.\n\nNow.' } });
-  assert.deepEqual(outgoing({ ...base, act: 'answer', 'c:0': 'b', q: 'Which?' }), { to: 'm-ada', action: { kind: 'answer', thread: 'th-1', pick: 'b', q: 'Which?' } });
+  assert.deepEqual(outgoing({ ...base, act: 'answer', 'c:0': 'b', q: 'Which?', opts: '[["a","A"],["b","B"]]' }), { to: 'm-ada', action: { kind: 'answer', thread: 'th-1', pick: 'b', q: 'Which?', opts: '[["a","A"],["b","B"]]' } });
+  assert.equal((outgoing({ ...base, act: 'answer', 'c:0': 'b', q: 'Which?' }) as { status: number }).status, 409);
+  // A note that the dev's Mac would cut is refused here, whole: Request changes and Roll back leave room for their words.
+  assert.equal((outgoing({ ...base, act: 'reply', note: 'x'.repeat(4000) }) as { action: unknown }).action !== undefined, true);
+  assert.equal((outgoing({ ...base, act: 'reply', note: 'x'.repeat(4001) }) as { status: number }).status, 400);
+  assert.equal((outgoing({ ...base, act: 'refire', note: 'x'.repeat(3990) }) as { status: number }).status, 400);
+  assert.equal((outgoing({ ...base, act: 'rollback', say: 'Roll back #431.', note: 'x'.repeat(3970) }) as { status: number }).status, 400);
   assert.deepEqual(outgoing({ ...base, act: 'hold' }), { to: 'm-ada', action: { kind: 'hold', thread: 'th-1' } });
   // Refused on this Mac: nothing goes.
   assert.equal((outgoing({ ...base, act: 'reply' }) as { status: number }).status, 400);
@@ -39,20 +45,27 @@ test('incoming: Reply and Hold run as they are; Request changes goes as a messag
   assert.deepEqual(incoming(board, { kind: 'reply', thread: 'th-c', note: 'x' }), { kind: 'reply', thread: 'th-c', note: 'x' });
   assert.deepEqual(incoming(board, { kind: 'hold', thread: 'th-c' }), { kind: 'hold', thread: 'th-c' });
   assert.deepEqual(incoming(board, { kind: 'refire', thread: 'th-c', note: 'Fix it', nonce: 'n' }), { kind: 'reply', thread: 'th-c', note: 'Request changes. Fix it', nonce: 'n' });
+  // Never cut: a Request changes too long for one message is refused.
+  assert.equal((incoming(board, { kind: 'refire', thread: 'th-c', note: 'x'.repeat(3990) }) as { status: number }).status, 400);
   assert.equal((incoming(board, { kind: 'go', thread: 'th-c' }) as { status: number }).status, 400);
 });
 
 test('incoming: an answer finds the same question and option on the dev\'s board, else it is refused', () => {
+  const qOpts = optionsKey([{ k: 'Postgres', t: 'The one we run' }, { k: 'SQLite', t: 'SQLite' }]);
+  const cOpts = optionsKey([{ k: 'a', t: 'Yes' }, { k: 'b', t: 'No' }]);
   // A T3 question: the option by its place, sent with the request id, as the dev's own answer form does.
-  assert.deepEqual(incoming(board, { kind: 'answer', thread: 'th-q', q: 'Which database?', pick: 'SQLite', nonce: 'n' }),
+  assert.deepEqual(incoming(board, { kind: 'answer', thread: 'th-q', q: 'Which database?', opts: qOpts, pick: 'SQLite', nonce: 'n' }),
     { kind: 'answer', thread: 'th-q', request: 'r1', 'q:q1': 'SQLite', nonce: 'n' });
   // A hand-back call: the letter.
-  assert.deepEqual(incoming(board, { kind: 'answer', thread: 'th-c', q: 'Ship it?', pick: 'b', nonce: 'n' }),
+  assert.deepEqual(incoming(board, { kind: 'answer', thread: 'th-c', q: 'Ship it?', opts: cOpts, pick: 'b', nonce: 'n' }),
     { kind: 'call', thread: 'th-c', call: 'call-1', 'c:0': 'b', nonce: 'n' });
-  // The question changed since the lead looked, the option is gone, or nothing waits: refused, nothing runs.
-  assert.match(String((incoming(board, { kind: 'answer', thread: 'th-c', q: 'Ship it now?', pick: 'a' }) as { text: string }).text), /something new/);
-  assert.match(String((incoming(board, { kind: 'answer', thread: 'th-c', q: 'Ship it?', pick: 'z' }) as { text: string }).text), /not on the question/);
-  assert.equal((incoming(board, { kind: 'answer', thread: 'th-none', q: 'x', pick: 'a' }) as { status: number }).status, 409);
+  // The question changed since the lead looked: new words, or the same letters with other meanings (PR-Agent r2 on #73).
+  assert.match(String((incoming(board, { kind: 'answer', thread: 'th-c', q: 'Ship it now?', opts: cOpts, pick: 'a' }) as { text: string }).text), /something new/);
+  assert.match(String((incoming(board, { kind: 'answer', thread: 'th-c', q: 'Ship it?', opts: optionsKey([{ k: 'a', t: 'No' }, { k: 'b', t: 'Yes' }]), pick: 'a' }) as { text: string }).text), /something new/);
+  assert.match(String((incoming(board, { kind: 'answer', thread: 'th-c', q: 'Ship it?', pick: 'a' }) as { text: string }).text), /something new/);
+  // The option is gone, or nothing waits: refused, nothing runs.
+  assert.match(String((incoming(board, { kind: 'answer', thread: 'th-c', q: 'Ship it?', opts: cOpts, pick: 'z' }) as { text: string }).text), /not on the question/);
+  assert.equal((incoming(board, { kind: 'answer', thread: 'th-none', q: 'x', opts: cOpts, pick: 'a' }) as { status: number }).status, 409);
   // A T3 answer takes no note: refused, never dropped.
-  assert.equal((incoming(board, { kind: 'answer', thread: 'th-q', q: 'Which database?', pick: 'SQLite', note: 'hm' }) as { status: number }).status, 400);
+  assert.equal((incoming(board, { kind: 'answer', thread: 'th-q', q: 'Which database?', opts: qOpts, pick: 'SQLite', note: 'hm' }) as { status: number }).status, 400);
 });

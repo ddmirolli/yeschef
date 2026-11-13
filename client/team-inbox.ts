@@ -231,6 +231,8 @@ export const inbox = {
 // answer names the question and the option as the summary carried them; this Mac finds them again on its own board and
 // refuses a question that changed since.
 const actText = (v: unknown, n: number): string => String(v ?? '').trim().slice(0, n);
+/** The options a lead read, as one string both sides make the same way (board.ts teamDock sends it). */
+export const optionsKey = (options: readonly { k: string | null; t: string | null }[]): string => JSON.stringify(options.map((o) => [o.k, o.t]));
 const MAX_ACT_NOTE = 4000;
 const bad = (status: number, words: string): ActResult => ({ status, text: words });
 /** A teammate's action -> one of this dev's own actions on this dev's board, or a refusal sent back to the teammate.
@@ -238,13 +240,20 @@ const bad = (status: number, words: string): ActResult => ({ status, text: words
 export function incoming(board: Board, input: ActInput): ActInput | ActResult {
   const kind = String(input.kind || ''), thread = String(input.thread || '');
   if (kind === 'reply' || kind === 'hold') return input;
-  if (kind === 'refire') return { ...input, kind: 'reply', note: `Request changes. ${actText(input.note, MAX_ACT_NOTE)}` };
+  if (kind === 'refire') {
+    // Whole or not at all: the sender checks the size first (team-acts.ts), and a note that would be cut is refused.
+    const note = String(input.note ?? '').trim(), message = `Request changes. ${note}`;
+    if (!note) return bad(400, 'Request changes needs a note: what should the agent fix?');
+    if (message.length > MAX_ACT_NOTE) return bad(400, 'Not run: that note is too long. Shorten it and send again.');
+    return { ...input, kind: 'reply', note: message };
+  }
   if (kind !== 'answer') return bad(400, 'A teammate cannot do that. Only the dev can.');
   const ticket = board.tickets.find((k) => k.thread.threadId === thread || k.asks.some((a) => a.thread.threadId === thread));
   const ask = ticket ? summaryAsk(ticket) : null;
   if (!ticket || !ask) return bad(409, 'Not run: that question is no longer waiting.');
-  // The same question the lead read: its words and the option's place in the list, as summaryAsk gave them.
-  if (ask.q !== String(input.q || '')) return bad(409, 'Not run: the agent asked something new since you looked. Look again.');
+  // The same question the lead read: its words and every option, in order, as summaryAsk gave them. A question
+  // replaced with the same letters but other meanings is a new question (PR-Agent r2 on #73).
+  if (ask.q !== String(input.q || '') || optionsKey(ask.options) !== String(input.opts || '')) return bad(409, 'Not run: the agent asked something new since you looked. Look again.');
   const i = ask.options.findIndex((o) => o.k !== null && o.k === String(input.pick || ''));
   if (i < 0) return bad(409, 'Not run: that option is not on the question any more. Look again.');
   const nonce = input.nonce, note = actText(input.note, MAX_ACT_NOTE);

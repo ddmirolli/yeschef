@@ -17,6 +17,8 @@ export const TEAM_ACTS = ['reply', 'refire', 'rebase', 'rollback', 'answer', 'ho
 export type TeamAct = (typeof TEAM_ACTS)[number];
 
 const MAX_NOTE = 4000;
+/** "Request changes. " goes before a Request changes on the dev's Mac (team-inbox.ts incoming), inside the same limit. */
+const ROOM = MAX_NOTE - 'Request changes. '.length;
 const text = (v: unknown, n: number): string => String(v ?? '').trim().slice(0, n);
 const bad = (status: number, words: string): ActResult => ({ status, text: words });
 
@@ -25,9 +27,12 @@ const bad = (status: number, words: string): ActResult => ({ status, text: words
 export function outgoing(input: ActInput): { to: string; action: Action } | ActResult {
   const act = String(input.act || '') as TeamAct;
   if (!TEAM_ACTS.includes(act)) return bad(400, 'Unknown team action.');
-  const to = text(input.to, 64), thread = text(input.thread, 200), note = text(input.note, MAX_NOTE);
+  const to = text(input.to, 64), thread = text(input.thread, 200), note = text(input.note, MAX_NOTE + 1);
   if (!to || !thread) return bad(409, 'Not checked: this call names no thread to act on.');
   const say = text(input.say, 600);
+  // The message as the dev's agent gets it, whole: a note that would be cut is refused here, never shortened later.
+  const words = (act === 'rebase' || act === 'rollback') && say ? (note ? `${say}\n\n${note}` : say) : note;
+  if (words.length > ((act === 'refire' || act === 'rollback') ? ROOM : MAX_NOTE)) return bad(400, 'That note is too long. Shorten it and send again.');
   switch (act) {
     case 'reply': case 'refire':
       if (!note) return bad(400, act === 'refire' ? 'Request changes needs a note: what should the agent fix?' : 'Write the reply first.');
@@ -36,9 +41,11 @@ export function outgoing(input: ActInput): { to: string; action: Action } | ActR
       if (!say) return bad(409, 'Not checked: this call has no words to send.');
       return { to, action: { kind: act === 'rebase' ? 'reply' : 'refire', thread, note: note ? `${say}\n\n${note}` : say } };
     case 'answer': {
-      const pick = text(input['c:0'], 40), q = text(input.q, 200);
+      // The question and every option the lead read: the dev's Mac answers only that same question.
+      const pick = text(input['c:0'], 40), q = text(input.q, 200), opts = String(input.opts || '').slice(0, 2000);
       if (!pick) return bad(400, 'Pick an answer first.');
-      return { to, action: { kind: 'answer', thread, pick, q, ...(note ? { note } : {}) } };
+      if (!opts) return bad(409, 'Not checked: this question has no options to answer.');
+      return { to, action: { kind: 'answer', thread, pick, q, opts, ...(note ? { note } : {}) } };
     }
     case 'hold':
       if (note) return bad(400, 'Hold sends the agent nothing, so your note would be lost. Send it with Reply first, or clear it.');

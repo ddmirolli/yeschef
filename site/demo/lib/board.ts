@@ -840,7 +840,10 @@ function teamDock(c: TeamCall, w: Words, me: Me | null | undefined, id: string):
   const kinds = allowed.map(([kind]) => kind);
   const note = !allowed.length ? '' : noteField(kinds.includes('refire') ? 'needed for Changes and Reply' : kinds.includes('reply') ? `optional with ${kinds[0] === 'reply' ? 'Hold' : allowed[0]![1]}, needed for Reply` : 'optional');
   const only = allowed.length ? '' : `<p class="dock-who">${t ? 'Your role can see this call. Acting on it needs more from your lead.' : 'Not checked: this call names no thread to act on.'}</p>`;
-  const fields = t && allowed.length ? hidden('nonce', randomUUID()) + hidden('to', t.to) + hidden('thread', t.thread) + (t.say ? hidden('say', t.say) : '') + (w.ask ? hidden('q', w.ask.q ?? '') : '') : '';
+  // An answer carries the question and every option as the lead read them (team-inbox.ts optionsKey), so the dev's Mac
+  // answers only that same question.
+  const seen = w.ask ? hidden('q', w.ask.q ?? '') + hidden('opts', JSON.stringify((Array.isArray(w.ask.options) ? w.ask.options : []).map((o) => [o.k, o.t]))) : '';
+  const fields = t && allowed.length ? hidden('nonce', randomUUID()) + hidden('to', t.to) + hidden('thread', t.thread) + (t.say ? hidden('say', t.say) : '') + seen : '';
   return `<aside class="dock dock-plain" aria-label="Your move"><form class="act team-act" method="post" action="/act" data-plate="${e(id)}">${fields}${only}${ask}${note}${allowed.length ? bar(labelled, [hold], rows) : ''}</form></aside>`;
 }
 
