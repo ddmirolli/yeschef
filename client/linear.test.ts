@@ -2,7 +2,7 @@
 // for a Claude and a Codex call; the tickets in them are made up.
 import { test } from 'vite-plus/test';
 import assert from 'node:assert/strict';
-import { cleanIssue, createLinearReads, featureOf, linearCall } from './linear.ts';
+import { cleanIssue, cleanProject, createLinearReads, featureOf, linearCall } from './linear.ts';
 import type { LinearLink, LinearThread } from './linear.ts';
 
 const issue = (id: string, more: Record<string, unknown> = {}) => ({ id, title: `Ticket ${id}`, status: 'In Progress', statusType: 'started',
@@ -247,4 +247,86 @@ test('a thread untouched for a week is not read back from its start', async () =
   reads.want([{ threadId: 'old', updatedAt: at(8 * 24 * 60), itemCount: 900 }]);
   await settle();
   assert.equal(calls.length, 0);
+});
+
+// ---- Step 7 PR 2: blocker relations, project leads, whole project lists (shapes read 2026-11-13). ----
+const PID = 'ed93ef9c-3f61-4ee9-97e3-aa4a25b32da3';
+const inProject = (id: string, more: Record<string, unknown> = {}) => issue(id, { project: 'Payouts v2', projectId: PID, ...more });
+
+test('a ticket read with its relations names what blocks it; without them, blocked by is not checked', () => {
+  const got = cleanIssue(issue('ENG-1', { relations: { blocks: [], blockedBy: [{ id: 'ENG-2', title: 'Ledger' }, { id: 'eng-2', title: 'twice' }, { id: 'ENG-1', title: 'itself' }, { id: 'nope' }], relatedTo: [], duplicateOf: null } }))!;
+  assert.deepEqual(got.blockedBy, [{ id: 'ENG-2', title: 'Ledger', open: null }]);
+  assert.equal('blockedBy' in cleanIssue(issue('ENG-1'))!, false);
+  assert.deepEqual(cleanIssue(issue('ENG-1', { relations: { blockedBy: [] } }))!.blockedBy, []);
+});
+
+test('a project read gives its UUID, name and lead; {} is no lead; another id or no lead key says nothing', () => {
+  assert.deepEqual(cleanProject({ id: 'W-PAY-12', uuid: PID.toUpperCase(), name: 'Payouts v2', lead: { id: 'u1', name: 'Priya Shah' } }), { id: PID, name: 'Payouts v2', lead: 'Priya Shah' });
+  assert.deepEqual(cleanProject({ id: PID, name: 'P', lead: {} }), { id: PID, name: 'P', lead: null });
+  assert.deepEqual(cleanProject({ id: PID, name: 'P' }), { id: PID, name: 'P' });
+  assert.equal(cleanProject({ id: 'W-PAY-12', name: 'P', lead: { name: 'X' } }), null);
+  const c = linearCall(claudeItem('list_projects', { limit: 15 }, { projects: [{ id: PID, name: 'P', lead: { id: 'u', name: 'Kai' } }, { id: 'bad' }] }), 1)!;
+  assert.deepEqual(c.projects, [{ id: PID, name: 'P', lead: 'Kai' }]);
+});
+
+test('a whole project list: filtered by project alone, one page, every ticket whole and in it; anything less is a part', () => {
+  const body = (more: Record<string, unknown> = {}) => ({ issues: [inProject('ENG-1'), inProject('ENG-2', { statusType: 'completed', status: 'Done' })], hasNextPage: false, cursor: null, ...more });
+  assert.deepEqual(linearCall(claudeItem('list_issues', { project: 'Payouts v2', limit: 50 }, body()), 1)!.list, { projectId: PID, ids: ['ENG-1', 'ENG-2'] });
+  const part = (input: Record<string, unknown>, b: Record<string, unknown>) => linearCall(claudeItem('list_issues', input, b), 1)!.list;
+  assert.equal(part({ project: 'P', state: 'started' }, body()), undefined, 'another filter');
+  assert.equal(part({ project: 'P', cursor: 'c1' }, body()), undefined, 'a later page');
+  assert.equal(part({ project: 'P' }, body({ hasNextPage: true })), undefined, 'more pages');
+  assert.equal(part({ limit: 50 }, body()), undefined, 'no project filter');
+  assert.equal(part({ project: 'P' }, body({ issues: [inProject('ENG-1'), issue('ENG-3')] })), undefined, 'a ticket in another project');
+  assert.equal(part({ project: 'P' }, body({ issues: [inProject('ENG-1'), { id: 'junk' }] })), undefined, 'a ticket not read whole');
+  const { statusType: _, ...noState } = inProject('ENG-2');
+  assert.equal(part({ project: 'P' }, body({ issues: [inProject('ENG-1'), noState] })), undefined, 'a ticket without its state (PR-Agent r3 on #78)');
+  assert.equal(part({ project: 'P' }, body({ issues: [] })), undefined, 'an empty list names no project');
+});
+
+test('the reader keeps each project\'s lead and whole list, and each blocker open or done by its own newest read', async () => {
+  const items = {
+    a: [{ itemId: 'm0', type: 'user_message', text: 'ship it', updatedAt: at(40) },
+      { itemId: 't1', type: 'dynamic_tool', text: claudeItem('get_project', { query: 'Payouts v2' }, { id: 'W-1', uuid: PID, name: 'Payouts v2', lead: { id: 'u', name: 'Priya Shah' } }), updatedAt: at(30) },
+      { itemId: 't2', type: 'dynamic_tool', text: claudeItem('list_issues', { project: 'Payouts v2' }, { issues: [inProject('ENG-1'), inProject('ENG-2', { statusType: 'completed' })], hasNextPage: false }), updatedAt: at(20) },
+      { itemId: 't3', type: 'dynamic_tool', text: codexItem('get_issue', { id: 'ENG-1', includeRelations: true }, inProject('ENG-1', { relations: { blockedBy: [{ id: 'ENG-2', title: 'Ledger' }, { id: 'ENG-9', title: 'Unread' }] } })), updatedAt: at(10) }],
+  };
+  const reads = createLinearReads({ call: fakeT3(items), now: () => NOW });
+  reads.want([{ threadId: 'a', updatedAt: at(10), itemCount: 4 }]);
+  for (let i = 0; i < 8; i++) await settle();
+  assert.deepEqual(reads.project(PID.toUpperCase()), { id: PID, name: 'Payouts v2', lead: 'Priya Shah', leadAt: Date.parse(at(30)),
+    tickets: [{ id: 'ENG-1', statusType: 'started' }, { id: 'ENG-2', statusType: 'completed' }], listAt: Date.parse(at(20)), openAt: Date.parse(at(10)) },
+    'listAt: when the whole list was read (PR-Agent r2 on #78); openAt: the newest read of a ticket not done (r3)');
+  assert.deepEqual(reads.get('ENG-1')!.blockedBy, [{ id: 'ENG-2', title: 'Ledger', open: false }, { id: 'ENG-9', title: 'Unread', open: null }]);
+  assert.equal(reads.project('ffffffff-0000-0000-0000-000000000000'), null);
+  // A newer read of ENG-1 moves it to done: the list counts it done, though the list itself is older.
+  items.a.push({ itemId: 't4', type: 'dynamic_tool', text: claudeItem('get_issue', { id: 'ENG-1' }, inProject('ENG-1', { statusType: 'completed' })), updatedAt: at(5) });
+  reads.want([{ threadId: 'a', updatedAt: at(5), itemCount: 5 }]);
+  for (let i = 0; i < 8; i++) await settle();
+  assert.deepEqual(reads.project(PID)!.tickets, [{ id: 'ENG-1', statusType: 'completed' }, { id: 'ENG-2', statusType: 'completed' }]);
+  assert.equal(reads.project(PID)!.listAt, Date.parse(at(20)), 'a newer status read does not make the list newer (PR-Agent r2 on #78)');
+  assert.equal(reads.project(PID)!.openAt, undefined, 'every ticket done: no open read stands');
+  // Its relations were not in that read: the older read's blockers stay.
+  assert.equal(reads.get('ENG-1')!.blockedBy!.length, 2);
+  // A ticket read in the project after the list, and not on it: the list is no longer whole (PR-Agent r1 on #78).
+  items.a.push({ itemId: 't5', type: 'dynamic_tool', text: claudeItem('get_issue', { id: 'ENG-3' }, inProject('ENG-3')), updatedAt: at(3) });
+  reads.want([{ threadId: 'a', updatedAt: at(3), itemCount: 6 }]);
+  for (let i = 0; i < 8; i++) await settle();
+  assert.equal(reads.project(PID)!.tickets, undefined);
+  assert.equal(reads.project(PID)!.listGone, Date.parse(at(3)), 'and when that was seen goes to the team (PR-Agent r2 on #78)');
+  assert.equal(reads.project(PID)!.openAt, Date.parse(at(3)));
+  assert.equal(reads.project(PID)!.lead, 'Priya Shah', 'the lead stands');
+});
+
+test('a blocker read done and then open again starts a new open time (PR-Agent r3 on #78)', async () => {
+  const blocks = (n: number) => ({ itemId: `b${n}`, type: 'dynamic_tool', text: codexItem('get_issue', { id: 'ENG-1', includeRelations: true }, issue('ENG-1', { relations: { blockedBy: [{ id: 'ENG-2', title: 'Ledger' }] } })), updatedAt: at(n) });
+  const state = (n: number, statusType: string) => ({ itemId: `s${n}`, type: 'dynamic_tool', text: claudeItem('get_issue', { id: 'ENG-2' }, issue('ENG-2', { statusType })), updatedAt: at(n) });
+  const items = { a: [{ itemId: 'm0', type: 'user_message', text: 'go', updatedAt: at(45) }, blocks(40), state(39, 'started'), state(30, 'started')] };
+  const reads = createLinearReads({ call: fakeT3(items), now: () => NOW });
+  const step = async (n: number) => { reads.want([{ threadId: 'a', updatedAt: at(n), itemCount: items.a.length }]); for (let i = 0; i < 8; i++) await settle(); };
+  await step(30);
+  assert.deepEqual(reads.get('ENG-1')!.blockedBy, [{ id: 'ENG-2', title: 'Ledger', open: true, openAt: Date.parse(at(39)) }], 'still open: the first open read');
+  items.a.push(state(20, 'completed'), state(10, 'started'));
+  await step(10);
+  assert.deepEqual(reads.get('ENG-1')!.blockedBy, [{ id: 'ENG-2', title: 'Ledger', open: true, openAt: Date.parse(at(10)) }], 'done, then open again');
 });

@@ -13,7 +13,7 @@ import type { ActInput, ActResult } from './actions.ts';
 type Action = { kind: string; [field: string]: unknown };
 
 /** The buttons a team call can carry (board.ts callWords acts, plus Hold). */
-export const TEAM_ACTS = ['reply', 'refire', 'rebase', 'rollback', 'answer', 'hold'] as const;
+export const TEAM_ACTS = ['reply', 'refire', 'rebase', 'rollback', 'answer', 'hold', 'ship'] as const;
 export type TeamAct = (typeof TEAM_ACTS)[number];
 
 const MAX_NOTE = 4000;
@@ -31,7 +31,7 @@ export function outgoing(input: ActInput): { to: string; action: Action } | ActR
   if (!to || !thread) return bad(409, 'Not checked: this call names no thread to act on.');
   const say = text(input.say, 600);
   // The message as the dev's agent gets it, whole: a note that would be cut is refused here, never shortened later.
-  const words = (act === 'rebase' || act === 'rollback') && say ? (note ? `${say}\n\n${note}` : say) : note;
+  const words = (act === 'rebase' || act === 'rollback' || act === 'ship') && say ? (note ? `${say}\n\n${note}` : say) : note;
   if (words.length > ((act === 'refire' || act === 'rollback') ? ROOM : MAX_NOTE)) return bad(400, 'That note is too long. Shorten it and send again.');
   switch (act) {
     case 'reply': case 'refire':
@@ -47,6 +47,11 @@ export function outgoing(input: ActInput): { to: string; action: Action } | ActR
       if (!opts) return bad(409, 'Not checked: this question has no options to answer.');
       return { to, action: { kind: 'answer', thread, pick, q, opts, ...(note ? { note } : {}) } };
     }
+    case 'ship':
+      // Ship (step 7 PR 2, 1A): a message to the agent of the feature's Linear lead, with the words the reader shows.
+      // It needs Merge on the lead's Mac, as Roll back does; the signature line names who pressed it.
+      if (!say) return bad(409, 'Not checked: this call has no words to send.');
+      return { to, action: { kind: 'ship', thread, note: note ? `${say}\n\n${note}` : say } };
     case 'hold':
       if (note) return bad(400, 'Hold sends the agent nothing, so your note would be lost. Send it with Reply first, or clear it.');
       return { to, action: { kind: 'hold', thread } };

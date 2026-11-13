@@ -9,8 +9,9 @@ import { shares } from './roles.ts';
 import { clean } from './team-common.ts';
 import { RETRY } from './team-connection.ts';
 import { rangesOf } from './changes.ts';
-import { featureOf } from './linear.ts';
-import { RULES } from './open-kitchen.ts';
+import { CLOSED, featureOf } from './linear.ts';
+import type { LinearProject } from './linear.ts';
+import { RULES, SHIP_MS } from './open-kitchen.ts';
 import { cleanReviewers, loginOf, type Reviewer } from './reviewers.ts';
 import type { Board, Ticket } from './board.ts';
 import type { ChangedFile } from './changes.ts';
@@ -38,7 +39,7 @@ type FileIn = { path: string; hunks?: unknown; added?: unknown; removed?: unknow
 /** A PR's check runs (client/pr-runs.ts), as the summary reads them. */
 export type ChecksIn = { result?: unknown; redRuns?: unknown; at?: unknown; runs?: unknown };
 /** What the board server read of a PR from GitHub (client/github.ts readPrFacts), as the summary reads it. */
-export type PrIn = { state?: unknown; why?: unknown; draft?: unknown; base?: unknown; at?: unknown; mergeSha?: unknown;
+export type PrIn = { state?: unknown; why?: unknown; draft?: unknown; base?: unknown; at?: unknown; mergeSha?: unknown; blockedBy?: unknown;
   size?: { files?: unknown; added?: unknown; removed?: unknown } | null;
   runs?: { state?: unknown; why?: unknown; at?: unknown; readyAt?: unknown; checks?: ChecksIn | null; reviewers?: unknown } | null };
 /** One base branch's checks (client/github.ts readBaseChecks), as the summary reads them. */
@@ -50,10 +51,27 @@ export interface Readers {
   changes?: ((threadId: string) => ChangesIn | null | undefined) | undefined;
   pr?: ((pr: { host: string; repo: string; number: number }) => PrIn | null | undefined) | undefined;
   base?: ((threadId: string) => BaseIn | null | undefined) | undefined;
-  seen?: unknown; fine?: unknown; over?: unknown; keepOver?: ((over: Record<string, number>) => void) | undefined; now?: number | undefined;
+  seen?: unknown; fine?: unknown; ships?: unknown; over?: unknown; keepOver?: ((over: Record<string, number>) => void) | undefined; now?: number | undefined;
+  /** When this Mac first saw each thread blocked by each blocker ("thread|blocker" -> time), and keepBlocked(map), which
+   *  takes the new one: a re-read never restarts Blocked's wait (PR-Agent r1 on #78). */
+  blockedAt?: unknown; keepBlocked?: ((m: Record<string, number>) => void) | undefined;
   /** This Mac's GitHub login (gh's sign-in), so a lead's Mac can match a PR's reviewers to its teammates. */
   login?: (() => unknown) | undefined;
+  /** A Linear project as this Mac's agents read it (client/linear.ts), for French Brigade's features. */
+  project?: ((id: string) => LinearProject | null | undefined) | undefined;
 }
+/** A feature as the summary sends it (step 7 PR 2): its lead's name (null: none; left out: not read), and its whole
+ *  ticket list's count (left out: no whole list read). closed: done, canceled or duplicate; unread: no status read. */
+export type SummaryFeature = { id: string; name: string; lead?: string | null; leadAt?: number;
+  list?: { n: number; closed: number; unread: number; at: number };
+  /** This dev's threads on it, and how many are merged, counted before the summary drops tickets to fit: a thread the
+   *  relay never carries still keeps the feature from Ready (PR-Agent r1 on #78). */
+  threads: { n: number; merged: number };
+  /** When a read showed the newest whole list this Mac had is no longer whole (PR-Agent r2 on #78). */
+  listGone?: number;
+  /** The newest read of a ticket in it that showed it not done (PR-Agent r3 on #78). */
+  openAt?: number };
+const FEATURES_MAX = 50, BLOCKERS_MAX = 5;
 /** A PR's size as the summary sends it. */
 export type SummarySize = { files: number | null; added: number | null; removed: number | null; at: number | null; overAt?: number };
 /** A PR as the summary sends it. */
@@ -65,7 +83,9 @@ export type SummaryTicket = { thread: string; title: string; project: string; pl
   prs: SummaryPr[]; updatedAt: string | null; startedAt: number | null; last: string | null; ask: ReturnType<typeof summaryAsk>;
   changes?: NonNullable<ReturnType<typeof summaryChanges>>;
   /** Its feature, the Linear project of its tickets (step 7): null when none is in a project; left out when no ticket was read. */
-  feature?: { id: string; name: string } | null };
+  feature?: { id: string; name: string } | null;
+  /** The tickets that block it and are still open, as reads show (step 7 PR 2, 3C). Left out when none is known. */
+  blocked?: { id: string; title: string | null; at: number }[] };
 
 const SUMMARY_TICKETS = 100;
 
@@ -187,6 +207,16 @@ export const summaries = {
   /** It's fine on a team call (Dan, 2026-11-13, "A"): its id goes in this Mac's summary's `fine`, with when, so every
    *  Pass that shows the call drops it and says who cleared it. Kept on disk for a day, as Seen is. A Mac that shares
    *  no project sends no summary, so its marks clear the call on this Mac only. */
+  /** Ship on Ready for your look (step 7 PR 2): its call id goes in this Mac's summary's `ships` for 30 days, so the
+   *  feature leaves every Pass once shipped, with who and when. */
+  markShip(callId: unknown): boolean {
+    if (typeof callId !== 'string' || !callId.startsWith('ready:') || callId.length > 300) return false;
+    this.state.shipCalls = keepShips({ ...(this.state.shipCalls || {}), [callId]: this.now() }, this.now());
+    this.save();
+    this.publish();
+    return true;
+  },
+
   markFine(callId: unknown): boolean {
     if (typeof callId !== 'string' || !callId || callId.length > 300) return false;
     this.state.fineCalls = keepSeen({ ...(this.state.fineCalls || {}), [callId]: this.now() }, this.now());
@@ -218,11 +248,14 @@ export const summaries = {
       const held = this.heldBody;
       // This Mac's It's fine marks go too: else the summary after a restart would take them off every other Pass until
       // the first board read (PR-Agent r1 on #75).
-      return { v: 1, tickets: Array.isArray(held?.tickets) ? held!.tickets as unknown[] : [], more: Number(held?.more) || 0, health, fine: keepSeen(this.state.fineCalls, this.now()) };
+      return { v: 1, tickets: Array.isArray(held?.tickets) ? held!.tickets as unknown[] : [], more: Number(held?.more) || 0, health, fine: keepSeen(this.state.fineCalls, this.now()),
+        ships: keepShips(this.state.shipCalls, this.now()) };
     }
-    const readers: Readers = { ...(this.readers || {}), seen: this.state.seenCalls, fine: this.state.fineCalls, now: this.now(), over: this.state.overAt,
+    const readers: Readers = { ...(this.readers || {}), seen: this.state.seenCalls, fine: this.state.fineCalls, ships: this.state.shipCalls, now: this.now(), over: this.state.overAt,
       // Kept on disk, so a restart keeps Too big's age; saved only when it changed.
-      keepOver: (m) => { if (JSON.stringify(m) !== JSON.stringify(this.state.overAt || {})) { this.state.overAt = m; this.save(); } } };
+      keepOver: (m) => { if (JSON.stringify(m) !== JSON.stringify(this.state.overAt || {})) { this.state.overAt = m; this.save(); } },
+      blockedAt: this.state.blockedAt,
+      keepBlocked: (m) => { if (JSON.stringify(m) !== JSON.stringify(this.state.blockedAt || {})) { this.state.blockedAt = m; this.save(); } } };
     return { ...summarize(this.lastBoard, this.state.shared, this.limits.summaryMax, readers), at: this.lastBoardAt, health };
   },
 
@@ -421,6 +454,12 @@ export function summaryBase(b: BaseIn) {
 
 /** The calls this dev opened on their own Pass in the last day, at most 100 and 8 KiB as UTF-8, the newest kept: the
  *  summary's other fields keep their room under the relay's limit (PR-Agent r2 on #27). */
+/** The Ship marks to keep: 30 days (open-kitchen.ts SHIP_MS), the newest 100. */
+export function keepShips(ships: unknown, now: number): Record<string, number> {
+  return Object.fromEntries((Object.entries(ships && typeof ships === 'object' ? ships : {}) as [string, number][])
+    .filter(([id, at]) => typeof id === 'string' && id.startsWith('ready:') && id.length <= 300 && Number.isFinite(at) && at <= now + 60000 && now - at < SHIP_MS)
+    .sort((a, b) => b[1] - a[1]).slice(0, 100));
+}
 export function keepSeen(seen: unknown, now: number): Record<string, number> {
   const list = (Object.entries(seen && typeof seen === 'object' ? seen : {}) as [string, number][])
     .filter(([id, at]) => typeof id === 'string' && id.length <= 300 && Number.isFinite(at) && at <= now + 60000 && now - at < SEEN_MS)
@@ -464,21 +503,49 @@ export function summarize(board: Pick<Board, 'tickets'> | null | undefined, shar
     s.overAt = over[key];
     return pr;
   };
+  const blockedBefore = (readers.blockedAt && typeof readers.blockedAt === 'object' ? readers.blockedAt : {}) as Record<string, unknown>, blockedAt: Record<string, number> = {};
   const picked = (board?.tickets || [])
     .filter((k) => keep.has(k.thread.projectId) && k.place !== 'Coordinators')
     .sort((a, b) => (+b.atPass - +a.atPass) || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
   const tickets = picked.map((k) => {
+    // Each open or merged PR's read, once: its facts and what its description says it waits on.
+    const reads = k.prs.map((p) => (p.state === 'open' || p.state === 'merged' ? get(readers.pr, { host: p.host || 'github.com', repo: p.repository, number: p.number }) : null));
     const t: SummaryTicket = {
       thread: k.thread.threadId, title: clean(k.thread.title, 160), project: clean(k.project, 80), place: k.place,
       atPass: !!k.atPass, working: k.working || 0, asks: k.asks.length, call: !!k.call,
       // Every PR keeps its Too big age, also past the 5 the summary carries (PR-Agent r3 on #28).
-      prs: k.prs.map((p) => withOver(summaryPr(p, p.state === 'open' || p.state === 'merged' ? get(readers.pr, { host: p.host || 'github.com', repo: p.repository, number: p.number }) : null), p.host)).slice(0, 5),
+      prs: k.prs.map((p, i) => withOver(summaryPr(p, reads[i]), p.host)).slice(0, 5),
       updatedAt: k.updatedAt || null, startedAt: time(k.thread.createdAt), last: firstLine(k.lastWords, 160), ask: summaryAsk(k),
     };
     // Its feature (step 7, Dan 3A, 2026-11-13): the Linear project of the tickets its threads read. Left out when no
     // ticket was read (not checked); null when they were and none is in a project.
     const f = featureOf(k.linear);
     if (f !== undefined) t.feature = f && { id: f.id, name: clean(f.name, 80) };
+    // Blocked (3C, 2026-11-13): a Linear "blocked by" ticket a read shows still open. One whose status no read gave is
+    // not checked, so it raises nothing. at: when the relation was read.
+    // at: the later of that read and the blocker's open read, so a blocker that reopens starts a new wait (PR-Agent r2 on #78).
+    const blocked = (k.linear || []).flatMap((l) => (l.state === 'read' ? (l.blockedBy || []).filter((b) => b.open === true)
+      .map((b) => ({ id: b.id, title: b.title ? clean(b.title, 120) : null, at: Math.max(l.at, Number.isFinite(b.openAt) ? b.openAt! : 0), opened: Number.isFinite(b.openAt) ? b.openAt! : 0 })) : []));
+    // And an open PR whose description says it waits on an issue or PR that GitHub shows open ("owner/repo#N").
+    for (const [i, p] of k.prs.entries()) {
+      if (p.state !== 'open') continue;
+      const r = reads[i];
+      const at = time(r?.at);
+      if (r?.state !== 'checked' || at === null || !Array.isArray(r.blockedBy)) continue;
+      for (const b of r.blockedBy as { repo?: unknown; n?: unknown; open?: unknown }[]) {
+        if (b?.open === true && typeof b.repo === 'string' && Number.isInteger(b.n)) blocked.push({ id: `${clean(b.repo, 200)}#${b.n as number}`, title: null, at, opened: 0 });
+      }
+    }
+    if (blocked.length) {
+      t.blocked = [...new Map(blocked.map((b) => [b.id, b])).values()].slice(0, BLOCKERS_MAX).map((b) => {
+        // The first time this Mac saw it, kept while it stays blocked, so a fresh read does not restart the wait.
+        // A blocker that a read showed open again after this time is a new wait (PR-Agent r3 on #78).
+        const key = `${t.thread}|${b.id}`, was = blockedBefore[key];
+        const at = Number.isFinite(was) && (was as number) <= now && (was as number) >= b.opened ? Math.min(was as number, b.at) : b.at;
+        blockedAt[key] = at;
+        return { id: b.id, title: b.title, at };
+      });
+    }
     const c = summaryChanges(get(readers.changes, k.thread.threadId));
     if (c) t.changes = c;
     return t;
@@ -491,8 +558,24 @@ export function summarize(board: Pick<Board, 'tickets'> | null | undefined, shar
     if (!bases.has(key)) bases.set(key, summaryBase(b));
   }
   get(readers.keepOver, over);
+  get(readers.keepBlocked, blockedAt);
+  // Each feature this Mac's tickets are in, with what its agents read of the Linear project: the lead (Ship's target,
+  // 2A) and the whole ticket list (Ready for your look, 1A).
+  const features: SummaryFeature[] = [];
+  for (const id of [...new Set(tickets.flatMap((t) => (t.feature ? [t.feature.id] : [])))].slice(0, FEATURES_MAX)) {
+    const p = get(readers.project, id);
+    const on = tickets.filter((t) => t.feature?.id === id);
+    const out: SummaryFeature = { id, name: on[0]!.feature!.name, threads: { n: on.length, merged: on.filter((t) => t.place === 'Merged').length } };
+    if (p && p.lead !== undefined && Number.isFinite(p.leadAt)) { out.lead = p.lead === null ? null : clean(p.lead, 80); out.leadAt = p.leadAt!; }
+    if (p?.tickets && Number.isFinite(p.listAt)) {
+      out.list = { n: p.tickets.length, closed: p.tickets.filter((x) => x.statusType !== null && CLOSED.has(x.statusType)).length,
+        unread: p.tickets.filter((x) => x.statusType === null).length, at: p.listAt! };
+    } else if (Number.isFinite(p?.listGone)) out.listGone = p!.listGone!;
+    if (Number.isFinite(p?.openAt)) out.openAt = p!.openAt!;
+    features.push(out);
+  }
   // gh: this Mac's GitHub login, or null when gh's sign-in was not read (not checked).
-  const top = { gh: loginOf(get(readers.login)), bases: [...bases.values()], seen: keepSeen(readers.seen, now), fine: keepSeen(readers.fine, now) };
+  const top = { gh: loginOf(get(readers.login)), bases: [...bases.values()], seen: keepSeen(readers.seen, now), fine: keepSeen(readers.fine, now), ships: keepShips(readers.ships, now), features };
   let n = Math.min(tickets.length, SUMMARY_TICKETS);
   // A sealed summary is about 4/3 of its JSON's UTF-8 bytes plus the signature. Shed the changed files of the least
   // recent tickets first (a ticket without them reads "Not checked"), then halve the list until it fits. Sealing checks

@@ -43,7 +43,18 @@ export interface TeamChanges { state: string | null; at: number | null; repo: st
 export interface TeamTicket { thread: string | null; title: string | null; project: string | null; place: string | null; working: number;
   startedAt: number | null; updatedAt: number | null; last: string | null; prs: TeamPr[]; ask: TeamAsk | null; changes: TeamChanges | null;
   /** Its feature (a Linear project): null when its tickets are in none; left out when no ticket was read (not checked). */
-  feature?: { id: string; name: string } | null }
+  feature?: { id: string; name: string } | null;
+  /** What blocks it and is still open (step 7 PR 2, 3C): a Linear ticket (ENG-12) or a GitHub issue or PR (owner/repo#N). */
+  blocked: { id: string; title: string | null; at: number }[] }
+/** A feature as the teammates' summaries read it (step 7 PR 2): its Linear project's lead and whole ticket list, each
+ *  from the newest read any summary sent. Left out: no read said. */
+export interface TeamFeature { id: string; name: string; lead?: { name: string | null; at: number }; list?: { n: number; closed: number; unread: number; at: number };
+  /** The newest time a read showed a whole list was no longer whole: an older list does not count. */
+  listGone?: number;
+  /** The newest read that showed a ticket in it not done: an older whole list does not count. */
+  openAt?: number;
+  /** Each dev's own count of their threads on it, and how many are merged (person id -> counts). */
+  threads?: Record<string, { n: number; merged: number }> }
 /** A base branch a teammate's Mac read, cleaned (cleanBase). */
 export interface Base { repo: string | null; branch: string | null; sha: string | null; title: string | null; requiredResult: string | null;
   redSha: string | null; redSince: number | null; at: number | null; failing: string[] }
@@ -59,7 +70,7 @@ export interface Side { person: string; ticket: TeamTicket; pr: TeamPr | null }
 export interface OverlapFile { path: string; a: Range[]; b: Range[]; shared: [number, number][]; lines: number }
 
 /** Why a call reaches the lead's Pass, or that it does not. */
-export type Reach = { lead: true; why: 'red' | 'quiet'; min?: undefined; runs?: undefined } | { lead: true; why: 'time' | 'unseen'; min: number; runs?: undefined }
+export type Reach = { lead: true; why: 'red' | 'quiet' | 'look'; min?: undefined; runs?: undefined } | { lead: true; why: 'time' | 'unseen'; min: number; runs?: undefined }
   | { lead: true; why: 'runs'; runs: number; min?: undefined } | { lead: false; why?: undefined; min?: undefined; runs?: undefined };
 
 interface CallBase { id: string; subject: string; since: number | null; rose?: number | null; who: string[]; thread: string | null;
@@ -74,6 +85,9 @@ export type Detected = CallBase & (
   | { kind: 'stuck'; facts: { last: string | null; quietSince: number; ticket: TeamTicket } }
   | { kind: 'waiting'; facts: { ask: TeamAsk; ticket: TeamTicket } }
   | { kind: 'big'; facts: { lines: number; size: PrSize & { added: number; removed: number; files: number }; pr: TeamPr; ticket: TeamTicket; changes: TeamChanges | null } }
+  | { kind: 'ready'; facts: { feature: { id: string; name: string }; list: NonNullable<TeamFeature['list']>; tickets: { k: TeamTicket & { thread: string }; person: string }[];
+      lead: { name: string | null; at: number; person: string | null; thread: string | null } | null } }
+  | { kind: 'blocked'; facts: { blockers: TeamTicket['blocked']; ticket: TeamTicket; feature?: { id: string; name: string } | null } }
 );
 export type Kind = Detected['kind'];
 /** A call with who has seen it ({ person id: at }), whether it reaches me, and who on it is not reporting. */
@@ -91,22 +105,28 @@ export const RULES = {
   waitMin: 15, waitLeadMin: 30, // Waiting: raised after 15 min, reaches the lead after 30 (or at once if Not reporting)
   bigLines: 800, bigFiles: 30, bigLeadMin: 30, // Too big: lockfiles and generated files left out
   quietMin: 10, // Not reporting: nothing from the dev's Mac for this long while it had live threads
+  blockLeadMin: 30, // Blocked: reaches the lead when nobody marks it Seen within this time (brief, proposed)
 };
 
 /** Each call's word and colour. Red: act now. Amber: decide soon. A colour never shows without its word. */
-export const KINDS: Readonly<Record<Kind, { word: string; tone: 'red' | 'amber' }>> = {
+export const KINDS: Readonly<Record<Kind, { word: string; tone: 'red' | 'amber' | 'blue' }>> = {
   main: { word: 'Main broken', tone: 'red' },
   overlap: { word: 'Overlap', tone: 'red' },
   waiting: { word: 'Waiting', tone: 'amber' },
   failing: { word: 'Failing', tone: 'amber' },
   stuck: { word: 'Stuck', tone: 'amber' },
   big: { word: 'Too big', tone: 'amber' },
+  // French Brigade (step 7 PR 2). Blue: the lead's look, the one call that is good news.
+  ready: { word: 'Ready for your look', tone: 'blue' },
+  blocked: { word: 'Blocked', tone: 'amber' },
 };
 const TONE_RANK: Readonly<Record<string, number>> = { red: 0, blue: 1, amber: 2 };
 const STAGE_RANK: Readonly<Record<string, number>> = { Backlog: 0, Planned: 1, 'In progress': 2, 'In review': 3, 'Ready to merge': 4, Merged: 5 };
 const MIN = 60000;
 /** How long an It's fine mark lasts: a day, as Seen (team-summaries.ts SEEN_MS). */
 const FINE_MS = 24 * 3600000;
+/** How long a Ship mark keeps its call off every Pass: 30 days, so a shipped feature does not come back tomorrow. */
+export const SHIP_MS = 30 * 24 * 3600000;
 
 /** A call's id: `kind:subject:since`. Every Mac derives the same id from the same summary, so a dev's Seen (kept by
  *  their own Yes Chef and sent in their summary) matches the lead's call. subject: the thread, or repo@branch for main. */
@@ -135,6 +155,46 @@ const featureIn = (v: unknown): { feature?: { id: string; name: string } | null 
   // The id is a Linear project id, as client/linear.ts reads it: it keys the chart's hover sets, which split on spaces.
   return /^[A-Za-z0-9-]{1,64}$/.test(id) && name && name.length <= 80 ? { feature: { id, name } } : {};
 };
+// What blocks a ticket, from a summary: a Linear id (ENG-12) or owner/repo#N, a title or null, and when it was read.
+const BLOCKER = /^(?:[A-Z][A-Z0-9_]{0,9}-[0-9]{1,7}|[A-Za-z0-9._-]{1,100}\/[A-Za-z0-9._-]{1,100}#[0-9]{1,7})$/;
+const blockedIn = (v: unknown): TeamTicket['blocked'] => arr(v).flatMap((b) => {
+  const id = str(b.id), at = ms(b.at), title = line(b.title, 120);
+  return id && BLOCKER.test(id) && at !== null ? [{ id, title, at }] : [];
+}).slice(0, 5);
+/** Each feature the summaries name, with the newest read of its lead and of its whole ticket list (step 7 PR 2). The
+ *  lead and the list come only from Macs that live(p) says are reporting: a quiet Mac's reads are old (PR-Agent r2 on
+ *  #78). Every Mac's thread counts stand, so a quiet dev's open thread still keeps a feature from Ready. */
+export function featuresOf(people: readonly { id?: unknown; summary?: unknown }[], live: (p: { id?: unknown; summary?: unknown }) => boolean = () => true): Map<string, TeamFeature> {
+  const out = new Map<string, TeamFeature>();
+  for (const p of people) for (const f of arr(obj(p.summary)?.features)) {
+    const id = str(f.id)?.trim() ?? '', name = str(f.name)?.trim() ?? '';
+    if (!/^[A-Za-z0-9-]{1,64}$/.test(id) || !name || name.length > 80) continue;
+    const had = out.get(id) ?? { id, name };
+    const ok = live(p);
+    const leadAt = ok ? ms(f.leadAt) : null;
+    if (leadAt !== null && (f.lead === null || (typeof f.lead === 'string' && f.lead.trim())) && (!had.lead || had.lead.at < leadAt)) {
+      had.lead = { name: typeof f.lead === 'string' ? f.lead.trim().slice(0, 80) : null, at: leadAt };
+    }
+    // What makes a list out of date counts from every Mac, quiet ones too: it can only hold Ready back (PR-Agent r3 on #78).
+    const gone = ms(f.listGone), open = ms(f.openAt);
+    if (gone !== null && (had.listGone === undefined || had.listGone < gone)) had.listGone = gone;
+    if (open !== null && (had.openAt === undefined || had.openAt < open)) had.openAt = open;
+    const l = ok ? obj(f.list) : null, n = num(l?.n), closed = num(l?.closed), unread = num(l?.unread), at = ms(l?.at);
+    if (n !== null && closed !== null && unread !== null && at !== null && [n, closed, unread].every((x) => Number.isInteger(x) && x >= 0) && closed + unread <= n
+      && (!had.list || had.list.at < at)) had.list = { n, closed, unread, at };
+    const t = obj(f.threads), tn = num(t?.n), tm = num(t?.merged);
+    if (typeof p.id === 'string' && tn !== null && tm !== null && Number.isInteger(tn) && Number.isInteger(tm) && tm >= 0 && tm <= tn) {
+      had.threads = { ...had.threads, [p.id]: { n: tn, merged: tm } };
+    }
+    out.set(id, had);
+  }
+  // A whole list older than a read that showed it no longer whole does not count, from whichever Mac.
+  // Nor one older than a read that showed one of its tickets not done.
+  for (const f of out.values()) if (f.list && ((f.listGone !== undefined && f.list.at < f.listGone) || (f.openAt !== undefined && f.list.at < f.openAt))) delete f.list;
+  return out;
+}
+// A name as people write it, for matching a Linear lead to a teammate: case and spaces aside.
+const nameKey = (s: unknown): string => (typeof s === 'string' ? s.trim().replace(/\s+/g, ' ').toLowerCase() : '');
 // A commit from a teammate's summary: a hex sha (it reaches the page as text), and a title cut to one line.
 const hex = (v: unknown): string | null => (typeof v === 'string' && /^[0-9a-f]{7,64}$/i.test(v) ? v.toLowerCase() : null);
 const line = (v: unknown, max: number): string | null => (typeof v === 'string' && v.trim() ? v.split('\n')[0]!.slice(0, max) : null);
@@ -152,7 +212,7 @@ function cleanTicket(k: Raw): TeamTicket {
   const c = obj(k.changes);
   const a = obj(k.ask);
   return {
-    ...featureIn(k.feature), thread: str(k.thread), title: str(k.title), project: str(k.project), place: str(k.place), working: num(k.working) ?? 0,
+    ...featureIn(k.feature), blocked: blockedIn(k.blocked), thread: str(k.thread), title: str(k.title), project: str(k.project), place: str(k.place), working: num(k.working) ?? 0,
     startedAt: ms(k.startedAt), updatedAt: ms(k.updatedAt), last: str(k.last),
     prs: arr(k.prs).filter(okPr).map(pr),
     ask: a ? { at: ms(a.at), q: str(a.q), rec: str(a.rec), options: arr(a.options).map((o) => ({ k: str(o.k), t: str(o.t) })) } : null,
@@ -356,6 +416,52 @@ function tooBig(tickets: readonly Entry[], rules: Rules): Detected[] {
   return out;
 }
 
+/** Ready for your look (step 7 PR 2, Dan 1A, 2026-11-13): a feature whose every thread below me is merged, and whose
+ *  whole Linear ticket list, as an agent read it, is closed (completed, canceled or duplicate). The list is the whole
+ *  feature, whoever ran its threads. With no whole list read it never rises: part of a feature is not the feature. The Ship target (2A) is
+ *  the project's Linear lead, when a project read names one who matches one teammate by name, and their newest thread
+ *  on the feature. It comes to the lead: never to a dev first. */
+function readyCalls(tickets: readonly Entry[], features: ReadonlyMap<string, TeamFeature>, members: readonly { id: string; name: unknown }[]): Detected[] {
+  const out: Detected[] = [];
+  for (const f of features.values()) {
+    const mine = tickets.filter((x) => x.k.feature?.id === f.id);
+    const L = f.list;
+    if (!mine.length || !mine.every((x) => x.k.place === 'Merged') || !L || L.n < 1 || L.unread > 0 || L.closed !== L.n) continue;
+    // Each dev's own count, made before their summary dropped tickets to fit: one with a thread not merged, or with no
+    // count, keeps it down (PR-Agent r1 on #78).
+    const T = f.threads ?? {};
+    if (Object.values(T).some((c) => c.merged !== c.n) || !mine.every((x) => T[x.p.id] && T[x.p.id]!.n >= 1)) continue;
+    let lead: Extract<Detected, { kind: 'ready' }>['facts']['lead'] = null;
+    if (f.lead) {
+      const hits = f.lead.name ? members.filter((m) => nameKey(m.name) === nameKey(f.lead!.name)) : [];
+      const person = hits.length === 1 ? hits[0]!.id : null;
+      const theirs = person ? mine.filter((x) => x.p.id === person).sort((a, b) => (ms(b.k.updatedAt) ?? 0) - (ms(a.k.updatedAt) ?? 0))[0] : undefined;
+      lead = { name: f.lead.name, at: f.lead.at, person, thread: theirs?.k.thread ?? null };
+    }
+    const prs = mine.flatMap((x) => arr(x.k.prs).filter((pr) => pr.state === 'merged')).slice(0, 5);
+    // One call per feature, whenever it rose: Ship's mark holds its id (SHIP_MS), so a shipped feature stays shipped.
+    out.push({ id: callId('ready', f.id, null), kind: 'ready', subject: f.id, since: L.at, who: [...new Set(mine.map((x) => x.p.id))], thread: null,
+      project: mine[0]!.k.project, prs, holds: mine.length,
+      facts: { feature: { id: f.id, name: f.name }, list: L, tickets: mine.map((x) => ({ k: x.k, person: x.p.id })), lead } });
+  }
+  return out;
+}
+
+/** Blocked (step 7 PR 2, 3C): a thread not yet merged that waits on a Linear ticket or a GitHub issue or PR that a read
+ *  shows open. One whose state no read gave raises nothing. From a reporting dev only. */
+function blockedCalls(tickets: readonly Entry[]): Detected[] {
+  const out: Detected[] = [];
+  for (const { k, p, live } of tickets) {
+    if (!live || !k.blocked.length || k.place === 'Merged') continue;
+    const since = Math.min(...k.blocked.map((b) => b.at));
+    // The wait's start is in the id: a blocker that clears and comes back is a new call, so old Seen and It's fine
+    // marks do not carry over (PR-Agent r2 on #78).
+    out.push({ id: callId('blocked', `${k.thread}:${k.blocked.map((b) => b.id).sort().join(',')}`, since), kind: 'blocked', subject: k.thread, since, who: [p.id], thread: k.thread,
+      project: k.project, prs: arr(k.prs).filter((pr) => pr.state === 'open').slice(0, 1), holds: 1, facts: { blockers: k.blocked, ticket: k, ...(k.feature !== undefined ? { feature: k.feature } : {}) } });
+  }
+  return out;
+}
+
 /** Does this call reach the lead's Pass, and why. Open kitchen: a call goes first to its dev, and reaches the lead
  *  when it is red; when nobody marks it Seen within its time; or when its own rule says so. seen: { person id: at }. */
 export function reach(call: Detected, { seen = {}, quiet = new Set(), now, rules = RULES }: { seen?: Record<string, unknown>; quiet?: ReadonlySet<string>; now: number; rules?: Rules }): Reach {
@@ -365,12 +471,14 @@ export function reach(call: Detected, { seen = {}, quiet = new Set(), now, rules
   const age = from === null ? null : Math.max(0, (now - from) / MIN);
   const anySeen = call.who.some((id) => seen[id]);
   if (KINDS[call.kind].tone === 'red') return { lead: true, why: 'red' };
+  // Ready for your look is the lead's own call: it never goes to a dev first.
+  if (call.kind === 'ready') return { lead: true, why: 'look' };
   if (call.kind === 'waiting') {
     if (call.who.some((id) => quiet.has(id))) return { lead: true, why: 'quiet' };
     return age !== null && age >= rules.waitLeadMin ? { lead: true, why: 'time', min: rules.waitLeadMin } : { lead: false };
   }
   if (call.kind === 'failing' && call.facts.redRuns >= rules.failLeadRuns) return { lead: true, why: 'runs', runs: call.facts.redRuns };
-  const limit = call.kind === 'stuck' ? rules.escalateMin : call.kind === 'big' ? rules.bigLeadMin : rules.escalateMin;
+  const limit = call.kind === 'stuck' ? rules.escalateMin : call.kind === 'big' ? rules.bigLeadMin : call.kind === 'blocked' ? rules.blockLeadMin : rules.escalateMin;
   if (!anySeen && age !== null && age >= limit) return { lead: true, why: 'unseen', min: limit };
   return { lead: false };
 }
@@ -386,7 +494,8 @@ export function sortCalls<C extends Pick<Detected, 'id' | 'kind' | 'holds' | 'si
 // Reply needs "reply"; Request changes, Hold, an answer and a roll back need "merge". Settle clears the call from your
 // own Pass only, so every role that sees it may. It's fine clears it from every Pass, so it needs "merge" (proposed,
 // 2026-11-13). An Engineer starts at See only (Dan, 2026-11-10).
-const NEED: Readonly<Record<string, string>> = { reply: 'reply', rebase: 'reply', refire: 'merge', hold: 'merge', answer: 'merge', rollback: 'merge', settle: 'see', fine: 'merge' };
+// Ship (step 7 PR 2) needs "merge", as Roll back does: both put work in front of users.
+const NEED: Readonly<Record<string, string>> = { reply: 'reply', rebase: 'reply', refire: 'merge', hold: 'merge', answer: 'merge', rollback: 'merge', settle: 'see', fine: 'merge', ship: 'merge' };
 export function may(me: Me | null | undefined, action: string): boolean {
   const need = NEED[action];
   if (!need || !me) return false;
@@ -396,8 +505,8 @@ export function may(me: Me | null | undefined, action: string): boolean {
 
 /** The calls marked It's fine, each with who marked it and when: this Mac's own marks (view.fine), and each
  *  teammate's from their summary (`fine`: call id -> time). A mark counts only from a role that may clear (may). */
-export function finesOf(view: TeamView | null | undefined, now: number): Map<string, { by: string; at: number }> {
-  const out = new Map<string, { by: string; at: number }>();
+export function finesOf(view: TeamView | null | undefined, now: number): Map<string, { by: string; at: number; ship?: true }> {
+  const out = new Map<string, { by: string; at: number; ship?: true }>();
   // A mark lasts a day, as this Mac keeps its own (team-summaries.ts keepSeen): a summary the relay kept from a Mac that
   // went away stops clearing the call when the mark would have expired there (PR-Agent r1 on #75).
   const mark = (marks: unknown, by: string): void => {
@@ -410,6 +519,17 @@ export function finesOf(view: TeamView | null | undefined, now: number): Map<str
   if (typeof me?.id === 'string' && may(me, 'fine')) mark(view?.fine, me.id);
   for (const p of arr(view?.people)) {
     if (typeof p.id === 'string' && p.id !== me?.id && may({ role: p.role, perms: p.perms } as Me, 'fine')) mark(obj(p.summary)?.fine, p.id);
+  }
+  // Ship (step 7 PR 2): a feature shipped leaves every Pass for SHIP_MS, from a role that may ship.
+  const ship = (marks: unknown, by: string): void => {
+    for (const [id, at] of Object.entries(obj(marks) || {})) {
+      const t = num(at);
+      if (t !== null && t <= now + MIN && now - t < SHIP_MS && id.length <= 300 && id.startsWith('ready:') && !out.has(id)) out.set(id, { by, at: t, ship: true });
+    }
+  };
+  if (typeof me?.id === 'string' && may(me, 'ship')) ship(view?.ships, me.id);
+  for (const p of arr(view?.people)) {
+    if (typeof p.id === 'string' && p.id !== me?.id && may({ role: p.role, perms: p.perms } as Me, 'ship')) ship(obj(p.summary)?.ships, p.id);
   }
   return out;
 }
@@ -431,7 +551,13 @@ export function openKitchen(view: TeamView | null | undefined, { now = Date.now(
   // dev is away, and that is when it reaches the lead; and a merge that is done stays done, so Main broken reads every
   // dev's merges for its history (its open PRs and its base reads still need a live Mac).
   const bases = liveBases(people);
-  const detected = [...mainBroken(tickets, bases), ...overlap(tickets), ...failing(tickets, rules), ...stuck(tickets, now, rules), ...waiting(tickets, now, rules), ...tooBig(tickets, rules)];
+  // French Brigade's calls (step 7 PR 2): every member can be a project's lead, me too.
+  // Everyone on the team once, me included (the roster lists me too), for matching a Linear lead by name.
+  const members = [...new Map([...arr(view.people).filter((p): p is Raw & { id: string } => typeof p.id === 'string').map((p) => [p.id, { id: p.id, name: p.name }] as const),
+    ...(typeof view.me?.id === 'string' ? [[view.me.id, { id: view.me.id, name: view.me.name }] as const] : [])]).values()];
+  const features = featuresOf(people, (p) => (p as Person).reporting === true);
+  const detected = [...mainBroken(tickets, bases), ...overlap(tickets), ...failing(tickets, rules), ...stuck(tickets, now, rules), ...waiting(tickets, now, rules), ...tooBig(tickets, rules),
+    ...readyCalls(tickets, features, members), ...blockedCalls(tickets)];
   const byId = new Map(people.map((p) => [p.id, p]));
   const calls: TeamCall[] = detected.map((c) => {
     const seen = Object.fromEntries(c.who.map((id) => [id, num(obj(obj(byId.get(id)?.summary)?.seen)?.[c.id])] as const).filter((x): x is readonly [string, number] => x[1] !== null));

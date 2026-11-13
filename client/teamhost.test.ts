@@ -14,7 +14,7 @@ import type { ActInput } from './actions.ts';
 import type { Board, Ticket } from './board.ts';
 import { renderApp, teamInputOf } from './board.ts';
 import type { LinkRow, PageOptions, ProjectRow } from './teamui.ts';
-import { grab, nth } from './test/expect.ts';
+import { grab, nth, one } from './test/expect.ts';
 
 /** A store the test reads back: every state it was asked to save, in order. */
 type Store = TeamStore & { saved: (TeamState | null)[] };
@@ -34,20 +34,21 @@ const projects = [{ id: 'p-app', title: 'app' }, { id: 'p-site', title: 'site' }
 /** The projects as the page lists them: no thread counts read. */
 const rows = projects as ProjectRow[];
 
-function host(relay: FakeRelay, net: FakeNet, store: Store = { saved: [], load: () => null, save(s) { this.saved.push(s && structuredClone(s)); } }) {
+function host(relay: FakeRelay, net: FakeNet, store: Store = { saved: [], load: () => null, save(s) { this.saved.push(s && structuredClone(s)); } }, tickets: Ticket[] = []) {
   const ran: ActInput[] = [];
   let changes = 0;
   const h = teamHost({ store, net, now: () => relay.now(), projectsOf: () => projects, t3Ok: () => true,
-    boardOf: () => ({ board: { tickets: [] as Ticket[] } as Board, ok: true, at: relay.now() }), run: async (input) => { ran.push(input); return { status: 200, text: 'ok' }; },
+    boardOf: () => ({ board: { tickets } as Board, ok: true, at: relay.now() }), run: async (input) => { ran.push(input); return { status: 200, text: 'ok' }; },
     changed: () => { changes++; } });
   return { h, store, ran, changes: () => changes, page: (path = '/team') => h.route(new URL(path, 'http://x'))!.body };
 }
 const body = (html: string): string => nth(nth(html.split('<div id="yc-team">'), 1).split('<dialog'), 0);
 
-async function pair() {
+/** A lead and a dev on one fake relay; the dev's board holds `tickets`. */
+async function pair(tickets: Ticket[] = []) {
   const relay = fakeRelay();
   const net = fakeNet(relay);
-  const lead = host(relay, net), dev = host(relay, net);
+  const lead = host(relay, net), dev = host(relay, net, undefined, tickets);
   await lead.h.start(); await dev.h.start();
   assert.equal((await lead.h.act({ op: 'create', teamName: 'Fernpay', name: 'Sam Lead', relay: 'https://relay.test' })).status, 200);
   await until(() => lead.h.view()?.link === 'online', 'the lead online');
@@ -198,6 +199,39 @@ test('It’s fine: a lead clears a call and the server hears; a See-only dev may
   assert.ok(lead.h.view()?.fine?.['overlap:th-1:5']);
   assert.equal((await dev.h.act({ op: 'fine', call: 'overlap:th-1:5' })).status, 403);
   lead.h.stop(); dev.h.stop();
+});
+
+test('Ship: the dev’s Mac checks Merge before the lead’s words reach the agent, and the mark waits for the send', async () => {
+  const { lead, dev, link } = await pair();
+  await dev.h.act({ op: 'join', link: nth(link.split('#'), 1), name: 'Ada Lovelace', shared: 'p-app' });
+  await until(() => lead.h.view()?.pending.length === 1, 'the ask');
+  assert.equal((await lead.h.act({ op: 'approve', m: nth(lead.h.view()!.pending, 0).m, role: 'engineer', perms: 'see,reply' })).status, 200);
+  await until(() => dev.h.view()?.status === 'member', 'the dev in');
+  const to = one(lead.h.view()!.people, (p) => p.name === 'Ada Lovelace', 'Ada').id;
+  const ship = { op: 'act', act: 'ship', to, thread: 'th-1', say: 'Ship Tokens.', call: 'ready:p-tok:0' };
+  // Ada may only reply: her Mac refuses Ship, which needs Merge, and no mark is made.
+  const no = await lead.h.act({ ...ship, nonce: 'n-1' });
+  assert.notEqual(no.status, 200, no.text);
+  assert.equal(lead.h.view()?.ships?.['ready:p-tok:0'], undefined);
+  assert.equal(dev.ran.length, 0);
+  lead.h.stop(); dev.h.stop();
+  // With Merge, it runs once with the words whole, and the lead's Mac keeps the mark.
+  const two = await pair([{ thread: { threadId: 'th-1', projectId: 'p-app' } } as unknown as Ticket]);
+  await two.dev.h.act({ op: 'join', link: nth(two.link.split('#'), 1), name: 'Ada Lovelace', shared: 'p-app' });
+  await until(() => two.lead.h.view()?.pending.length === 1, 'the ask');
+  assert.equal((await two.lead.h.act({ op: 'approve', m: nth(two.lead.h.view()!.pending, 0).m, role: 'engineer', perms: 'see,reply,merge' })).status, 200);
+  await until(() => two.dev.h.view()?.status === 'member', 'the dev in');
+  const id = one(two.lead.h.view()!.people, (p) => p.name === 'Ada Lovelace', 'Ada').id;
+  const before = two.lead.changes();
+  const yes = await two.lead.h.act({ ...ship, to: id, nonce: 'n-2' });
+  assert.equal(yes.status, 200, yes.text);
+  assert.equal(yes.text, 'Sent to Ada Lovelace’s agent.');
+  assert.equal(two.dev.ran.length, 1);
+  assert.equal(two.dev.ran[0]!.kind, 'ship', 'server.ts runs it through incoming(), a message (team-acts.test.ts)');
+  assert.match(String(two.dev.ran[0]!.note), /Ship Tokens\./);
+  assert.ok(two.lead.h.view()?.ships?.['ready:p-tok:0']);
+  assert.ok(two.lead.changes() > before, 'the server redraws');
+  two.lead.h.stop(); two.dev.h.stop();
 });
 
 test('decline, then the dev\'s page says so and OK forgets the team on this Mac', async () => {

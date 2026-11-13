@@ -23,6 +23,7 @@ export type DemoTicket = { thread: string; title: string; project: string; place
   prs: DemoPr[]; updatedAt: string | null; startedAt: number | null; last: string | null;
   /** Its feature, as a dev's Yes Chef reads it from Linear (step 7): null for tickets in no project. */
   feature?: { id: string; name: string } | null;
+  blocked?: { id: string; title: string | null; at: number }[];
   ask: { at: number | null; q: string; rec: string | null; n: number; options: { k: string | null; t: string | null }[] } | null;
   changes?: { state: 'checked'; at: number | null; repo: string | null; base: string | null; mergeBase: string | null; head: string | null; headAt: number | null;
     files: DemoFile[]; more: number; size: { files: number | null; added: number | null; removed: number | null } } };
@@ -30,7 +31,10 @@ export type DemoTicket = { thread: string; title: string; project: string; place
 export type DemoBase = { repo: string | null; branch: string | null; sha: string | null; title: string | null; committedAt: number | null; result: string | null;
   requiredResult: string | null; redSha: string | null; redSince: number | null; failing: string[]; at: number | null };
 /** One teammate's summary: summarize()'s result, with when it was made and the Mac's health. */
+export type DemoFeature = { id: string; name: string; lead?: string | null; leadAt?: number; list?: { n: number; closed: number; unread: number; at: number };
+  threads: { n: number; merged: number } };
 export type DemoSummary = { v: number; tickets: DemoTicket[]; more: number; gh: string | null; bases: DemoBase[]; seen: Record<string, number>; fine: Record<string, number>;
+  features: DemoFeature[]; ships: Record<string, number>;
   at: number; health: { ok: boolean | null; since: number | null } };
 type Role = 'lead' | 'deputy' | 'owner' | 'engineer' | 'viewer';
 type Perm = 'see' | 'reply' | 'projects' | 'merge' | 'invite' | 'rules';
@@ -46,8 +50,9 @@ const MIN = 60000, HOUR = 60 * MIN;
 const REPO = { Fernpay: 'fernpay/fernpay', Loopline: 'loopline/dispatch', Quillo: 'quillo/quillo' } as const;
 type Project = keyof typeof REPO;
 
-/** The team at `now`. Seven calls rise, as a lead would meet them: main broken by a merge, two threads in one file, red
- *  checks (one held by its dev), a PR too big to review, a quiet thread, and a question from a dev whose Mac is away.
+/** The team at `now`. Nine calls rise, as a lead would meet them: main broken by a merge, two threads in one file, red
+ *  checks (one held by its dev), a PR too big to review, a quiet thread, a question from a dev whose Mac is away, a
+ *  thread blocked by an open ticket, and a feature whose every ticket is done.
  *  Everyone else's threads are calm: each has a fresh message, passing checks and its own files. */
 export function demoTeam(now: number): DemoTeam {
   const ago = (m: number) => now - m * MIN, iso = (m: number) => new Date(ago(m)).toISOString();
@@ -162,16 +167,27 @@ export function demoTeam(now: number): DemoTeam {
     Loopline: [{ id: 'f-dispatch', name: 'Dispatch map' }, { id: 'f-driver', name: 'Driver app' }],
     Quillo: [{ id: 'f-offline', name: 'Offline sync' }, { id: 'f-sharing', name: 'Sharing' }],
   };
+  // Receipts is done (step 7 PR 2): Priya's, Sam's and Iris's merged Fernpay threads are its whole list, every ticket
+  // closed, and Priya leads it in Linear, so it rises as Ready for your look with Ship to Priya's agent.
+  const RECEIPTS = { id: 'f-receipts', name: 'Receipts' }, DONE = new Set(['mcp:priya-c3', 'mcp:sam-c3', 'mcp:iris-c3']);
+  // Elena's first thread waits on a Quillo ticket still open (Blocked).
+  const BLOCKED: Record<string, NonNullable<DemoTicket['blocked']>> = { 'mcp:elena-c0': [{ id: 'QUI-212', title: 'Sync conflict rules', at: ago(45) }] };
   const withFeature = (k: DemoTicket): DemoTicket => {
     const sum = [...k.title].reduce((a, ch) => a + ch.charCodeAt(0), 0);
-    return { ...k, feature: sum % 7 === 0 ? null : FEATURES[k.project as Project][sum % 2]! };
+    return { ...k, feature: DONE.has(k.thread) ? RECEIPTS : sum % 7 === 0 ? null : FEATURES[k.project as Project][sum % 2]!, ...(BLOCKED[k.thread] ? { blocked: BLOCKED[k.thread]! } : {}) };
   };
+  // What Priya's agents read of Receipts in Linear; each dev's summary counts their own threads per feature.
+  const read: Record<string, Partial<DemoFeature>> = { priya: { lead: 'Priya', leadAt: ago(6), list: { n: 3, closed: 3, unread: 0, at: ago(5) } } };
+  const featuresOf = (id: string, tickets: DemoTicket[]): DemoFeature[] => [...new Map(tickets.flatMap((k) => (k.feature ? [[k.feature.id, k.feature] as const] : []))).values()].map((f) => {
+    const on = tickets.filter((k) => k.feature?.id === f.id);
+    return { ...f, ...(f.id === RECEIPTS.id ? read[id] : {}), threads: { n: on.length, merged: on.filter((k) => k.place === 'Merged').length } };
+  });
   const people: DemoPerson[] = NAMES.map(([id, name]) => {
     const away = id === 'lee';
     const tickets = [...(story[id] ?? []), ...calm(id)].map(withFeature);
     return { id, name, role: OWNS[id] ? 'owner' : 'engineer', perms: ['see'], area: OWNS[id] ?? null, under: under[id] ?? null,
       online: !away, at: away ? ago(122) : ago(1), live: !away, notCheckedSince: away ? ago(112) : null,
-      summary: { v: 1, tickets, more: 0, gh: login(id), bases: id === 'ravi' ? [ravisBase] : [], seen: seen[id] ?? {}, fine: {}, at: away ? ago(122) : ago(1), health: { ok: true, since: ago(600) } } };
+      summary: { v: 1, tickets, more: 0, gh: login(id), bases: id === 'ravi' ? [ravisBase] : [], seen: seen[id] ?? {}, fine: {}, ships: {}, features: featuresOf(id, tickets), at: away ? ago(122) : ago(1), health: { ok: true, since: ago(600) } } };
   });
   const me = { id: 'me', name: 'Dana', role: 'lead' as const, perms: ['see', 'reply', 'projects', 'merge', 'invite', 'rules'] as Perm[], area: null, under: null };
   return {

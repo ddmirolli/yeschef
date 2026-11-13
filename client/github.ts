@@ -5,7 +5,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import * as Option from 'effect/Option';
-import { Branch, CheckRunsPage, GitHubReadError, PrFiles, PullRequest, Rules, StatusesPage, fromJson, must, read } from './github-rest.ts';
+import { Branch, CheckRunsPage, GitHubReadError, IssueState, PrFiles, PullRequest, Rules, StatusesPage, fromJson, must, read } from './github-rest.ts';
 import type { CheckRun, GitCommit, Rule, Status } from './github-rest.ts';
 import { createFollower } from './follow.ts';
 import type { FollowerOptions } from './follow.ts';
@@ -226,16 +226,36 @@ export async function readBaseChecks({ host = 'github.com', repo, branch }: Base
 /** A pull request's size from GitHub: its own totals, and the same with lockfiles left out (the Too big call).
  *  Generated files cannot be told apart remotely; the local read (client/changes.ts) leaves them out too.
  *  The file list is read again only when the PR's head, base or totals changed. */
-/** A pull request's size, as readPrSize gives it. size and lockfiles are null when the file list was not read whole. */
+/** A pull request's size, as readPrSize gives it. size and lockfiles are null when the file list was not read whole.
+ *  blockedBy: the issues or PRs its description says it waits on, each open, closed (false) or not read (null). */
 export type PrSizeRead = { state: 'not-checked'; why: string; at: number } | {
   state: 'checked'; at: number; host: string; repo: string; number: number; url: string | null; prState: string | undefined; draft: boolean;
   head: string | null; base: string | null; additions: number | undefined; deletions: number | undefined; changedFiles: number | undefined;
-  size: PrSizeCounts | null; lockfiles: string[] | null;
+  size: PrSizeCounts | null; lockfiles: string[] | null; blockedBy: { repo: string; n: number; open: boolean | null }[];
 };
+
+const REPO = /^[A-Za-z0-9._-]{1,100}\/[A-Za-z0-9._-]{1,100}$/;
+/** What a PR's description says it waits on (3C, 2026-11-13): a line that starts "Blocked by" or "Depends on", and on
+ *  it each #N, owner/repo#N or GitHub issue or PR address. Five at most; the PR itself never counts. */
+export function prBlockers(body: string | null | undefined, repo: string, self = 0, host = 'github.com'): { host: string; repo: string; n: number }[] {
+  const out: { host: string; repo: string; n: number }[] = [];
+  const home = host.toLowerCase();
+  for (const m of String(body || '').slice(0, 20000).matchAll(/^[\s>*_-]*(?:blocked by|depends on)\b[\s:*_-]*(.*)$/gim)) {
+    for (const r of m[1]!.matchAll(/(?:https:\/\/github\.com\/([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)\/(?:pull|issues)\/|(?<![\w/.-])([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)?#)(\d{1,7})\b/g)) {
+      // A github.com address names a github.com issue, whatever host the PR is on (PR-Agent r1 on #78).
+      const on = r[1] ? 'github.com' : home;
+      const at = (r[1] || r[2] || repo).toLowerCase(), n = Number(r[3]);
+      if (!REPO.test(at) || !(n > 0) || (on === home && at === repo.toLowerCase() && n === self) || out.some((x) => x.host === on && x.repo === at && x.n === n)) continue;
+      out.push({ host: on, repo: at, n });
+      if (out.length >= 5) return out;
+    }
+  }
+  return out;
+}
 /** The pull request a size read looks at. */
 export interface PrArgs { host?: string; repo: string; number: number }
 
-const readFiles = read(PrFiles), readPr = read(PullRequest);
+const readFiles = read(PrFiles), readPr = read(PullRequest), readIssue = read(IssueState);
 export async function readPrSize({ host = 'github.com', repo, number }: PrArgs, { get = ghGet, now = Date.now, pages = 10, memo = sizeMemo }: ReadOptions<SizeMemo> & { pages?: number } = {}): Promise<PrSizeRead> {
   const at = now();
   try {
@@ -244,8 +264,14 @@ export async function readPrSize({ host = 'github.com', repo, number }: PrArgs, 
     const out: PrSizeRead & { state: 'checked' } = {
       state: 'checked', at, host, repo, number, url: pr.html_url || null, prState: pr.merged ? 'merged' : pr.state, draft: !!pr.draft,
       head: pr.head?.sha || null, base: pr.base?.ref || null,
-      additions: pr.additions, deletions: pr.deletions, changedFiles: pr.changed_files, size: null, lockfiles: null,
+      additions: pr.additions, deletions: pr.deletions, changedFiles: pr.changed_files, size: null, lockfiles: null, blockedBy: [],
     };
+    // What its description says it waits on, each read for its state. A read that fails is not checked (null).
+    for (const b of prBlockers(pr.body, repo, number, host)) {
+      let open: boolean | null = null;
+      try { const s = Option.getOrNull(readIssue(await get(`repos/${b.repo}/issues/${b.n}`, { host: b.host }))); open = s?.state === 'open' ? true : s?.state === 'closed' ? false : null; } catch { open = null; }
+      out.blockedBy.push({ repo: b.repo, n: b.n, open });
+    }
     // Per file, to leave lockfiles out. A PR with more files than the pages read keeps its totals only.
     // The base's commit is in the key: a force-pushed base can change the diff with the same head and totals
     // (PR-Agent r2 on #81).

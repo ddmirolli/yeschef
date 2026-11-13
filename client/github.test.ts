@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ghGet, ghWhy, runState, overall, readBaseChecks, readPrSize, createBaseChecks, createPrSizes, prKey, segment, readPrFacts, readBaseFacts } from './github.ts';
+import { ghGet, ghWhy, runState, overall, readBaseChecks, readPrSize, createBaseChecks, createPrSizes, prKey, segment, readPrFacts, readBaseFacts, prBlockers } from './github.ts';
 import type { BaseChecksRead, PrSizeRead } from './github.ts';
 import type { PrRuns } from './pr-runs.ts';
 import { checked, whyOf } from './test/expect.ts';
@@ -299,7 +299,7 @@ test('the facts beside a PR and a base: runs with an open PR, only the merge wit
   const size = async (a: { number: number }): Promise<PrSizeRead> => {
     calls.push(['size', a.number]);
     return { state: 'checked', at: 1, host: 'github.com', repo: 'o/r', number: a.number, url: null, prState: 'open', draft: false, head: null, base: 'main',
-      additions: 1, deletions: 0, changedFiles: 1, size: { files: 1, added: 1, removed: 0 }, lockfiles: [] };
+      additions: 1, deletions: 0, changedFiles: 1, size: { files: 1, added: 1, removed: 0 }, lockfiles: [], blockedBy: [] };
   };
   const runs = async (a: { number: number; merged?: boolean }): Promise<PrRuns> => {
     calls.push(['runs', a.number]);
@@ -509,4 +509,40 @@ test('PR size: a file list that is not GitHub\'s leaves the size unknown, never 
   assert.deepEqual([r.additions, r.deletions, r.changedFiles], [7, 1, 2], 'GitHub\'s own totals stand');
   assert.equal(r.size, null);
   assert.equal(r.lockfiles, null);
+});
+
+test('a PR description\'s "Blocked by" or "Depends on" line names what it waits on (step 7 PR 2, 3C)', () => {
+  const body = 'Adds payouts.\n\nBlocked by #12 and acme/ledger#4\n- **Depends on:** https://github.com/acme/api/pull/9, #12, #7\nSee #99 too.\nblocked by nothing';
+  const gh = 'github.com';
+  assert.deepEqual(prBlockers(body, 'Acme/App', 7), [{ host: gh, repo: 'acme/app', n: 12 }, { host: gh, repo: 'acme/ledger', n: 4 }, { host: gh, repo: 'acme/api', n: 9 }]);
+  // On an Enterprise host, a github.com address still names a github.com issue; the rest stay on the PR's host (PR-Agent r1 on #78).
+  assert.deepEqual(prBlockers('Depends on https://github.com/acme/app/issues/7, #7, #8', 'acme/app', 7, 'GHE.Example.com'),
+    [{ host: gh, repo: 'acme/app', n: 7 }, { host: 'ghe.example.com', repo: 'acme/app', n: 8 }]);
+  assert.deepEqual(prBlockers('Fixes #3', 'o/r'), [], 'a line that does not start with the words names nothing');
+  assert.deepEqual(prBlockers(null, 'o/r'), []);
+  assert.equal(prBlockers(Array.from({ length: 9 }, (_, i) => `Blocked by #${i + 1}`).join('\n'), 'o/r').length, 5);
+});
+
+test('a PR read reads each issue its description waits on: open, closed, or not checked when the read fails', async () => {
+  const replies: Record<string, unknown> = {
+    'repos/o/r/pulls/7': { state: 'open', head: { sha: 'h' }, base: { ref: 'main', sha: 'b' }, additions: 1, deletions: 0, changed_files: 1, body: 'Depends on #1, #2, #3' },
+    'repos/o/r/pulls/7/files?per_page=100&page=1': [{ filename: 'a.ts', additions: 1, deletions: 0 }],
+    'repos/o/r/issues/1': { state: 'open' }, 'repos/o/r/issues/2': { state: 'closed' },
+  };
+  const get = async (path: string) => { if (path in replies) return replies[path]; throw new Error('HTTP 404'); };
+  const r = checked(await readPrSize({ repo: 'o/r', number: 7 }, { get, memo: new Map() }));
+  assert.deepEqual(r.blockedBy, [{ repo: 'o/r', n: 1, open: true }, { repo: 'o/r', n: 2, open: false }, { repo: 'o/r', n: 3, open: null }]);
+});
+
+test('a PR read on an Enterprise host reads a github.com blocker from github.com', async () => {
+  const seen: string[] = [];
+  const get = async (path: string, { host }: { host: string }) => {
+    seen.push(`${host} ${path}`);
+    if (path === 'repos/o/r/pulls/7') return { state: 'open', head: { sha: 'h' }, base: { ref: 'main', sha: 'b' }, additions: 1, deletions: 0, changed_files: 1, body: 'Blocked by https://github.com/x/y/issues/4, #5' };
+    if (path.startsWith('repos/o/r/pulls/7/files')) return [{ filename: 'a.ts', additions: 1, deletions: 0 }];
+    return { state: 'open' };
+  };
+  checked(await readPrSize({ host: 'ghe.example.com', repo: 'o/r', number: 7 }, { get, memo: new Map() }));
+  assert.ok(seen.includes('github.com repos/x/y/issues/4'));
+  assert.ok(seen.includes('ghe.example.com repos/o/r/issues/5'));
 });

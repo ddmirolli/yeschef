@@ -145,7 +145,9 @@ export function teamHost({ store, run, boardOf, projectsOf = () => [], t3Ok = ()
       const nonce = String(input.nonce || '');
       if (!nonce) return no('Missing action id. Reload the Pass.');
       const r = await team.act(out.to, out.action, b64u(await sha256(`team-act:${nonce}`)).slice(0, 22));
-      const sent = r.status === 200 && ['reply', 'refire', 'rebase', 'rollback'].includes(String(input.act));
+      const sent = r.status === 200 && ['reply', 'refire', 'rebase', 'rollback', 'ship'].includes(String(input.act));
+      // Ship sent: its mark keeps the feature's call off every Pass (open-kitchen.ts finesOf, SHIP_MS).
+      if (sent && input.act === 'ship' && team.markShip(String(input.call || ''))) changed();
       return { status: r.status, text: sent ? `Sent to ${team.people.get(out.to)?.name || 'the dev'}’s agent.` : String(r.text || 'No answer.').slice(0, 300) };
     }
     if (op === 'fine') {
