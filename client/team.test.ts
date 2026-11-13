@@ -6,6 +6,8 @@ import { Team, createTeam, joinTeam, summarize, identity, notCheckedSince, chart
 import { grant, allows, refusal, signature, DEFAULTS, PERMS, shares } from './roles.ts';
 import { buildBoard } from './board.ts';
 import { act } from './actions.ts';
+import { outgoing } from './team-acts.ts';
+import { incoming } from './team-inbox.ts';
 import { summaryChanges, summaryPr, summaryAsk, summaryBase, fewerRanges, keepSeen } from './team-summaries.ts';
 import { openKitchen } from './open-kitchen.ts';
 import { sealSigned, sealTo, aad, teamKey, newMember, signRoster } from './seal.ts';
@@ -146,7 +148,13 @@ async function crew({ role = 'engineer', perms }: { role?: string; perms?: strin
   const t3calls: { name: string; args: Record<string, unknown> | undefined }[] = [];
   const dev = new Team({ state: devState, save: (s) => saved.dev.push(structuredClone(s)), net, now, timers, random: () => 1,
     board: () => devBoard,
-    run: async (input, prefix, maps) => { ran.push({ input, prefix }); return act({ board: devBoard.board!, t3: { call: async (name, args) => { t3calls.push({ name, args }); return {}; } }, input, prefix, ...maps }); } });
+    // As server.ts runs it: the teammate's action becomes one of the dev's own (team-acts.ts incoming), then act().
+    run: async (input, prefix, maps) => {
+      ran.push({ input, prefix });
+      const local = incoming(devBoard.board!, input);
+      if (!('kind' in local)) return local as { status: number; text: string };
+      return act({ board: devBoard.board!, t3: { call: async (name, args) => { t3calls.push({ name, args }); return {}; } }, input: local, prefix, ...maps });
+    } });
   dev.start();
   await until(() => dev.link === 'online' && lead.pending.size === 1, 'the ask at the lead');
   const r = await lead.approve(idOf(dev), role, perms);
@@ -249,6 +257,31 @@ test('a lead\'s reply runs on the dev\'s thread through the dev\'s own T3, signe
   assert.equal(t3calls[0]!.name, 't3_thread_send');
   assert.equal(t3calls[0]!.args!.message, 'Sam Lead (Lead), from Yes Chef: Rebase on main first.');
   assert.match(String(t3calls[0]!.args!.clientRequestId), /^pass-t-[\w-]{22}-[\w-]{22}$/);
+  lead.stop(); dev.stop();
+});
+
+test('the lead\'s form on a teammate\'s call reaches the dev\'s agent once: Request changes, Rebase, Hold', async () => {
+  const { lead, dev, ran, t3calls } = await crew();
+  const to = idOf(dev);
+  const send = async (fields: Record<string, string>) => {
+    const out = outgoing({ to, thread: 'th-parser', nonce: 'n', ...fields });
+    assert.ok('action' in out, JSON.stringify(out));
+    return lead.act(out.to, out.action, fields.id!);
+  };
+  // Request changes goes as a message: the dev's own Request changes only answers a ticket at the dev's Pass.
+  assert.deepEqual(await send({ act: 'refire', note: 'Fix the parser.', id: 'AAAAAAAAAAAAAAAAAAAAAA' }), { status: 200, text: 'Reply sent.' });
+  assert.equal(t3calls[0]!.args!.message, 'Sam Lead (Lead), from Yes Chef: Request changes. Fix the parser.');
+  // The same send again (a retry with the same id) gets the first answer and runs nothing more.
+  assert.deepEqual(await send({ act: 'refire', note: 'Fix the parser.', id: 'AAAAAAAAAAAAAAAAAAAAAA' }), { status: 200, text: 'Reply sent.' });
+  assert.equal(t3calls.length, 1);
+  // Rebase sends the reader's words, then the lead's note.
+  assert.equal((await send({ act: 'rebase', say: 'Rebase on #12: Kai’s thread changes the same lines of a.ts.', note: 'Today.', id: 'BBBBBBBBBBBBBBBBBBBBBB' })).status, 200);
+  assert.equal(t3calls[1]!.args!.message, 'Sam Lead (Lead), from Yes Chef: Rebase on #12: Kai’s thread changes the same lines of a.ts.\n\nToday.');
+  // Hold snoozes the dev's thread through the dev's own T3.
+  assert.equal((await send({ act: 'hold', id: 'CCCCCCCCCCCCCCCCCCCCCC' })).status, 200);
+  assert.equal(t3calls[2]!.name, 't3_thread_organize');
+  assert.equal(t3calls[2]!.args!.action, 'snooze');
+  assert.equal(ran.length, 3);
   lead.stop(); dev.stop();
 });
 

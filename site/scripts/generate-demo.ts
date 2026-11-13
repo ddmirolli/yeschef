@@ -28,7 +28,7 @@ const SHIMMED = new Set(['node:crypto', 'node:fs', 'node:path']);
 rmSync(join(DEMO, 'lib'), { recursive: true, force: true });
 mkdirSync(join(DEMO, 'lib'), { recursive: true });
 // The list grows as it goes: each client module a copy imports is copied too.
-const copy = ['board.ts', 'calls.ts', 'kitchen.ts', 'actions.ts', 'you.ts', 'open-kitchen.ts', 'demo-team.ts'];
+const copy = ['board.ts', 'calls.ts', 'kitchen.ts', 'actions.ts', 'you.ts', 'open-kitchen.ts', 'demo-team.ts', 'team-acts.ts'];
 for (const f of copy) {
   const src = readFileSync(join(ROOT, 'client', f), 'utf8');
   for (const m of src.matchAll(/^import [^;]*? from '([^']+)';/gm)) {

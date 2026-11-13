@@ -6,7 +6,8 @@ import { createTeam, joinTeam, Team, webNet } from './team.ts';
 import type { OwnBoard, TeamNet, TeamRun, TeamState, TeamTimers, View } from './team.ts';
 import type { Readers } from './team-summaries.ts';
 import type { Board } from './board.ts';
-import { readInvite } from './seal.ts';
+import { b64u, readInvite, sha256 } from './seal.ts';
+import { outgoing } from './team-acts.ts';
 import { teamPage, teamBody, DEFAULT_RELAY, SITE } from './teamui.ts';
 import type { PageOptions } from './teamui.ts';
 
@@ -135,6 +136,17 @@ export function teamHost({ store, run, boardOf, projectsOf = () => [], t3Ok = ()
     }
     if (op === 'forgetLink') return ok();
     if (!team) return no('This Mac is not on a team.', 409);
+    if (op === 'act') {
+      // A call on a teammate's ticket (team-acts.ts). The page's one-time id becomes the relay's delivery id, so a
+      // retry of the same send is the same action to the dev's Yes Chef.
+      const out = outgoing(input);
+      if (!('action' in out)) return no(out.text, out.status);
+      const nonce = String(input.nonce || '');
+      if (!nonce) return no('Missing action id. Reload the Pass.');
+      const r = await team.act(out.to, out.action, b64u(await sha256(`team-act:${nonce}`)).slice(0, 22));
+      const sent = r.status === 200 && ['reply', 'refire', 'rebase', 'rollback'].includes(String(input.act));
+      return { status: r.status, text: sent ? `Sent to ${team.people.get(out.to)?.name || 'the dev'}’s agent.` : String(r.text || 'No answer.').slice(0, 300) };
+    }
     if (op === 'leave') {
       // Forgotten only once the saved team is gone from disk: else a restart would bring the ask back (PR-Agent r2 on #8).
       // Stop the client and let its queued saves finish first, so the deletion is the last write (PR-Agent r3 on #8).

@@ -320,19 +320,29 @@ test('the readers say Not checked for what a summary does not say, and draw only
   assert.match(panelOf(page({ view: v, now: NOWL }), 'Too big'), /<header class="dp-h"><b>Changes<\/b><span class="dst"/);
 });
 
-test('team actions show by role and never send: a see-only Engineer gets Settle and a line, no note', () => {
+test('team actions show by role and name whose thread they go to; a see-only Engineer gets a line and no form fields', () => {
   const lead = page({ view: view(), now: NOW });
   assert.match(lead, /<form class="act team-act" method="post" action="\/act" data-plate="p-[0-9a-f]{12}">/);
-  // No nonce and no thread: the server could not take a team form even if one were sent.
-  for (const f of lead.match(/<form class="act team-act"[^]*?<\/form>/g) ?? []) assert.doesNotMatch(f, /name="(nonce|thread)"/);
+  // Each form that acts carries a one-time id, the dev and the dev's thread (team-acts.ts outgoing), and never Settle.
+  const leadForms = lead.match(/<form class="act team-act"[^]*?<\/form>/g) ?? [];
+  assert.ok(leadForms.length >= 6);
+  for (const f of leadForms) {
+    assert.match(f, /name="nonce" value="[0-9a-f-]{36}"/);
+    assert.match(f, /name="to" value="[^"]+"/);
+    assert.match(f, /name="thread" value="[^"]+"/);
+    assert.doesNotMatch(f, /value="settle"/);
+  }
+  // Roll back and Rebase carry the words the dev's agent gets.
+  assert.match(lead, /name="say" value="Roll back #431: revert it\. main has been red since it merged\."/);
+  assert.match(lead, /name="say" value="Rebase on #[0-9]+: [^"]+ changes the same lines of [^"]+\."/);
   assert.match(lead, /value="rollback" class="ab fill primary"/);
   const v = view(); v.me = { id: 'me', name: 'Dana', role: 'engineer', perms: ['see'] };
   const eng = page({ view: v, now: NOW });
   const forms = eng.match(/<form class="act team-act"[^]*?<\/form>/g) ?? [];
   assert.equal(forms.length, 6);
   for (const f of forms) {
-    assert.doesNotMatch(f, /value="(rollback|rebase|reply|refire|answer|hold)"/);
-    assert.match(f, /value="settle"/);
+    assert.doesNotMatch(f, /value="(rollback|rebase|reply|refire|answer|hold|settle)"/);
+    assert.doesNotMatch(f, /name="(nonce|to|thread)"/);
     assert.match(f, /Your role can see this call\./);
     assert.doesNotMatch(f, /<textarea/);
     assert.doesNotMatch(f, /<fieldset/);

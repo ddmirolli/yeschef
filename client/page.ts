@@ -1327,8 +1327,6 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   window.addEventListener('beforeunload', function(ev){ if (pendingSends.length) { ev.preventDefault(); ev.returnValue = ''; } });
   window.addEventListener('pagehide', function(){ pendingSends.slice().forEach(function(p){ p.fire(true); }); });
   function send(f: PageForm, btn: HTMLButtonElement): void {
-    // Your team's actions wait for the team connection: nothing a teammate's agent could act on leaves this Mac yet.
-    if (f.classList.contains('team-act')) { say(f, 'Not sent: Yes Chef does not have the team connection yet.', 'bad'); return; }
     // A send waiting on its answer goes nowhere, but one that is not confirmed goes again, the same bytes.
     if (f.dataset.busy) { var uid = f.classList.contains('launch') ? 'launch' : f.dataset.plate!; if (unconfirmed[uid]) retry(uid); return; }
     if ((btn.value === 'call' || btn.value === 'answer') && btn.classList.contains('primary')) recPick(f);
@@ -1347,6 +1345,8 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     var fd = new FormData(f); fd.set('kind', kind);
     $$<HTMLInputElement>('input[data-custom]:checked', f).forEach(function(r){ fd.set(r.name, $<HTMLInputElement>('.custom', r.parentNode)!.value); });
     if (kind !== 'call' && kind !== 'answer') $$<HTMLInputElement>('fieldset.q-set input[type=radio]', f).forEach(function(r){ fd.delete(r.name); });
+    // A call on a teammate's ticket goes as a team action: sealed to the dev's Yes Chef, which runs it (team-acts.ts).
+    if (f.classList.contains('team-act')) { fd.set('act', kind); fd.set('kind', 'team'); fd.set('op', 'act'); }
     var body = new URLSearchParams(fd as unknown as Record<string, string>).toString();
     var isLaunch = kind === 'launch';
     var id = isLaunch ? 'launch' : f.dataset.plate!, p = isLaunch ? null : plateNode(id);

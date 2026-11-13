@@ -686,11 +686,15 @@ const quietBox = (c: TeamCall, name: Namer, now: number): string => c.quiet.map(
 /** The words and parts of each call: tile title and preview, the reader's lead, Suggested, its body and its actions.
  *  acts: [kind, word, tooltip], the first one blue. */
 /** A call's words and parts. acts: [kind, word, tooltip]; ask and rec only for a question. */
+/** target: whose thread the actions go to (a person id and their thread id), and for Rebase and Roll back the words
+ *  that go as the message (client/team-acts.ts). Null when the call names no one to act on. */
 interface Words { title: string; preview: string; lead: string; suggest: string; body: string; panel?: { label: string; html: string; src: string };
-  acts: [string, string, string][]; reply: string | null; ask?: TeamAsk; rec?: string | null }
+  acts: [string, string, string][]; reply: string | null; ask?: TeamAsk; rec?: string | null;
+  target: { to: string; thread: string | null; say: string } | null }
 function callWords(c: TeamCall, { name, now, people }: { name: Namer; now: number; people: ReadonlyMap<string, Person> }): Words {
   const { kind, facts: f } = c, who = name(c.who[0] ?? '');
   const pr = c.prs[0];
+  const own = (t: { thread: string | null }) => (c.who[0] ? { to: c.who[0], thread: t.thread, say: '' } : null);
   switch (kind) {
     case 'main': {
       const n = f.cause?.pr.n, by = f.cause ? name(f.cause.person) : null, br = f.branch;
@@ -721,6 +725,7 @@ function callWords(c: TeamCall, { name, now, people }: { name: Namer; now: numbe
         acts: f.clean ? [['rollback', 'Roll back', `Roll back: ${pos(by)} agent reverts #${n}`], ['reply', 'Reply', `Reply to ${pos(by)} agent`]]
           : f.cause ? [['reply', 'Reply', `Reply to ${pos(by)} agent`]] : [],
         reply: f.cause ? by : null,
+        target: f.cause ? { to: f.cause.person, thread: f.cause.ticket.thread, say: f.clean ? `Roll back #${n}: revert it. ${br} has been red since it merged.` : '' } : null,
       };
     }
     case 'overlap': {
@@ -755,6 +760,8 @@ function callWords(c: TeamCall, { name, now, people }: { name: Namer; now: numbe
         body: `<div class="duo">${card(A)}${card(B)}</div>` + map,
         acts: [['rebase', 'Rebase', `Rebase: ${pos(R)} agent rebases${kpr ? ` on #${kpr.n}` : ''}`], ['reply', 'Reply', `Reply to ${pos(R)} agent`]],
         reply: R,
+        target: { to: f.rebaser.person, thread: f.rebaser.ticket.thread,
+          say: `Rebase${kpr ? ` on #${kpr.n}` : ''}: ${same ? 'your other thread' : `${pos(K)} thread`} changes the same lines of ${top.path}.` },
       };
     }
     case 'failing':
@@ -767,7 +774,7 @@ function callWords(c: TeamCall, { name, now, people }: { name: Namer; now: numbe
         suggest: 'Ask for a new approach',
         body: fixesTried(f.runs, f.redRuns),
         acts: [['refire', 'Changes', `Request changes: ${pos(who)} agent gets your note`], ['reply', 'Reply', `Reply to ${pos(who)} agent`]],
-        reply: who,
+        reply: who, target: own(f.ticket),
       };
     case 'stuck':
       return {
@@ -779,7 +786,7 @@ function callWords(c: TeamCall, { name, now, people }: { name: Namer; now: numbe
         // came, and the lead already says since when nothing has.
         body: `<div class="tvis">${vlab('Last message')}<p class="tmsg${f.last ? '' : ' nc'}">${e(f.last || NC_V)}</p></div>`,
         acts: [['reply', 'Reply', `Reply to ${pos(who)} agent`], ['refire', 'Changes', `Request changes: ${pos(who)} agent gets your note`]],
-        reply: who,
+        reply: who, target: own(f.ticket),
       };
     case 'waiting': {
       const a = f.ask, rec = /^[a-i]$/.test(a.rec || '') ? a.rec : null;
@@ -792,7 +799,7 @@ function callWords(c: TeamCall, { name, now, people }: { name: Namer; now: numbe
         body: '',
         ask: a, rec,
         acts: [['answer', 'Send answer', `Send your answer to ${pos(who)} agent`], ['reply', 'Reply', `Reply to ${pos(who)} agent`]],
-        reply: who,
+        reply: who, target: own(f.ticket),
       };
     }
     case 'big':
@@ -806,29 +813,35 @@ function callWords(c: TeamCall, { name, now, people }: { name: Namer; now: numbe
         body: '',
         panel: diffPanel(f.size, f.changes, f.pr),
         acts: [['refire', 'Changes', `Request changes: ${pos(who)} agent gets your note`], ['reply', 'Reply', `Reply to ${pos(who)} agent`]],
-        reply: who,
+        reply: who, target: own(f.ticket),
       };
   }
 }
 
 /** The call's dock. Each action shows only for a role whose boxes allow it (open-kitchen.ts may); the blue one only
- *  when it is the suggested action. Nothing here sends yet: the page refuses a team form until the team connection
- *  lands, and the server has no route for one. */
+ *  when it is the suggested action. The page posts it as a team action: it goes sealed to the dev's Yes Chef, which
+ *  checks the role again and runs it through the dev's own T3 sign-in (client/team-acts.ts; Dan, 2026-11-13, "A").
+ *  Settle is not here: a teammate never settles a dev's thread, and clearing a call on this Mac only is not built. */
 function teamDock(c: TeamCall, w: Words, me: Me | null | undefined, id: string): string {
-  const allowed = w.acts.filter(([kind]) => may(me, kind));
+  const t = w.target && w.target.to && w.target.thread ? w.target : null;
+  const allowed = t ? w.acts.filter(([kind]) => may(me, kind)) : [];
   const blue = allowed.length && allowed[0] === w.acts[0] ? allowed[0]![0] : null;
   // Names come from teammates' summaries, so the tooltip's name is escaped here (btn writes it as markup).
   const labelled = allowed.map(([kind, word, name]) => btn(kind, { ic: kind === 'reply' ? 'reply' : kind === 'refire' ? 'changes' : 'send', word, name: e(name), key: '' }, kind === blue, ` data-what="${e(name)}"${kind === 'reply' || kind === 'refire' ? ' data-note' : ''}`));
-  const hold = may(me, 'hold') ? btn('hold', ACT.hold, false, ' data-what="Hold until 8:00 tomorrow"') : '';
-  const settle = btn('settle', { ...ACT.settle, name: 'Settle: it leaves your Pass' }, false, ' data-what="Settle"');
-  const rows = [hold ? phoneRow('hold', ACT.hold.name) : '', phoneRow('settle', 'Settle'), allowed.length ? MORE_NOTE : ''];
-  const ask = w.ask && may(me, 'answer') ? `<fieldset class="q-set"><legend>${e(w.ask.q || 'The agent asks')}</legend>`
-    + (Array.isArray(w.ask.options) ? w.ask.options : []).filter((o) => /^[a-i]$/.test(o?.k || '')).map((o) => `<label class="opt"><input type="radio" name="c:0" value="${o.k}" data-key="${o.k}" data-need${o.k === w.rec ? ' data-rec' : ''}><span class="opt-t"><b>${o.k}.</b> ${e(o.t)}${o.k === w.rec ? ' <span class="rec">Recommended</span>' : ''}</span></label>`).join('')
+  const hold = t && may(me, 'hold') ? btn('hold', ACT.hold, false, ' data-what="Hold until 8:00 tomorrow"') : '';
+  const rows = [hold ? phoneRow('hold', ACT.hold.name) : '', allowed.length ? MORE_NOTE : ''];
+  // A hand-back call's options are letters; a T3 question's are its labels, sent back as they came. Keys a to f by place.
+  const opts = (w.ask && Array.isArray(w.ask.options) ? w.ask.options : []).filter((o) => o?.k).slice(0, 6);
+  const ask = w.ask && t && may(me, 'answer') && opts.length ? `<fieldset class="q-set"><legend>${e(w.ask.q || 'The agent asks')}</legend>`
+    + opts.map((o, i) => { const k = o.k!, letter = /^[a-i]$/.test(k);
+      return `<label class="opt"><input type="radio" name="c:0" value="${e(k)}" data-key="${'abcdef'[i]}" data-need${letter && k === w.rec ? ' data-rec' : ''}><span class="opt-t">`
+        + (letter ? `<b>${k}.</b> ${e(o.t)}${k === w.rec ? ' <span class="rec">Recommended</span>' : ''}` : `<b>${e(k)}</b>${o.t && o.t !== k ? ` ${e(o.t)}` : ''}`) + '</span></label>'; }).join('')
     + '</fieldset>' : '';
   const kinds = allowed.map(([kind]) => kind);
   const note = !allowed.length ? '' : noteField(kinds.includes('refire') ? 'needed for Changes and Reply' : kinds.includes('reply') ? `optional with ${kinds[0] === 'reply' ? 'Hold' : allowed[0]![1]}, needed for Reply` : 'optional');
-  const only = allowed.length ? '' : `<p class="dock-who">Your role can see this call. Acting on it needs more from your lead.</p>`;
-  return `<aside class="dock dock-plain" aria-label="Your move"><form class="act team-act" method="post" action="/act" data-plate="${e(id)}">${only}${ask}${note}${bar(labelled, [hold, settle], rows)}</form></aside>`;
+  const only = allowed.length ? '' : `<p class="dock-who">${t ? 'Your role can see this call. Acting on it needs more from your lead.' : 'Not checked: this call names no thread to act on.'}</p>`;
+  const fields = t && allowed.length ? hidden('nonce', randomUUID()) + hidden('to', t.to) + hidden('thread', t.thread) + (t.say ? hidden('say', t.say) : '') + (w.ask ? hidden('q', w.ask.q ?? '') : '') : '';
+  return `<aside class="dock dock-plain" aria-label="Your move"><form class="act team-act" method="post" action="/act" data-plate="${e(id)}">${fields}${only}${ask}${note}${allowed.length ? bar(labelled, [hold], rows) : ''}</form></aside>`;
 }
 
 /** Your team, expanded: the rows alone (flow mock round 3.3, locked 2026-11-11), filling the column beside the team's

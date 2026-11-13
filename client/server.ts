@@ -20,6 +20,7 @@ import type { ChangesRead } from './changes.ts';
 import type { Board, Handback, Status } from './board.ts';
 import type { RunsEntry, WaitEntry } from './you.ts';
 import type { ActInput, ActResult, Answered } from './actions.ts';
+import { incoming } from './team-inbox.ts';
 import type { Readers } from './team-summaries.ts';
 import type { TeamState } from './team.ts';
 import type { HostProject, TeamStore } from './teamhost.ts';
@@ -1672,7 +1673,11 @@ const team = teamHost({
   run: async (input, prefix, extra) => {
     if (!status.ok) return { status: 503, text: 'Not checked: this board is not current.' };
     if (!canOperate) return { status: 403, text: 'Not run: this Yes Chef is signed in read only.' };
-    const out = await act({ board, t3: t3!, input, holds: extra?.holds || holds, answered: extra?.answered || answered, projects, rules, scopes: scopesOf, prefix });
+    // The teammate's action as one of this dev's own (team-acts.ts): Request changes as a message, an answer found
+    // again on this board.
+    const local = incoming(board, input);
+    if (!('kind' in local)) return local as ActResult;
+    const out = await act({ board, t3: t3!, input: local, holds: extra?.holds || holds, answered: extra?.answered || answered, projects, rules, scopes: scopesOf, prefix });
     audit({ at: new Date().toISOString(), kind: input.kind, thread: input.thread, login: 'teammate', status: out.status });
     if (out.status === 200) wake?.();
     return out;

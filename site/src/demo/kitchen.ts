@@ -12,6 +12,7 @@ import { normalize, change } from '../../demo/lib/kitchen.ts';
 import { readRuns, dayStart, trackWaits, mayRunToday } from '../../demo/lib/you.ts';
 import { demoTeam } from '../../demo/lib/demo-team.ts';
 import { changeArea, changeTeamRule } from '../../demo/lib/team-rules.ts';
+import { outgoing } from '../../demo/lib/team-acts.ts';
 import type { RunsEntry, WaitEntry } from '../../demo/lib/you.ts';
 
 function requiredThread(thread: DemoThread | undefined): DemoThread {
@@ -321,6 +322,14 @@ export function createKitchen({ now = Date.now, where, shot, onChange = () => {}
         }
         onChange();
         return [200, 'Saved. Your team has it.'];
+      }
+      // A call on a teammate's ticket (client/teamhost.ts op act): checked as the app checks it, then answered as the
+      // teammate's Yes Chef would. The demo has no relay and no teammate's agent, so it says the demo sent nothing.
+      if (input.kind === 'team' && crew && input.op === 'act') {
+        const out = outgoing(input);
+        if (!('action' in out)) return [out.status, out.text];
+        const who = crew.people.find((p) => p.id === out.to)?.name || 'the dev';
+        return [200, `Demo: in the app this goes to ${who}’s Yes Chef, which runs it in their T3 Code.`];
       }
       if (input.kind === 'rules') {
         const out = change(rules, { scope: String(input.scope || ''), key: String(input.key || ''), value: String(input.value ?? ''), reset: input.reset === '1' });
