@@ -17,7 +17,8 @@ export type LinearTool = 'get_issue' | 'list_issues' | 'save_issue' | 'get_proje
 /** A ticket that blocks another (Linear's "blocked by"), as the read gave it: its id and title. open: true when a read
  *  shows it is not done, false when one shows it done, null when no read of it says (not checked). */
 export interface Blocker { id: string; title: string | null; open: boolean | null;
-  /** When the read that gave open happened (left out with open null). */
+  /** With open true: when reads first showed it open since a read last showed it done, so a blocker that closes and
+   *  opens again starts a new wait (PR-Agent r3 on #78). */
   openAt?: number }
 /** A ticket as Yes Chef shows it: each field from the newest read that had it. at: when that newest read happened. */
 export interface LinearIssue {
@@ -36,6 +37,8 @@ export interface LinearProject {
   id: string; name: string | null; lead?: string | null; leadAt?: number; tickets?: { id: string; statusType: string | null }[]; listAt?: number;
   /** When a read showed a ticket in the project that the whole list, read before it, lacks: the list is no longer whole. */
   listGone?: number;
+  /** The newest read that showed a ticket in the project not done: a whole list read before it is out of date. */
+  openAt?: number;
 }
 /** What one project read gave: from get_project or list_projects. */
 export interface ProjectRead { id: string; name: string | null; lead?: string | null }
@@ -188,12 +191,16 @@ export function linearCall(text: string, at: number): LinearCall | null {
   if (tool === 'list_issues' && inp.project !== undefined && Object.keys(inp).every((k) => LIST_ONLY.has(k)) && b?.hasNextPage === false
     && issues.length && issues.length === list.length && list.length <= MAX.list) {
     const pid = issues[0]!.projectId;
-    if (pid && issues.every((x) => x.projectId === pid)) out.list = { projectId: pid.toLowerCase(), ids: issues.map((x) => x.id!) };
+    // Each with its state, so the list itself shows what is done; older reads never fill in a state it left out
+    // (PR-Agent r3 on #78).
+    if (pid && issues.every((x) => x.projectId === pid && typeof x.statusType === 'string')) out.list = { projectId: pid.toLowerCase(), ids: issues.map((x) => x.id!) };
   }
   return out;
 }
 
-interface Stored { fields: Map<keyof LinearIssue, { v: string; at: number; by: string }>; at: number; by: string }
+interface Stored { fields: Map<keyof LinearIssue, { v: string; at: number; by: string }>; at: number; by: string;
+  /** When reads first showed it not done since one last showed it done. */
+  openSince?: number }
 interface StoredProject { name: { v: string; at: number } | null; lead: { v: string | null; at: number } | null; list: { ids: string[]; at: number } | null; at: number }
 interface Followed { stamp: string; next: number }
 /** A thread as the reader follows it: its id, title, branch, and what changes when it gets new items. */
@@ -228,13 +235,20 @@ export function createLinearReads({ call, now = Date.now, log = () => {}, days =
   const keep = (c: LinearCall, threadId: string): boolean => {
     let moved = false;
     for (const x of c.issues) {
-      const s = issues.get(x.id!) ?? { fields: new Map(), at: 0, by: threadId };
+      const s: Stored = issues.get(x.id!) ?? { fields: new Map(), at: 0, by: threadId };
       for (const k of ['title', 'status', 'statusType', 'url', 'assignee', 'project', 'projectId', 'blockedBy'] as const) {
         // blockedBy is kept as JSON, [[id, title], ...]: a field holds one string.
         const v = k === 'blockedBy' ? (x.blockedBy ? JSON.stringify(x.blockedBy.map((y) => [y.id, y.title])) : undefined) : x[k];
         if (typeof v !== 'string') continue;
         const had = s.fields.get(k);
-        if (!had || had.at <= c.at) { if (had?.v !== v) moved = true; s.fields.set(k, { v, at: c.at, by: threadId }); }
+        if (!had || had.at <= c.at) {
+          if (had?.v !== v) moved = true;
+          s.fields.set(k, { v, at: c.at, by: threadId });
+          if (k === 'statusType') {
+            if (CLOSED.has(v)) delete s.openSince;
+            else if (!had || CLOSED.has(had.v) || s.openSince === undefined) s.openSince = c.at;
+          }
+        }
       }
       if (c.at > s.at || (c.at === s.at && s.by !== threadId)) { s.at = c.at; s.by = threadId; moved = true; }
       issues.set(x.id!, s);
@@ -340,8 +354,9 @@ export function createLinearReads({ call, now = Date.now, log = () => {}, days =
       try { pairs = JSON.parse(bb); } catch { pairs = null; }
       out.blockedBy = (Array.isArray(pairs) ? pairs : []).flatMap((x): Blocker[] => {
         if (!Array.isArray(x) || typeof x[0] !== 'string') return [];
-        const t = issues.get(x[0])?.fields.get('statusType');
-        return [{ id: x[0], title: typeof x[1] === 'string' ? x[1] : null, ...(t ? { open: !CLOSED.has(t.v), openAt: t.at } : { open: null }) }];
+        const b = issues.get(x[0]), t = b?.fields.get('statusType');
+        const open = t ? !CLOSED.has(t.v) : null;
+        return [{ id: x[0], title: typeof x[1] === 'string' ? x[1] : null, open, ...(open && b?.openSince !== undefined ? { openAt: b.openSince } : {}) }];
       });
     }
     return out;
@@ -359,6 +374,13 @@ export function createLinearReads({ call, now = Date.now, log = () => {}, days =
       const pid = s.fields.get('projectId');
       if (pid && pid.at > list.at && pid.v.toLowerCase() === id.toLowerCase() && !on.has(t)) gone = Math.max(gone, pid.at);
     }
+    // The newest read of a ticket in the project, or on its list, that shows it not done (PR-Agent r3 on #78).
+    let open = 0;
+    for (const [t, s] of issues) {
+      const pid = s.fields.get('projectId'), st = s.fields.get('statusType');
+      if (st && !CLOSED.has(st.v) && ((pid && pid.v.toLowerCase() === id.toLowerCase()) || on.has(t))) open = Math.max(open, st.at);
+    }
+    if (open) out.openAt = open;
     if (gone) { out.listGone = gone; return out; }
     // Each ticket's status from its own newest read: a ticket done since the list was read counts as done. listAt is
     // when the list itself was read: across Macs the newest whole list wins, never an older one with newer statuses

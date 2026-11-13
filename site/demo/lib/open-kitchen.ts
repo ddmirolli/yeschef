@@ -51,6 +51,8 @@ export interface TeamTicket { thread: string | null; title: string | null; proje
 export interface TeamFeature { id: string; name: string; lead?: { name: string | null; at: number }; list?: { n: number; closed: number; unread: number; at: number };
   /** The newest time a read showed a whole list was no longer whole: an older list does not count. */
   listGone?: number;
+  /** The newest read that showed a ticket in it not done: an older whole list does not count. */
+  openAt?: number;
   /** Each dev's own count of their threads on it, and how many are merged (person id -> counts). */
   threads?: Record<string, { n: number; merged: number }> }
 /** A base branch a teammate's Mac read, cleaned (cleanBase). */
@@ -173,8 +175,10 @@ export function featuresOf(people: readonly { id?: unknown; summary?: unknown }[
     if (leadAt !== null && (f.lead === null || (typeof f.lead === 'string' && f.lead.trim())) && (!had.lead || had.lead.at < leadAt)) {
       had.lead = { name: typeof f.lead === 'string' ? f.lead.trim().slice(0, 80) : null, at: leadAt };
     }
-    const gone = ok ? ms(f.listGone) : null;
+    // What makes a list out of date counts from every Mac, quiet ones too: it can only hold Ready back (PR-Agent r3 on #78).
+    const gone = ms(f.listGone), open = ms(f.openAt);
     if (gone !== null && (had.listGone === undefined || had.listGone < gone)) had.listGone = gone;
+    if (open !== null && (had.openAt === undefined || had.openAt < open)) had.openAt = open;
     const l = ok ? obj(f.list) : null, n = num(l?.n), closed = num(l?.closed), unread = num(l?.unread), at = ms(l?.at);
     if (n !== null && closed !== null && unread !== null && at !== null && [n, closed, unread].every((x) => Number.isInteger(x) && x >= 0) && closed + unread <= n
       && (!had.list || had.list.at < at)) had.list = { n, closed, unread, at };
@@ -185,7 +189,8 @@ export function featuresOf(people: readonly { id?: unknown; summary?: unknown }[
     out.set(id, had);
   }
   // A whole list older than a read that showed it no longer whole does not count, from whichever Mac.
-  for (const f of out.values()) if (f.list && f.listGone !== undefined && f.list.at < f.listGone) delete f.list;
+  // Nor one older than a read that showed one of its tickets not done.
+  for (const f of out.values()) if (f.list && ((f.listGone !== undefined && f.list.at < f.listGone) || (f.openAt !== undefined && f.list.at < f.openAt))) delete f.list;
   return out;
 }
 // A name as people write it, for matching a Linear lead to a teammate: case and spaces aside.

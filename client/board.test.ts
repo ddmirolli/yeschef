@@ -427,6 +427,10 @@ test('a summary sends each feature\'s lead and whole-list count, and each ticket
   // A blocker read done, then read open again later: the wait starts at the read that showed it open (PR-Agent r2 on #78).
   a.linear = [{ ...r, at: 7, id: 'ENG-1', blockedBy: [{ id: 'ENG-2', title: 'Ledger', open: true, openAt: 55 }] }];
   assert.deepEqual(one(summarize(board, ['p'], 65536, { now: 60, blockedAt: kept }).tickets, (t) => t.thread === 'a', 'a').blocked, [{ id: 'ENG-2', title: 'Ledger', at: 55 }]);
+  // A kept start from before the blocker last opened is an old wait: the new one starts at the open read (r3).
+  assert.deepEqual(one(summarize(board, ['p'], 65536, { now: 60, blockedAt: { 'a|ENG-2': 7 } }).tickets, (t) => t.thread === 'a', 'a').blocked, [{ id: 'ENG-2', title: 'Ledger', at: 55 }]);
+  a.linear = [{ ...r, at: 58, id: 'ENG-1', blockedBy: [{ id: 'ENG-2', title: 'Ledger', open: true, openAt: 55 }] }];
+  assert.deepEqual(one(summarize(board, ['p'], 65536, { now: 60, blockedAt: { 'a|ENG-2': 56 } }).tickets, (t) => t.thread === 'a', 'a').blocked, [{ id: 'ENG-2', title: 'Ledger', at: 56 }], 'the same wait keeps its start');
 });
 
 test('a feature\'s thread count is made before the summary drops tickets to fit (PR-Agent r1 on #78)', () => {

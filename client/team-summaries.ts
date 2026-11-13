@@ -68,7 +68,9 @@ export type SummaryFeature = { id: string; name: string; lead?: string | null; l
    *  relay never carries still keeps the feature from Ready (PR-Agent r1 on #78). */
   threads: { n: number; merged: number };
   /** When a read showed the newest whole list this Mac had is no longer whole (PR-Agent r2 on #78). */
-  listGone?: number };
+  listGone?: number;
+  /** The newest read of a ticket in it that showed it not done (PR-Agent r3 on #78). */
+  openAt?: number };
 const FEATURES_MAX = 50, BLOCKERS_MAX = 5;
 /** A PR's size as the summary sends it. */
 export type SummarySize = { files: number | null; added: number | null; removed: number | null; at: number | null; overAt?: number };
@@ -523,7 +525,7 @@ export function summarize(board: Pick<Board, 'tickets'> | null | undefined, shar
     // not checked, so it raises nothing. at: when the relation was read.
     // at: the later of that read and the blocker's open read, so a blocker that reopens starts a new wait (PR-Agent r2 on #78).
     const blocked = (k.linear || []).flatMap((l) => (l.state === 'read' ? (l.blockedBy || []).filter((b) => b.open === true)
-      .map((b) => ({ id: b.id, title: b.title ? clean(b.title, 120) : null, at: Math.max(l.at, Number.isFinite(b.openAt) ? b.openAt! : 0) })) : []));
+      .map((b) => ({ id: b.id, title: b.title ? clean(b.title, 120) : null, at: Math.max(l.at, Number.isFinite(b.openAt) ? b.openAt! : 0), opened: Number.isFinite(b.openAt) ? b.openAt! : 0 })) : []));
     // And an open PR whose description says it waits on an issue or PR that GitHub shows open ("owner/repo#N").
     for (const [i, p] of k.prs.entries()) {
       if (p.state !== 'open') continue;
@@ -531,16 +533,17 @@ export function summarize(board: Pick<Board, 'tickets'> | null | undefined, shar
       const at = time(r?.at);
       if (r?.state !== 'checked' || at === null || !Array.isArray(r.blockedBy)) continue;
       for (const b of r.blockedBy as { repo?: unknown; n?: unknown; open?: unknown }[]) {
-        if (b?.open === true && typeof b.repo === 'string' && Number.isInteger(b.n)) blocked.push({ id: `${clean(b.repo, 200)}#${b.n as number}`, title: null, at });
+        if (b?.open === true && typeof b.repo === 'string' && Number.isInteger(b.n)) blocked.push({ id: `${clean(b.repo, 200)}#${b.n as number}`, title: null, at, opened: 0 });
       }
     }
     if (blocked.length) {
       t.blocked = [...new Map(blocked.map((b) => [b.id, b])).values()].slice(0, BLOCKERS_MAX).map((b) => {
         // The first time this Mac saw it, kept while it stays blocked, so a fresh read does not restart the wait.
+        // A blocker that a read showed open again after this time is a new wait (PR-Agent r3 on #78).
         const key = `${t.thread}|${b.id}`, was = blockedBefore[key];
-        const at = Number.isFinite(was) && (was as number) <= now ? Math.min(was as number, b.at) : b.at;
+        const at = Number.isFinite(was) && (was as number) <= now && (was as number) >= b.opened ? Math.min(was as number, b.at) : b.at;
         blockedAt[key] = at;
-        return { ...b, at };
+        return { id: b.id, title: b.title, at };
       });
     }
     const c = summaryChanges(get(readers.changes, k.thread.threadId));
@@ -568,6 +571,7 @@ export function summarize(board: Pick<Board, 'tickets'> | null | undefined, shar
       out.list = { n: p.tickets.length, closed: p.tickets.filter((x) => x.statusType !== null && CLOSED.has(x.statusType)).length,
         unread: p.tickets.filter((x) => x.statusType === null).length, at: p.listAt! };
     } else if (Number.isFinite(p?.listGone)) out.listGone = p!.listGone!;
+    if (Number.isFinite(p?.openAt)) out.openAt = p!.openAt!;
     features.push(out);
   }
   // gh: this Mac's GitHub login, or null when gh's sign-in was not read (not checked).

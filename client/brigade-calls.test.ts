@@ -84,6 +84,22 @@ test('a whole list counts only from a reporting Mac, and not once a newer read s
   who(quiet, 'maya').summary.tickets.push({ ...tk(quiet, 'mcp:maya-0'), thread: 'mcp:maya-w', place: 'In progress', working: 1, prs: [], feature: { id: 'other', name: 'Other' } });
   assert.equal(openKitchen(quiet, { now: NOW }).people.find((p) => p.id === 'maya')!.reporting, false);
   assert.equal(get(quiet, 'ready'), undefined);
+  // A quiet Mac's word that a list is out of date still holds Ready back (PR-Agent r3 on #78).
+  const q2 = tokens();
+  who(q2, 'sam').summary.features[0].listGone = ago(3);
+  who(q2, 'sam').online = false;
+  who(q2, 'sam').at = NOW - 3 * 60 * MIN;
+  delete who(q2, 'sam').lastSeen;
+  who(q2, 'sam').summary.tickets.push({ ...tk(q2, 'mcp:sam-0'), thread: 'mcp:sam-w', place: 'In progress', working: 1, prs: [], feature: { id: 'other', name: 'Other' } });
+  assert.equal(openKitchen(q2, { now: NOW }).people.find((p) => p.id === 'sam')!.reporting, false);
+  assert.equal(get(q2, 'ready'), undefined);
+  // A read after the list showed one of its tickets not done (PR-Agent r3 on #78).
+  const reopened = tokens();
+  who(reopened, 'sam').summary.features[0].openAt = ago(2);
+  assert.equal(get(reopened, 'ready'), undefined);
+  const before = tokens();
+  who(before, 'sam').summary.features[0].openAt = ago(10);
+  assert.ok(get(before, 'ready'), 'an open read before the list stands aside');
 });
 
 test('the newest read of a feature wins, from any summary', () => {
