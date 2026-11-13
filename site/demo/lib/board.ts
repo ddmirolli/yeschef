@@ -1065,7 +1065,9 @@ function teamParts(team: TeamInput, view: TeamView, icons: ReadonlyMap<string, s
   type Item = { c: TeamCall; id: string; w: Words };
   const who = (c: TeamCall) => (!c.who.length ? ((c.kind === 'main' && c.facts.repo) || 'Not checked') : c.kind === 'overlap' && c.who.length > 1 ? and(c.who.map(name)) : name(c.who[0]!));
   const age = (c: TeamCall) => (c.since != null ? span(Math.max(0, Math.round((now - c.since) / 60000))) : '');
-  const tile = ({ c, id, w }: Item) => `<button type="button" class="tile call-tile mail team-tile" data-plate="${e(id)}" data-thread="${e(id)}">`
+  // One card for a call in both views (Dan, 2026-11-13: the chart view shows The Pass's tickets in the app's own
+  // style). A click opens the call in The Pass, so the chart view hands over to it as before.
+  const tile = ({ c, id, w }: Item) => `<button type="button" class="tile call-tile mail team-tile" data-plate="${e(id)}" data-thread="${e(id)}" data-team-open="${e(id)}">`
     + `<span class="ct-top"><span class="proj">${pm(c.project)}<span class="pn">${e(c.project || 'Project')}</span></span><span class="mdl">${e(who(c))}</span>${age(c) ? `<span class="age">${age(c)}</span>` : ''}</span>`
     + `<span class="q">${e(w.title)}</span><span class="ct-pv">${e(w.preview)}</span>`
     + `<span class="lbs">${chip(KINDS[c.kind].word, KINDS[c.kind].tone)}<span class="lb tsg">Suggested: <b>${e(w.suggest)}</b></span></span></button>`;
@@ -1110,18 +1112,8 @@ function teamParts(team: TeamInput, view: TeamView, icons: ReadonlyMap<string, s
   if (by.track.length) bits.push(`${plural(by.track.length, 'person', 'people')} ${by.track.length === 1 ? 'is' : 'are'} on track.`);
   if (by.unknown.length) bits.push(`${plural(by.unknown.length, 'person', 'people')} not checked.`);
   const calm = `<p class="tcalm">${svg('done')}<span>${calls.length ? 'Nothing else needs you.' : 'Nothing from your team needs you.'}${bits.length ? ` ${e(bits.join(' '))}` : ''}</span></p>`;
-  // The Pass as a column beside the board (expanded): each call with its suggestion and Open, one click each. A click
-  // goes back to The Pass with the call open; the suggestion also puts focus on its action there, since nothing sends
-  // from Your team until the team connection lands.
-  const xcard = ({ c, id, w }: Item) => {
-    const [kind] = w.acts[0] || [];
-    const sug = kind && may(me, kind) ? `<button type="button" class="xb fill" data-team-open="${e(id)}" data-team-act="${e(kind)}">${e(w.suggest)}</button>` : '';
-    return `<div class="xc" role="listitem" data-team-open="${e(id)}"><p class="xk"><span class="w t-${KINDS[c.kind].tone}">${e(KINDS[c.kind].word)}</span>${age(c) ? `<span class="age">${age(c)}</span>` : ''}</p>`
-      + `<p class="xt">${e(w.title)}</p><p class="xw">${e(who(c))}</p><div class="xa">${sug}<button type="button" class="xb" data-team-open="${e(id)}">Open</button></div></div>`;
-  };
-  const col = calls.length ? `<div class="tcol" role="list" aria-label="Your team’s calls">${calls.map(xcard).join('')}</div>` : '';
   const pass = !live ? `<div class="clear team-pass">${svg('cloche')}<p><b>${NC_V}</b></p><p class="muted">${e(why)} Your team’s calls show once it is back.</p></div>`
-    : `<div class="team-pass tp-live"><div class="folder" data-folder="team">${calls.map(tile).join('')}</div>${col}${calm}</div>`;
+    : `<div class="team-pass tp-live"><div class="folder" data-folder="team">${calls.map(tile).join('')}</div>${calm}</div>`;
   const callPlate = (id: string) => (calls.some((x) => x.c.id === id) ? teamPlateId({ id }) : null);
   const board = brigade ? brigadeOf({ ok, view, now, want, who: opened, menu, menuBare, fit, plateOf: callPlate }) : boardOf({ ok, now, want, fold, name, people, menu, fit, plateOf: callPlate });
   return {

@@ -355,7 +355,8 @@ test('the team\'s thresholds from the roster reach the Pass it draws: Stuck at 6
   const now = Date.UTC(2026, 10, 10, 14, 3);
   const board = buildBoard({ projects: [], threads: [], questions: new Map() });
   const drawn = (rules?: object) => renderApp({ board, link, status: { ok: true as const, at: now, ms: 1 }, origin: 'https://t3.example', team: { view: { ...fixtureView(now), rules }, now, mode: 'open' } });
-  assert.equal((drawn().match(/>Stuck</g) || []).length, 3, 'the proposed 20 min: Omar\'s thread is Stuck');
+  // Its card and its reader: one card in both views since 2026-11-13 (Dan), no column card of its own.
+  assert.equal((drawn().match(/>Stuck</g) || []).length, 2, 'the proposed 20 min: Omar\'s thread is Stuck');
   assert.equal((drawn({ stuckMin: 60 }).match(/>Stuck</g) || []).length, 0);
 });
 

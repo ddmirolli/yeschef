@@ -1508,26 +1508,12 @@ dialog.dp-sheet .dpv{--diffs-bg:var(--pop);--diffs-light-bg:var(--pop);--diffs-d
 .ok-foot .lg>span{display:inline-flex;align-items:center;gap:5px}
 .tboard .nc-l{margin:0;font-size:14px;line-height:1.45;color:var(--label2)}
 .tboard .nc-l b{font-weight:600;color:var(--label)}
-/* Your team, expanded (step 4 PR B; mock v2, approved 2026-11-10): the board in the middle, The Pass as a column of
-   cards on the right, each with its suggestion and Open. */
-.tboard,.tcol,.head-h>.tpm{display:none}
+/* Your team, expanded (step 4 PR B; mock v2, approved 2026-11-10): the board in the middle, The Pass on the right with
+   the same ticket cards as the focused view (Dan, 2026-11-13). */
+.tboard,.head-h>.tpm{display:none}
 html.s-team.v-kitchen .head-h>.muted.tpm{display:block}
 html.s-team.v-kitchen .tboard{display:flex;flex-direction:column;grid-area:you;min-width:0;min-height:0}
 @media (min-width:761px){html.s-team.v-kitchen .tboard .you-b{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 2px}}
-html.v-kitchen .tp-live .folder[data-folder=team]{display:none}
-html.v-kitchen .tp-live .tcol{display:flex;flex-direction:column;gap:8px}
-.xc{padding:11px 13px 12px;border-radius:14px;background:var(--card);box-shadow:inset 0 0 0 .5px var(--sep);cursor:pointer}
-.xc:hover{box-shadow:inset 0 0 0 .5px var(--sep),var(--sh1)}
-.xk{display:flex;align-items:baseline;gap:8px;margin:0;font-size:12px;font-weight:600}
-.xk .t-red{color:var(--red)}.xk .t-amber{color:var(--orange)}.xk .t-blue{color:var(--pass)}
-.xk .age{margin-left:auto;font-weight:500;color:var(--label2);font-variant-numeric:tabular-nums}
-.xt{margin:4px 0 0;font-size:14px;font-weight:600;line-height:1.3}
-.xw{margin:2px 0 0;font-size:12.5px;color:var(--label2)}
-.xa{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
-.xb{display:inline-flex;align-items:center;min-height:30px;padding:0 12px;border:0;border-radius:8px;background:var(--fill);font:600 13px/1.2 var(--sans);color:var(--label);cursor:pointer}
-.xb:hover{background:var(--fill2)}
-.xb.fill{background:var(--accent);color:#fff}
-.xb.fill:hover{background:#0068D1}
 /* Open kitchen's rows (flow mock round 3.3): agents as squares, code areas as cells, merged today. Red and amber are
    calls and nothing else; gray steps count agents, and dark mode turns them so more is brighter. */
 .sw{display:inline-block;width:14px;height:8px;border-radius:2px;background:var(--fill2)}
@@ -1576,7 +1562,6 @@ html.v-kitchen .tp-live .tcol{display:flex;flex-direction:column;gap:8px}
 .okk .sq.working{background:var(--fx-a1)}.okk .sq.idle{box-shadow:inset 0 0 0 1.5px var(--fx-a1)}
 .okk .sq.red{background:var(--red)}.okk .sq.amber{background:var(--orange)}.okk .sq.out{border:1.5px dashed var(--fx-a1)}
 .okk .sq.n1{background:var(--fx-a0)}.okk .sq.n2{background:var(--fx-a1)}.okk .sq.n3{background:var(--fx-a2)}
-.tcol .xc.lit{outline:1.5px solid var(--fx-hov);outline-offset:-1.5px}
 `;
 // Appearance (theme.ts): every dark and light rule also answers to the html element's data-theme.
 // The pictures in Settings → Layout and the ⌘K bar's Appearance and Density steps (theme.ts).

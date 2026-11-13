@@ -513,6 +513,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   // carry p:<plate> keys, which light that thread's card in the team Pass.
   var fxNow: string | null = null, fxKeys: string[] | null = null;
   var PART = ':is(.you, .tboard) .fx-view';
+  var PASS_CARDS = '.head-b .folder:is([data-folder="pass"], [data-folder="team"]) .call-tile[data-plate]';
   function flowFocus(keys: string[] | null): void {
     var board = $('.board'); if (!board) return;
     fxKeys = keys;
@@ -531,8 +532,8 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
       if (on && !named && !n.classList.contains('glogo')) mine.forEach(card);
     });
     if (keys) keys.forEach(card);
-    $$('.head-b .folder[data-folder="pass"] .call-tile[data-plate]').forEach(function(t){ t.classList.toggle('lit', !!keys && !!(lit['t:' + t.dataset.plate] || lit['p:' + t.dataset.plate])); });
-    $$('.tcol .xc[data-team-open]').forEach(function(t){ t.classList.toggle('lit', !!keys && !!lit['p:' + t.dataset.teamOpen]); });
+    // Your cards and, in Your team, the team's calls: one card style in both (Dan, 2026-11-13).
+    $$(PASS_CARDS).forEach(function(t){ t.classList.toggle('lit', !!keys && !!(lit['t:' + t.dataset.plate] || lit['p:' + t.dataset.plate])); });
   }
   function flowTip(n: Element | null, ev: MouseEvent): void {
     var wrap = (n && n.closest('.fx-wrap')) || $('.you .fx-wrap'), box = wrap && wrap.querySelector<HTMLElement>('.fx-tip');
@@ -556,9 +557,8 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   document.addEventListener('mouseover', function(ev){
     if (!root.classList.contains('v-kitchen')) return;
     var t = ev.target as Element, part = t.closest && t.closest<Element>(PART + ' [data-f]');
-    var card = !part && t.closest && t.closest<HTMLElement>('.head-b .folder[data-folder="pass"] .call-tile[data-plate]');
-    var team = !part && !card && t.closest && t.closest<HTMLElement>('.tcol .xc[data-team-open]');
-    flowFocus(part ? (part.getAttribute('data-f') || '').split(' ') : card ? ['t:' + card.dataset.plate, 'p:' + card.dataset.plate] : team ? ['p:' + team.dataset.teamOpen] : null);
+    var card = !part && t.closest && t.closest<HTMLElement>(PASS_CARDS);
+    flowFocus(part ? (part.getAttribute('data-f') || '').split(' ') : card ? ['t:' + card.dataset.plate, 'p:' + card.dataset.plate] : null);
     flowTip(part || null, ev);
   });
   // A keyboard reaches each project's name and, opened, each thread's band: focus lights them as hover does, and Enter

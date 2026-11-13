@@ -326,11 +326,12 @@ test('hover lights the chart and The Pass both ways; a project click picks that 
   // The project's logo holds every thread's key, p-9's too (Dan, 2026-11-12: any of its threads lights it).
   const logo = el({ k: 'g:Fernpay t:p-1 t:p-2 t:p-3 t:p-9' }); logo.cls.add('glogo');
   const one: Record<string, El> = { '.board': board };
-  // Your team's rows take part too: a square carries its call's p: key and lights that call's card in the team Pass.
-  const square = el({ k: 'a:mcp:kai-1 d:kai p:p-7' }), team = el({ k: 'pod:kai p:p-7 p:p-8' }), xc = el({ teamOpen: 'p-7' }), xc2 = el({ teamOpen: 'p-8' });
+  // Your team's rows take part too: a square carries its call's p: key and lights that call's card in the team Pass,
+  // the same ticket card as yours (Dan, 2026-11-13).
+  const square = el({ k: 'a:mcp:kai-1 d:kai p:p-7' }), team = el({ k: 'pod:kai p:p-7 p:p-8' }), xc = el({ plate: 'p-7' }), xc2 = el({ plate: 'p-8' });
   const many: Record<string, El[]> = {
     '.you .fx-view:not([hidden]) [data-k], .tboard .fx-view [data-k]': [band, other, logo, square, team],
-    '.head-b .folder[data-folder="pass"] .call-tile[data-plate]': [card, card3], '.tcol .xc[data-team-open]': [xc, xc2],
+    '.head-b .folder:is([data-folder="pass"], [data-folder="team"]) .call-tile[data-plate]': [card, card3, xc, xc2],
   };
   const ctx = vm.createContext({ window: {}, $: (s: string) => one[s] ?? null, $$: (s: string) => many[s] ?? [] });
   vm.runInContext(fns, ctx);

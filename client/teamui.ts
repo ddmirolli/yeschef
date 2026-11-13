@@ -308,10 +308,14 @@ function projectRows(projects: readonly ProjectRow[], shared: readonly string[],
   return projects.map((p, i) => `<label class="rowi">${pj(p, i)}<div class="grow">${e(p.title)}<i>${e(threads(p.threads))}</i></div><input type="checkbox" class="sw" name="${name}" value="${e(p.id)}"${on.has(p.id) ? ' checked' : ''} aria-label="Share ${e(p.title)}"></label>`).join('');
 }
 
+// What a summary carries (team-summaries.ts summarize()), said plainly before anything is shared: the first line of the
+// latest message, a question's words and the changed files' names do leave the Mac (2026-11-13: this list said they
+// did not).
 const SEES = `<div class="box2"><div class="bh">What the team sees from shared projects</div><div class="sees">
-  <div><span class="y">✓</span>Each thread's title, stage and pull requests</div>
-  <div><span class="y">✓</span>How many agents are working, and whether a thread waits on you</div>
-  <div><span class="n">✕</span>Your messages, code, diffs and file names, and every project you leave off</div></div></div>`;
+  <div><span class="y">✓</span>Each thread's title, stage and pull requests, and how many agents are working</div>
+  <div><span class="y">✓</span>The first line of its latest message, and a question it asks you</div>
+  <div><span class="y">✓</span>The names of the files it changed, to spot two people in one file</div>
+  <div><span class="n">✕</span>Your code, your diffs, and every project you leave off</div></div></div>`;
 
 function t3Row(t3: { ok: boolean }): string {
   return `<div class="box2"><div class="rowi"><span class="logo cl">${use('cloche', 31, 31)}</span><div class="grow">T3 Code on this Mac<i>${t3.ok
