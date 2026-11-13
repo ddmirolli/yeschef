@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 540 250" preserveAspectRatio="xMidYMid slice">
+  <!-- /download's Nightly sky, clouds layer (Dan, 2026-11-13). The three layers share this viewBox and slice, so
+       they line up at rest; the page moves each at its own depth with the pointer, as the home hero moves its marks. -->
+  <defs>
+    <linearGradient id="cloud" x1="0" y1="150" x2="540" y2="250" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3D8BFF" stop-opacity="0.55"/>
+      <stop offset="0.5" stop-color="#6A5AE0" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#A26BF0" stop-opacity="0.55"/>
+    </linearGradient>
+    <filter id="soft" x="-30" y="100" width="600" height="180" filterUnits="userSpaceOnUse">
+      <feGaussianBlur stdDeviation="5"/>
+    </filter>
+  </defs>
+  <g filter="url(#soft)">
+    <path d="M-20 250V214C-20 196 -6 182 12 182C18 164 34 152 54 152C74 152 90 164 96 182C102 176 112 172 122 172C142 172 158 188 158 208C170 210 180 220 182 232C190 234 196 242 198 250Z" fill="url(#cloud)"/>
+    <path d="M360 250C362 234 374 222 390 220C394 200 412 186 434 186C456 186 474 200 478 220C492 220 504 228 508 240C524 238 540 242 556 250Z" fill="url(#cloud)" opacity="0.85"/>
+  </g>
+</svg>

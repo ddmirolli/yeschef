@@ -25,6 +25,24 @@ function memoryStore() {
 }
 const API = 'https://api.github.com/repos/ddmirolli/yeschef/releases';
 
+test('the build line says how long ago, never the version, and links only to this repo\'s release', () => {
+  const now = Date.parse('2026-11-13T12:00:00Z');
+  assert.equal(R.builtAgo('2026-11-13T11:59:50Z', now), 'Built 1 minute ago');
+  assert.equal(R.builtAgo('2026-11-13T09:00:00Z', now), 'Built 3 hours ago');
+  assert.equal(R.builtAgo('2026-11-11T13:00:00Z', now), 'Built 47 hours ago');
+  assert.equal(R.builtAgo('2026-11-10T12:00:00Z', now), 'Built 3 days ago');
+  assert.equal(R.builtAgo('not a time', now), null);
+  assert.equal(R.builtAgo(undefined, now), null);
+  assert.equal(R.builtOn('2026-11-11T13:00:00Z', 'UTC'), 'Built Nov 11, 2026');
+  assert.equal(R.builtOn('2026-11-11T03:00:00Z', 'America/New_York'), 'Built Nov 10, 2026');
+  assert.equal(R.builtOn('not a time'), null);
+  assert.equal(R.builtOn(undefined), null);
+  assert.equal(R.releasePage({ html_url: 'https://github.com/ddmirolli/yeschef/releases/tag/v0.2.2' }), 'https://github.com/ddmirolli/yeschef/releases/tag/v0.2.2');
+  assert.equal(R.releasePage({ html_url: 'https://evil.example/ddmirolli/yeschef/releases/tag/v1' }), null);
+  assert.equal(R.releasePage({ html_url: 'javascript:alert(1)' }), null);
+  assert.equal(R.releasePage(null), null);
+});
+
 test('the DMG is the Apple silicon disk image, not the ZIP or the feed', () => {
   assert.equal(R.dmgOf(stable)?.name, 'Yes-Chef-0.2.0-arm64.dmg');
   assert.equal(R.dmgOf({ assets: [asset('Yes-Chef-0.2.0-arm64.zip')] }), null);

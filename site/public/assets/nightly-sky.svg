@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 540 250" preserveAspectRatio="xMidYMid slice">
+  <!-- /download's Nightly sky, back layer (Dan, 2026-11-13). The three layers share this viewBox and slice, so
+       they line up at rest; the page moves each at its own depth with the pointer, as the home hero moves its marks. -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="540" y2="250" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0A0B2A"/>
+      <stop offset="0.5" stop-color="#1C1458"/>
+      <stop offset="1" stop-color="#2E1F7A"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(440 20) rotate(155) scale(260 150)">
+      <stop stop-color="#6A5AE0" stop-opacity="0.42"/>
+      <stop offset="0.55" stop-color="#4A3AB8" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#1C1458" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="540" height="250" fill="url(#sky)"/>
+  <rect width="540" height="250" fill="url(#glow)"/>
+</svg>

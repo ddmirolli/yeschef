@@ -29,6 +29,32 @@ export function dmgOf(release: unknown): Dmg | null {
   return null;
 }
 
+/** "Built 3 hours ago": the line under /download's toggle, as on t3.codes/download, for both channels (Dan,
+ *  2026-11-13). Never the version: no version text on the site (Dan, 2026-11-10). Null when the time is unreadable. */
+/** "Built Nov 11, 2026": the Stable line, a date rather than an age (Dan, 2026-11-13). The viewer's own time zone
+ *  unless one is given (the tests). Null when the time is unreadable. */
+export function builtOn(publishedAt: unknown, timeZone?: string): string | null {
+  const at = typeof publishedAt === 'string' ? Date.parse(publishedAt) : NaN;
+  if (!Number.isFinite(at)) return null;
+  return `Built ${new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone }).format(at)}`;
+}
+
+export function builtAgo(publishedAt: unknown, now: number): string | null {
+  const at = typeof publishedAt === 'string' ? Date.parse(publishedAt) : NaN;
+  if (!Number.isFinite(at)) return null;
+  const rel = new Intl.RelativeTimeFormat('en');
+  const minutes = Math.max(1, Math.round((now - at) / 60_000));
+  if (minutes < 60) return `Built ${rel.format(-minutes, 'minute')}`;
+  const hours = Math.round(minutes / 60);
+  return `Built ${hours < 48 ? rel.format(-hours, 'hour') : rel.format(-Math.round(hours / 24), 'day')}`;
+}
+
+/** The release's own GitHub page, or null: only an https://github.com address of this repo. */
+export function releasePage(release: unknown): string | null {
+  const url = record(release) ? release.html_url : null;
+  return typeof url === 'string' && url.startsWith(`${PAGE}/`) ? url : null;
+}
+
 export function isNightly(tag: unknown): boolean {
   return typeof tag === 'string' && /-nightly\./.test(tag);
 }
