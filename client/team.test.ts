@@ -1857,7 +1857,7 @@ test('a key ask that does not reach the disk is not acked, so the relay keeps it
 });
 
 test('It’s fine goes in this Mac’s summary with when, reaches the lead, and stays in this Mac’s own view', async () => {
-  const { relay, timers, lead, dev } = await crew();
+  const { relay, net, timers, lead, dev } = await crew();
   dev.board(boardNow(relay.now()));
   await until(() => lead.summaries.get(idOf(dev))?.body.health?.ok === true, 'the healthy summary');
   const at = relay.now();
@@ -1867,7 +1867,10 @@ test('It’s fine goes in this Mac’s summary with when, reaches the lead, and 
   assert.deepEqual(dev.view().fine, { 'overlap:th-1:5': at });
   await timers.advance(10000);
   await until(() => sumMaybe(lead, idOf(dev))?.fine?.['overlap:th-1:5'] === at, 'the mark at the lead');
-  lead.stop(); dev.stop();
+  // After a restart, before the first board read, the summary that goes again keeps the mark (PR-Agent r1 on #75).
+  const again = new Team({ state: structuredClone(dev.state), net, now: () => relay.now(), timers, random: () => 1 });
+  assert.deepEqual(again.summaryBody().fine, { 'overlap:th-1:5': at });
+  again.stop(); lead.stop(); dev.stop();
 });
 
 test('a board failure reported before the roster loads still goes out once the team is up', async () => {

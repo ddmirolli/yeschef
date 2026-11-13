@@ -103,6 +103,8 @@ export const KINDS: Readonly<Record<Kind, { word: string; tone: 'red' | 'amber' 
 const TONE_RANK: Readonly<Record<string, number>> = { red: 0, blue: 1, amber: 2 };
 const STAGE_RANK: Readonly<Record<string, number>> = { Backlog: 0, Planned: 1, 'In progress': 2, 'In review': 3, 'Ready to merge': 4, Merged: 5 };
 const MIN = 60000;
+/** How long an It's fine mark lasts: a day, as Seen (team-summaries.ts SEEN_MS). */
+const FINE_MS = 24 * 3600000;
 
 /** A call's id: `kind:subject:since`. Every Mac derives the same id from the same summary, so a dev's Seen (kept by
  *  their own Yes Chef and sent in their summary) matches the lead's call. subject: the thread, or repo@branch for main. */
@@ -384,10 +386,15 @@ export function may(me: Me | null | undefined, action: string): boolean {
 
 /** The calls marked It's fine, each with who marked it and when: this Mac's own marks (view.fine), and each
  *  teammate's from their summary (`fine`: call id -> time). A mark counts only from a role that may clear (may). */
-export function finesOf(view: TeamView | null | undefined): Map<string, { by: string; at: number }> {
+export function finesOf(view: TeamView | null | undefined, now: number): Map<string, { by: string; at: number }> {
   const out = new Map<string, { by: string; at: number }>();
+  // A mark lasts a day, as this Mac keeps its own (team-summaries.ts keepSeen): a summary the relay kept from a Mac that
+  // went away stops clearing the call when the mark would have expired there (PR-Agent r1 on #75).
   const mark = (marks: unknown, by: string): void => {
-    for (const [id, at] of Object.entries(obj(marks) || {})) { const t = num(at); if (t !== null && id.length <= 300 && !out.has(id)) out.set(id, { by, at: t }); }
+    for (const [id, at] of Object.entries(obj(marks) || {})) {
+      const t = num(at);
+      if (t !== null && t <= now + MIN && now - t < FINE_MS && id.length <= 300 && !out.has(id)) out.set(id, { by, at: t });
+    }
   };
   const me = view?.me;
   if (typeof me?.id === 'string' && may(me, 'fine')) mark(view?.fine, me.id);
@@ -423,7 +430,7 @@ export function openKitchen(view: TeamView | null | undefined, { now = Date.now(
   });
   // It's fine (Dan, 2026-11-13, "A"): a call someone allowed to clear it marked fine leaves every Pass while it is the
   // same call. Its id holds when it rose, so the same trouble rising again later is a new call.
-  const fine = finesOf(view);
+  const fine = finesOf(view, now);
   const open = calls.filter((c) => !fine.has(c.id));
   const pass = sortCalls(open.filter((c) => c.reach.lead));
   const held = sortCalls(open.filter((c) => !c.reach.lead));

@@ -222,14 +222,22 @@ test('It’s fine: a mark from a role that may clear takes the call off every Pa
   const mine = view(); mine.fine = { [c.id]: ago(1) };
   assert.equal(has(mine), false);
   assert.equal(all(read(mine)).length, base.length - 1);
-  assert.deepEqual(finesOf(mine).get(c.id), { by: 'me', at: ago(1) });
+  assert.deepEqual(finesOf(mine, NOW).get(c.id), { by: 'me', at: ago(1) });
   // A teammate's mark, from their summary: an Engineer's (See only) counts for nothing; a role with Merge clears it.
   const theirs = view(); const mate: Wire = nth(theirs.people.filter((p: Wire) => p.id !== 'me'), 0);
   mate.summary.fine = { [c.id]: ago(2) };
   assert.equal(has(theirs), true);
   mate.role = 'owner'; mate.perms = ['see', 'reply', 'merge'];
   assert.equal(has(theirs), false);
-  assert.deepEqual(finesOf(theirs).get(c.id), { by: mate.id, at: ago(2) });
+  assert.deepEqual(finesOf(theirs, NOW).get(c.id), { by: mate.id, at: ago(2) });
+  // A mark lasts a day, as the clearer's own Mac keeps it: an older one (a summary kept from a Mac that went away), or
+  // one from the future, clears nothing (PR-Agent r1 on #75).
+  mate.summary.fine = { [c.id]: ago(24 * 60) };
+  assert.equal(has(theirs), true);
+  mate.summary.fine = { [c.id]: ago(24 * 60 - 1) };
+  assert.equal(has(theirs), false);
+  mate.summary.fine = { [c.id]: NOW + 5 * MIN };
+  assert.equal(has(theirs), true);
   // An Engineer's own mark on this Mac is ignored too; junk and a mark with no time read as nothing.
   const eng = view(); eng.me = { id: 'me', name: 'Dana', role: 'engineer', perms: ['see'] }; eng.fine = { [c.id]: ago(1) };
   assert.equal(has(eng), true);

@@ -213,7 +213,9 @@ export const summaries = {
     const health: Health = { ok: this.healthOk ?? null, since: this.healthSince };
     if (!this.lastBoard) {
       const held = this.heldBody;
-      return { v: 1, tickets: Array.isArray(held?.tickets) ? held!.tickets as unknown[] : [], more: Number(held?.more) || 0, health };
+      // This Mac's It's fine marks go too: else the summary after a restart would take them off every other Pass until
+      // the first board read (PR-Agent r1 on #75).
+      return { v: 1, tickets: Array.isArray(held?.tickets) ? held!.tickets as unknown[] : [], more: Number(held?.more) || 0, health, fine: keepSeen(this.state.fineCalls, this.now()) };
     }
     const readers: Readers = { ...(this.readers || {}), seen: this.state.seenCalls, fine: this.state.fineCalls, now: this.now(), over: this.state.overAt,
       // Kept on disk, so a restart keeps Too big's age; saved only when it changed.
