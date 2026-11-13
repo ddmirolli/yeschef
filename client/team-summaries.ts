@@ -11,7 +11,7 @@ import { RETRY } from './team-connection.ts';
 import { rangesOf } from './changes.ts';
 import { CLOSED, featureOf } from './linear.ts';
 import type { LinearProject } from './linear.ts';
-import { RULES } from './open-kitchen.ts';
+import { RULES, SHIP_MS } from './open-kitchen.ts';
 import { cleanReviewers, loginOf, type Reviewer } from './reviewers.ts';
 import type { Board, Ticket } from './board.ts';
 import type { ChangedFile } from './changes.ts';
@@ -51,7 +51,7 @@ export interface Readers {
   changes?: ((threadId: string) => ChangesIn | null | undefined) | undefined;
   pr?: ((pr: { host: string; repo: string; number: number }) => PrIn | null | undefined) | undefined;
   base?: ((threadId: string) => BaseIn | null | undefined) | undefined;
-  seen?: unknown; fine?: unknown; over?: unknown; keepOver?: ((over: Record<string, number>) => void) | undefined; now?: number | undefined;
+  seen?: unknown; fine?: unknown; ships?: unknown; over?: unknown; keepOver?: ((over: Record<string, number>) => void) | undefined; now?: number | undefined;
   /** This Mac's GitHub login (gh's sign-in), so a lead's Mac can match a PR's reviewers to its teammates. */
   login?: (() => unknown) | undefined;
   /** A Linear project as this Mac's agents read it (client/linear.ts), for French Brigade's features. */
@@ -197,6 +197,16 @@ export const summaries = {
   /** It's fine on a team call (Dan, 2026-11-13, "A"): its id goes in this Mac's summary's `fine`, with when, so every
    *  Pass that shows the call drops it and says who cleared it. Kept on disk for a day, as Seen is. A Mac that shares
    *  no project sends no summary, so its marks clear the call on this Mac only. */
+  /** Ship on Ready for your look (step 7 PR 2): its call id goes in this Mac's summary's `ships` for 30 days, so the
+   *  feature leaves every Pass once shipped, with who and when. */
+  markShip(callId: unknown): boolean {
+    if (typeof callId !== 'string' || !callId.startsWith('ready:') || callId.length > 300) return false;
+    this.state.shipCalls = keepShips({ ...(this.state.shipCalls || {}), [callId]: this.now() }, this.now());
+    this.save();
+    this.publish();
+    return true;
+  },
+
   markFine(callId: unknown): boolean {
     if (typeof callId !== 'string' || !callId || callId.length > 300) return false;
     this.state.fineCalls = keepSeen({ ...(this.state.fineCalls || {}), [callId]: this.now() }, this.now());
@@ -228,9 +238,10 @@ export const summaries = {
       const held = this.heldBody;
       // This Mac's It's fine marks go too: else the summary after a restart would take them off every other Pass until
       // the first board read (PR-Agent r1 on #75).
-      return { v: 1, tickets: Array.isArray(held?.tickets) ? held!.tickets as unknown[] : [], more: Number(held?.more) || 0, health, fine: keepSeen(this.state.fineCalls, this.now()) };
+      return { v: 1, tickets: Array.isArray(held?.tickets) ? held!.tickets as unknown[] : [], more: Number(held?.more) || 0, health, fine: keepSeen(this.state.fineCalls, this.now()),
+        ships: keepShips(this.state.shipCalls, this.now()) };
     }
-    const readers: Readers = { ...(this.readers || {}), seen: this.state.seenCalls, fine: this.state.fineCalls, now: this.now(), over: this.state.overAt,
+    const readers: Readers = { ...(this.readers || {}), seen: this.state.seenCalls, fine: this.state.fineCalls, ships: this.state.shipCalls, now: this.now(), over: this.state.overAt,
       // Kept on disk, so a restart keeps Too big's age; saved only when it changed.
       keepOver: (m) => { if (JSON.stringify(m) !== JSON.stringify(this.state.overAt || {})) { this.state.overAt = m; this.save(); } } };
     return { ...summarize(this.lastBoard, this.state.shared, this.limits.summaryMax, readers), at: this.lastBoardAt, health };
@@ -431,6 +442,12 @@ export function summaryBase(b: BaseIn) {
 
 /** The calls this dev opened on their own Pass in the last day, at most 100 and 8 KiB as UTF-8, the newest kept: the
  *  summary's other fields keep their room under the relay's limit (PR-Agent r2 on #27). */
+/** The Ship marks to keep: 30 days (open-kitchen.ts SHIP_MS), the newest 100. */
+export function keepShips(ships: unknown, now: number): Record<string, number> {
+  return Object.fromEntries((Object.entries(ships && typeof ships === 'object' ? ships : {}) as [string, number][])
+    .filter(([id, at]) => typeof id === 'string' && id.startsWith('ready:') && id.length <= 300 && Number.isFinite(at) && at <= now + 60000 && now - at < SHIP_MS)
+    .sort((a, b) => b[1] - a[1]).slice(0, 100));
+}
 export function keepSeen(seen: unknown, now: number): Record<string, number> {
   const list = (Object.entries(seen && typeof seen === 'object' ? seen : {}) as [string, number][])
     .filter(([id, at]) => typeof id === 'string' && id.length <= 300 && Number.isFinite(at) && at <= now + 60000 && now - at < SEEN_MS)
@@ -531,7 +548,7 @@ export function summarize(board: Pick<Board, 'tickets'> | null | undefined, shar
     features.push(out);
   }
   // gh: this Mac's GitHub login, or null when gh's sign-in was not read (not checked).
-  const top = { gh: loginOf(get(readers.login)), bases: [...bases.values()], seen: keepSeen(readers.seen, now), fine: keepSeen(readers.fine, now), features };
+  const top = { gh: loginOf(get(readers.login)), bases: [...bases.values()], seen: keepSeen(readers.seen, now), fine: keepSeen(readers.fine, now), ships: keepShips(readers.ships, now), features };
   let n = Math.min(tickets.length, SUMMARY_TICKETS);
   // A sealed summary is about 4/3 of its JSON's UTF-8 bytes plus the signature. Shed the changed files of the least
   // recent tickets first (a ticket without them reads "Not checked"), then halve the list until it fits. Sealing checks

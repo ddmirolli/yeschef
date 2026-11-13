@@ -48,7 +48,7 @@ export function grant(role: unknown, perms?: unknown): Grant {
 }
 
 /** What a teammate's action needs. Settle and New thread never come from a teammate: they stay the dev's own. */
-export const NEEDS: Readonly<Record<string, Perm>> = { reply: 'reply', go: 'merge', refire: 'merge', hold: 'merge', answer: 'merge', call: 'merge' };
+export const NEEDS: Readonly<Record<string, Perm>> = { reply: 'reply', go: 'merge', refire: 'merge', hold: 'merge', answer: 'merge', call: 'merge', ship: 'merge' };
 
 /** May this member do this action to another dev's thread? member: { role, perms }. */
 export function allows(member: Holder | null | undefined, kind: string): boolean {

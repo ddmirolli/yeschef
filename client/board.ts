@@ -328,7 +328,7 @@ const hidden = (name: string, value: unknown): string => `<input type="hidden" n
 // The form values stay "go" and "refire" (identifiers; saved drafts carry them). Only the words and keys changed
 // (Dan, 2026-11-10): Merge is M, Request changes is F ("say what to fix").
 // What the Undo toast says while the send waits (hill climb r2, Fable).
-const VERB: Record<string, string> = { fine: 'Clearing {t} for your team', go: 'Merging {t}', refire: 'Requesting changes on {t}', reply: 'Replying to {t}', hold: 'Holding {t} until 8:00 tomorrow', settle: 'Settling {t}', call: 'Sending your answer{p} for {t}', answer: 'Sending your answer{p} for {t}' };
+const VERB: Record<string, string> = { ship: 'Sending Ship for {t}', fine: 'Clearing {t} for your team', go: 'Merging {t}', refire: 'Requesting changes on {t}', reply: 'Replying to {t}', hold: 'Holding {t} until 8:00 tomorrow', settle: 'Settling {t}', call: 'Sending your answer{p} for {t}', answer: 'Sending your answer{p} for {t}' };
 // The action bar (Dan, 2026-11-10; mock v1, calls 1a, 2a and 3a), like Gmail's: one row, bottom-left and pinned to the
 // ticket's foot in every view, the same at any width. The recommended action is blue; then Changes and Reply, an icon
 // and one word each; then Hold and Settle as icons after a thin divider; then More (⋯, key "."), a floating card with
@@ -692,8 +692,10 @@ const quietBox = (c: TeamCall, name: Namer, now: number): string => c.quiet.map(
  *  that go as the message (client/team-acts.ts). Null when the call names no one to act on. */
 interface Words { title: string; preview: string; lead: string; suggest: string; body: string; panel?: { label: string; html: string; src: string };
   acts: [string, string, string][]; reply: string | null; ask?: TeamAsk; rec?: string | null;
-  target: { to: string; thread: string | null; say: string } | null }
-function callWords(c: TeamCall, { name, now, people }: { name: Namer; now: number; people: ReadonlyMap<string, Person> }): Words {
+  target: { to: string; thread: string | null; say: string } | null;
+  /** Why the call has no one to act on, when it is not "names no thread" (Ship with no lead read, 2A). */
+  why?: string }
+function callWords(c: TeamCall, { name, now, people, meId = null }: { name: Namer; now: number; people: ReadonlyMap<string, Person>; meId?: string | null }): Words {
   const { kind, facts: f } = c, who = name(c.who[0] ?? '');
   const pr = c.prs[0];
   const own = (t: { thread: string | null }) => (c.who[0] ? { to: c.who[0], thread: t.thread, say: '' } : null);
@@ -804,6 +806,46 @@ function callWords(c: TeamCall, { name, now, people }: { name: Namer; now: numbe
         reply: who, target: own(f.ticket),
       };
     }
+    case 'ready': {
+      // Ready for your look (step 7 PR 2, 1A): the feature, its whole ticket list, and Ship to the agent of the project's
+      // Linear lead (1A, 2A), a message the lead's Yes Chef puts in their thread with who pressed it. No deploy key.
+      const F = f.feature.name, L = f.list, ld = f.lead, n = f.tickets.length;
+      const lead = !ld ? NC_V : ld.name === null ? 'None in Linear' : ld.person ? (ld.person === meId ? 'You' : name(ld.person)) : `${ld.name}, not on your team`;
+      const why = !ld ? 'Not checked: no project read names the lead, so Ship has no one to go to.'
+        : ld.name === null ? `${F} has no lead in Linear, so Ship has no one to go to.`
+          : !ld.person ? `Not checked: no one on your team is named ${ld.name}, so Ship has no one to go to.`
+            : ld.person === meId ? `You lead ${F} in Linear: ship it from your own thread.`
+              : !ld.thread ? `Not checked: ${name(ld.person)} has no thread on ${F}, so Ship has no agent to go to.` : '';
+      const say = `Ship ${F}. Every ticket is done (${L.n} of ${L.n}) and your team’s ${plural(n, 'thread')} merged. Ship it to production the way this repo ships, `
+        + 'record its undo (the flag, the last good deploy, the merge commits), and reply with what you shipped.';
+      const go = !why && ld?.person && ld.thread;
+      return {
+        title: `${F} is ready for your look`,
+        preview: `Every ticket is done, and ${plural(n, 'thread')} merged.`,
+        lead: `Every ticket in ${F} is done (${L.n} of ${L.n}), and every thread on it has merged. Staging checks and the preview are not checked.`,
+        suggest: go ? 'Ship' : 'Look it over',
+        body: kvs([['Tickets', `${L.closed} of ${L.n} done, read ${hm(L.at)}`], ['Threads', `${n} merged`], ['Project lead', lead],
+          ['Staging checks', NC_V], ['Preview', NC_V], ['Roll back', NC_V]]),
+        acts: go ? [['ship', 'Ship', `Ship: ${pos(name(ld!.person!))} agent ships ${F}`]] : [],
+        reply: null,
+        target: go ? { to: ld!.person!, thread: ld!.thread, say } : null,
+        ...(why ? { why } : {}),
+      };
+    }
+    case 'blocked': {
+      // Blocked (step 7 PR 2, 3C): what the thread waits on, each still open as a read shows.
+      const B = f.blockers, first = B[0]!;
+      const feat = f.feature ? f.feature.name : f.feature === null ? 'No feature' : NC_V;
+      return {
+        title: `${pos(who)} thread is blocked by ${first.id}${B.length > 1 ? ` and ${B.length - 1} more` : ''}`,
+        preview: `${first.title || first.id} is still open.`,
+        lead: `${f.ticket.title || 'The thread'} waits on ${and(B.map((b) => b.id))}, still open${c.since != null ? ` as read at ${hm(c.since)}` : ''}.`,
+        suggest: `Reply to ${who}`,
+        body: kvs([...B.map((b) => [b.id, b.title || 'Open'] as const), ['Feature', feat]]),
+        acts: [['reply', 'Reply', `Reply to ${pos(who)} agent`], ['refire', 'Changes', `Request changes: ${pos(who)} agent gets your note`]],
+        reply: who, target: own(f.ticket),
+      };
+    }
     case 'big':
     default:
       return {
@@ -846,13 +888,14 @@ function teamDock(c: TeamCall, w: Words, me: Me | null | undefined, id: string):
   // refuses one (team-inbox.ts incoming), so the hint says Reply only (PR-Agent r3 on #73).
   const t3q = kinds[0] === 'answer' && !opts.every((o) => /^[a-i]$/.test(o.k!));
   const note = !allowed.length ? '' : noteField(kinds.includes('refire') ? 'needed for Changes and Reply' : t3q ? 'needed for Reply, not sent with an answer' : kinds.includes('reply') ? `optional with ${kinds[0] === 'reply' ? 'Hold' : allowed[0]![1]}, needed for Reply` : 'optional');
-  const only = allowed.length || fine ? '' : `<p class="dock-who">${t ? 'Your role can see this call. Acting on it needs more from your lead.' : 'Not checked: this call names no thread to act on.'}</p>`;
+  const only = allowed.length || fine ? (w.why ? `<p class="dock-who">${e(w.why)}</p>` : '') : `<p class="dock-who">${t ? 'Your role can see this call. Acting on it needs more from your lead.' : e(w.why || 'Not checked: this call names no thread to act on.')}</p>`;
   // An answer carries the question and every option as the lead read them (team-inbox.ts optionsKey), so the dev's Mac
   // answers only that same question.
   const seen = w.ask ? hidden('q', w.ask.q ?? '') + hidden('opts', JSON.stringify((Array.isArray(w.ask.options) ? w.ask.options : []).map((o) => [o.k, o.t]))) : '';
   // Hold goes to the dev's thread too, so it carries the routing fields even when no other action is allowed: a role
   // with Merge but not Reply on an Overlap has Hold and It's fine only (PR-Agent r2 on #75).
-  const fields = (t && (allowed.length || hold) ? hidden('nonce', randomUUID()) + hidden('to', t.to) + hidden('thread', t.thread) + (t.say ? hidden('say', t.say) : '') + seen : '') + (fine ? hidden('call', c.id) : '');
+  // The call's id goes with It's fine, and with Ship, whose mark keeps the feature off every Pass once shipped.
+  const fields = (t && (allowed.length || hold) ? hidden('nonce', randomUUID()) + hidden('to', t.to) + hidden('thread', t.thread) + (t.say ? hidden('say', t.say) : '') + seen : '') + (fine || kinds.includes('ship') ? hidden('call', c.id) : '');
   return `<aside class="dock dock-plain" aria-label="Your move"><form class="act team-act" method="post" action="/act" data-plate="${e(id)}">${fields}${only}${ask}${note}${allowed.length || fine ? bar([...labelled, fine].filter(Boolean), [hold], rows) : ''}</form></aside>`;
 }
 
@@ -1094,10 +1137,12 @@ function teamParts(team: TeamInput, view: TeamView, icons: ReadonlyMap<string, s
   const name = (id: string) => people.get(id)?.name || 'Someone';
   const pm = (p: string | null) => mark(p || 'Project', (p && icons.get(p)) || null);
   // A picked project narrows the team's calls too; a call with no known project shows under All projects only.
-  const calls = ok.pass.filter((c) => !want || (c.project !== null && want.has(c.project))).map((c) => ({ c, id: teamPlateId(c), w: callWords(c, { name, now, people }) }));
+  const meId = typeof me?.id === 'string' ? me.id : null;
+  const calls = ok.pass.filter((c) => !want || (c.project !== null && want.has(c.project))).map((c) => ({ c, id: teamPlateId(c), w: callWords(c, { name, now, people, meId }) }));
   // A red base with no named cause has nobody to name: the tile names its repo instead.
   type Item = { c: TeamCall; id: string; w: Words };
-  const who = (c: TeamCall) => (!c.who.length ? ((c.kind === 'main' && c.facts.repo) || 'Not checked') : c.kind === 'overlap' && c.who.length > 1 ? and(c.who.map(name)) : name(c.who[0]!));
+  const who = (c: TeamCall) => (!c.who.length ? ((c.kind === 'main' && c.facts.repo) || 'Not checked') : c.kind === 'overlap' && c.who.length > 1 ? and(c.who.map(name))
+    : c.kind === 'ready' && c.who.length > 1 ? plural(c.who.length, 'person') : name(c.who[0]!));
   const age = (c: TeamCall) => (c.since != null ? span(Math.max(0, Math.round((now - c.since) / 60000))) : '');
   // One card for a call in both views (Dan, 2026-11-13: the chart view shows The Pass's tickets in the app's own
   // style). A click opens the call in The Pass, so the chart view hands over to it as before.
@@ -1112,7 +1157,7 @@ function teamParts(team: TeamInput, view: TeamView, icons: ReadonlyMap<string, s
     const chips = c.prs.filter((p) => !prRef(p).test(w.title) && !w.body.includes(`href="${e(prHref(p))}"`));
     const inner = quietBox(c, name, now) + w.body;
     return `<article class="plate team-plate" id="${e(id)}" data-thread="${e(id)}" data-at aria-labelledby="${e(id)}-t">`
-      + `<div class="plate-bar"><span class="proj">${pm(c.project)}${e(c.project || 'Project')}</span><span class="stg"><i class="gd c-${KINDS[c.kind].tone}"></i>${e(KINDS[c.kind].word)}</span><span class="mdl">${e(who(c))}</span>${seenTag(c, name)}`
+      + `<div class="plate-bar"><span class="proj">${pm(c.project)}${e(c.project || 'Project')}</span><span class="stg"><i class="gd c-${KINDS[c.kind].tone}"></i>${e(KINDS[c.kind].word)}</span><span class="mdl">${e(who(c))}</span>${c.kind === 'ready' ? '' : seenTag(c, name)}`
       + (w.panel ? `<button type="button" class="dp-t" data-dp-toggle aria-controls="${e(id)}-dp" aria-pressed="false" title="Toggle diff panel" aria-label="Toggle diff panel">${svg('panelRight')}</button>` : '')
       + `<button type="button" class="close" data-close aria-label="Close"><kbd>esc</kbd>${svg('x')}</button></div>`
       + `<div class="plate-main"><div class="plate-scroll" tabindex="-1"><header class="plate-head"><h2 class="plate-t" id="${e(id)}-t">${linkPrs(e(w.title), c.prs)}</h2>`

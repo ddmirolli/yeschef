@@ -6,10 +6,17 @@
 //
 // Tool names as T3 records them (read 2026-11-13): Claude "mcp__linear-server__get_issue", Codex
 // "linear-server.get_issue". The server's name is the user's own, so any name with "linear" in it counts.
+//
+// French Brigade (step 7 PR 2, Dan 2026-11-13, 1A/2A/3C) reads three more things from the same calls, never from calls
+// of its own: a ticket's "blocked by" tickets (get_issue with includeRelations), a project's lead (get_project or
+// list_projects), and a project's whole ticket list (list_issues filtered by that project alone, in one page).
 import type { T3Caller } from './contracts.ts';
 
 /** The Linear tools whose results name tickets. */
-export type LinearTool = 'get_issue' | 'list_issues' | 'save_issue';
+export type LinearTool = 'get_issue' | 'list_issues' | 'save_issue' | 'get_project' | 'list_projects';
+/** A ticket that blocks another (Linear's "blocked by"), as the read gave it: its id and title. open: true when a read
+ *  shows it is not done, false when one shows it done, null when no read of it says (not checked). */
+export interface Blocker { id: string; title: string | null; open: boolean | null }
 /** A ticket as Yes Chef shows it: each field from the newest read that had it. at: when that newest read happened. */
 export interface LinearIssue {
   id: string; title: string | null; status: string | null; statusType: string | null; url: string | null;
@@ -17,20 +24,41 @@ export interface LinearIssue {
   /** The Linear project the ticket is in: French Brigade's feature (brief, "Feature": a Linear project by default).
    *  null: in no project. Left out: not read yet (a part read says nothing about it). */
   project?: string | null; projectId?: string | null;
+  /** The tickets it is blocked by. Left out: no read asked for its relations (not checked). */
+  blockedBy?: Blocker[];
   at: number; by: string;
 }
+/** A Linear project as the agents' reads showed it. lead: its lead's name, null for none, left out when no project read
+ *  said. tickets: every ticket in it, from one whole list read (listAt), left out when there was none. */
+export interface LinearProject {
+  id: string; name: string | null; lead?: string | null; leadAt?: number; tickets?: { id: string; statusType: string | null }[]; listAt?: number;
+}
+/** What one project read gave: from get_project or list_projects. */
+export interface ProjectRead { id: string; name: string | null; lead?: string | null }
 /** A feature: a Linear project, by its id and name. */
 export interface Feature { id: string; name: string }
 /** A ticket on a Yes Chef ticket: read (with its fields), or named but never read ("Not checked"). */
 export type LinearLink = ({ state: 'read' } & LinearIssue) | { state: 'not-checked'; id: string; url: string | null };
 /** One Linear call in a thread: the tool, the ticket ids it was about, the tickets it returned, and when. */
-export interface LinearCall { tool: LinearTool; about: string[]; issues: Partial<LinearIssue>[]; at: number }
+export interface LinearCall { tool: LinearTool; about: string[]; issues: Partial<LinearIssue>[]; at: number;
+  /** The projects a project read gave. */
+  projects?: ProjectRead[];
+  /** A whole project's tickets: a list_issues filtered by that project alone that came back in one page. */
+  list?: { projectId: string; ids: string[] } }
 
-const TOOL = /^(?:mcp__)?[a-z0-9_-]*linear[a-z0-9_-]*(?:__|\.|\/)(get_issue|list_issues|save_issue)$/i;
+const TOOL = /^(?:mcp__)?[a-z0-9_-]*linear[a-z0-9_-]*(?:__|\.|\/)(get_issue|list_issues|save_issue|get_project|list_projects)$/i;
+// The item text T3 keeps for a Linear call this reader looks at (the tool name sits in the item's JSON).
+const ITEM = /"toolName":\s*"[^"]*linear[^"]*(get_issue|list_issues|save_issue|get_project|list_projects)"/i;
+// A done ticket: completed, canceled or a duplicate. Anything else is still to do.
+export const CLOSED = new Set(['completed', 'canceled', 'duplicate']);
+// A list_issues that may be a whole project's list: filtered by project and nothing else. Any other filter (state,
+// assignee, a search) or a cursor gives part of it.
+const LIST_ONLY = new Set(['project', 'limit', 'orderBy', 'includeArchived', 'fields']);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // A ticket id: the team key, a dash, the number (Linear's identifier, such as ENG-12).
 const ID = /^[A-Z][A-Z0-9_]{0,9}-[0-9]{1,7}$/;
 const STATUS_TYPES = new Set(['triage', 'backlog', 'unstarted', 'started', 'completed', 'canceled', 'duplicate']);
-const MAX = { title: 300, status: 60, person: 80, issues: 5000, text: 400_000 };
+const MAX = { title: 300, status: 60, person: 80, issues: 5000, text: 400_000, projects: 500, blockers: 20, list: 250 };
 
 const str = (v: unknown, max: number): string | null => {
   if (typeof v !== 'string') return null;
@@ -67,6 +95,35 @@ export function cleanIssue(raw: unknown): Partial<LinearIssue> | null {
   const project = str(p ? p.name : r.project, MAX.title), projectId = projectIdOf(p ? p.id : r.projectId);
   if (project && projectId) { out.project = project; out.projectId = projectId; }
   else if (title && r.project == null && r.projectId == null) { out.project = ''; out.projectId = ''; }
+  // Blocked by (read 2026-11-13: get_issue with includeRelations gives relations.blockedBy, a list of { id, title }).
+  // Only a read that has the relations says anything: without them, blockedBy is left out (not checked).
+  const rel = r.relations && typeof r.relations === 'object' && !Array.isArray(r.relations) ? r.relations as Record<string, unknown> : null;
+  if (rel && Array.isArray(rel.blockedBy)) {
+    const seen = new Set<string>();
+    out.blockedBy = rel.blockedBy.flatMap((b): Blocker[] => {
+      const x = b && typeof b === 'object' ? b as Record<string, unknown> : null;
+      const bid = x ? idOf(x.id) ?? idOf(x.identifier) : null;
+      if (!bid || bid === id || seen.has(bid)) return [];
+      seen.add(bid);
+      return [{ id: bid, title: str(x!.title, MAX.title), open: null }];
+    }).slice(0, MAX.blockers);
+  }
+  return out;
+}
+
+/** A project from get_project or a list_projects item (read 2026-11-13: `uuid` is the id tickets carry as projectId;
+ *  `lead` is { id, name }, or {} for none). Its id must be a UUID: the project's other id is not what tickets carry. */
+export function cleanProject(raw: unknown): ProjectRead | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  const id = [r.uuid, r.id].find((v): v is string => typeof v === 'string' && UUID.test(v.trim()))?.trim().toLowerCase();
+  if (!id) return null;
+  const out: ProjectRead = { id, name: str(r.name, MAX.title) };
+  if ('lead' in r) {
+    const l = r.lead && typeof r.lead === 'object' && !Array.isArray(r.lead) ? r.lead as Record<string, unknown> : null;
+    if (r.lead === null || (l && !Object.keys(l).length)) out.lead = null;
+    else if (l) { const name = str(l.name, MAX.person); if (name) out.lead = name; }
+  }
   return out;
 }
 
@@ -109,15 +166,31 @@ export function linearCall(text: string, at: number): LinearCall | null {
   const tool = m[1]!.toLowerCase() as LinearTool;
   let body: unknown = null;
   try { body = JSON.parse(outputText(output)); } catch { body = null; }
-  const list = tool === 'list_issues' ? (body && typeof body === 'object' && Array.isArray((body as { issues?: unknown }).issues) ? (body as { issues: unknown[] }).issues : []) : [body];
-  const issues = list.slice(0, 250).map(cleanIssue).filter((x): x is Partial<LinearIssue> => !!x);
+  const b = body && typeof body === 'object' && !Array.isArray(body) ? body as Record<string, unknown> : null;
+  if (tool === 'get_project' || tool === 'list_projects') {
+    const raw = tool === 'get_project' ? [body] : Array.isArray(b?.projects) ? b!.projects as unknown[] : [];
+    const projects = raw.slice(0, MAX.projects).map(cleanProject).filter((x): x is ProjectRead => !!x);
+    return { tool, about: [], issues: [], at, projects };
+  }
+  const list = tool === 'list_issues' ? (Array.isArray(b?.issues) ? b!.issues as unknown[] : []) : [body];
+  const issues = list.slice(0, MAX.list).map(cleanIssue).filter((x): x is Partial<LinearIssue> => !!x);
   // What the call was about: the id it asked for, and for a single-ticket tool, the ticket it returned.
-  const asked = input && typeof input === 'object' ? idOf((input as { id?: unknown }).id) : null;
+  const inp = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {};
+  const asked = idOf(inp.id);
   const about = tool === 'list_issues' ? [] : [...new Set([asked, ...issues.map((x) => x.id!)].filter((x): x is string => !!x))];
-  return { tool, about, issues, at };
+  const out: LinearCall = { tool, about, issues, at };
+  // A whole project's list (1A, 2026-11-13): filtered by project alone, no cursor, one page (hasNextPage false), every
+  // ticket read whole and in the same project. Anything less is part of the project, and says nothing of the rest.
+  if (tool === 'list_issues' && inp.project !== undefined && Object.keys(inp).every((k) => LIST_ONLY.has(k)) && b?.hasNextPage === false
+    && issues.length && issues.length === list.length && list.length <= MAX.list) {
+    const pid = issues[0]!.projectId;
+    if (pid && issues.every((x) => x.projectId === pid)) out.list = { projectId: pid.toLowerCase(), ids: issues.map((x) => x.id!) };
+  }
+  return out;
 }
 
 interface Stored { fields: Map<keyof LinearIssue, { v: string; at: number; by: string }>; at: number; by: string }
+interface StoredProject { name: { v: string; at: number } | null; lead: { v: string | null; at: number } | null; list: { ids: string[]; at: number } | null; at: number }
 interface Followed { stamp: string; next: number }
 /** A thread as the reader follows it: its id, title, branch, and what changes when it gets new items. */
 export interface LinearThread { threadId: string; title?: string | undefined; branch?: string | null | undefined; updatedAt: string; itemCount?: number | undefined }
@@ -131,6 +204,8 @@ export interface LinearReads {
   /** The tickets for one Yes Chef ticket's threads: the ones they read or wrote first, then the ones they name. */
   forThreads(threads: LinearThread[]): LinearLink[];
   get(id: string): LinearIssue | null;
+  /** A Linear project as the reads showed it (its UUID, any case), or null when no read named it. */
+  project(id: string): LinearProject | null;
   subscribe(fn: () => void): () => boolean;
   stop(): void;
 }
@@ -139,6 +214,7 @@ export interface LinearReads {
  *  items (its stamp moves), a few at a time, never on a timer. A thread is read from where the last read stopped. */
 export function createLinearReads({ call, now = Date.now, log = () => {}, days = 7, concurrency = 2, pages = 20 }: LinearReadsOptions): LinearReads {
   const issues = new Map<string, Stored>();
+  const projects = new Map<string, StoredProject>();
   const touched = new Map<string, Set<string>>();
   const followed = new Map<string, Followed>();
   const listeners = new Set<() => void>();
@@ -149,8 +225,9 @@ export function createLinearReads({ call, now = Date.now, log = () => {}, days =
     let moved = false;
     for (const x of c.issues) {
       const s = issues.get(x.id!) ?? { fields: new Map(), at: 0, by: threadId };
-      for (const k of ['title', 'status', 'statusType', 'url', 'assignee', 'project', 'projectId'] as const) {
-        const v = x[k];
+      for (const k of ['title', 'status', 'statusType', 'url', 'assignee', 'project', 'projectId', 'blockedBy'] as const) {
+        // blockedBy is kept as JSON, [[id, title], ...]: a field holds one string.
+        const v = k === 'blockedBy' ? (x.blockedBy ? JSON.stringify(x.blockedBy.map((y) => [y.id, y.title])) : undefined) : x[k];
         if (typeof v !== 'string') continue;
         const had = s.fields.get(k);
         if (!had || had.at <= c.at) { if (had?.v !== v) moved = true; s.fields.set(k, { v, at: c.at, by: threadId }); }
@@ -158,6 +235,22 @@ export function createLinearReads({ call, now = Date.now, log = () => {}, days =
       if (c.at > s.at || (c.at === s.at && s.by !== threadId)) { s.at = c.at; s.by = threadId; moved = true; }
       issues.set(x.id!, s);
     }
+    // Projects: each field from its newest read, as a ticket's are.
+    const proj = (id: string): StoredProject => { const p = projects.get(id) ?? { name: null, lead: null, list: null, at: 0 }; projects.set(id, p); return p; };
+    for (const r of c.projects ?? []) {
+      const p = proj(r.id);
+      if (r.name && (!p.name || p.name.at <= c.at)) { if (p.name?.v !== r.name) moved = true; p.name = { v: r.name, at: c.at }; }
+      if (r.lead !== undefined && (!p.lead || p.lead.at <= c.at)) { if (p.lead?.v !== r.lead) moved = true; p.lead = { v: r.lead, at: c.at }; }
+      p.at = Math.max(p.at, c.at);
+    }
+    if (c.list) {
+      const p = proj(c.list.projectId);
+      if (!p.list || p.list.at <= c.at) { if (p.list?.ids.join() !== c.list.ids.join()) moved = true; p.list = { ids: c.list.ids, at: c.at }; }
+      const named = c.issues.find((x) => x.project)?.project;
+      if (named && (!p.name || p.name.at <= c.at)) p.name = { v: named, at: c.at };
+      p.at = Math.max(p.at, c.at);
+    }
+    if (projects.size > MAX.projects) for (const [id] of [...projects].sort((a, z) => a[1].at - z[1].at).slice(0, projects.size - MAX.projects)) projects.delete(id);
     if (c.about.length) {
       const set = touched.get(threadId) ?? new Set<string>();
       for (const id of c.about) if (!set.has(id)) { set.add(id); moved = true; }
@@ -191,7 +284,7 @@ export function createLinearReads({ call, now = Date.now, log = () => {}, days =
       const page = await call('t3_thread_read', { threadId, view: 'activity', afterPosition: at, limit: 100, maxCharsPerItem: 200 }) as ReadPage | null;
       const items = Array.isArray(page?.items) ? page!.items : [];
       for (const item of items) {
-        if (item.type !== 'dynamic_tool' || typeof item.itemId !== 'string' || !/"toolName":\s*"[^"]*linear[^"]*(get_issue|list_issues|save_issue)"/i.test(item.text || '')) continue;
+        if (item.type !== 'dynamic_tool' || typeof item.itemId !== 'string' || !ITEM.test(item.text || '')) continue;
         // Still running: the next read starts just before it, once the thread moves again.
         if (UNFINISHED.has(String(item.status))) { if (hold === null && typeof item.position === 'number') hold = Math.max(f.next, item.position - 1); continue; }
         const text = await fullText(threadId, item.itemId);
@@ -236,6 +329,24 @@ export function createLinearReads({ call, now = Date.now, log = () => {}, days =
     // The project: '' is stored for a whole ticket in none (null here); never read, it is left out (not checked).
     const p = s.fields.get('project')?.v, pid = s.fields.get('projectId')?.v;
     if (p !== undefined && pid !== undefined) { out.project = p || null; out.projectId = pid || null; }
+    // Blocked by: each blocker open or done as its own newest read says, else not checked (null).
+    const bb = s.fields.get('blockedBy')?.v;
+    if (bb !== undefined) {
+      let pairs: unknown = null;
+      try { pairs = JSON.parse(bb); } catch { pairs = null; }
+      out.blockedBy = (Array.isArray(pairs) ? pairs : []).flatMap((x): Blocker[] => {
+        if (!Array.isArray(x) || typeof x[0] !== 'string') return [];
+        const t = issues.get(x[0])?.fields.get('statusType')?.v;
+        return [{ id: x[0], title: typeof x[1] === 'string' ? x[1] : null, open: t ? !CLOSED.has(t) : null }];
+      });
+    }
+    return out;
+  };
+  const projectView = (id: string, p: StoredProject): LinearProject => {
+    const out: LinearProject = { id, name: p.name?.v ?? null };
+    if (p.lead) { out.lead = p.lead.v; out.leadAt = p.lead.at; }
+    // Each ticket's status from its own newest read: a ticket done since the list was read counts as done.
+    if (p.list) { out.tickets = p.list.ids.map((t) => ({ id: t, statusType: issues.get(t)?.fields.get('statusType')?.v ?? null })); out.listAt = p.list.at; }
     return out;
   };
 
@@ -281,6 +392,10 @@ export function createLinearReads({ call, now = Date.now, log = () => {}, days =
     get(id) {
       const s = issues.get(id);
       return s ? view(id, s) : null;
+    },
+    project(id) {
+      const key = String(id || '').toLowerCase(), p = projects.get(key);
+      return p ? projectView(key, p) : null;
     },
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
     stop() { stopped = true; queue.length = 0; queued.clear(); },

@@ -21,6 +21,10 @@ test('outgoing: each button becomes the action the relay carries, or a refusal b
   assert.equal((outgoing({ ...base, act: 'refire', note: 'x'.repeat(3990) }) as { status: number }).status, 400);
   assert.equal((outgoing({ ...base, act: 'rollback', say: 'Roll back #431.', note: 'x'.repeat(3970) }) as { status: number }).status, 400);
   assert.deepEqual(outgoing({ ...base, act: 'hold' }), { to: 'm-ada', action: { kind: 'hold', thread: 'th-1' } });
+  // Ship (step 7 PR 2): the reader's words to the lead's agent, as a Ship the dev's Mac checks for Merge.
+  assert.deepEqual(outgoing({ ...base, act: 'ship', say: 'Ship Tokens.', note: 'Today.' }), { to: 'm-ada', action: { kind: 'ship', thread: 'th-1', note: 'Ship Tokens.\n\nToday.' } });
+  assert.equal((outgoing({ ...base, act: 'ship' }) as { status: number }).status, 409);
+  assert.equal((outgoing({ ...base, act: 'ship', say: 'Ship Tokens.', note: 'x'.repeat(3990) }) as { status: number }).status, 400);
   // Refused on this Mac: nothing goes.
   assert.equal((outgoing({ ...base, act: 'reply' }) as { status: number }).status, 400);
   assert.equal((outgoing({ ...base, act: 'refire' }) as { status: number }).status, 400);
@@ -48,6 +52,9 @@ test('incoming: Reply and Hold run as they are; Request changes goes as a messag
   // Never cut: a Request changes too long for one message is refused.
   assert.equal((incoming(board, { kind: 'refire', thread: 'th-c', note: 'x'.repeat(3990) }) as { status: number }).status, 400);
   assert.equal((incoming(board, { kind: 'go', thread: 'th-c' }) as { status: number }).status, 400);
+  // Ship runs as a message with its words whole (roles.ts NEEDS.ship: Merge, checked before this).
+  assert.deepEqual(incoming(board, { kind: 'ship', thread: 'th-c', note: 'Ship Tokens.', nonce: 'n' }), { kind: 'reply', thread: 'th-c', note: 'Ship Tokens.', nonce: 'n' });
+  assert.equal((incoming(board, { kind: 'ship', thread: 'th-c' }) as { status: number }).status, 409);
 });
 
 test('incoming: an answer finds the same question and option on the dev\'s board, else it is refused', () => {

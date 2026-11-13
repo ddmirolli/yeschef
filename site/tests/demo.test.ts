@@ -98,7 +98,7 @@ test('a team call stays open across the demo ticks: its id keeps while the clock
     shot: (name) => `img/${name}-dark.png`, later: null, team: 'open' });
   const ids = (html: string) => [...html.matchAll(/class="plate team-plate" id="([^"]+)"/g)].map((m) => m[1]);
   const first = ids(demo.page());
-  assert.equal(first.length, 6);
+  assert.equal(first.length, 8, "six Open kitchen calls, Ready for your look and Blocked");
   clock += 3000;
   assert.deepEqual(ids(demo.page()), first);
   clock += 2 * 60000;

@@ -21,18 +21,18 @@ test('the demo team has the shapes a Mac really sends and the board really reads
   assert.equal(view.people.length, 15);
 });
 
-test('the demo team raises the seven calls it is written for, and its calm threads raise none', () => {
+test('the demo team raises the nine calls it is written for, and its calm threads raise none', () => {
   const ok = openKitchen(demoTeam(NOW), { now: NOW });
   assert.equal(ok.status, 'live');
   const all = [...ok.pass, ...ok.held].map((c) => `${c.kind}:${c.thread}`).sort();
-  assert.deepEqual(all, ['big:mcp:iris-1', 'failing:mcp:ben-1', 'failing:mcp:nina-1', 'main:mcp:ravi-1', 'overlap:mcp:jon-1', 'stuck:mcp:omar-1', 'waiting:mcp:lee-1']);
+  assert.deepEqual(all, ['big:mcp:iris-1', 'blocked:mcp:elena-c0', 'failing:mcp:ben-1', 'failing:mcp:nina-1', 'main:mcp:ravi-1', 'overlap:mcp:jon-1', 'ready:null', 'stuck:mcp:omar-1', 'waiting:mcp:lee-1']);
   assert.deepEqual(ok.people.filter((p) => p.reporting === false).map((p) => p.id), ['lee']);
 });
 
 test('the demo team never ages: the same calls at any time of day', () => {
   for (const at of [NOW, NOW + 7 * 3600000, Date.UTC(2027, 0, 1, 3, 30)]) {
     const ok = openKitchen(demoTeam(at), { now: at });
-    assert.equal(ok.pass.length + ok.held.length, 7, String(at));
+    assert.equal(ok.pass.length + ok.held.length, 9, String(at));
   }
 });
 

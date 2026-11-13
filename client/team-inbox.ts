@@ -247,6 +247,13 @@ export function incoming(board: Board, input: ActInput): ActInput | ActResult {
     if (message.length > MAX_ACT_NOTE) return bad(400, 'Not run: that note is too long. Shorten it and send again.');
     return { ...input, kind: 'reply', note: message };
   }
+  if (kind === 'ship') {
+    // Ship (step 7 PR 2): the words go to this dev's agent as they came, after the signature line naming who sent it.
+    const note = String(input.note ?? '').trim();
+    if (!note) return bad(409, 'Not checked: Ship came with no words to send.');
+    if (note.length > MAX_ACT_NOTE) return bad(400, 'Not run: that note is too long. Shorten it and send again.');
+    return { ...input, kind: 'reply', note };
+  }
   if (kind !== 'answer') return bad(400, 'A teammate cannot do that. Only the dev can.');
   const ticket = board.tickets.find((k) => k.thread.threadId === thread || k.asks.some((a) => a.thread.threadId === thread));
   const ask = ticket ? summaryAsk(ticket) : null;

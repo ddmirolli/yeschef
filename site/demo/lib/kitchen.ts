@@ -56,7 +56,8 @@ export const RULES: Readonly<Record<RuleKey, Rule>> = {
   tracker: {
     choices: ['none', 'linear', 'github'],
     brief: {
-      linear: 'Name the Linear issue in the pull request and in your hand-back.',
+      // The second sentence feeds Blocked (step 7 PR 2, 3C): Yes Chef reads only the agents' own Linear calls.
+      linear: 'Name the Linear issue in the pull request and in your hand-back. When you read a Linear issue, pass includeRelations, so what blocks it comes back too.',
       github: 'Name the GitHub issue in the pull request and in your hand-back.',
     },
   },

@@ -315,7 +315,7 @@ const SEES = `<div class="box2"><div class="bh">What the team sees from shared p
   <div><span class="y">✓</span>Each thread's title, stage and pull requests, and how many agents are working</div>
   <div><span class="y">✓</span>The first line of its latest message, and a question it asks you</div>
   <div><span class="y">✓</span>The names of the files it changed, to spot two people in one file</div>
-  <div><span class="y">✓</span>The Linear project of the tickets it read, to group work by feature</div>
+  <div><span class="y">✓</span>The Linear project of the tickets it read, with its lead, its ticket count and what blocks a ticket, to group work by feature and tell when it is done</div>
   <div><span class="n">✕</span>Your code, your diffs, and every project you leave off</div></div></div>`;
 
 function t3Row(t3: { ok: boolean }): string {

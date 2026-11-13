@@ -249,7 +249,7 @@ test('It’s fine: a mark from a role that may clear takes the call off every Pa
 });
 
 test('the thresholds are the brief’s defaults', () => {
-  assert.deepEqual(RULES, { escalateMin: 15, failRuns: 3, failLeadRuns: 6, stuckMin: 20, waitMin: 15, waitLeadMin: 30, bigLines: 800, bigFiles: 30, bigLeadMin: 30, quietMin: 10 });
+  assert.deepEqual(RULES, { escalateMin: 15, failRuns: 3, failLeadRuns: 6, stuckMin: 20, waitMin: 15, waitLeadMin: 30, bigLines: 800, bigFiles: 30, bigLeadMin: 30, quietMin: 10, blockLeadMin: 30 });
 });
 
 // ---- The screens ----

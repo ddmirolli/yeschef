@@ -8,7 +8,7 @@ import { buildBoard } from './board.ts';
 import { act } from './actions.ts';
 import { outgoing } from './team-acts.ts';
 import { incoming } from './team-inbox.ts';
-import { summaryChanges, summaryPr, summaryAsk, summaryBase, fewerRanges, keepSeen } from './team-summaries.ts';
+import { summaryChanges, summaryPr, summaryAsk, summaryBase, fewerRanges, keepSeen, keepShips } from './team-summaries.ts';
 import { openKitchen } from './open-kitchen.ts';
 import { sealSigned, sealTo, aad, teamKey, newMember, signRoster } from './seal.ts';
 import type { Incoming, Later, OwnBoard, Reply, Request, SeenAct, TeamNet, TeamSocket, TeamState, TeamTimers } from './team.ts';
@@ -1871,6 +1871,21 @@ test('It’s fine goes in this Mac’s summary with when, reaches the lead, and 
   const again = new Team({ state: structuredClone(dev.state), net, now: () => relay.now(), timers, random: () => 1 });
   assert.deepEqual(again.summaryBody().fine, { 'overlap:th-1:5': at });
   again.stop(); lead.stop(); dev.stop();
+});
+
+test('Ship goes in this Mac’s summary for 30 days and stays in this Mac’s own view', async () => {
+  const { relay, lead, dev } = await crew();
+  dev.board(boardNow(relay.now()));
+  await until(() => lead.summaries.get(idOf(dev))?.body.health?.ok === true, 'the healthy summary');
+  const at = relay.now();
+  assert.equal(lead.markShip('ready:p-tok:0'), true);
+  assert.equal(lead.markShip('overlap:th-1:5'), false, 'only a Ready for your look call');
+  assert.equal(lead.markShip('ready:' + 'x'.repeat(300)), false);
+  assert.deepEqual(lead.view().ships, { 'ready:p-tok:0': at });
+  assert.deepEqual(lead.summaryBody().ships, { 'ready:p-tok:0': at });
+  assert.deepEqual(keepShips(lead.state.shipCalls, at + 31 * 24 * 3600000), {}, 'gone after 30 days');
+  assert.deepEqual(keepShips({ 'ready:a:0': at, 'fine:b:0': at, 'ready:c:0': 'x' }, at), { 'ready:a:0': at });
+  lead.stop(); dev.stop();
 });
 
 test('a board failure reported before the roster loads still goes out once the team is up', async () => {
