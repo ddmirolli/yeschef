@@ -314,7 +314,7 @@ test('the team reading takes a ticket\'s feature only when it is well formed', (
   const ts = (v.people.find((p: Wire) => p.id === 'kai') as Wire).summary.tickets;
   const base = ts[0];
   const cases: [unknown, unknown][] = [[{ id: 'p-1', name: 'A' }, { id: 'p-1', name: 'A' }], [null, null], ['A', undefined], [{ id: 'p-1' }, undefined],
-    [{ id: 'x'.repeat(65), name: 'A' }, undefined], [{ id: 'p-1', name: 'n'.repeat(81) }, undefined], [{ id: ' ', name: 'A' }, undefined]];
+    [{ id: 'x'.repeat(65), name: 'A' }, undefined], [{ id: 'p-1', name: 'n'.repeat(81) }, undefined], [{ id: ' ', name: 'A' }, undefined], [{ id: 'a b', name: 'A' }, undefined], [{ id: 'a"<', name: 'A' }, undefined]];
   for (const [given, want] of cases) {
     ts[0] = { ...base, feature: given };
     const k = one(openKitchen(v, { now: NOW }).tickets, (x) => x.k.thread === base.thread, 'kai').k;

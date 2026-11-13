@@ -132,7 +132,8 @@ const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 const featureIn = (v: unknown): { feature?: { id: string; name: string } | null } => {
   if (v === null) return { feature: null };
   const f = obj(v), id = typeof f?.id === 'string' ? f.id.trim() : '', name = typeof f?.name === 'string' ? f.name.trim() : '';
-  return id && name && id.length <= 64 && name.length <= 80 ? { feature: { id, name } } : {};
+  // The id is a Linear project id, as client/linear.ts reads it: it keys the chart's hover sets, which split on spaces.
+  return /^[A-Za-z0-9-]{1,64}$/.test(id) && name && name.length <= 80 ? { feature: { id, name } } : {};
 };
 // A commit from a teammate's summary: a hex sha (it reaches the page as text), and a title cut to one line.
 const hex = (v: unknown): string | null => (typeof v === 'string' && /^[0-9a-f]{7,64}$/i.test(v) ? v.toLowerCase() : null);
