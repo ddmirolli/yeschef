@@ -1,7 +1,7 @@
 // Open kitchen, the Your team view (step 4). Run: vp test run open-kitchen.test.ts, in client/
 import { test } from 'vite-plus/test';
 import assert from 'node:assert/strict';
-import { openKitchen, kitchenBoard, areaOf, callId, below, reporting, reach, sortCalls, may, RULES } from './open-kitchen.ts';
+import { openKitchen, kitchenBoard, areaOf, callId, below, reporting, reach, sortCalls, may, finesOf, RULES } from './open-kitchen.ts';
 import type { Kind, OpenKitchen, TeamCall, TeamView } from './open-kitchen.ts';
 import { fixtureView } from './open-kitchen.fixture.ts';
 import { renderApp } from './board.ts';
@@ -210,6 +210,34 @@ test('roles: an Engineer sees only; Reply needs reply, the rest needs merge; a l
   assert.ok(['reply', 'refire', 'rollback', 'answer'].every((a) => may({ role: 'lead', perms: [] }, a)));
   assert.equal(may(eng, 'launch'), false, 'an action Your team does not know is refused');
   assert.equal(may(null, 'settle'), false);
+  // It's fine clears the call from every Pass, so it needs Merge.
+  assert.deepEqual([may(eng, 'fine'), may(dep, 'fine'), may({ role: 'owner', perms: ['see', 'merge'] }, 'fine'), may({ role: 'lead', perms: [] }, 'fine')], [false, false, true, true]);
+});
+
+test('It’s fine: a mark from a role that may clear takes the call off every Pass, with who and when; any other mark is ignored', () => {
+  const base = all(read(view()));
+  const c = nth(base, 0);
+  const has = (v: Wire) => all(read(v)).some((x) => x.id === c.id);
+  // This Mac's own mark (the lead's): gone from the Pass and from the held calls, the rest stay.
+  const mine = view(); mine.fine = { [c.id]: ago(1) };
+  assert.equal(has(mine), false);
+  assert.equal(all(read(mine)).length, base.length - 1);
+  assert.deepEqual(finesOf(mine).get(c.id), { by: 'me', at: ago(1) });
+  // A teammate's mark, from their summary: an Engineer's (See only) counts for nothing; a role with Merge clears it.
+  const theirs = view(); const mate: Wire = nth(theirs.people.filter((p: Wire) => p.id !== 'me'), 0);
+  mate.summary.fine = { [c.id]: ago(2) };
+  assert.equal(has(theirs), true);
+  mate.role = 'owner'; mate.perms = ['see', 'reply', 'merge'];
+  assert.equal(has(theirs), false);
+  assert.deepEqual(finesOf(theirs).get(c.id), { by: mate.id, at: ago(2) });
+  // An Engineer's own mark on this Mac is ignored too; junk and a mark with no time read as nothing.
+  const eng = view(); eng.me = { id: 'me', name: 'Dana', role: 'engineer', perms: ['see'] }; eng.fine = { [c.id]: ago(1) };
+  assert.equal(has(eng), true);
+  const junk = view(); junk.fine = 'x'; (nth(junk.people.filter((p: Wire) => p.id !== 'me'), 0) as Wire).summary.fine = { [c.id]: 'soon' };
+  assert.equal(all(read(junk)).length, base.length);
+  // Another call with the same kind and subject that rose later is a new call: a mark on the old id leaves it.
+  const later = view(); later.fine = { [`${c.id}0`]: ago(1) };
+  assert.equal(has(later), true);
 });
 
 test('the thresholds are the brief’s defaults', () => {
@@ -331,6 +359,9 @@ test('team actions show by role and name whose thread they go to; a see-only Eng
     assert.match(f, /name="to" value="[^"]+"/);
     assert.match(f, /name="thread" value="[^"]+"/);
     assert.doesNotMatch(f, /value="settle"/);
+    // It's fine names the call it clears (Dan, 2026-11-13, "A").
+    assert.match(f, /value="fine" class="ab"[^>]*data-what="It’s fine"/);
+    assert.match(f, /name="call" value="[^"]+"/);
   }
   // Roll back and Rebase carry the words the dev's agent gets.
   assert.match(lead, /name="say" value="Roll back #431: revert it\. main has been red since it merged\."/);
@@ -341,8 +372,8 @@ test('team actions show by role and name whose thread they go to; a see-only Eng
   const forms = eng.match(/<form class="act team-act"[^]*?<\/form>/g) ?? [];
   assert.equal(forms.length, 6);
   for (const f of forms) {
-    assert.doesNotMatch(f, /value="(rollback|rebase|reply|refire|answer|hold|settle)"/);
-    assert.doesNotMatch(f, /name="(nonce|to|thread)"/);
+    assert.doesNotMatch(f, /value="(rollback|rebase|reply|refire|answer|hold|settle|fine)"/);
+    assert.doesNotMatch(f, /name="(nonce|to|thread|call)"/);
     assert.match(f, /Your role can see this call\./);
     assert.doesNotMatch(f, /<textarea/);
     assert.doesNotMatch(f, /<fieldset/);
@@ -350,7 +381,7 @@ test('team actions show by role and name whose thread they go to; a see-only Eng
   // A Deputy (reply, no merge) gets Reply and Rebase, not Roll back or Hold.
   v.me = { id: 'me', name: 'Dana', role: 'deputy', perms: ['see', 'reply', 'projects', 'invite'] };
   const dep = page({ view: v, now: NOW });
-  assert.doesNotMatch(dep, /value="(rollback|hold|refire|answer)"/);
+  assert.doesNotMatch(dep, /value="(rollback|hold|refire|answer|fine)"/);
   assert.match(dep, /value="rebase" class="ab fill primary"/);
   assert.match(dep, /value="reply" class="ab"/);
 });

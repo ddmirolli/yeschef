@@ -16,7 +16,7 @@ import { connection, RETRY, PING_MS, PONG_MS } from './team-connection.ts';
 import { roster, KEY_ASK_MS, chartUnder, readUnderForTest } from './team-roster.ts';
 import { inbox, BOARD_FRESH_MS } from './team-inbox.ts';
 import type { Outgoing } from './team-inbox.ts';
-import { summaries, summarize, identity, notCheckedSince } from './team-summaries.ts';
+import { summaries, summarize, identity, notCheckedSince, keepSeen } from './team-summaries.ts';
 import type { Next, PersonView, Readers, Received } from './team-summaries.ts';
 import type { ActInput, ActResult, Answered } from './actions.ts';
 import type { Board } from './board.ts';
@@ -40,7 +40,7 @@ export interface TeamState {
   /** A roster this lead signed and the relay has not confirmed: it goes again, never a new one at its version. */
   unsent?: SignedRoster;
   welcomes?: string[]; keyAskAt?: number; seenFloor?: number; clockHigh?: unknown;
-  seenCalls?: Record<string, number>; overAt?: Record<string, number>; summaryRev?: number; dropped?: number;
+  seenCalls?: Record<string, number>; fineCalls?: Record<string, number>; overAt?: Record<string, number>; summaryRev?: number; dropped?: number;
 }
 /** A member as the roster and its sealed detail give them. `under`: who they report to, or null (not checked). */
 export interface Person { id: string; sign: string; dh: string; invite: boolean; name: string; role: Role; perms: Perm[]; area: string | null; under: string | null }
@@ -113,6 +113,8 @@ export type View = {
   lead: boolean; leadName: string; code: string | null; asked: string[]; areas: Area[]; people: ViewPerson[];
   /** The team's Rules from the roster the lead signed (client/team-rules.ts). */
   rules: TeamRules;
+  /** The calls this Mac marked It's fine in the last day: call id -> time (client/open-kitchen.ts finesOf). */
+  fine?: Record<string, number>;
   pending: Pick<Asking, 'm' | 'at' | 'code' | 'name' | 'projects'>[]; invites: Pick<HeldInvite, 'id' | 'until' | 'by'>[];
 };
 
@@ -323,6 +325,8 @@ export class Team {
       code: this.state.status === 'pending' ? this.state.code || null : null, asked: this.state.projects || [],
       areas: this.areas.map((a) => ({ ...a, projects: [...a.projects] })),
       rules: { ...this.rules },
+      // The calls this Mac marked It's fine in the last day (client/open-kitchen.ts finesOf).
+      fine: keepSeen(this.state.fineCalls, this.now()),
       people: [...this.people.values()].map((p) => ({ id: p.id, name: p.name, role: p.role, perms: p.perms, area: p.area, under: p.under, ...this.personView(p) })),
       pending: [...this.pending.values()].map(({ m, at, code, name, projects }) => ({ m, at, code, name, projects })),
       invites: [...this.invites.values()].map(({ id, until, by }) => ({ id, until, by })),

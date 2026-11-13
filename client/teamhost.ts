@@ -8,6 +8,7 @@ import type { Readers } from './team-summaries.ts';
 import type { Board } from './board.ts';
 import { b64u, readInvite, sha256 } from './seal.ts';
 import { outgoing } from './team-acts.ts';
+import { may } from './open-kitchen.ts';
 import { teamPage, teamBody, DEFAULT_RELAY, SITE } from './teamui.ts';
 import type { PageOptions } from './teamui.ts';
 
@@ -146,6 +147,16 @@ export function teamHost({ store, run, boardOf, projectsOf = () => [], t3Ok = ()
       const r = await team.act(out.to, out.action, b64u(await sha256(`team-act:${nonce}`)).slice(0, 22));
       const sent = r.status === 200 && ['reply', 'refire', 'rebase', 'rollback'].includes(String(input.act));
       return { status: r.status, text: sent ? `Sent to ${team.people.get(out.to)?.name || 'the dev'}’s agent.` : String(r.text || 'No answer.').slice(0, 300) };
+    }
+    if (op === 'fine') {
+      // It's fine (Dan, 2026-11-13, "A"): the call leaves every Pass that shows it, recorded with who and when in this
+      // Mac's summary (team-summaries.ts markFine). It tells no agent anything, so a note would be lost: refused.
+      const me = team.view().me;
+      if (!may({ ...me, id: me.id ?? null }, 'fine')) return no('Not cleared: your role can see this call. Clearing it needs more from your lead.', 403);
+      if (String(input.note ?? '').trim()) return no('It’s fine sends the agent nothing, so your note would be lost. Send it with Reply first, or clear it.');
+      if (!team.markFine(String(input.call || ''))) return no('Not checked: this card names no call to clear.', 409);
+      changed();
+      return ok('Cleared for your team.');
     }
     if (op === 'leave') {
       // Forgotten only once the saved team is gone from disk: else a restart would bring the ask back (PR-Agent r2 on #8).

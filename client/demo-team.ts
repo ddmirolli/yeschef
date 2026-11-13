@@ -28,7 +28,7 @@ export type DemoTicket = { thread: string; title: string; project: string; place
 export type DemoBase = { repo: string | null; branch: string | null; sha: string | null; title: string | null; committedAt: number | null; result: string | null;
   requiredResult: string | null; redSha: string | null; redSince: number | null; failing: string[]; at: number | null };
 /** One teammate's summary: summarize()'s result, with when it was made and the Mac's health. */
-export type DemoSummary = { v: number; tickets: DemoTicket[]; more: number; gh: string | null; bases: DemoBase[]; seen: Record<string, number>;
+export type DemoSummary = { v: number; tickets: DemoTicket[]; more: number; gh: string | null; bases: DemoBase[]; seen: Record<string, number>; fine: Record<string, number>;
   at: number; health: { ok: boolean | null; since: number | null } };
 type Role = 'lead' | 'deputy' | 'owner' | 'engineer' | 'viewer';
 type Perm = 'see' | 'reply' | 'projects' | 'merge' | 'invite' | 'rules';
@@ -159,7 +159,7 @@ export function demoTeam(now: number): DemoTeam {
     const tickets = [...(story[id] ?? []), ...calm(id)];
     return { id, name, role: OWNS[id] ? 'owner' : 'engineer', perms: ['see'], area: OWNS[id] ?? null, under: under[id] ?? null,
       online: !away, at: away ? ago(122) : ago(1), live: !away, notCheckedSince: away ? ago(112) : null,
-      summary: { v: 1, tickets, more: 0, gh: login(id), bases: id === 'ravi' ? [ravisBase] : [], seen: seen[id] ?? {}, at: away ? ago(122) : ago(1), health: { ok: true, since: ago(600) } } };
+      summary: { v: 1, tickets, more: 0, gh: login(id), bases: id === 'ravi' ? [ravisBase] : [], seen: seen[id] ?? {}, fine: {}, at: away ? ago(122) : ago(1), health: { ok: true, since: ago(600) } } };
   });
   const me = { id: 'me', name: 'Dana', role: 'lead' as const, perms: ['see', 'reply', 'projects', 'merge', 'invite', 'rules'] as Perm[], area: null, under: null };
   return {
