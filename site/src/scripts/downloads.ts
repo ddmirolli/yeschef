@@ -29,7 +29,8 @@ export function initializeDownloads(): void {
     label.textContent = '';
     card.href = PAGE;
     card.removeAttribute('aria-disabled');
-    if (built) { built.textContent = '\u00a0'; built.href = PAGE; }
+    // No link until there is a build time to show: a blank link would still take focus (PR-Agent r1 on #72).
+    if (built) { built.textContent = '\u00a0'; built.removeAttribute('href'); }
     void ask(channel).then((result) => {
       if (page.getAttribute('data-channel') !== channel) return;
       if (result.state === 'ok') {

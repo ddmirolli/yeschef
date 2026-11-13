@@ -680,8 +680,8 @@ kbd { display: inline-grid; place-items: center; min-width: 24px; height: 24px; 
 .dl-built a { color: var(--fg-muted); text-decoration: none; transition: color .3s ease; }
 .dl-built a:hover { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
 .dl-page[data-channel="nightly"] .dl-built a { color: #c4bcff; }
-.dl-notes, .dl-notes a { transition: color .45s ease; }
-.dl-page[data-channel="nightly"] .dl-notes { color: rgba(255, 255, 255, .62); }
+.dl-notes, .dl-notes a, .dl-version { transition: color .45s ease; }
+.dl-page[data-channel="nightly"] .dl-notes, .dl-page[data-channel="nightly"] .dl-version { color: rgba(255, 255, 255, .62); }
 .dl-page[data-channel="nightly"] .dl-notes a { color: #fff; text-decoration-color: rgba(255, 255, 255, .35); }
 .brand span, .nav .nav-link { transition: color .45s ease; }
 html:has(.dl-page[data-channel="nightly"]) .nav { background: color-mix(in srgb, #0A0B2A 55%, transparent); border-bottom-color: rgba(255, 255, 255, .08); }
