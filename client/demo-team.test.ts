@@ -68,7 +68,7 @@ test('the demo’s readers tell a real story: Nina’s fixes are commits, and Ir
   // The reader keeps one row; the 41 files are in the side panel, in git's order, the lockfile faded (Dan, 2026-11-12).
   const iris = plate('#440</a> changes');
   assert.match(iris, /<button type="button" class="dp-t" data-dp-toggle aria-controls="p-[0-9a-f]{12}-dp"/);
-  assert.match(iris, /<section class="dp" id="p-[0-9a-f]{12}-dp" aria-label="Changes in #440">[^]*<span class="dst" role="group" aria-label="1079 additions, 161 deletions">/);
+  assert.match(iris, /<section class="dp" id="p-[0-9a-f]{12}-dp" aria-label="Changes in #440" data-diff="\/diff\?repo=fernpay%2Ffernpay&amp;n=440">[^]*<span class="dst" role="group" aria-label="1079 additions, 161 deletions">/);
   const rows = [...iris.matchAll(/<div class="dpr( x)?" title="([^"]+)">/g)];
   assert.equal(rows.filter((m) => !m[1]).length, 41);
   assert.deepEqual(rows.map((m) => m[2]), [...rows.map((m) => m[2])].sort());

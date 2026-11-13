@@ -612,7 +612,7 @@ const dstat = (a: number, d: number, row = false): string => {
  *  base and its counts, then a row per file, path first, removed then added lines. A summary carries no code, so a row
  *  has no diff to open; the header links the full diff on GitHub. Lockfiles and generated files show faded, as the
  *  call's size leaves them out. The toggle is the reader's (plateOf). */
-function diffPanel(size: { added: number; removed: number }, changes: TeamChanges | null, pr: TeamPr): { label: string; html: string } {
+function diffPanel(size: { added: number; removed: number }, changes: TeamChanges | null, pr: TeamPr): { label: string; html: string; src: string } {
   const href = e(`${prHref(pr)}/files`);
   const stat = okCount(size.added) && okCount(size.removed) ? dstat(size.added, size.removed) : '';
   // By path, as git lists a diff's files.
@@ -628,7 +628,8 @@ function diffPanel(size: { added: number; removed: number }, changes: TeamChange
   const html = `<header class="dp-h"><b>Changes</b>${pr.base ? `<span class="vs">vs</span><span class="base" title="${e(pr.base)}">${e(pr.base)}</span>` : ''}${stat}<i class="dp-sp"></i>`
     + `<a class="dp-i" href="${href}" target="_blank" rel="noopener" title="Open the full diff on GitHub" aria-label="Open the full diff on GitHub">${svg('out')}</a></header>`
     + `<div class="dp-l" tabindex="0">${list}</div>`;
-  return { label: `Changes in #${Number(pr.n)}`, html };
+  // The page reads the code from T3 Code when the panel opens (client/diffs.ts); until then, and without it, the list.
+  return { label: `Changes in #${Number(pr.n)}`, html, src: `/diff?repo=${encodeURIComponent(String(pr.repo))}&n=${Number(pr.n)}` };
 }
 /** Failing: the red runs in a row, newest first, each with the commit it ran on, as T3 Code's checks list draws a
  *  failed check. A run whose result is not failing is left out; a commit a summary does not name is Not checked. */
@@ -656,7 +657,7 @@ const quietBox = (c: TeamCall, name: Namer, now: number): string => c.quiet.map(
 /** The words and parts of each call: tile title and preview, the reader's lead, Suggested, its body and its actions.
  *  acts: [kind, word, tooltip], the first one blue. */
 /** A call's words and parts. acts: [kind, word, tooltip]; ask and rec only for a question. */
-interface Words { title: string; preview: string; lead: string; suggest: string; body: string; panel?: { label: string; html: string };
+interface Words { title: string; preview: string; lead: string; suggest: string; body: string; panel?: { label: string; html: string; src: string };
   acts: [string, string, string][]; reply: string | null; ask?: TeamAsk; rec?: string | null }
 function callWords(c: TeamCall, { name, now, people }: { name: Namer; now: number; people: ReadonlyMap<string, Person> }): Words {
   const { kind, facts: f } = c, who = name(c.who[0] ?? '');
@@ -1052,7 +1053,7 @@ function teamParts(team: TeamInput, view: TeamView, icons: ReadonlyMap<string, s
       + `<p class="lead"><span class="lead-q">${e(w.lead)}</span></p>${chips.length ? `<div class="pr-row">${chips.map(teamPrChip).join('')}</div>` : ''}</header>`
       + `${inner ? `<section class="msg tv">${inner}</section>` : ''}</div>`
       + teamDock(c, w, me, id) + '</div>'
-      + (w.panel ? `<section class="dp" id="${e(id)}-dp" aria-label="${e(w.panel.label)}"><div class="dp-rz" role="separator" aria-orientation="vertical" aria-label="Resize the diff panel"></div>${w.panel.html}</section>` : '')
+      + (w.panel ? `<section class="dp" id="${e(id)}-dp" aria-label="${e(w.panel.label)}" data-diff="${e(w.panel.src)}"><div class="dp-rz" role="separator" aria-orientation="vertical" aria-label="Resize the diff panel"></div>${w.panel.html}</section>` : '')
       + '</article>';
   };
 

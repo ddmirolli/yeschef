@@ -6,7 +6,9 @@
 // client/server.ts in a temp folder with a stand-in for client/t3mcp.ts that answers from the typed demo kitchen. It never signs in
 // to T3 Code. It saves site/demo/app.html as an input to Astro; src/pages/demo/app.astro supplies the
 // typed bootstrap. The generated snapshot is not a standalone page. It also saves site/demo/team.html, the same page with
-// the made-up team below the visitor (client/demo-team.ts), drawn by the browser kitchen: the server has no team.
+// the made-up team below the visitor (client/demo-team.ts), drawn by the browser kitchen: the server has no team. Last, it
+// draws the team's Too big PR (client/demo-diff.ts) through the app's diff pipe (client/diffs.ts) into public/demo/diff/,
+// where the shim answers the page's /diff asks.
 import { spawn } from 'node:child_process';
 import { copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -146,6 +148,35 @@ export function createLive({ onChange }) {
   for (const want of ['<title>Yes Chef for teams demo</title>', 'id="yc-team"', '"mode":"open"']) if (!team.includes(want)) throw new Error(`team.html is missing ${want}`);
   writeFileSync(join(DEMO, 'team.html'), team);
   console.log(`site/demo/team.html: ${team.length} bytes`);
+
+  // 6. Too big's code (Dan, 2026-11-13: "pipe it in from t3"). The app's pipe reads a stand-in T3 Code that answers
+  // /api/pull-requests/diff with the made-up patch, and its own route answers each ask. The files are those answers,
+  // byte for byte: the PR's file list (<repo>-<n>.json), then each file's code by its place in the list (<repo>-<n>/<i>.json).
+  const { demoDiff } = await import('../../client/demo-diff.ts');
+  const { createDiffs, diffRoute } = await import('../../client/diffs.ts');
+  const dd = demoDiff();
+  const ask = `/diff?repo=${encodeURIComponent(dd.pr.repo)}&n=${dd.pr.n}`;
+  if (!team.includes(`data-diff="${ask.replaceAll('&', '&amp;')}"`)) throw new Error(`team.html has no diff panel asking ${ask}`);
+  const fromT3 = async (): Promise<Response> => Response.json({ patch: dd.patch, truncated: true, nextCursor: null, omittedFileStats: dd.withheld });
+  const diffs = createDiffs({ origin: 'http://t3.invalid', keys: { get: async () => 'demo', drop: () => {} }, project: () => 'demo', fetchImpl: fromT3 });
+  const answer = async (url: string): Promise<string> => {
+    const r = await diffRoute(new URL(url, 'http://demo.invalid'), { diffs, shown: () => [dd.pr] });
+    if (r?.status !== 200) throw new Error(`the diff route answered ${r?.status} for ${url}: ${r?.body.slice(0, 200)}`);
+    return r.body;
+  };
+  const out = join(STATIC, 'diff'), name = `${dd.pr.repo.replace('/', '-')}-${dd.pr.n}`;
+  rmSync(out, { recursive: true, force: true });
+  mkdirSync(join(out, name), { recursive: true });
+  const list = await answer(ask);
+  const { files } = JSON.parse(list) as { files: { path: string }[] };
+  writeFileSync(join(out, `${name}.json`), list);
+  let size = list.length;
+  for (const [i, f] of files.entries()) {
+    const code = await answer(`${ask}&f=${encodeURIComponent(f.path)}`);
+    writeFileSync(join(out, name, `${i}.json`), code);
+    size += code.length;
+  }
+  console.log(`site/public/demo/diff/${name}: ${files.length} files, ${size} bytes`);
 } finally {
   server?.kill();
   rmSync(tmp, { recursive: true, force: true });

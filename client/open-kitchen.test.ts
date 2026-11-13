@@ -248,7 +248,7 @@ test('Your team draws The Pass’s calls, the rail card, the quiet line and a re
 const plateWith = (html: string, word: string): string => nth(html.split('<article class="plate team-plate"').slice(1).filter((p) => p.includes(`</i>${word}</span>`)));
 const readerOf = (html: string, word: string): string => grab(plateWith(html, word), /<section class="msg tv">([^]*?)<\/section><\/div><aside class="dock/, 1);
 /** Too big's diff panel, the plate's last part, after its resize edge. */
-const panelOf = (html: string, word: string): string => grab(plateWith(html, word), /<section class="dp" id="p-[0-9a-f]{12}-dp" aria-label="Changes in #440"><div class="dp-rz" role="separator" aria-orientation="vertical" aria-label="Resize the diff panel"><\/div>([^]*?)<\/section><\/article>$/, 1);
+const panelOf = (html: string, word: string): string => grab(plateWith(html, word), /<section class="dp" id="p-[0-9a-f]{12}-dp" aria-label="Changes in #440" data-diff="\/diff\?repo=acme%2Ffernpay&amp;n=440"><div class="dp-rz" role="separator" aria-orientation="vertical" aria-label="Resize the diff panel"><\/div>([^]*?)<\/section><\/article>$/, 1);
 
 test('the readers (Dan, 2026-11-12, 1A 2A 3A): fixes tried, the last message, no Waiting table, T3 Code’s diff panel', () => {
   const html = page({ view: viewL(), now: NOWL });

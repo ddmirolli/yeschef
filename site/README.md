@@ -50,7 +50,7 @@ Every home Download button starts at `/download`. The typed release lookup asks 
 
 ## Refresh the demos
 
-`npm run demo:generate --prefix site -- PORT` refreshes both app snapshots after an application UI change. Pick an unused port, or omit it to use 8690. The generator runs a temporary copy of `client/` against the made-up kitchen and checks its rendered board against the browser kitchen. It never signs in to T3 Code. It copies the app modules to `demo/lib/` and demo pictures to `public/demo/`. Rebuild the site after generating.
+`npm run demo:generate --prefix site -- PORT` refreshes both app snapshots after an application UI change. Pick an unused port, or omit it to use 8690. The generator runs a temporary copy of `client/` against the made-up kitchen and checks its rendered board against the browser kitchen. It never signs in to T3 Code. It copies the app modules to `demo/lib/` and demo pictures to `public/demo/`. It also draws the team demo's Too big PR (`client/demo-diff.ts`) through the app's diff pipe (`client/diffs.ts`) into `public/demo/diff/`, where `src/demo/shim.ts` answers the page's `/diff` asks. Rebuild the site after generating.
 
 Keep changes to the app's generated snapshot separate from a site-only migration. When the application refactor changes the generator's inputs, update `scripts/generate-demo.ts`, then run the generator and browser checks. The app's own source stays in `client/` and `desktop/`.
 

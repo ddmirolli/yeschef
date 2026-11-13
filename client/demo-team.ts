@@ -168,7 +168,7 @@ const NINA = [['Store drafts in IndexedDB', '5e2f9a1'], ['Read drafts from the l
 const BEN = [['Verify refund webhook signatures', '4f1a8e2'], ['Reject unsigned refund webhooks', 'b72c05d'], ['Read the signing secret per merchant', '6e93d1a'],
   ['Use the raw body for the signature check', 'c18f47b'], ['Compare signatures in constant time', '0a5d2e9']] as const;
 /** Iris's CSV export: all 41 files her PR counts (+1,079 -161), as [path, added, removed]. The lockfile is apart. */
-const IRIS: readonly (readonly [string, number, number])[] = [
+export const IRIS: readonly (readonly [string, number, number])[] = [
   ...([['columns', 62, 8], ['currency', 34, 6], ['dates', 22, 4], ['escape', 28, 4], ['format', 96, 30], ['headers', 18, 2], ['index', 8, 2], ['locale', 16, 3],
     ['rows', 120, 18], ['stream', 40, 6], ['totals', 20, 3], ['writer', 26, 4]] as const).map(([f, a, d]) => [`packages/statements/src/csv/${f}.ts`, a, d] as const),
   ...([['columns', 34], ['currency', 22], ['dates', 18], ['empty', 10], ['escape', 30], ['format', 42], ['headers', 12], ['large', 40], ['locale', 16], ['rows', 48],

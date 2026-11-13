@@ -41,6 +41,9 @@ import { keysCore } from './keys.ts';
 import { passScript } from './page.ts';
 import { appendFileSync } from 'node:fs';
 import { teamHost } from './teamhost.ts';
+import { createDiffs, diffRoute } from './diffs.ts';
+import type { PrRef } from './diffs.ts';
+import { openKitchen } from './open-kitchen.ts';
 
 /** A message from the desktop app over the pipe (desktop/main.ts). Each handler checks the fields it reads. */
 interface AppMessage { type?: unknown; id?: unknown; body?: unknown; path?: unknown; state?: unknown; error?: unknown; auth?: unknown }
@@ -1402,9 +1405,18 @@ html.s-team .bar .stats{display:none}
 .dp{display:none}
 .team-plate.dp-on{display:grid;grid-template:auto minmax(0,1fr)/minmax(0,1fr) auto}
 .team-plate.dp-on>.plate-bar{grid-column:1/-1}
-.team-plate.dp-on>.plate-main{grid-area:2/1;min-width:0}
+/* The reader's column is the action bar's container while the panel is open, so the bar fits the column, not the plate. */
+.team-plate.dp-on>.plate-main{grid-area:2/1;min-width:0;container-type:inline-size}
 .team-plate.dp-on>.dp{position:relative;grid-area:2/2;display:flex;flex-direction:column;min-height:0;width:min(var(--dpw,540px),max(360px,min(70vw,100cqw - 360px)));border-left:.5px solid var(--sep)}
-@container (max-width:719px){.team-plate.dp-on>.plate-main{display:none}.team-plate.dp-on>.dp{grid-column:1/-1;width:auto;border-left:0}.dp-rz{display:none}}
+/* At 980 px or less, T3 Code's right panel is its sheet (rightPanelLayout.ts, RightPanelSheet.tsx, ui/sheet.tsx): modal
+   at the window's right edge, over the page at 60% and blurred, 42% of the window wide up to 28rem and at least 20rem.
+   (T3's narrower sheet from 760 px down never shows here: at that width the page is the phone screen.) No resize edge,
+   and no slide: T3's panel animations are off by default. */
+dialog.dp-sheet{position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;margin:0;padding:0;border:0;background:transparent;color:inherit;display:flex;justify-content:flex-end;overflow:hidden}
+dialog.dp-sheet:not([open]){display:none}
+dialog.dp-sheet::backdrop{background:color-mix(in srgb,var(--bg) 60%,transparent);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
+dialog.dp-sheet>.dp{display:flex;flex-direction:column;min-height:0;height:100%;width:min(42vw,28rem);min-width:20rem;max-width:28rem;background:var(--pop);border-left:.5px solid var(--sep);box-shadow:0 10px 15px -3px rgba(0,0,0,.05),0 4px 6px -4px rgba(0,0,0,.05)}
+dialog.dp-sheet .dp-rz{display:none}
 .dp-rz{position:absolute;top:0;bottom:0;left:0;z-index:2;width:4px;cursor:col-resize;touch-action:none;user-select:none}
 .dp-rz::after{content:"";position:absolute;top:0;bottom:0;left:0;width:1px;transform:translateX(-50%);transition:background-color .15s}
 .dp-rz:hover::after,.dp-rz:active::after{background:var(--sep)}
@@ -1419,6 +1431,11 @@ html.s-team .bar .stats{display:none}
 .dp-i .ic{width:13px;height:13px}
 .dp-l{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0}
 .dp-l:focus{outline:none}.dp-l:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+/* The code, as T3 Code's diff panel draws it: @pierre/diffs's own styles in the host's shadow root, on the panel's
+   surface and in the board's fonts, as T3 sets them (index.css), light or dark with the board. */
+.dpv{color-scheme:light dark;--diffs-font-family:var(--mono);--diffs-header-font-family:var(--sans);--diffs-bg:var(--card);--diffs-light-bg:var(--card);--diffs-dark-bg:var(--card)}
+dialog.dp-sheet .dpv{--diffs-bg:var(--pop);--diffs-light-bg:var(--pop);--diffs-dark-bg:var(--pop)}
+:root[data-theme=dark] .dpv{color-scheme:dark}:root[data-theme=light] .dpv{color-scheme:light}
 .dpr{display:flex;align-items:center;gap:8px;height:32px;padding:0 16px;font-size:13px}
 .dpr>.ic{flex:none;width:14px;height:14px;color:var(--label2)}
 .dpr .pa{display:flex;flex:1;min-width:0;overflow:hidden;white-space:nowrap}
@@ -1728,6 +1745,20 @@ if (pipe) {
 /** The pages and images, for both doors: the web prototype's HTTP server and the desktop app's pipe. */
 /** A page or a file: its status, headers and body. */
 interface Routed { status: number; headers: Record<string, string>; body: string | Buffer }
+// Too big's code, from T3 Code as its diff panel reads it, through the board's read-only key (client/diffs.ts). With
+// host github.com, any T3 project can ask for any PR its GitHub sign-in sees, so the first one does.
+const diffs = createDiffs({ origin: ORIGIN, keys, project: () => projects[0]?.id ?? null });
+/** The PRs the Too big calls on the board name: the only ones /diff reads. */
+function bigPrs(): PrRef[] {
+  const v = team.view();
+  const ok = openKitchen(v && { ...v, me: { ...v.me, id: v.me.id ?? null } }, { now: Date.now() });
+  return ok.pass.filter((c) => c.kind === 'big').flatMap((c) => c.prs.map((pr) => ({ repo: pr.repo, n: pr.n })));
+}
+/** A page, a file, or a PR's code: the code is the one answer that waits on T3 Code. */
+async function routeAny(url: URL): Promise<Routed> {
+  return (await diffRoute(url, { diffs, shown: bigPrs })) ?? route(url);
+}
+
 function route(url: URL): Routed {
   // ?p=A&p=B: the projects picked in the view menu; no p is All projects.
   const picked = pickedFrom(url.searchParams);
@@ -1767,10 +1798,11 @@ function route(url: URL): Routed {
 if (pipe) {
   pipe.on((m) => {
     if (!m || m.type !== 'get' || typeof m.path !== 'string') return;
-    let out: Routed;
-    try { out = route(new URL(m.path, 'http://x')); } catch { out = { status: 500, headers: {}, body: 'The Pass could not build that page.' }; }
-    const body = Buffer.isBuffer(out.body) ? out.body : Buffer.from(String(out.body));
-    pipe.send({ type: 'got', id: m.id, status: out.status, headers: out.headers, body: body.toString('base64') });
+    const id = m.id;
+    Promise.resolve().then(() => routeAny(new URL(m.path as string, 'http://x'))).catch((): Routed => ({ status: 500, headers: {}, body: 'The Pass could not build that page.' })).then((out) => {
+      const body = Buffer.isBuffer(out.body) ? out.body : Buffer.from(String(out.body));
+      pipe.send({ type: 'got', id, status: out.status, headers: out.headers, body: body.toString('base64') });
+    });
   });
 }
 
@@ -1798,7 +1830,7 @@ const web = createServer(async (req, res) => {
     req.on('close', () => clients.delete(res));
     return;
   }
-  const out = route(url);
+  const out = await routeAny(url).catch((): Routed => ({ status: 500, headers: {}, body: 'The Pass could not build that page.' }));
   res.writeHead(out.status, out.headers).end(out.body);
 });
 // The desktop app opens no port (Dan, 2026-11-08): its window reads the pages over the IPC pipe instead

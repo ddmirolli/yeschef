@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { createKitchen } from '../src/demo/kitchen.ts';
 import { createHash as browserHash } from '../src/demo/node-crypto.ts';
 import { createHash } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
+import { IRIS } from '../demo/lib/demo-team.ts';
 import { timeToday } from '../demo/lib/you.ts';
 import type { DemoRun, DemoThread } from '../src/demo/types.ts';
 
@@ -103,4 +105,21 @@ test('a team call stays open across the demo ticks: its id keeps while the clock
   const later = demo.page();
   assert.deepEqual(ids(later), first);
   assert.match(later, /Main broken/);
+});
+
+test('the team demo\'s diff panel has the app pipe\'s answers for its Too big PR: the file list, then each file\'s code', () => {
+  // Written by scripts/generate-demo.ts from client/demo-diff.ts through client/diffs.ts; shim.ts answers /diff from them.
+  const dir = new URL('../public/demo/diff/', import.meta.url);
+  const team = readFileSync(new URL('../demo/team.html', import.meta.url), 'utf8');
+  assert.match(team, /data-diff="\/diff\?repo=fernpay%2Ffernpay&amp;n=440"/);
+  const list = JSON.parse(readFileSync(new URL('fernpay-fernpay-440.json', dir), 'utf8')) as { ok: boolean; rest: boolean; files: { path: string; add: number; del: number }[] };
+  assert.equal(list.ok, true);
+  assert.equal(list.rest, false);
+  assert.deepEqual(list.files.map((f) => [f.path, f.add, f.del]), [...IRIS.map(([p, a, d]) => [p, a, d]), ['pnpm-lock.yaml', 2104, 0]]);
+  for (const [i, f] of list.files.entries()) {
+    const code = JSON.parse(readFileSync(new URL(`fernpay-fernpay-440/${i}.json`, dir), 'utf8')) as { ok: boolean; code: string };
+    assert.equal(code.ok, true, f.path);
+    assert.match(code.code, f.path === 'pnpm-lock.yaml' ? /GitHub withheld this file's code/ : /^<pre data-diff/, f.path);
+  }
+  assert.equal(readdirSync(new URL('fernpay-fernpay-440/', dir)).length, list.files.length);
 });
