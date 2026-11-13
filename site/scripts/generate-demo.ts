@@ -20,7 +20,7 @@ const PORT = Number(process.argv[2] || 8690);
 const DEMO = join(ROOT, 'site', 'demo');
 const STATIC = join(ROOT, 'site', 'public', 'demo');
 const ART = join(ROOT, 'tools', 'hero-art');
-const DIRS: Record<string, string> = { 'p-pay': 'fernpay', 'p-loop': 'loopline', 'p-quill': 'quillo' };
+const DIRS: Record<string, string> = { 'p-pay': 'fernpay', 'p-loop': 'loopline', 'p-quill': 'quillo', 'p-ledger': 'ledgerly', 'p-pine': 'pinecast', 'p-orbit': 'orbitly' };
 
 // The app modules stay unchanged. Astro supplies browser stand-ins for these Node imports.
 const SHIMMED = new Set(['node:crypto', 'node:fs', 'node:path']);
@@ -139,13 +139,13 @@ export function createLive({ onChange }) {
   writeFileSync(join(DEMO, 'app.html'), html);
   console.log(`site/demo/app.html: ${html.length} bytes, ${browser.board().tickets.length} tickets`);
 
-  // 5. The team demo (Dan, 2026-11-12): the same page, Dana's team below her in Open kitchen. The modes section's buttons on the home page
-  // switch it to French Brigade (site/src/pages/demo/team.astro).
-  const teamKitchen = createKitchen({ where: (dir) => ({ icon: `icons/${dir}.svg` }), shot: (name) => `img/${name}-dark.png`, later: null, team: 'open' });
+  // 5. The team demo (Dan, 2026-11-12): the same page, Dana's team below her in French Brigade (Dan, 2026-11-13). The modes section's
+  // buttons on the home page switch it to Open kitchen (site/src/pages/demo/team.astro).
+  const teamKitchen = createKitchen({ where: (dir) => ({ icon: `icons/${dir}.svg` }), shot: (name) => `img/${name}-dark.png`, later: null, team: 'brigade' });
   const main = html.indexOf('<main id="app">') + 15, end = html.indexOf('</main>');
   if (main < 15 || end < main) throw new Error('app.html has no <main id="app"> to draw the team into');
   const team = html.slice(0, main).replace('<title>Yes Chef demo</title>', '<title>Yes Chef for teams demo</title>') + teamKitchen.page('') + html.slice(end);
-  for (const want of ['<title>Yes Chef for teams demo</title>', 'id="yc-team"', '"mode":"open"']) if (!team.includes(want)) throw new Error(`team.html is missing ${want}`);
+  for (const want of ['<title>Yes Chef for teams demo</title>', 'id="yc-team"', '"mode":"brigade"']) if (!team.includes(want)) throw new Error(`team.html is missing ${want}`);
   writeFileSync(join(DEMO, 'team.html'), team);
   console.log(`site/demo/team.html: ${team.length} bytes`);
 

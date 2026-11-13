@@ -465,7 +465,8 @@ html.persona-docked .persona-nav {
    instead, as t3.codes does: the app has no phone build (Dan, 2026-11-11). */
 .demo { position: relative; z-index: 2; }
 .demo.swap > .demo-fig { width: 100%; }
-.demo-frame iframe { display: block; width: 100%; aspect-ratio: 16 / 10; min-height: 620px; max-height: 760px; border: 0; background: var(--bg-well); }
+.demo-frame { aspect-ratio: 1440 / 900; }
+.demo-frame iframe { position: absolute; top: 0; left: 0; width: 1440px; height: 900px; transform: scale(var(--demo-scale, 1)); transform-origin: 0 0; border: 0; background: var(--bg-well); }
 .demo-fig figcaption { margin: 14px auto 0; max-width: 720px; font-size: 14px; color: var(--fg-dim); text-wrap: balance; }
 .demo-shot { display: none; }
 @media (max-width: 1023px) { .demo-frame, .demo-fig figcaption { display: none; } .demo-shot { display: block; } }

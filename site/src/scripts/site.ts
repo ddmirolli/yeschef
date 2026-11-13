@@ -128,6 +128,13 @@ type View = 'solo' | 'team';
   // Under 1024 px the hero shows a screenshot instead (global.css, Dan 2026-11-11: no phone build), so it loads no
   // demo; widening the window loads it then.
   var phone = window.matchMedia("(max-width: 1023px)");
+  // Each frame holds the app at the Mac's 1440x900 and scales it to the frame's width (Dan, 2026-11-13: a frame the
+  // app laid out in at its own width cut off the chart and The Pass).
+  var fit = function (box: HTMLElement) { box.style.setProperty("--demo-scale", String(box.clientWidth / 1440)); };
+  document.querySelectorAll<HTMLElement>(".demo-frame").forEach(function (box) {
+    fit(box);
+    if ("ResizeObserver" in window) new ResizeObserver(function () { fit(box); }).observe(box);
+  });
   function loadDemo(view: View) {
     var frame = document.querySelector<HTMLIFrameElement>('.demo [data-swap="' + view + '"] iframe[data-src]');
     if (frame && !phone.matches && !frame.getAttribute("src")) frame.setAttribute("src", frame.dataset.src ?? "");

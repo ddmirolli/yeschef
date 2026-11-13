@@ -16,8 +16,9 @@ const kitchen = createKitchen({
 if (team) window.__demoMode = (mode) => { kitchen.mode(mode); };
 window.__demoReady(kitchen);
 tick();
-// On a wide screen the reader opens the first ticket at the pass, as it would after a send.
-if (matchMedia('(min-width: 761px)').matches) {
+// On a wide screen the collapsed view opens the first ticket at the pass, as it would after a send. The expanded view
+// the demos open on (Dan, 2026-11-13) shows its chart, so nothing opens over it.
+if (matchMedia('(min-width: 761px)').matches && localStorage.getItem('yc.view') !== 'kitchen') {
   const first = () => [...document.querySelectorAll<HTMLElement>('#app .tile[data-plate]')].find((t) => t.offsetParent);
   const open = (n: number) => { const t = first(); if (t) t.click(); else if (n) setTimeout(() => open(n - 1), 100); };
   open(20);
