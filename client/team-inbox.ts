@@ -7,7 +7,9 @@
 import { isId, newId, sealSigned, openSigned, openFrom, aad, AUTH_SKEW_MS } from './seal.ts';
 import { allows, refusal, signature, shares } from './roles.ts';
 import { clean, ASK_MS, ACT_TTL, SEEN_KEEP_MS } from './team-common.ts';
-import type { ActInput } from './actions.ts';
+import { summaryAsk } from './team-summaries.ts';
+import type { ActInput, ActResult } from './actions.ts';
+import type { Board } from './board.ts';
 import type { Person, Team, TimerId } from './team.ts';
 import type { InboxRow } from '../relay/room.ts';
 
@@ -189,13 +191,16 @@ export const inbox = {
     return answer(status, text, true);
   },
 
-  /** Send an action to a teammate's Yes Chef. Resolves with their answer: { status, text }. */
-  async act(to: string, action: Action): Promise<ActOut> {
+  /** Send an action to a teammate's Yes Chef. Resolves with their answer: { status, text }. id: the action's delivery
+   *  id; a retry of one send passes the same id, so their Yes Chef answers it again and never runs it twice. */
+  async act(to: string, action: Action, id: string = newId()): Promise<ActOut> {
     const p = this.people.get(to);
     if (!p || to === this.meId) return { status: 400, text: 'That person is not on the team.' };
     if (!allows(this.me, action?.kind)) return { status: 403, text: refusal(this.me, action?.kind) };
+    if (!isId(id)) return { status: 400, text: 'Missing action id. Reload the Pass.' };
+    if (this.out.has(id)) return { status: 409, text: 'Still waiting on their answer to the first send.' };
     const me = await this.member();
-    const nonce = newId();
+    const nonce = id;
     const body = { k: 'act', nonce, at: this.now(), action: { ...action } };
     const blob = await sealSigned((await this.teamKey())!, me, body, aad.send(this.state.team, me.id, to));
     if (blob.length > this.limits.sendMax) return { status: 400, text: 'That note is too long to send.' };
@@ -220,3 +225,52 @@ export const inbox = {
     return result;
   },
 } satisfies ThisType<Team>;
+
+// A teammate's action as one of this dev's own (Dan, 2026-11-13, "A"; the sender's side is team-acts.ts outgoing()).
+// Request changes goes as a message, since the dev's own Request changes only answers a ticket at the dev's Pass. An
+// answer names the question and the option as the summary carried them; this Mac finds them again on its own board and
+// refuses a question that changed since.
+const actText = (v: unknown, n: number): string => String(v ?? '').trim().slice(0, n);
+/** The options a lead read, as one string both sides make the same way (board.ts teamDock sends it). */
+export const optionsKey = (options: readonly { k: string | null; t: string | null }[]): string => JSON.stringify(options.map((o) => [o.k, o.t]));
+const MAX_ACT_NOTE = 4000;
+const bad = (status: number, words: string): ActResult => ({ status, text: words });
+/** A teammate's action -> one of this dev's own actions on this dev's board, or a refusal sent back to the teammate.
+ *  The role check and the shared-project check have run already (team-inbox.ts gate). */
+export function incoming(board: Board, input: ActInput): ActInput | ActResult {
+  const kind = String(input.kind || ''), thread = String(input.thread || '');
+  if (kind === 'reply' || kind === 'hold') return input;
+  if (kind === 'refire') {
+    // Whole or not at all: the sender checks the size first (team-acts.ts), and a note that would be cut is refused.
+    const note = String(input.note ?? '').trim(), message = `Request changes. ${note}`;
+    if (!note) return bad(400, 'Request changes needs a note: what should the agent fix?');
+    if (message.length > MAX_ACT_NOTE) return bad(400, 'Not run: that note is too long. Shorten it and send again.');
+    return { ...input, kind: 'reply', note: message };
+  }
+  if (kind !== 'answer') return bad(400, 'A teammate cannot do that. Only the dev can.');
+  const ticket = board.tickets.find((k) => k.thread.threadId === thread || k.asks.some((a) => a.thread.threadId === thread));
+  const ask = ticket ? summaryAsk(ticket) : null;
+  if (!ticket || !ask) return bad(409, 'Not run: that question is no longer waiting.');
+  // The same question the lead read: its words and every option, in order, as summaryAsk gave them. A question
+  // replaced with the same letters but other meanings is a new question (PR-Agent r2 on #73).
+  if (ask.q !== String(input.q || '') || optionsKey(ask.options) !== String(input.opts || '')) return bad(409, 'Not run: the agent asked something new since you looked. Look again.');
+  const i = ask.options.findIndex((o) => o.k !== null && o.k === String(input.pick || ''));
+  if (i < 0) return bad(409, 'Not run: that option is not on the question any more. Look again.');
+  const nonce = input.nonce, note = actText(input.note, MAX_ACT_NOTE);
+  const items = ticket.asks.flatMap((a) => (a.items || []).map((it) => ({ a, it })));
+  if (items.length) {
+    const { a, it } = items[0]!;
+    const opt = (it.options || [])[i];
+    if (!opt) return bad(409, 'Not run: that option is not on the question any more. Look again.');
+    // A note has no place in a T3 answer: it would be lost, so it is refused rather than dropped.
+    if (note) return bad(400, 'This question takes an option only. Send your note with Reply.');
+    return { kind: 'answer', thread: a.thread.threadId, request: it.requestId, [`q:${it.id}`]: opt.label, nonce };
+  }
+  const call = ticket.call;
+  if (!call?.calls.length) return bad(409, 'Not run: that question is no longer waiting.');
+  if (call.calls.length > 1) return bad(409, 'Not run: the agent asked more than one decision. Answer them in the thread.');
+  const letter = call.calls[0]!.options[i]?.letter;
+  if (!letter) return bad(409, 'Not run: that option is not on the question any more. Look again.');
+  return { kind: 'call', thread: ticket.thread.threadId, call: call.key, 'c:0': letter, ...(note ? { note } : {}), nonce };
+}
+

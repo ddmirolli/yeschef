@@ -513,6 +513,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   // carry p:<plate> keys, which light that thread's card in the team Pass.
   var fxNow: string | null = null, fxKeys: string[] | null = null;
   var PART = ':is(.you, .tboard) .fx-view';
+  var PASS_CARDS = '.head-b .folder:is([data-folder="pass"], [data-folder="team"]) .call-tile[data-plate]';
   function flowFocus(keys: string[] | null): void {
     var board = $('.board'); if (!board) return;
     fxKeys = keys;
@@ -531,8 +532,8 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
       if (on && !named && !n.classList.contains('glogo')) mine.forEach(card);
     });
     if (keys) keys.forEach(card);
-    $$('.head-b .folder[data-folder="pass"] .call-tile[data-plate]').forEach(function(t){ t.classList.toggle('lit', !!keys && !!(lit['t:' + t.dataset.plate] || lit['p:' + t.dataset.plate])); });
-    $$('.tcol .xc[data-team-open]').forEach(function(t){ t.classList.toggle('lit', !!keys && !!lit['p:' + t.dataset.teamOpen]); });
+    // Your cards and, in Your team, the team's calls: one card style in both (Dan, 2026-11-13).
+    $$(PASS_CARDS).forEach(function(t){ t.classList.toggle('lit', !!keys && !!(lit['t:' + t.dataset.plate] || lit['p:' + t.dataset.plate])); });
   }
   function flowTip(n: Element | null, ev: MouseEvent): void {
     var wrap = (n && n.closest('.fx-wrap')) || $('.you .fx-wrap'), box = wrap && wrap.querySelector<HTMLElement>('.fx-tip');
@@ -556,9 +557,8 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   document.addEventListener('mouseover', function(ev){
     if (!root.classList.contains('v-kitchen')) return;
     var t = ev.target as Element, part = t.closest && t.closest<Element>(PART + ' [data-f]');
-    var card = !part && t.closest && t.closest<HTMLElement>('.head-b .folder[data-folder="pass"] .call-tile[data-plate]');
-    var team = !part && !card && t.closest && t.closest<HTMLElement>('.tcol .xc[data-team-open]');
-    flowFocus(part ? (part.getAttribute('data-f') || '').split(' ') : card ? ['t:' + card.dataset.plate, 'p:' + card.dataset.plate] : team ? ['p:' + team.dataset.teamOpen] : null);
+    var card = !part && t.closest && t.closest<HTMLElement>(PASS_CARDS);
+    flowFocus(part ? (part.getAttribute('data-f') || '').split(' ') : card ? ['t:' + card.dataset.plate, 'p:' + card.dataset.plate] : null);
     flowTip(part || null, ev);
   });
   // A keyboard reaches each project's name and, opened, each thread's band: focus lights them as hover does, and Enter
@@ -1327,8 +1327,6 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   window.addEventListener('beforeunload', function(ev){ if (pendingSends.length) { ev.preventDefault(); ev.returnValue = ''; } });
   window.addEventListener('pagehide', function(){ pendingSends.slice().forEach(function(p){ p.fire(true); }); });
   function send(f: PageForm, btn: HTMLButtonElement): void {
-    // Your team's actions wait for the team connection: nothing a teammate's agent could act on leaves this Mac yet.
-    if (f.classList.contains('team-act')) { say(f, 'Not sent: Yes Chef does not have the team connection yet.', 'bad'); return; }
     // A send waiting on its answer goes nowhere, but one that is not confirmed goes again, the same bytes.
     if (f.dataset.busy) { var uid = f.classList.contains('launch') ? 'launch' : f.dataset.plate!; if (unconfirmed[uid]) retry(uid); return; }
     if ((btn.value === 'call' || btn.value === 'answer') && btn.classList.contains('primary')) recPick(f);
@@ -1347,6 +1345,8 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     var fd = new FormData(f); fd.set('kind', kind);
     $$<HTMLInputElement>('input[data-custom]:checked', f).forEach(function(r){ fd.set(r.name, $<HTMLInputElement>('.custom', r.parentNode)!.value); });
     if (kind !== 'call' && kind !== 'answer') $$<HTMLInputElement>('fieldset.q-set input[type=radio]', f).forEach(function(r){ fd.delete(r.name); });
+    // A call on a teammate's ticket goes as a team action: sealed to the dev's Yes Chef, which runs it (team-acts.ts).
+    if (f.classList.contains('team-act')) { fd.set('act', kind); fd.set('kind', 'team'); fd.set('op', 'act'); }
     var body = new URLSearchParams(fd as unknown as Record<string, string>).toString();
     var isLaunch = kind === 'launch';
     var id = isLaunch ? 'launch' : f.dataset.plate!, p = isLaunch ? null : plateNode(id);

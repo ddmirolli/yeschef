@@ -320,19 +320,29 @@ test('the readers say Not checked for what a summary does not say, and draw only
   assert.match(panelOf(page({ view: v, now: NOWL }), 'Too big'), /<header class="dp-h"><b>Changes<\/b><span class="dst"/);
 });
 
-test('team actions show by role and never send: a see-only Engineer gets Settle and a line, no note', () => {
+test('team actions show by role and name whose thread they go to; a see-only Engineer gets a line and no form fields', () => {
   const lead = page({ view: view(), now: NOW });
   assert.match(lead, /<form class="act team-act" method="post" action="\/act" data-plate="p-[0-9a-f]{12}">/);
-  // No nonce and no thread: the server could not take a team form even if one were sent.
-  for (const f of lead.match(/<form class="act team-act"[^]*?<\/form>/g) ?? []) assert.doesNotMatch(f, /name="(nonce|thread)"/);
+  // Each form that acts carries a one-time id, the dev and the dev's thread (team-acts.ts outgoing), and never Settle.
+  const leadForms = lead.match(/<form class="act team-act"[^]*?<\/form>/g) ?? [];
+  assert.ok(leadForms.length >= 6);
+  for (const f of leadForms) {
+    assert.match(f, /name="nonce" value="[0-9a-f-]{36}"/);
+    assert.match(f, /name="to" value="[^"]+"/);
+    assert.match(f, /name="thread" value="[^"]+"/);
+    assert.doesNotMatch(f, /value="settle"/);
+  }
+  // Roll back and Rebase carry the words the dev's agent gets.
+  assert.match(lead, /name="say" value="Roll back #431: revert it\. main has been red since it merged\."/);
+  assert.match(lead, /name="say" value="Rebase on #[0-9]+: [^"]+ changes the same lines of [^"]+\."/);
   assert.match(lead, /value="rollback" class="ab fill primary"/);
   const v = view(); v.me = { id: 'me', name: 'Dana', role: 'engineer', perms: ['see'] };
   const eng = page({ view: v, now: NOW });
   const forms = eng.match(/<form class="act team-act"[^]*?<\/form>/g) ?? [];
   assert.equal(forms.length, 6);
   for (const f of forms) {
-    assert.doesNotMatch(f, /value="(rollback|rebase|reply|refire|answer|hold)"/);
-    assert.match(f, /value="settle"/);
+    assert.doesNotMatch(f, /value="(rollback|rebase|reply|refire|answer|hold|settle)"/);
+    assert.doesNotMatch(f, /name="(nonce|to|thread)"/);
     assert.match(f, /Your role can see this call\./);
     assert.doesNotMatch(f, /<textarea/);
     assert.doesNotMatch(f, /<fieldset/);
@@ -591,7 +601,7 @@ test('expanded: the rows draw a square per agent, cells per area, and no line bu
   assert.equal(opens.length, 5, 'Kai, Jon, Iris, Nina, Omar: the calls in The Pass');
   for (const [, id, k] of opens) {
     assert.ok(k!.split(' ').includes(`p:${id}`));
-    assert.ok(html.includes(`<div class="xc" role="listitem" data-team-open="${id}">`), id);
+    assert.ok(html.includes(`data-plate="${id}" data-thread="${id}" data-team-open="${id}">`), id);
   }
   assert.ok(html.includes('<p class="lg okl">Agents by lab: not checked</p>'));
 });
@@ -656,22 +666,22 @@ test('expanded: with no team reading the waiting panel keeps the header picker (
   assert.match(wait, /<div class="tw-b"><p><b>Platform<\/b><\/p><p class="muted">Not checked\./);
 });
 
-test('expanded: the page draws the board and The Pass as a column; each opens a call that is in the page', () => {
+test('expanded: the page draws the board and The Pass in the app’s ticket cards; each opens a call that is in the page', () => {
   const html = page({ view: viewL(), now: NOWL });
   assert.match(html, /<section class="tboard"/);
   assert.ok(!html.includes('class="team-wait"'), 'the board replaces the waiting panel');
-  assert.equal((html.match(/class="xc"/g) || []).length, 6);
+  // The same ticket cards as the focused view (Dan, 2026-11-13), never a column of their own.
+  assert.equal((html.match(/class="tile call-tile mail team-tile"/g) || []).length, 6);
+  assert.ok(!html.includes('class="tcol"') && !html.includes('class="xc"'));
   const opens = [...html.matchAll(/data-team-open="([^"]+)"/g)].map((m) => m[1]);
-  assert.ok(opens.length > 12);
+  assert.ok(opens.length > 6, 'the six cards, and the chart squares whose call is in The Pass');
   for (const id of new Set(opens)) assert.ok(html.includes(`<article class="plate team-plate" id="${id}"`), id);
   // Every colour carries a word: the legend says what red and amber mean.
   for (const w of ['Working', 'Idle', 'Act now', 'Decide soon', 'Not reporting', 'Merged today']) assert.ok(html.includes(w), w);
   assert.ok(html.includes(`Not reporting since ${hmOf(agoL(122))}`));
   assert.ok(html.includes('6 need you, most urgent first.'));
-  // The suggestion button is the call's first action, and only for a role that may take it.
-  assert.match(html, /data-team-act="rollback">Roll back #431</);
-  const v = viewL(); v.me = { ...v.me, role: 'engineer', perms: ['see'] };
-  assert.ok(!page({ view: v, now: NOWL }).includes('data-team-act='), 'See only: Open, never the suggestion');
+  // The card names the suggestion; the call's own reader holds the button, for a role that may take it.
+  assert.match(html, /Suggested: <b>Roll back #431<\/b>/);
 });
 
 // ---- PR B, PR-Agent round 1 ----
@@ -842,7 +852,7 @@ test('rows r2: a call with no agent at work lights its person’s name: Ravi’s
   const svg = grab(html, /<svg class="fx okr"[^]*?<\/svg>/);
   const name = grab(svg, /<text class="rowname" tabindex="0" data-k="d:ravi [^"]*"/);
   const plate = grab(name, /p:(p-[0-9a-f]{12})/).slice(2);
-  assert.ok(html.includes(`<div class="xc" role="listitem" data-team-open="${plate}">`));
+  assert.ok(html.includes(`data-plate="${plate}" data-thread="${plate}" data-team-open="${plate}">`));
 });
 
 test('rows r2: a pick keeps the folds; the rows’ tip sits outside their scroller', async () => {
