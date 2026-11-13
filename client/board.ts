@@ -873,7 +873,8 @@ function teamDock(c: TeamCall, w: Words, me: Me | null | undefined, id: string):
   const blue = allowed.length && allowed[0] === w.acts[0] ? allowed[0]![0] : null;
   // Names come from teammates' summaries, so the tooltip's name is escaped here (btn writes it as markup).
   const labelled = allowed.map(([kind, word, name]) => btn(kind, { ic: kind === 'reply' ? 'reply' : kind === 'refire' ? 'changes' : 'send', word, name: e(name), key: '' }, kind === blue, ` data-what="${e(name)}"${kind === 'reply' || kind === 'refire' ? ' data-note' : ''}`));
-  const hold = t && may(me, 'hold') ? btn('hold', ACT.hold, false, ' data-what="Hold until 8:00 tomorrow"') : '';
+  // Ready for your look's thread is the lead's merged one: Hold has nothing to hold there.
+  const hold = t && c.kind !== 'ready' && may(me, 'hold') ? btn('hold', ACT.hold, false, ' data-what="Hold until 8:00 tomorrow"') : '';
   const fine = may(me, 'fine') ? btn('fine', FINE, false, ' data-what="It’s fine"') : '';
   const rows = [hold ? phoneRow('hold', ACT.hold.name) : '', allowed.length ? MORE_NOTE : ''];
   // A hand-back call's options are letters; a T3 question's are its labels, sent back as they came. Keys a to f by place.
@@ -1142,7 +1143,7 @@ function teamParts(team: TeamInput, view: TeamView, icons: ReadonlyMap<string, s
   // A red base with no named cause has nobody to name: the tile names its repo instead.
   type Item = { c: TeamCall; id: string; w: Words };
   const who = (c: TeamCall) => (!c.who.length ? ((c.kind === 'main' && c.facts.repo) || 'Not checked') : c.kind === 'overlap' && c.who.length > 1 ? and(c.who.map(name))
-    : c.kind === 'ready' && c.who.length > 1 ? plural(c.who.length, 'person') : name(c.who[0]!));
+    : c.kind === 'ready' && c.who.length > 1 ? `${c.who.length} people` : name(c.who[0]!));
   const age = (c: TeamCall) => (c.since != null ? span(Math.max(0, Math.round((now - c.since) / 60000))) : '');
   // One card for a call in both views (Dan, 2026-11-13: the chart view shows The Pass's tickets in the app's own
   // style). A click opens the call in The Pass, so the chart view hands over to it as before.

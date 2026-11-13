@@ -169,8 +169,8 @@ export function demoTeam(now: number): DemoTeam {
   // Receipts is done (step 7 PR 2): Priya's, Sam's and Iris's merged Fernpay threads are its whole list, every ticket
   // closed, and Priya leads it in Linear, so it rises as Ready for your look with Ship to Priya's agent.
   const RECEIPTS = { id: 'f-receipts', name: 'Receipts' }, DONE = new Set(['mcp:priya-c3', 'mcp:sam-c3', 'mcp:iris-c3']);
-  // Elena's first thread waits on a Fernpay ticket still open (Blocked).
-  const BLOCKED: Record<string, NonNullable<DemoTicket['blocked']>> = { 'mcp:elena-c0': [{ id: 'FER-212', title: 'Refund API v2', at: ago(45) }] };
+  // Elena's first thread waits on a Quillo ticket still open (Blocked).
+  const BLOCKED: Record<string, NonNullable<DemoTicket['blocked']>> = { 'mcp:elena-c0': [{ id: 'QUI-212', title: 'Sync conflict rules', at: ago(45) }] };
   const withFeature = (k: DemoTicket): DemoTicket => {
     const sum = [...k.title].reduce((a, ch) => a + ch.charCodeAt(0), 0);
     return { ...k, feature: DONE.has(k.thread) ? RECEIPTS : sum % 7 === 0 ? null : FEATURES[k.project as Project][sum % 2]!, ...(BLOCKED[k.thread] ? { blocked: BLOCKED[k.thread]! } : {}) };

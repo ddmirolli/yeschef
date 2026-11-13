@@ -396,9 +396,9 @@ function tooBig(tickets: readonly Entry[], rules: Rules): Detected[] {
   return out;
 }
 
-/** Ready for your look (step 7 PR 2, Dan 1A, 2026-11-13): a feature whose every thread on your team is merged, and
- *  whose whole Linear ticket list, as an agent read it, is done (completed, canceled or duplicate; one at least
- *  completed). With no whole list read it never rises: part of a feature is not the feature. The Ship target (2A) is
+/** Ready for your look (step 7 PR 2, Dan 1A, 2026-11-13): a feature whose every thread below me is merged, and whose
+ *  whole Linear ticket list, as an agent read it, is closed (completed, canceled or duplicate). The list is the whole
+ *  feature, whoever ran its threads. With no whole list read it never rises: part of a feature is not the feature. The Ship target (2A) is
  *  the project's Linear lead, when a project read names one who matches one teammate by name, and their newest thread
  *  on the feature. It comes to the lead: never to a dev first. */
 function readyCalls(tickets: readonly Entry[], features: ReadonlyMap<string, TeamFeature>, members: readonly { id: string; name: unknown }[]): Detected[] {

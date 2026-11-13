@@ -78,6 +78,10 @@ test('the Ready reader: the list, the lead, Ship with its words, and why Ship is
   assert.match(html, /Tokens is ready for your look/);
   assert.match(html, /3 of 3 done/);
   assert.match(html, /name="kind" value="ship"/);
+  const plate = html.split('<article class="plate team-plate"').slice(1).find((x) => x.includes('Tokens is ready for your look')) ?? '';
+  assert.match(plate, /value="ship"/);
+  assert.doesNotMatch(plate, /value="hold"/, 'no Hold on a merged thread');
+  assert.match(html, /3 people/);
   assert.ok(html.includes(`name="call" value="${READY}"`));
   assert.match(html, /name="to" value="priya"/);
   assert.match(html, /name="thread" value="mcp:priya-0"/);
