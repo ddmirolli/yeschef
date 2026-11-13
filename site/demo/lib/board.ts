@@ -838,7 +838,10 @@ function teamDock(c: TeamCall, w: Words, me: Me | null | undefined, id: string):
         + (letter ? `<b>${k}.</b> ${e(o.t)}${k === w.rec ? ' <span class="rec">Recommended</span>' : ''}` : `<b>${e(k)}</b>${o.t && o.t !== k ? ` ${e(o.t)}` : ''}`) + '</span></label>'; }).join('')
     + '</fieldset>' : '';
   const kinds = allowed.map(([kind]) => kind);
-  const note = !allowed.length ? '' : noteField(kinds.includes('refire') ? 'needed for Changes and Reply' : kinds.includes('reply') ? `optional with ${kinds[0] === 'reply' ? 'Hold' : allowed[0]![1]}, needed for Reply` : 'optional');
+  // A T3 question (its options are labels, not a hand-back's letters) takes no note with the answer: the dev's Mac
+  // refuses one (team-inbox.ts incoming), so the hint says Reply only (PR-Agent r3 on #73).
+  const t3q = kinds[0] === 'answer' && !opts.every((o) => /^[a-i]$/.test(o.k!));
+  const note = !allowed.length ? '' : noteField(kinds.includes('refire') ? 'needed for Changes and Reply' : t3q ? 'needed for Reply, not sent with an answer' : kinds.includes('reply') ? `optional with ${kinds[0] === 'reply' ? 'Hold' : allowed[0]![1]}, needed for Reply` : 'optional');
   const only = allowed.length ? '' : `<p class="dock-who">${t ? 'Your role can see this call. Acting on it needs more from your lead.' : 'Not checked: this call names no thread to act on.'}</p>`;
   // An answer carries the question and every option as the lead read them (team-inbox.ts optionsKey), so the dev's Mac
   // answers only that same question.
