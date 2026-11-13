@@ -237,13 +237,16 @@ export type PrSizeRead = { state: 'not-checked'; why: string; at: number } | {
 const REPO = /^[A-Za-z0-9._-]{1,100}\/[A-Za-z0-9._-]{1,100}$/;
 /** What a PR's description says it waits on (3C, 2026-11-13): a line that starts "Blocked by" or "Depends on", and on
  *  it each #N, owner/repo#N or GitHub issue or PR address. Five at most; the PR itself never counts. */
-export function prBlockers(body: string | null | undefined, repo: string, self = 0): { repo: string; n: number }[] {
-  const out: { repo: string; n: number }[] = [];
+export function prBlockers(body: string | null | undefined, repo: string, self = 0, host = 'github.com'): { host: string; repo: string; n: number }[] {
+  const out: { host: string; repo: string; n: number }[] = [];
+  const home = host.toLowerCase();
   for (const m of String(body || '').slice(0, 20000).matchAll(/^[\s>*_-]*(?:blocked by|depends on)\b[\s:*_-]*(.*)$/gim)) {
     for (const r of m[1]!.matchAll(/(?:https:\/\/github\.com\/([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)\/(?:pull|issues)\/|(?<![\w/.-])([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)?#)(\d{1,7})\b/g)) {
+      // A github.com address names a github.com issue, whatever host the PR is on (PR-Agent r1 on #78).
+      const on = r[1] ? 'github.com' : home;
       const at = (r[1] || r[2] || repo).toLowerCase(), n = Number(r[3]);
-      if (!REPO.test(at) || !(n > 0) || (at === repo.toLowerCase() && n === self) || out.some((x) => x.repo === at && x.n === n)) continue;
-      out.push({ repo: at, n });
+      if (!REPO.test(at) || !(n > 0) || (on === home && at === repo.toLowerCase() && n === self) || out.some((x) => x.host === on && x.repo === at && x.n === n)) continue;
+      out.push({ host: on, repo: at, n });
       if (out.length >= 5) return out;
     }
   }
@@ -264,10 +267,10 @@ export async function readPrSize({ host = 'github.com', repo, number }: PrArgs, 
       additions: pr.additions, deletions: pr.deletions, changedFiles: pr.changed_files, size: null, lockfiles: null, blockedBy: [],
     };
     // What its description says it waits on, each read for its state. A read that fails is not checked (null).
-    for (const b of prBlockers(pr.body, repo, number)) {
+    for (const b of prBlockers(pr.body, repo, number, host)) {
       let open: boolean | null = null;
-      try { const s = Option.getOrNull(readIssue(await get(`repos/${b.repo}/issues/${b.n}`, { host }))); open = s?.state === 'open' ? true : s?.state === 'closed' ? false : null; } catch { open = null; }
-      out.blockedBy.push({ ...b, open });
+      try { const s = Option.getOrNull(readIssue(await get(`repos/${b.repo}/issues/${b.n}`, { host: b.host }))); open = s?.state === 'open' ? true : s?.state === 'closed' ? false : null; } catch { open = null; }
+      out.blockedBy.push({ repo: b.repo, n: b.n, open });
     }
     // Per file, to leave lockfiles out. A PR with more files than the pages read keeps its totals only.
     // The base's commit is in the key: a force-pushed base can change the diff with the same head and totals

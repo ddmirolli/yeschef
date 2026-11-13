@@ -52,6 +52,9 @@ export interface Readers {
   pr?: ((pr: { host: string; repo: string; number: number }) => PrIn | null | undefined) | undefined;
   base?: ((threadId: string) => BaseIn | null | undefined) | undefined;
   seen?: unknown; fine?: unknown; ships?: unknown; over?: unknown; keepOver?: ((over: Record<string, number>) => void) | undefined; now?: number | undefined;
+  /** When this Mac first saw each thread blocked by each blocker ("thread|blocker" -> time), and keepBlocked(map), which
+   *  takes the new one: a re-read never restarts Blocked's wait (PR-Agent r1 on #78). */
+  blockedAt?: unknown; keepBlocked?: ((m: Record<string, number>) => void) | undefined;
   /** This Mac's GitHub login (gh's sign-in), so a lead's Mac can match a PR's reviewers to its teammates. */
   login?: (() => unknown) | undefined;
   /** A Linear project as this Mac's agents read it (client/linear.ts), for French Brigade's features. */
@@ -60,7 +63,10 @@ export interface Readers {
 /** A feature as the summary sends it (step 7 PR 2): its lead's name (null: none; left out: not read), and its whole
  *  ticket list's count (left out: no whole list read). closed: done, canceled or duplicate; unread: no status read. */
 export type SummaryFeature = { id: string; name: string; lead?: string | null; leadAt?: number;
-  list?: { n: number; closed: number; unread: number; at: number } };
+  list?: { n: number; closed: number; unread: number; at: number };
+  /** This dev's threads on it, and how many are merged, counted before the summary drops tickets to fit: a thread the
+   *  relay never carries still keeps the feature from Ready (PR-Agent r1 on #78). */
+  threads: { n: number; merged: number } };
 const FEATURES_MAX = 50, BLOCKERS_MAX = 5;
 /** A PR's size as the summary sends it. */
 export type SummarySize = { files: number | null; added: number | null; removed: number | null; at: number | null; overAt?: number };
@@ -243,7 +249,9 @@ export const summaries = {
     }
     const readers: Readers = { ...(this.readers || {}), seen: this.state.seenCalls, fine: this.state.fineCalls, ships: this.state.shipCalls, now: this.now(), over: this.state.overAt,
       // Kept on disk, so a restart keeps Too big's age; saved only when it changed.
-      keepOver: (m) => { if (JSON.stringify(m) !== JSON.stringify(this.state.overAt || {})) { this.state.overAt = m; this.save(); } } };
+      keepOver: (m) => { if (JSON.stringify(m) !== JSON.stringify(this.state.overAt || {})) { this.state.overAt = m; this.save(); } },
+      blockedAt: this.state.blockedAt,
+      keepBlocked: (m) => { if (JSON.stringify(m) !== JSON.stringify(this.state.blockedAt || {})) { this.state.blockedAt = m; this.save(); } } };
     return { ...summarize(this.lastBoard, this.state.shared, this.limits.summaryMax, readers), at: this.lastBoardAt, health };
   },
 
@@ -491,6 +499,7 @@ export function summarize(board: Pick<Board, 'tickets'> | null | undefined, shar
     s.overAt = over[key];
     return pr;
   };
+  const blockedBefore = (readers.blockedAt && typeof readers.blockedAt === 'object' ? readers.blockedAt : {}) as Record<string, unknown>, blockedAt: Record<string, number> = {};
   const picked = (board?.tickets || [])
     .filter((k) => keep.has(k.thread.projectId) && k.place !== 'Coordinators')
     .sort((a, b) => (+b.atPass - +a.atPass) || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
@@ -521,7 +530,15 @@ export function summarize(board: Pick<Board, 'tickets'> | null | undefined, shar
         if (b?.open === true && typeof b.repo === 'string' && Number.isInteger(b.n)) blocked.push({ id: `${clean(b.repo, 200)}#${b.n as number}`, title: null, at });
       }
     }
-    if (blocked.length) t.blocked = [...new Map(blocked.map((b) => [b.id, b])).values()].slice(0, BLOCKERS_MAX);
+    if (blocked.length) {
+      t.blocked = [...new Map(blocked.map((b) => [b.id, b])).values()].slice(0, BLOCKERS_MAX).map((b) => {
+        // The first time this Mac saw it, kept while it stays blocked, so a fresh read does not restart the wait.
+        const key = `${t.thread}|${b.id}`, was = blockedBefore[key];
+        const at = Number.isFinite(was) && (was as number) <= now ? Math.min(was as number, b.at) : b.at;
+        blockedAt[key] = at;
+        return { ...b, at };
+      });
+    }
     const c = summaryChanges(get(readers.changes, k.thread.threadId));
     if (c) t.changes = c;
     return t;
@@ -534,12 +551,14 @@ export function summarize(board: Pick<Board, 'tickets'> | null | undefined, shar
     if (!bases.has(key)) bases.set(key, summaryBase(b));
   }
   get(readers.keepOver, over);
+  get(readers.keepBlocked, blockedAt);
   // Each feature this Mac's tickets are in, with what its agents read of the Linear project: the lead (Ship's target,
   // 2A) and the whole ticket list (Ready for your look, 1A).
   const features: SummaryFeature[] = [];
   for (const id of [...new Set(tickets.flatMap((t) => (t.feature ? [t.feature.id] : [])))].slice(0, FEATURES_MAX)) {
     const p = get(readers.project, id);
-    const out: SummaryFeature = { id, name: tickets.find((t) => t.feature?.id === id)!.feature!.name };
+    const on = tickets.filter((t) => t.feature?.id === id);
+    const out: SummaryFeature = { id, name: on[0]!.feature!.name, threads: { n: on.length, merged: on.filter((t) => t.place === 'Merged').length } };
     if (p && p.lead !== undefined && Number.isFinite(p.leadAt)) { out.lead = p.lead === null ? null : clean(p.lead, 80); out.leadAt = p.leadAt!; }
     if (p?.tickets && Number.isFinite(p.listAt)) {
       out.list = { n: p.tickets.length, closed: p.tickets.filter((x) => x.statusType !== null && CLOSED.has(x.statusType)).length,

@@ -406,11 +406,34 @@ test('a summary sends each feature\'s lead and whole-list count, and each ticket
     tickets: [{ id: 'ENG-1', statusType: 'completed' }, { id: 'ENG-5', statusType: 'canceled' }, { id: 'ENG-6', statusType: null }], listAt: 4 } : null);
   const pr = () => ({ state: 'checked', at: 9, blockedBy: [{ repo: 'o/api', n: 3, open: true }, { repo: 'o/api', n: 4, open: false }] });
   const s = summarize(board, ['p'], 65536, { now: 10, project, pr });
-  assert.deepEqual(s.features, [{ id: pid, name: 'Payouts v2', lead: 'Priya Shah', leadAt: 3, list: { n: 3, closed: 2, unread: 1, at: 4 } }]);
+  assert.deepEqual(s.features, [{ id: pid, name: 'Payouts v2', lead: 'Priya Shah', leadAt: 3, list: { n: 3, closed: 2, unread: 1, at: 4 }, threads: { n: 2, merged: 0 } }]);
   assert.deepEqual(one(s.tickets, (t) => t.thread === 'a', 'a').blocked, [{ id: 'ENG-2', title: 'Ledger', at: 7 }, { id: 'o/api#3', title: null, at: 9 }]);
   assert.equal('blocked' in one(s.tickets, (t) => t.thread === 'b', 'b'), false);
   // No project read: the feature goes with its name only.
-  assert.deepEqual(summarize(board, ['p'], 65536, { now: 10 }).features, [{ id: pid, name: 'Payouts v2' }]);
+  assert.deepEqual(summarize(board, ['p'], 65536, { now: 10 }).features, [{ id: pid, name: 'Payouts v2', threads: { n: 2, merged: 0 } }]);
+  // A blocker keeps the time this Mac first saw it, so a fresh read does not restart Blocked's wait (PR-Agent r1 on #78).
+  let kept: Record<string, number> = {};
+  const again = (now: number, at: number, blockedAt: Record<string, number>) => {
+    a.linear = [{ ...r, at, id: 'ENG-1', blockedBy: [{ id: 'ENG-2', title: 'Ledger', open: true }] }];
+    return one(summarize(board, ['p'], 65536, { now, blockedAt, keepBlocked: (m) => { kept = m; } }).tickets, (t) => t.thread === 'a', 'a').blocked;
+  };
+  assert.deepEqual(again(10, 7, {}), [{ id: 'ENG-2', title: 'Ledger', at: 7 }]);
+  assert.deepEqual(kept, { 'a|ENG-2': 7 });
+  assert.deepEqual(again(50, 40, kept), [{ id: 'ENG-2', title: 'Ledger', at: 7 }], 'a re-read keeps the first time');
+  assert.deepEqual(again(50, 40, { 'a|ENG-2': 99 }), [{ id: 'ENG-2', title: 'Ledger', at: 40 }], 'a time ahead of now is dropped');
+  a.linear = [{ ...r, id: 'ENG-1' }];
+  summarize(board, ['p'], 65536, { now: 60, blockedAt: { 'a|ENG-2': 7 }, keepBlocked: (m) => { kept = m; } });
+  assert.deepEqual(kept, {}, 'unblocked: the time goes');
+});
+
+test('a feature\'s thread count is made before the summary drops tickets to fit (PR-Agent r1 on #78)', () => {
+  const pid = 'ed93ef9c-3f61-4ee9-97e3-aa4a25b32da3';
+  const threads = Array.from({ length: 30 }, (_, i) => T(`t${i}`, { title: 'x'.repeat(150) }));
+  const board = buildBoard({ projects: [{ id: 'p', title: 'P' }], questions: new Map(), threads });
+  for (const k of board.tickets) k.linear = [{ state: 'read', id: 'ENG-1', title: 't', status: null, statusType: null, url: null, assignee: null, at: 1, by: 'a', project: 'Payouts v2', projectId: pid }];
+  const s = summarize(board, ['p'], 3000, { now: 10 });
+  assert.ok(s.tickets.length < 30, 'the summary dropped tickets');
+  assert.deepEqual(s.features.find((f) => f.id === pid)?.threads, { n: 30, merged: 0 });
 });
 
 test('a reader shows its Linear tickets beside its pull requests: a read one with its status, a named one "Not checked"', () => {

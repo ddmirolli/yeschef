@@ -48,7 +48,9 @@ export interface TeamTicket { thread: string | null; title: string | null; proje
   blocked: { id: string; title: string | null; at: number }[] }
 /** A feature as the teammates' summaries read it (step 7 PR 2): its Linear project's lead and whole ticket list, each
  *  from the newest read any summary sent. Left out: no read said. */
-export interface TeamFeature { id: string; name: string; lead?: { name: string | null; at: number }; list?: { n: number; closed: number; unread: number; at: number } }
+export interface TeamFeature { id: string; name: string; lead?: { name: string | null; at: number }; list?: { n: number; closed: number; unread: number; at: number };
+  /** Each dev's own count of their threads on it, and how many are merged (person id -> counts). */
+  threads?: Record<string, { n: number; merged: number }> }
 /** A base branch a teammate's Mac read, cleaned (cleanBase). */
 export interface Base { repo: string | null; branch: string | null; sha: string | null; title: string | null; requiredResult: string | null;
   redSha: string | null; redSince: number | null; at: number | null; failing: string[] }
@@ -81,7 +83,7 @@ export type Detected = CallBase & (
   | { kind: 'big'; facts: { lines: number; size: PrSize & { added: number; removed: number; files: number }; pr: TeamPr; ticket: TeamTicket; changes: TeamChanges | null } }
   | { kind: 'ready'; facts: { feature: { id: string; name: string }; list: NonNullable<TeamFeature['list']>; tickets: { k: TeamTicket & { thread: string }; person: string }[];
       lead: { name: string | null; at: number; person: string | null; thread: string | null } | null } }
-  | { kind: 'blocked'; facts: { blockers: TeamTicket['blocked']; ticket: TeamTicket; feature: { id: string; name: string } | null } }
+  | { kind: 'blocked'; facts: { blockers: TeamTicket['blocked']; ticket: TeamTicket; feature?: { id: string; name: string } | null } }
 );
 export type Kind = Detected['kind'];
 /** A call with who has seen it ({ person id: at }), whether it reaches me, and who on it is not reporting. */
@@ -156,7 +158,7 @@ const blockedIn = (v: unknown): TeamTicket['blocked'] => arr(v).flatMap((b) => {
   return id && BLOCKER.test(id) && at !== null ? [{ id, title, at }] : [];
 }).slice(0, 5);
 /** Each feature the summaries name, with the newest read of its lead and of its whole ticket list (step 7 PR 2). */
-export function featuresOf(people: readonly { summary?: unknown }[]): Map<string, TeamFeature> {
+export function featuresOf(people: readonly { id?: unknown; summary?: unknown }[]): Map<string, TeamFeature> {
   const out = new Map<string, TeamFeature>();
   for (const p of people) for (const f of arr(obj(p.summary)?.features)) {
     const id = str(f.id)?.trim() ?? '', name = str(f.name)?.trim() ?? '';
@@ -169,6 +171,10 @@ export function featuresOf(people: readonly { summary?: unknown }[]): Map<string
     const l = obj(f.list), n = num(l?.n), closed = num(l?.closed), unread = num(l?.unread), at = ms(l?.at);
     if (n !== null && closed !== null && unread !== null && at !== null && [n, closed, unread].every((x) => Number.isInteger(x) && x >= 0) && closed + unread <= n
       && (!had.list || had.list.at < at)) had.list = { n, closed, unread, at };
+    const t = obj(f.threads), tn = num(t?.n), tm = num(t?.merged);
+    if (typeof p.id === 'string' && tn !== null && tm !== null && Number.isInteger(tn) && Number.isInteger(tm) && tm >= 0 && tm <= tn) {
+      had.threads = { ...had.threads, [p.id]: { n: tn, merged: tm } };
+    }
     out.set(id, had);
   }
   return out;
@@ -407,6 +413,10 @@ function readyCalls(tickets: readonly Entry[], features: ReadonlyMap<string, Tea
     const mine = tickets.filter((x) => x.k.feature?.id === f.id);
     const L = f.list;
     if (!mine.length || !mine.every((x) => x.k.place === 'Merged') || !L || L.n < 1 || L.unread > 0 || L.closed !== L.n) continue;
+    // Each dev's own count, made before their summary dropped tickets to fit: one with a thread not merged, or with no
+    // count, keeps it down (PR-Agent r1 on #78).
+    const T = f.threads ?? {};
+    if (Object.values(T).some((c) => c.merged !== c.n) || !mine.every((x) => T[x.p.id] && T[x.p.id]!.n >= 1)) continue;
     let lead: Extract<Detected, { kind: 'ready' }>['facts']['lead'] = null;
     if (f.lead) {
       const hits = f.lead.name ? members.filter((m) => nameKey(m.name) === nameKey(f.lead!.name)) : [];
@@ -431,7 +441,7 @@ function blockedCalls(tickets: readonly Entry[]): Detected[] {
     if (!live || !k.blocked.length || k.place === 'Merged') continue;
     const since = Math.min(...k.blocked.map((b) => b.at));
     out.push({ id: callId('blocked', `${k.thread}:${k.blocked.map((b) => b.id).sort().join(',')}`, null), kind: 'blocked', subject: k.thread, since, who: [p.id], thread: k.thread,
-      project: k.project, prs: arr(k.prs).filter((pr) => pr.state === 'open').slice(0, 1), holds: 1, facts: { blockers: k.blocked, ticket: k, feature: k.feature ?? null } });
+      project: k.project, prs: arr(k.prs).filter((pr) => pr.state === 'open').slice(0, 1), holds: 1, facts: { blockers: k.blocked, ticket: k, ...(k.feature !== undefined ? { feature: k.feature } : {}) } });
   }
   return out;
 }

@@ -293,7 +293,7 @@ test('the reader keeps each project\'s lead and whole list, and each blocker ope
   reads.want([{ threadId: 'a', updatedAt: at(10), itemCount: 4 }]);
   for (let i = 0; i < 8; i++) await settle();
   assert.deepEqual(reads.project(PID.toUpperCase()), { id: PID, name: 'Payouts v2', lead: 'Priya Shah', leadAt: Date.parse(at(30)),
-    tickets: [{ id: 'ENG-1', statusType: 'started' }, { id: 'ENG-2', statusType: 'completed' }], listAt: Date.parse(at(20)) });
+    tickets: [{ id: 'ENG-1', statusType: 'started' }, { id: 'ENG-2', statusType: 'completed' }], listAt: Date.parse(at(10)) }, 'listAt: the newest of the list and its status reads');
   assert.deepEqual(reads.get('ENG-1')!.blockedBy, [{ id: 'ENG-2', title: 'Ledger', open: false }, { id: 'ENG-9', title: 'Unread', open: null }]);
   assert.equal(reads.project('ffffffff-0000-0000-0000-000000000000'), null);
   // A newer read of ENG-1 moves it to done: the list counts it done, though the list itself is older.
@@ -301,6 +301,13 @@ test('the reader keeps each project\'s lead and whole list, and each blocker ope
   reads.want([{ threadId: 'a', updatedAt: at(5), itemCount: 5 }]);
   for (let i = 0; i < 8; i++) await settle();
   assert.deepEqual(reads.project(PID)!.tickets, [{ id: 'ENG-1', statusType: 'completed' }, { id: 'ENG-2', statusType: 'completed' }]);
+  assert.equal(reads.project(PID)!.listAt, Date.parse(at(5)), 'the list is as fresh as its newest status read (PR-Agent r1 on #78)');
   // Its relations were not in that read: the older read's blockers stay.
   assert.equal(reads.get('ENG-1')!.blockedBy!.length, 2);
+  // A ticket read in the project after the list, and not on it: the list is no longer whole (PR-Agent r1 on #78).
+  items.a.push({ itemId: 't5', type: 'dynamic_tool', text: claudeItem('get_issue', { id: 'ENG-3' }, inProject('ENG-3')), updatedAt: at(3) });
+  reads.want([{ threadId: 'a', updatedAt: at(3), itemCount: 6 }]);
+  for (let i = 0; i < 8; i++) await settle();
+  assert.equal(reads.project(PID)!.tickets, undefined);
+  assert.equal(reads.project(PID)!.lead, 'Priya Shah', 'the lead stands');
 });

@@ -21,7 +21,8 @@ const READY = callId('ready', 'p-tok', null);
 const tokens = (feature: Wire = {}): Wire => {
   const v: Wire = fixtureView(NOW);
   for (const t of ['mcp:maya-0', 'mcp:sam-0', 'mcp:priya-0']) tk(v, t).feature = { id: 'p-tok', name: 'Tokens' };
-  who(v, 'maya').summary.features = [{ id: 'p-tok', name: 'Tokens', lead: 'Priya', leadAt: ago(5), list: { n: 3, closed: 3, unread: 0, at: ago(4) }, ...feature }];
+  for (const id of ['sam', 'priya']) who(v, id).summary.features = [{ id: 'p-tok', name: 'Tokens', threads: { n: 1, merged: 1 } }];
+  who(v, 'maya').summary.features = [{ id: 'p-tok', name: 'Tokens', lead: 'Priya', leadAt: ago(5), list: { n: 3, closed: 3, unread: 0, at: ago(4) }, threads: { n: 1, merged: 1 }, ...feature }];
   return v;
 };
 const calls = (v: TeamView) => { const ok = openKitchen(v, { now: NOW }); return [...ok.pass, ...ok.held]; };
@@ -52,13 +53,23 @@ test('Ready for your look stays down while any part is not done or not read (1A)
   const open = tokens();
   tk(open, 'mcp:priya-1').feature = { id: 'p-tok', name: 'Tokens' };
   assert.equal(get(open, 'ready'), undefined, 'a thread still in progress');
+  // A dev's own count, made before their summary dropped tickets to fit (PR-Agent r1 on #78).
+  const cut = tokens();
+  who(cut, 'priya').summary.features[0].threads = { n: 2, merged: 1 };
+  assert.equal(get(cut, 'ready'), undefined, 'a thread the summary dropped is not merged');
+  const none = tokens();
+  delete who(none, 'sam').summary.features[0].threads;
+  assert.equal(get(none, 'ready'), undefined, 'a dev with no count');
+  const gone = tokens();
+  who(gone, 'sam').summary.features = [];
+  assert.equal(get(gone, 'ready'), undefined, 'a dev whose summary names no count for it');
 });
 
 test('the newest read of a feature wins, from any summary', () => {
   const v = tokens({ list: { n: 4, closed: 3, unread: 0, at: ago(30) } });
   who(v, 'sam').summary.features = [{ id: 'p-tok', name: 'Tokens', lead: 'Priya', leadAt: ago(40), list: { n: 3, closed: 3, unread: 0, at: ago(2) } }];
   const f = featuresOf(v.people).get('p-tok');
-  assert.deepEqual(f, { id: 'p-tok', name: 'Tokens', lead: { name: 'Priya', at: ago(5) }, list: { n: 3, closed: 3, unread: 0, at: ago(2) } });
+  assert.deepEqual({ ...f, threads: undefined }, { id: 'p-tok', name: 'Tokens', lead: { name: 'Priya', at: ago(5) }, list: { n: 3, closed: 3, unread: 0, at: ago(2) }, threads: undefined });
   assert.equal(featuresOf([{ summary: { features: [{ id: 'a b', name: 'X' }, { id: 'ok', name: '' }] } }]).size, 0, 'bad ids and names are dropped');
 });
 
@@ -129,6 +140,13 @@ test('Blocked: a live thread waiting on something a read shows open; to the lead
   tk(v, 'mcp:elena-1').blocked = [{ id: 'bad id', title: 'x', at: ago(40) }, { id: 'ENG-1', title: 'x', at: null }];
   assert.equal(get(v, 'blocked'), undefined, 'a bad id or no read time');
   assert.doesNotMatch(page(fixtureView(NOW)), /is blocked by/);
+  // A thread with no ticket read: its feature is not checked, not "No feature" (PR-Agent r1 on #78).
+  const u: Wire = fixtureView(NOW);
+  tk(u, 'mcp:elena-1').blocked = [{ id: 'ENG-12', title: 'Payout API', at: ago(40) }];
+  delete tk(u, 'mcp:elena-1').feature;
+  assert.equal('feature' in get(u, 'blocked')!.facts, false);
+  tk(u, 'mcp:elena-1').feature = null;
+  assert.equal(get(u, 'blocked')!.facts.feature, null);
 });
 
 test('the Blocked reader names each blocker and offers Reply', () => {

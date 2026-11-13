@@ -31,7 +31,8 @@ export type DemoTicket = { thread: string; title: string; project: string; place
 export type DemoBase = { repo: string | null; branch: string | null; sha: string | null; title: string | null; committedAt: number | null; result: string | null;
   requiredResult: string | null; redSha: string | null; redSince: number | null; failing: string[]; at: number | null };
 /** One teammate's summary: summarize()'s result, with when it was made and the Mac's health. */
-export type DemoFeature = { id: string; name: string; lead?: string | null; leadAt?: number; list?: { n: number; closed: number; unread: number; at: number } };
+export type DemoFeature = { id: string; name: string; lead?: string | null; leadAt?: number; list?: { n: number; closed: number; unread: number; at: number };
+  threads: { n: number; merged: number } };
 export type DemoSummary = { v: number; tickets: DemoTicket[]; more: number; gh: string | null; bases: DemoBase[]; seen: Record<string, number>; fine: Record<string, number>;
   features: DemoFeature[]; ships: Record<string, number>;
   at: number; health: { ok: boolean | null; since: number | null } };
@@ -175,13 +176,18 @@ export function demoTeam(now: number): DemoTeam {
     const sum = [...k.title].reduce((a, ch) => a + ch.charCodeAt(0), 0);
     return { ...k, feature: DONE.has(k.thread) ? RECEIPTS : sum % 7 === 0 ? null : FEATURES[k.project as Project][sum % 2]!, ...(BLOCKED[k.thread] ? { blocked: BLOCKED[k.thread]! } : {}) };
   };
-  const features: Record<string, DemoFeature[]> = { priya: [{ ...RECEIPTS, lead: 'Priya', leadAt: ago(6), list: { n: 3, closed: 3, unread: 0, at: ago(5) } }] };
+  // What Priya's agents read of Receipts in Linear; each dev's summary counts their own threads per feature.
+  const read: Record<string, Partial<DemoFeature>> = { priya: { lead: 'Priya', leadAt: ago(6), list: { n: 3, closed: 3, unread: 0, at: ago(5) } } };
+  const featuresOf = (id: string, tickets: DemoTicket[]): DemoFeature[] => [...new Map(tickets.flatMap((k) => (k.feature ? [[k.feature.id, k.feature] as const] : []))).values()].map((f) => {
+    const on = tickets.filter((k) => k.feature?.id === f.id);
+    return { ...f, ...(f.id === RECEIPTS.id ? read[id] : {}), threads: { n: on.length, merged: on.filter((k) => k.place === 'Merged').length } };
+  });
   const people: DemoPerson[] = NAMES.map(([id, name]) => {
     const away = id === 'lee';
     const tickets = [...(story[id] ?? []), ...calm(id)].map(withFeature);
     return { id, name, role: OWNS[id] ? 'owner' : 'engineer', perms: ['see'], area: OWNS[id] ?? null, under: under[id] ?? null,
       online: !away, at: away ? ago(122) : ago(1), live: !away, notCheckedSince: away ? ago(112) : null,
-      summary: { v: 1, tickets, more: 0, gh: login(id), bases: id === 'ravi' ? [ravisBase] : [], seen: seen[id] ?? {}, fine: {}, ships: {}, features: features[id] ?? [], at: away ? ago(122) : ago(1), health: { ok: true, since: ago(600) } } };
+      summary: { v: 1, tickets, more: 0, gh: login(id), bases: id === 'ravi' ? [ravisBase] : [], seen: seen[id] ?? {}, fine: {}, ships: {}, features: featuresOf(id, tickets), at: away ? ago(122) : ago(1), health: { ok: true, since: ago(600) } } };
   });
   const me = { id: 'me', name: 'Dana', role: 'lead' as const, perms: ['see', 'reply', 'projects', 'merge', 'invite', 'rules'] as Perm[], area: null, under: null };
   return {

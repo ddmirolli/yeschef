@@ -40,7 +40,7 @@ export interface TeamState {
   /** A roster this lead signed and the relay has not confirmed: it goes again, never a new one at its version. */
   unsent?: SignedRoster;
   welcomes?: string[]; keyAskAt?: number; seenFloor?: number; clockHigh?: unknown;
-  seenCalls?: Record<string, number>; fineCalls?: Record<string, number>; shipCalls?: Record<string, number>; overAt?: Record<string, number>; summaryRev?: number; dropped?: number;
+  seenCalls?: Record<string, number>; fineCalls?: Record<string, number>; shipCalls?: Record<string, number>; overAt?: Record<string, number>; blockedAt?: Record<string, number>; summaryRev?: number; dropped?: number;
 }
 /** A member as the roster and its sealed detail give them. `under`: who they report to, or null (not checked). */
 export interface Person { id: string; sign: string; dh: string; invite: boolean; name: string; role: Role; perms: Perm[]; area: string | null; under: string | null }

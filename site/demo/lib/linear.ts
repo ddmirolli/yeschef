@@ -345,8 +345,23 @@ export function createLinearReads({ call, now = Date.now, log = () => {}, days =
   const projectView = (id: string, p: StoredProject): LinearProject => {
     const out: LinearProject = { id, name: p.name?.v ?? null };
     if (p.lead) { out.lead = p.lead.v; out.leadAt = p.lead.at; }
-    // Each ticket's status from its own newest read: a ticket done since the list was read counts as done.
-    if (p.list) { out.tickets = p.list.ids.map((t) => ({ id: t, statusType: issues.get(t)?.fields.get('statusType')?.v ?? null })); out.listAt = p.list.at; }
+    if (!p.list) return out;
+    // A ticket read in this project after the list, and not on it, proves the list is no longer whole: no list
+    // (PR-Agent r1 on #78), so Ready for your look waits for the next whole read.
+    const on = new Set(p.list.ids), list = p.list;
+    for (const [t, s] of issues) {
+      const pid = s.fields.get('projectId');
+      if (pid && pid.at > list.at && pid.v.toLowerCase() === id.toLowerCase() && !on.has(t)) return out;
+    }
+    // Each ticket's status from its own newest read: a ticket done since the list was read counts as done. The list's
+    // time is its newest read, the list's or a status's, so the freshest view wins across Macs (PR-Agent r1 on #78).
+    let at = list.at;
+    out.tickets = list.ids.map((t) => {
+      const st = issues.get(t)?.fields.get('statusType');
+      if (st && st.at > at) at = st.at;
+      return { id: t, statusType: st?.v ?? null };
+    });
+    out.listAt = at;
     return out;
   };
 
