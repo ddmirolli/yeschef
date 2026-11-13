@@ -143,6 +143,32 @@ test('a Linear call still running is read again once it has finished', async () 
   assert.equal(reads.get('ENG-30')?.status, 'In Progress');
 });
 
+test('a failed read is tried again, a long thread is read to its end, and a status keeps its own age', async () => {
+  const items: Record<string, { itemId: string; type: string; text: string; updatedAt: string }[]> = { a: [{ itemId: 'm0', type: 'user_message', text: 'x', updatedAt: at(9) }] };
+  for (let i = 1; i <= 5; i++) items.a!.push({ itemId: `u${i}`, type: 'user_message', text: 'x', updatedAt: at(9) });
+  items.a!.push({ itemId: 't1', type: 'dynamic_tool', text: claudeItem('get_issue', { id: 'ENG-40' }, issue('ENG-40')), updatedAt: at(8) });
+  // A later read of the same ticket with no status: the status keeps its first read's time.
+  items.a!.push({ itemId: 't2', type: 'dynamic_tool', text: claudeItem('get_issue', { id: 'ENG-40' }, { id: 'ENG-40', title: 'Renamed' }), updatedAt: at(2) });
+  const base = fakeT3(items);
+  let fail = true;
+  const reads = createLinearReads({ call: async (name, args = {}) => {
+    if (fail && !args.itemId) { fail = false; throw new Error('T3 is restarting'); }
+    // Two items a page and a page budget of one: the thread takes several reads.
+    return base(name, args.itemId ? args : { ...args, limit: 2 });
+  }, now: () => NOW, pages: 1 });
+  const thread = { threadId: 'a', updatedAt: at(2), itemCount: 8 };
+  reads.want([thread]);
+  for (let i = 0; i < 5; i++) await settle();
+  assert.equal(reads.get('ENG-40'), null);
+  // Same stamp: only the failure makes it read again, and it then reads on to the end by itself.
+  reads.want([thread]);
+  for (let i = 0; i < 40; i++) await settle();
+  const got = reads.get('ENG-40');
+  assert.equal(got?.title, 'Renamed');
+  assert.equal(got?.status, 'In Progress');
+  assert.equal(got?.at, Date.parse(at(8)));
+});
+
 test('a thread untouched for a week is not read back from its start', async () => {
   const calls: unknown[][] = [];
   const reads = createLinearReads({ call: fakeT3({ old: [] }, calls), now: () => NOW });

@@ -120,7 +120,7 @@ export function createLinearReads({ call, now = Date.now, log = () => {}, days =
         const had = s.fields.get(k);
         if (!had || had.at <= c.at) { if (had?.v !== v) moved = true; s.fields.set(k, { v, at: c.at, by: threadId }); }
       }
-      if (c.at >= s.at) { s.at = c.at; s.by = threadId; }
+      if (c.at > s.at || (c.at === s.at && s.by !== threadId)) { s.at = c.at; s.by = threadId; moved = true; }
       issues.set(x.id!, s);
     }
     if (c.about.length) {
@@ -147,10 +147,10 @@ export function createLinearReads({ call, now = Date.now, log = () => {}, days =
     return null;
   }
 
-  async function readThread(threadId: string): Promise<boolean> {
+  async function readThread(threadId: string): Promise<{ moved: boolean; more: boolean }> {
     const f = followed.get(threadId);
-    if (!f) return false;
-    let moved = false, at = f.next, hold: number | null = null;
+    if (!f) return { moved: false, more: false };
+    let moved = false, more = false, at = f.next, hold: number | null = null;
     for (let i = 0; i < pages; i++) {
       const page = await call('t3_thread_read', { threadId, view: 'activity', afterPosition: at, limit: 100, maxCharsPerItem: 200 }) as ReadPage | null;
       const items = Array.isArray(page?.items) ? page!.items : [];
@@ -163,21 +163,37 @@ export function createLinearReads({ call, now = Date.now, log = () => {}, days =
         const c = text ? linearCall(text, Number.isFinite(when) ? when : now()) : null;
         if (c && keep(c, threadId)) moved = true;
       }
+      const before = at;
       if (typeof page?.nextPosition === 'number' && page.nextPosition > at) at = page.nextPosition;
-      if (!page?.hasMore) break;
+      more = !!page?.hasMore && at > before;
+      if (!more) break;
     }
     f.next = hold ?? at;
-    return moved;
+    return { moved, more: more && hold === null };
   }
 
   function pump(): void {
     while (!stopped && running < concurrency && queue.length) {
       const id = queue.shift()!; queued.delete(id); running++;
-      readThread(id).then((moved) => { if (moved) for (const fn of [...listeners]) { try { fn(); } catch (ex) { log(`a Linear listener failed: ${String(ex)}`); } } },
-        (ex: unknown) => log(`Linear read of ${id} failed: ${String((ex as Error)?.message || ex).slice(0, 200)}`))
+      readThread(id).then(({ moved, more }) => {
+        if (moved) for (const fn of [...listeners]) { try { fn(); } catch (ex) { log(`a Linear listener failed: ${String(ex)}`); } }
+        // A long thread's pages ran out: read on from where this read stopped.
+        if (more && !queued.has(id)) { queued.add(id); queue.push(id); }
+      }, (ex: unknown) => {
+        // A failed read is tried again at the next want, even if the thread has not moved.
+        const f = followed.get(id); if (f) f.stamp = '';
+        log(`Linear read of ${id} failed: ${String((ex as Error)?.message || ex).slice(0, 200)}`);
+      })
         .finally(() => { running--; pump(); });
     }
   }
+
+  // A ticket as shown: at and by are the status's own read when there is one, so an old status never wears a new age.
+  const view = (id: string, s: Stored): LinearIssue => {
+    const f = (k: keyof LinearIssue) => s.fields.get(k)?.v ?? null;
+    const st = s.fields.get('status');
+    return { id, title: f('title'), status: f('status'), statusType: f('statusType'), url: f('url'), assignee: f('assignee'), at: st?.at ?? s.at, by: st?.by ?? s.by };
+  };
 
   return {
     want(threads) {
@@ -215,15 +231,12 @@ export function createLinearReads({ call, now = Date.now, log = () => {}, days =
           const twin = [...issues.values()].map((x) => x.fields.get('url')?.v).find((u) => u && u.includes(`/issue/${id.split('-')[0]}-`));
           return { state: 'not-checked', id, url: twin ? twin.replace(/\/issue\/.*$/, `/issue/${id}`) : null };
         }
-        const f = (k: keyof LinearIssue) => s.fields.get(k)?.v ?? null;
-        return { state: 'read', id, title: f('title'), status: f('status'), statusType: f('statusType'), url: f('url'), assignee: f('assignee'), at: s.at, by: s.by };
+        return { state: 'read', ...view(id, s) };
       });
     },
     get(id) {
       const s = issues.get(id);
-      if (!s) return null;
-      const f = (k: keyof LinearIssue) => s.fields.get(k)?.v ?? null;
-      return { id, title: f('title'), status: f('status'), statusType: f('statusType'), url: f('url'), assignee: f('assignee'), at: s.at, by: s.by };
+      return s ? view(id, s) : null;
     },
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
     stop() { stopped = true; queue.length = 0; queued.clear(); },
