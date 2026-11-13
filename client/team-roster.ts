@@ -287,20 +287,32 @@ export const roster = {
     return this.pushRoster(this.current(), this.areas.filter((a) => a.id !== id));
   },
 
+  /** One Rules change, read and signed inside the roster lock from the team as the edit before it left it, so quick
+   *  changes in Settings build on each other instead of the second one finding the team changed (PR-Agent r1 on #69). */
+  async editRules(make: () => { areas?: Area[]; rules?: TeamRules; error?: string }): Promise<Reply> {
+    const next = this.rosterLock.then(() => {
+      const out = make();
+      if (out.error) return { t: 'err', code: 'bad', text: out.error } satisfies Reply;
+      return this.pushRosterNow(this.current(), out.areas ?? this.areas, out.rules ?? this.rules);
+    });
+    this.rosterLock = next.catch(() => {});
+    return next;
+  },
   /** The lead changes one team Rule (Settings -> Rules): { key, value } as the page sends them. */
   async setTeamRule(key: string, value: string): Promise<Reply> {
-    const out = changeTeamRule(this.rules, key, value);
-    if (!out.rules) return { t: 'err', code: 'bad', text: out.error || 'Not changed.' };
-    return this.pushRoster(this.current(), this.areas, out.rules);
+    return this.editRules(() => {
+      const out = changeTeamRule(this.rules, key, value);
+      return out.rules ? { rules: out.rules } : { error: out.error || 'Not changed.' };
+    });
   },
   /** The lead changes an area's mode or budget, or puts a project in it or takes one out. */
   async setArea(id: string, field: string, value: string, on?: boolean): Promise<Reply> {
-    const a = this.areas.find((x) => x.id === id);
-    if (!a) return { t: 'err', code: 'bad', text: 'That area is not on the team.' };
-    const out = changeArea(a, field, value, on);
-    const next = out.area;
-    if (!next) return { t: 'err', code: 'bad', text: out.error || 'Not changed.' };
-    return this.pushRoster(this.current(), this.areas.map((x) => (x.id === id ? next : x)));
+    return this.editRules(() => {
+      const a = this.areas.find((x) => x.id === id);
+      if (!a) return { error: 'That area is not on the team.' };
+      const next = changeArea(a, field, value, on).area;
+      return next ? { areas: this.areas.map((x) => (x.id === id ? next : x)) } : { error: changeArea(a, field, value, on).error || 'Not changed.' };
+    });
   },
 
   /** The links of the open invites this Mac can read, to show and copy again. */

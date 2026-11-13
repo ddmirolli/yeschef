@@ -9,7 +9,7 @@ import { brigadeItems, drawBrigade, groupOfIn, treeOf } from './brigade.ts';
 import type { Fit } from './flow.ts';
 import type { FlowItem, FlowStage } from './flow.ts';
 import { openKitchen, kitchenBoard, KINDS, may, areaOf, below } from './open-kitchen.ts';
-import { callRules, cleanAreaRules, cleanTeamRules, teamMode, CHOICES } from './team-rules.ts';
+import { callRules, cleanAreaRules, cleanTeamRules, projectName, teamMode, CHOICES } from './team-rules.ts';
 import type { Call, Shot } from './calls.ts';
 import type { RunsEntry, WaitEntry } from './you.ts';
 import type { ChangedFile, CheckRun, Me, OpenKitchen, Person, PersonState, Side, TeamAsk, TeamCall, TeamChanges, TeamPr, TeamView } from './open-kitchen.ts';
@@ -1341,7 +1341,7 @@ export function teamRulesRows(view: TeamView, projects: readonly Pick<Project, '
   const people = Array.isArray(view.people) ? view.people as { id?: unknown; name?: unknown; role?: unknown; area?: unknown }[] : [];
   const areas = (Array.isArray(view.areas) ? view.areas as { id?: unknown; name?: unknown; projects?: unknown; mode?: unknown; budget?: unknown }[] : [])
     .filter((a): a is { id: string; name: string; projects?: unknown; mode?: unknown; budget?: unknown } => typeof a?.id === 'string' && typeof a.name === 'string').map((a) => ({ ...a, ...cleanAreaRules(a) }));
-  const names = [...new Set([...projects.map((p) => p.title).filter((x): x is string => typeof x === 'string' && !!x), ...areas.flatMap((a) => a.projects)])].sort((a, b) => a.localeCompare(b));
+  const names = [...new Set([...projects.map((p) => projectName(p.title)).filter(Boolean), ...areas.flatMap((a) => a.projects)])].sort((a, b) => a.localeCompare(b));
   const area = (a: (typeof areas)[number]) => {
     // The area's owner: its first Area owner, as the chart reads it (team-roster.ts chartUnder).
     const owner = people.find((p) => p.role === 'owner' && p.area === a.id);

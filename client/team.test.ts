@@ -15,6 +15,7 @@ import type { ThreadRow } from './contracts.ts';
 import type { Health, OwnSummary, PrIn } from './team-summaries.ts';
 import type { TeamView } from './open-kitchen.ts';
 import type { ViewPerson } from './team.ts';
+import { areaScopes } from './team-rules.ts';
 import type { Hello, InboxRow, InviteRow, PendingRow } from '../relay/room.ts';
 import type { SignedRoster } from './seal.ts';
 import type { Board, Ticket } from './board.ts';
@@ -1155,6 +1156,22 @@ test('areas travel sealed in the roster: names and each member\'s area reach the
   await until(() => dev.areas.length === 1, 'the area gone');
   assert.equal(dev.me!.area, null);
   assert.equal(dev.me!.role, 'engineer');
+  lead.stop(); dev.stop();
+});
+
+test('Rules changes that cross build on each other, and a project keeps one name from chip to launch (PR-Agent r1 on #69)', async () => {
+  const { lead, dev } = await crew();
+  assert.equal((await lead.addArea('Shared code')).t, 'ok');
+  const id = lead.areas[0]!.id;
+  // Two chips and a switch at once, as quick clicks in Settings send them: each reads the team the one before left.
+  const quick = await Promise.all([lead.setArea(id, 'project', 'web', true), lead.setArea(id, 'project', 'Core  UI', true), lead.setTeamRule('checks', 'on')]);
+  assert.deepEqual(quick.map((r) => r.t), ['ok', 'ok', 'ok']);
+  assert.deepEqual(lead.areas[0]!.projects, ['web', 'Core UI']);
+  assert.equal(lead.rules.checks, true);
+  await until(() => dev.rules.checks && dev.areas[0]?.projects.length === 2, 'both at the dev');
+  // A launch of "Core  UI" finds the area its chip saved as "Core UI".
+  assert.deepEqual(areaScopes(dev.areas, 'Core  UI'), [`area:${id}`]);
+  assert.equal((await lead.setArea('nope', 'mode', 'open')).code, 'bad');
   lead.stop(); dev.stop();
 });
 

@@ -103,7 +103,7 @@ export function changeArea(area: AreaRules, field: string, value: string, on?: b
   if (field === 'mode') return value === 'open' || value === 'brigade' ? { area: { ...area, mode: value } } : { error: 'That is not one of the modes.' };
   if (field === 'budget') { const n = Number(value); return (CHOICES.budget as readonly number[]).includes(n) ? { area: { ...area, budget: n } } : { error: 'That is not one of the choices.' }; }
   if (field === 'project') {
-    const name = clean(value, PROJECT_NAME);
+    const name = projectName(value);
     if (!name) return { error: 'That project has no name.' };
     const rest = area.projects.filter((p) => p !== name);
     if (on && rest.length >= AREA_PROJECTS) return { error: `An area holds up to ${AREA_PROJECTS} projects.` };
@@ -125,8 +125,15 @@ export function teamMode(areas: readonly { mode?: unknown }[] | null | undefined
   return (areas || []).some((a) => a?.mode === 'brigade') ? 'brigade' : 'open';
 }
 
+/** A project's name as an area keeps it: what a chip shows, what a save stores and what a launch looks up are one
+ *  name, so a title with doubled spaces or past 80 characters still finds its areas (PR-Agent r1 on #69). */
+export function projectName(name: unknown): string {
+  return clean(name, PROJECT_NAME);
+}
+
 /** The "Applies to" scopes of a project: each area it is in, in the team's order, as kitchen rules keys ("area:<id>"). */
-export function areaScopes(areas: readonly { id: string; projects?: readonly string[] }[] | null | undefined, projectName: string | null | undefined): string[] {
-  if (!projectName) return [];
-  return (areas || []).filter((a) => a.projects?.includes(projectName)).map((a) => `area:${a.id}`);
+export function areaScopes(areas: readonly { id: string; projects?: readonly string[] }[] | null | undefined, title: string | null | undefined): string[] {
+  const name = projectName(title);
+  if (!name) return [];
+  return (areas || []).filter((a) => a.projects?.includes(name)).map((a) => `area:${a.id}`);
 }
