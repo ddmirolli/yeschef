@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 540 250" preserveAspectRatio="xMidYMid slice">
+  <!-- /download's Nightly sky (Dan, 2026-11-13: match t3.codes/download?channel=nightly). The Nightly icon's purples
+       (yeschef-icon-nightly.svg, #4A3AB8 to #1C1458), its four-point stars, and two soft cloud banks low in the
+       corners, blurred as on t3.codes. Shaped for the whole download section, nav included, so it is taller than T3's. -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="540" y2="250" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0A0B2A"/>
+      <stop offset="0.5" stop-color="#1C1458"/>
+      <stop offset="1" stop-color="#2E1F7A"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(440 20) rotate(155) scale(260 150)">
+      <stop stop-color="#6A5AE0" stop-opacity="0.42"/>
+      <stop offset="0.55" stop-color="#4A3AB8" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#1C1458" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="cloud" x1="0" y1="150" x2="540" y2="250" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3D8BFF" stop-opacity="0.55"/>
+      <stop offset="0.5" stop-color="#6A5AE0" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#A26BF0" stop-opacity="0.55"/>
+    </linearGradient>
+    <filter id="soft" x="-30" y="100" width="600" height="180" filterUnits="userSpaceOnUse">
+      <feGaussianBlur stdDeviation="5"/>
+    </filter>
+    <path id="star" d="M0 -4Q0 0 4 0Q0 0 0 4Q0 0 -4 0Q0 0 0 -4Z"/>
+  </defs>
+  <rect width="540" height="250" fill="url(#sky)"/>
+  <rect width="540" height="250" fill="url(#glow)"/>
+  <g fill="#fff">
+    <use href="#star" transform="translate(58 34) scale(0.85)" opacity="0.85"/>
+    <use href="#star" transform="translate(132 92) scale(0.5)" opacity="0.55"/>
+    <use href="#star" transform="translate(196 26) scale(0.65)" opacity="0.75"/>
+    <use href="#star" transform="translate(352 44) scale(0.6)" opacity="0.65"/>
+    <use href="#star" transform="translate(462 96) scale(0.8)" opacity="0.8"/>
+    <use href="#star" transform="translate(504 30) scale(0.5)" opacity="0.55"/>
+    <circle cx="24" cy="70" r="0.6" opacity="0.6"/>
+    <circle cx="98" cy="18" r="0.5" opacity="0.5"/>
+    <circle cx="168" cy="58" r="0.45" opacity="0.5"/>
+    <circle cx="300" cy="14" r="0.5" opacity="0.6"/>
+    <circle cx="404" cy="22" r="0.6" opacity="0.6"/>
+    <circle cx="420" cy="70" r="0.45" opacity="0.45"/>
+    <circle cx="528" cy="62" r="0.5" opacity="0.5"/>
+  </g>
+  <g filter="url(#soft)">
+    <path d="M-20 250V214C-20 196 -6 182 12 182C18 164 34 152 54 152C74 152 90 164 96 182C102 176 112 172 122 172C142 172 158 188 158 208C170 210 180 220 182 232C190 234 196 242 198 250Z" fill="url(#cloud)"/>
+    <path d="M360 250C362 234 374 222 390 220C394 200 412 186 434 186C456 186 474 200 478 220C492 220 504 228 508 240C524 238 540 242 556 250Z" fill="url(#cloud)" opacity="0.85"/>
+  </g>
+</svg>
