@@ -1126,6 +1126,8 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   }
   function trSet(el: HTMLInputElement): void {
     var enc = encodeURIComponent;
+    // Its rows follow the switch at once; a refused save draws them back.
+    if (el.dataset.tr === 'checks') $$('#kr-team [data-row=t-comparesDay], #kr-team [data-row=t-dupAt]').forEach(function(r){ r.classList.toggle('kr-off', !el.checked); });
     trSave(el.dataset.tr ? 'op=teamRule&key=' + enc(el.dataset.tr) + '&value=' + enc(el.type === 'checkbox' ? (el.checked ? 'on' : 'off') : el.value)
       : 'op=areaRule&id=' + enc(el.dataset.taId || '') + '&field=' + enc(el.dataset.ta || '') + '&value=' + enc(el.value));
   }
