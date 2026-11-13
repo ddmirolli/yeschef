@@ -27,6 +27,7 @@ import { createKeys, createLive } from './t3live.ts';
 import { boardThreads, changeTargets, githubTargets } from './shells.ts';
 import { createChanges } from './changes.ts';
 import { createBaseChecks, createPrSizes, ghGet, prKey, readBaseFacts, readPrFacts } from './github.ts';
+import { createLinearReads } from './linear.ts';
 import { loginOf } from './reviewers.ts';
 import { buildBoard, renderApp, kitchenPane, pickedFrom, teamInputOf, ICON } from './board.ts';
 import { fitFrom } from './flow.ts';
@@ -232,6 +233,11 @@ const changes = createChanges({ log: (m) => console.log(m) });
 // readers use baseChecks.get(threadId) and prSizes.get(prKey({ host, repo, number })), and subscribe(fn) on each.
 const baseChecks = createBaseChecks({ log: (m) => console.log(m), read: (a) => readBaseFacts(a) });
 const prSizes = createPrSizes({ log: (m) => console.log(m), read: (a) => readPrFacts(a) });
+// Linear tickets from the Linear MCP calls the agents already made in T3 (client/linear.ts; Dan, 2026-11-13: each
+// call fired once). It reads the threads' tool items through T3, never Linear, and only when a thread gets new items.
+// New reads rebuild the board, so a reader shows them.
+const linear = createLinearReads({ call: (name, args) => tool(name, args ?? {}), log: (m) => console.log(m) });
+linear.subscribe(() => refreshSoon());
 
 // Run times for the You view (Dan, 2026-11-10): each thread that ran today, read once per run state. t3_thread_read
 // lists a thread's recent runs with their start and end times (runLimit, read on 2026-11-10). A read that fails, or
@@ -313,6 +319,8 @@ async function refresh(): Promise<void> {
       }
     }
     const threads = [...byId.values()];
+    // Every thread on the stream, subagents too: a station's Linear read counts for its ticket.
+    linear.want([...shells.values()].map((s) => ({ threadId: s.id, title: s.title, branch: s.branch ?? null, updatedAt: s.updatedAt, itemCount: s.visibleItemCount })));
     // Pending questions: T3 lists them per thread, and a thread that waits on one still reads "running".
     // Ask for every top-level thread that is not settled and has a run going, plus any marked waiting, but only
     // when its shell says a request is pending, and only again when that request or the thread changes.
@@ -345,6 +353,7 @@ async function refresh(): Promise<void> {
     if (live.generation() !== generation) throw new Error('T3 Code sent a new snapshot during this update; reading it again');
     const waits = trackWaits(waitLog, threads, questions, t0);
     board = buildBoard({ projects, threads, questions, lastWords: words, runs, waits });
+    for (const k of board.tickets) k.linear = linear.forThreads(k.crew.map((t) => ({ threadId: t.threadId, title: t.title, branch: shells.get(t.threadId)?.branch ?? null, updatedAt: t.updatedAt })));
     shotFiles = new Map(board.tickets.flatMap((k) => [k.lastWords, k.call?.text]).filter(Boolean)
       .flatMap((text) => imagesIn(text)).filter((im) => !/^https:/i.test(im.src)).map((im) => [imageId(im.src), im.src] as const));
     status = { ok: true, at: Date.now(), ms: Date.now() - t0 };
