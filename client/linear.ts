@@ -16,7 +16,9 @@ import type { T3Caller } from './contracts.ts';
 export type LinearTool = 'get_issue' | 'list_issues' | 'save_issue' | 'get_project' | 'list_projects';
 /** A ticket that blocks another (Linear's "blocked by"), as the read gave it: its id and title. open: true when a read
  *  shows it is not done, false when one shows it done, null when no read of it says (not checked). */
-export interface Blocker { id: string; title: string | null; open: boolean | null }
+export interface Blocker { id: string; title: string | null; open: boolean | null;
+  /** When the read that gave open happened (left out with open null). */
+  openAt?: number }
 /** A ticket as Yes Chef shows it: each field from the newest read that had it. at: when that newest read happened. */
 export interface LinearIssue {
   id: string; title: string | null; status: string | null; statusType: string | null; url: string | null;
@@ -32,6 +34,8 @@ export interface LinearIssue {
  *  said. tickets: every ticket in it, from one whole list read (listAt), left out when there was none. */
 export interface LinearProject {
   id: string; name: string | null; lead?: string | null; leadAt?: number; tickets?: { id: string; statusType: string | null }[]; listAt?: number;
+  /** When a read showed a ticket in the project that the whole list, read before it, lacks: the list is no longer whole. */
+  listGone?: number;
 }
 /** What one project read gave: from get_project or list_projects. */
 export interface ProjectRead { id: string; name: string | null; lead?: string | null }
@@ -336,8 +340,8 @@ export function createLinearReads({ call, now = Date.now, log = () => {}, days =
       try { pairs = JSON.parse(bb); } catch { pairs = null; }
       out.blockedBy = (Array.isArray(pairs) ? pairs : []).flatMap((x): Blocker[] => {
         if (!Array.isArray(x) || typeof x[0] !== 'string') return [];
-        const t = issues.get(x[0])?.fields.get('statusType')?.v;
-        return [{ id: x[0], title: typeof x[1] === 'string' ? x[1] : null, open: t ? !CLOSED.has(t) : null }];
+        const t = issues.get(x[0])?.fields.get('statusType');
+        return [{ id: x[0], title: typeof x[1] === 'string' ? x[1] : null, ...(t ? { open: !CLOSED.has(t.v), openAt: t.at } : { open: null }) }];
       });
     }
     return out;
@@ -348,20 +352,19 @@ export function createLinearReads({ call, now = Date.now, log = () => {}, days =
     if (!p.list) return out;
     // A ticket read in this project after the list, and not on it, proves the list is no longer whole: no list
     // (PR-Agent r1 on #78), so Ready for your look waits for the next whole read.
+    // Its time goes with the summary, so a teammate's older whole list cannot stand in for it (PR-Agent r2 on #78).
     const on = new Set(p.list.ids), list = p.list;
+    let gone = 0;
     for (const [t, s] of issues) {
       const pid = s.fields.get('projectId');
-      if (pid && pid.at > list.at && pid.v.toLowerCase() === id.toLowerCase() && !on.has(t)) return out;
+      if (pid && pid.at > list.at && pid.v.toLowerCase() === id.toLowerCase() && !on.has(t)) gone = Math.max(gone, pid.at);
     }
-    // Each ticket's status from its own newest read: a ticket done since the list was read counts as done. The list's
-    // time is its newest read, the list's or a status's, so the freshest view wins across Macs (PR-Agent r1 on #78).
-    let at = list.at;
-    out.tickets = list.ids.map((t) => {
-      const st = issues.get(t)?.fields.get('statusType');
-      if (st && st.at > at) at = st.at;
-      return { id: t, statusType: st?.v ?? null };
-    });
-    out.listAt = at;
+    if (gone) { out.listGone = gone; return out; }
+    // Each ticket's status from its own newest read: a ticket done since the list was read counts as done. listAt is
+    // when the list itself was read: across Macs the newest whole list wins, never an older one with newer statuses
+    // (PR-Agent r2 on #78).
+    out.tickets = list.ids.map((t) => ({ id: t, statusType: issues.get(t)?.fields.get('statusType')?.v ?? null }));
+    out.listAt = list.at;
     return out;
   };
 

@@ -65,6 +65,27 @@ test('Ready for your look stays down while any part is not done or not read (1A)
   assert.equal(get(gone, 'ready'), undefined, 'a dev whose summary names no count for it');
 });
 
+test('a whole list counts only from a reporting Mac, and not once a newer read showed it no longer whole (PR-Agent r2 on #78)', () => {
+  // Sam's Mac saw a ticket in Tokens after its own list: Maya's older list no longer counts.
+  const stale = tokens();
+  who(stale, 'sam').summary.features[0].listGone = ago(3);
+  assert.equal(get(stale, 'ready'), undefined);
+  assert.equal(featuresOf(stale.people).get('p-tok')!.list, undefined);
+  const older = tokens();
+  who(older, 'sam').summary.features[0].listGone = ago(10);
+  assert.ok(get(older, 'ready'), 'a list read after it stands');
+  // Maya's Mac is quiet: her list and lead are old, so nothing rises.
+  const quiet = tokens();
+  who(quiet, 'maya').at = NOW - 3 * 60 * MIN;
+  who(quiet, 'maya').online = false;
+  who(quiet, 'maya').live = false;
+  delete who(quiet, 'maya').lastSeen;
+  // Quiet means offline with an agent at work (open-kitchen.ts reporting()).
+  who(quiet, 'maya').summary.tickets.push({ ...tk(quiet, 'mcp:maya-0'), thread: 'mcp:maya-w', place: 'In progress', working: 1, prs: [], feature: { id: 'other', name: 'Other' } });
+  assert.equal(openKitchen(quiet, { now: NOW }).people.find((p) => p.id === 'maya')!.reporting, false);
+  assert.equal(get(quiet, 'ready'), undefined);
+});
+
 test('the newest read of a feature wins, from any summary', () => {
   const v = tokens({ list: { n: 4, closed: 3, unread: 0, at: ago(30) } });
   who(v, 'sam').summary.features = [{ id: 'p-tok', name: 'Tokens', lead: 'Priya', leadAt: ago(40), list: { n: 3, closed: 3, unread: 0, at: ago(2) } }];
@@ -133,7 +154,7 @@ test('Blocked: a live thread waiting on something a read shows open; to the lead
   assert.deepEqual(c.who, ['elena']);
   assert.equal(c.since, ago(40));
   assert.deepEqual(c.reach, { lead: true, why: 'unseen', min: 30 });
-  assert.equal(c.id, callId('blocked', 'mcp:elena-1:ENG-12,acme/quillo#9', null));
+  assert.equal(c.id, callId('blocked', 'mcp:elena-1:ENG-12,acme/quillo#9', ago(40)), 'the wait\'s start is in the id (PR-Agent r2 on #78)');
   assert.equal(calls(v).filter((x) => x.kind === 'blocked').length, 1, 'a merged thread raises nothing');
   tk(v, 'mcp:elena-1').blocked = [{ id: 'ENG-12', title: 'Payout API', at: ago(10) }];
   assert.deepEqual(get(v, 'blocked')!.reach, { lead: false }, 'held by the dev for 30 minutes');

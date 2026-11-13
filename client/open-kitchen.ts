@@ -49,6 +49,8 @@ export interface TeamTicket { thread: string | null; title: string | null; proje
 /** A feature as the teammates' summaries read it (step 7 PR 2): its Linear project's lead and whole ticket list, each
  *  from the newest read any summary sent. Left out: no read said. */
 export interface TeamFeature { id: string; name: string; lead?: { name: string | null; at: number }; list?: { n: number; closed: number; unread: number; at: number };
+  /** The newest time a read showed a whole list was no longer whole: an older list does not count. */
+  listGone?: number;
   /** Each dev's own count of their threads on it, and how many are merged (person id -> counts). */
   threads?: Record<string, { n: number; merged: number }> }
 /** A base branch a teammate's Mac read, cleaned (cleanBase). */
@@ -157,18 +159,23 @@ const blockedIn = (v: unknown): TeamTicket['blocked'] => arr(v).flatMap((b) => {
   const id = str(b.id), at = ms(b.at), title = line(b.title, 120);
   return id && BLOCKER.test(id) && at !== null ? [{ id, title, at }] : [];
 }).slice(0, 5);
-/** Each feature the summaries name, with the newest read of its lead and of its whole ticket list (step 7 PR 2). */
-export function featuresOf(people: readonly { id?: unknown; summary?: unknown }[]): Map<string, TeamFeature> {
+/** Each feature the summaries name, with the newest read of its lead and of its whole ticket list (step 7 PR 2). The
+ *  lead and the list come only from Macs that live(p) says are reporting: a quiet Mac's reads are old (PR-Agent r2 on
+ *  #78). Every Mac's thread counts stand, so a quiet dev's open thread still keeps a feature from Ready. */
+export function featuresOf(people: readonly { id?: unknown; summary?: unknown }[], live: (p: { id?: unknown; summary?: unknown }) => boolean = () => true): Map<string, TeamFeature> {
   const out = new Map<string, TeamFeature>();
   for (const p of people) for (const f of arr(obj(p.summary)?.features)) {
     const id = str(f.id)?.trim() ?? '', name = str(f.name)?.trim() ?? '';
     if (!/^[A-Za-z0-9-]{1,64}$/.test(id) || !name || name.length > 80) continue;
     const had = out.get(id) ?? { id, name };
-    const leadAt = ms(f.leadAt);
+    const ok = live(p);
+    const leadAt = ok ? ms(f.leadAt) : null;
     if (leadAt !== null && (f.lead === null || (typeof f.lead === 'string' && f.lead.trim())) && (!had.lead || had.lead.at < leadAt)) {
       had.lead = { name: typeof f.lead === 'string' ? f.lead.trim().slice(0, 80) : null, at: leadAt };
     }
-    const l = obj(f.list), n = num(l?.n), closed = num(l?.closed), unread = num(l?.unread), at = ms(l?.at);
+    const gone = ok ? ms(f.listGone) : null;
+    if (gone !== null && (had.listGone === undefined || had.listGone < gone)) had.listGone = gone;
+    const l = ok ? obj(f.list) : null, n = num(l?.n), closed = num(l?.closed), unread = num(l?.unread), at = ms(l?.at);
     if (n !== null && closed !== null && unread !== null && at !== null && [n, closed, unread].every((x) => Number.isInteger(x) && x >= 0) && closed + unread <= n
       && (!had.list || had.list.at < at)) had.list = { n, closed, unread, at };
     const t = obj(f.threads), tn = num(t?.n), tm = num(t?.merged);
@@ -177,6 +184,8 @@ export function featuresOf(people: readonly { id?: unknown; summary?: unknown }[
     }
     out.set(id, had);
   }
+  // A whole list older than a read that showed it no longer whole does not count, from whichever Mac.
+  for (const f of out.values()) if (f.list && f.listGone !== undefined && f.list.at < f.listGone) delete f.list;
   return out;
 }
 // A name as people write it, for matching a Linear lead to a teammate: case and spaces aside.
@@ -440,7 +449,9 @@ function blockedCalls(tickets: readonly Entry[]): Detected[] {
   for (const { k, p, live } of tickets) {
     if (!live || !k.blocked.length || k.place === 'Merged') continue;
     const since = Math.min(...k.blocked.map((b) => b.at));
-    out.push({ id: callId('blocked', `${k.thread}:${k.blocked.map((b) => b.id).sort().join(',')}`, null), kind: 'blocked', subject: k.thread, since, who: [p.id], thread: k.thread,
+    // The wait's start is in the id: a blocker that clears and comes back is a new call, so old Seen and It's fine
+    // marks do not carry over (PR-Agent r2 on #78).
+    out.push({ id: callId('blocked', `${k.thread}:${k.blocked.map((b) => b.id).sort().join(',')}`, since), kind: 'blocked', subject: k.thread, since, who: [p.id], thread: k.thread,
       project: k.project, prs: arr(k.prs).filter((pr) => pr.state === 'open').slice(0, 1), holds: 1, facts: { blockers: k.blocked, ticket: k, ...(k.feature !== undefined ? { feature: k.feature } : {}) } });
   }
   return out;
@@ -539,7 +550,7 @@ export function openKitchen(view: TeamView | null | undefined, { now = Date.now(
   // Everyone on the team once, me included (the roster lists me too), for matching a Linear lead by name.
   const members = [...new Map([...arr(view.people).filter((p): p is Raw & { id: string } => typeof p.id === 'string').map((p) => [p.id, { id: p.id, name: p.name }] as const),
     ...(typeof view.me?.id === 'string' ? [[view.me.id, { id: view.me.id, name: view.me.name }] as const] : [])]).values()];
-  const features = featuresOf(people);
+  const features = featuresOf(people, (p) => (p as Person).reporting === true);
   const detected = [...mainBroken(tickets, bases), ...overlap(tickets), ...failing(tickets, rules), ...stuck(tickets, now, rules), ...waiting(tickets, now, rules), ...tooBig(tickets, rules),
     ...readyCalls(tickets, features, members), ...blockedCalls(tickets)];
   const byId = new Map(people.map((p) => [p.id, p]));

@@ -66,7 +66,9 @@ export type SummaryFeature = { id: string; name: string; lead?: string | null; l
   list?: { n: number; closed: number; unread: number; at: number };
   /** This dev's threads on it, and how many are merged, counted before the summary drops tickets to fit: a thread the
    *  relay never carries still keeps the feature from Ready (PR-Agent r1 on #78). */
-  threads: { n: number; merged: number } };
+  threads: { n: number; merged: number };
+  /** When a read showed the newest whole list this Mac had is no longer whole (PR-Agent r2 on #78). */
+  listGone?: number };
 const FEATURES_MAX = 50, BLOCKERS_MAX = 5;
 /** A PR's size as the summary sends it. */
 export type SummarySize = { files: number | null; added: number | null; removed: number | null; at: number | null; overAt?: number };
@@ -519,7 +521,9 @@ export function summarize(board: Pick<Board, 'tickets'> | null | undefined, shar
     if (f !== undefined) t.feature = f && { id: f.id, name: clean(f.name, 80) };
     // Blocked (3C, 2026-11-13): a Linear "blocked by" ticket a read shows still open. One whose status no read gave is
     // not checked, so it raises nothing. at: when the relation was read.
-    const blocked = (k.linear || []).flatMap((l) => (l.state === 'read' ? (l.blockedBy || []).filter((b) => b.open === true).map((b) => ({ id: b.id, title: b.title ? clean(b.title, 120) : null, at: l.at })) : []));
+    // at: the later of that read and the blocker's open read, so a blocker that reopens starts a new wait (PR-Agent r2 on #78).
+    const blocked = (k.linear || []).flatMap((l) => (l.state === 'read' ? (l.blockedBy || []).filter((b) => b.open === true)
+      .map((b) => ({ id: b.id, title: b.title ? clean(b.title, 120) : null, at: Math.max(l.at, Number.isFinite(b.openAt) ? b.openAt! : 0) })) : []));
     // And an open PR whose description says it waits on an issue or PR that GitHub shows open ("owner/repo#N").
     for (const [i, p] of k.prs.entries()) {
       if (p.state !== 'open') continue;
@@ -563,7 +567,7 @@ export function summarize(board: Pick<Board, 'tickets'> | null | undefined, shar
     if (p?.tickets && Number.isFinite(p.listAt)) {
       out.list = { n: p.tickets.length, closed: p.tickets.filter((x) => x.statusType !== null && CLOSED.has(x.statusType)).length,
         unread: p.tickets.filter((x) => x.statusType === null).length, at: p.listAt! };
-    }
+    } else if (Number.isFinite(p?.listGone)) out.listGone = p!.listGone!;
     features.push(out);
   }
   // gh: this Mac's GitHub login, or null when gh's sign-in was not read (not checked).
