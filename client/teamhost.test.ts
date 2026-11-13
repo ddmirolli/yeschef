@@ -12,6 +12,7 @@ import type { TeamStore } from './teamhost.ts';
 import type { TeamState, View } from './team.ts';
 import type { ActInput } from './actions.ts';
 import type { Board, Ticket } from './board.ts';
+import { renderApp, teamInputOf } from './board.ts';
 import type { LinkRow, PageOptions, ProjectRow } from './teamui.ts';
 import { grab, nth } from './test/expect.ts';
 
@@ -35,9 +36,11 @@ const rows = projects as ProjectRow[];
 
 function host(relay: FakeRelay, net: FakeNet, store: Store = { saved: [], load: () => null, save(s) { this.saved.push(s && structuredClone(s)); } }) {
   const ran: ActInput[] = [];
+  let changes = 0;
   const h = teamHost({ store, net, now: () => relay.now(), projectsOf: () => projects, t3Ok: () => true,
-    boardOf: () => ({ board: { tickets: [] as Ticket[] } as Board, ok: true, at: relay.now() }), run: async (input) => { ran.push(input); return { status: 200, text: 'ok' }; } });
-  return { h, store, ran, page: (path = '/team') => h.route(new URL(path, 'http://x'))!.body };
+    boardOf: () => ({ board: { tickets: [] as Ticket[] } as Board, ok: true, at: relay.now() }), run: async (input) => { ran.push(input); return { status: 200, text: 'ok' }; },
+    changed: () => { changes++; } });
+  return { h, store, ran, changes: () => changes, page: (path = '/team') => h.route(new URL(path, 'http://x'))!.body };
 }
 const body = (html: string): string => nth(nth(html.split('<div id="yc-team">'), 1).split('<dialog'), 0);
 
@@ -102,6 +105,41 @@ test('approve into an area: the dev\'s page says the role and the area, and the 
   // The dev's switches save at once and stop sharing empties the list.
   assert.equal((await dev.h.act({ op: 'share', shared: '' })).status, 200);
   assert.deepEqual(dev.h.view() && dev.store.saved.at(-1)!.shared, []);
+  lead.h.stop(); dev.h.stop();
+});
+
+test('the app draws Your team from the relay: the lead once someone is below them, never the dev (PR D)', async () => {
+  const { lead, dev, link } = await pair();
+  // As the server reads it (server.ts teamView, then teamInputOf).
+  const asApp = (v: View | null) => teamInputOf(v && { ...v, me: { ...v.me, id: v.me.id ?? null } }, Date.now());
+  // A lead alone, or with only an ask, has no one below: the app shows their own threads only.
+  assert.equal(asApp(lead.h.view()), null);
+  await dev.h.act({ op: 'join', link: nth(link.split('#'), 1), name: 'Ada Lovelace', shared: 'p-app' });
+  await until(() => lead.h.view()?.pending.length === 1, 'the ask');
+  assert.equal(asApp(lead.h.view()), null);
+  const asked = lead.changes();
+  const r = await lead.h.act({ op: 'approve', m: nth(lead.h.view()!.pending, 0).m, role: 'engineer', perms: 'see' });
+  assert.equal(r.status, 200, r.text);
+  await until(() => dev.h.view()?.status === 'member', 'the dev in');
+  assert.ok(lead.changes() > asked, 'the roster change reached the server');
+  const t = asApp(lead.h.view());
+  assert.ok(t);
+  assert.equal(t.mode, 'open', 'every area starts in Open kitchen (Dan, 3A)');
+  assert.equal(t.name, 'Fernpay');
+  assert.equal(asApp(dev.h.view()), null, 'the dev has no one below them');
+  // The dev's board goes to the lead as a summary: the lead's server hears of it, and Your team draws Ada from it.
+  const before = lead.changes();
+  dev.h.board({ tickets: [] as Ticket[] } as Board);
+  await until(() => lead.changes() > before && lead.h._team()?.summaries.size === 1, 'the summary at the lead');
+  const html = renderApp({ board: { tickets: [], runsChecked: false }, link: () => 'x', status: { ok: true, at: Date.now(), ms: 1 },
+    origin: 'https://t3.example', team: asApp(lead.h.view()) });
+  assert.match(html, /<script type="application\/json" id="yc-team">\{"name":"Fernpay","below":1,"mode":"open"\}<\/script>/);
+  assert.match(html, /Ada Lovelace/);
+  // Leaving reaches the server too, and the dev's next page has no team.
+  const left = dev.changes();
+  assert.equal((await dev.h.act({ op: 'leave' })).status, 200);
+  assert.ok(dev.changes() > left, 'leaving reached the server');
+  assert.equal(dev.h.view(), null);
   lead.h.stop(); dev.h.stop();
 });
 

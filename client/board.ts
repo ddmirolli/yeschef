@@ -8,7 +8,7 @@ import { youFlow } from './flow.ts';
 import { brigadeItems, drawBrigade, groupOfIn, treeOf } from './brigade.ts';
 import type { Fit } from './flow.ts';
 import type { FlowItem, FlowStage } from './flow.ts';
-import { openKitchen, kitchenBoard, KINDS, may, areaOf } from './open-kitchen.ts';
+import { openKitchen, kitchenBoard, KINDS, may, areaOf, below } from './open-kitchen.ts';
 import type { Call, Shot } from './calls.ts';
 import type { RunsEntry, WaitEntry } from './you.ts';
 import type { ChangedFile, CheckRun, Me, OpenKitchen, Person, PersonState, Side, TeamAsk, TeamCall, TeamChanges, TeamPr, TeamView } from './open-kitchen.ts';
@@ -37,6 +37,13 @@ export interface Board { tickets: Ticket[]; verifiedToday?: number; runsChecked:
 export type Status = { ok: true; at: number; ms: number; error?: undefined } | { ok: false; at: number; ms: number; error: string };
 /** The user's team, for the view switch (client/team.ts). view: Team.view(), when the team connection gives one. */
 export interface TeamInput { view?: TeamView | null | undefined; now?: number | undefined; name?: string | null | undefined; below?: unknown; mode?: unknown }
+/** Your team as the app draws it from the relay (PR D): a member with someone below them gets the team view; anyone
+ *  else sees only their own threads (viewMenu). Every area starts in Open kitchen (Dan, 2026-11-10, 3A) until Rules
+ *  lets a lead move one to French Brigade. */
+export function teamInputOf(view: TeamView | null | undefined, now: number): TeamInput | null {
+  if (!view || view.status !== 'member' || !below(view).length) return null;
+  return { view, now, name: typeof view.teamName === 'string' && view.teamName ? view.teamName : null, mode: 'open' };
+}
 /** A pull request as a card shows it: one label for the same number in repositories of the same name. */
 export type ShownPr = PullRequestLink & { repositories: string[] };
 
