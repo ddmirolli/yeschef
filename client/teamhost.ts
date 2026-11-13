@@ -165,6 +165,9 @@ export function teamHost({ store, run, boardOf, projectsOf = () => [], t3Ok = ()
       case 'addArea': return said(await team.addArea(input.name), 'Added.');
       case 'renameArea': return said(await team.renameArea(String(input.id || ''), input.name), 'Renamed.');
       case 'removeArea': return said(await team.removeArea(String(input.id || '')), 'Removed.');
+      // Settings -> Rules: the team's Rules and each area's projects, mode and budget, signed into the roster.
+      case 'teamRule': return said(await team.setTeamRule(String(input.key || ''), String(input.value ?? '')), 'Saved. Your team has it.');
+      case 'areaRule': return said(await team.setArea(String(input.id || ''), String(input.field || ''), String(input.value ?? ''), input.on === '1'), 'Saved. Your team has it.');
       default: return no('Unknown team action.');
     }
   }

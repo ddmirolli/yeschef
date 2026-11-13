@@ -8,6 +8,7 @@
 // so it spells the shapes out below and client/demo-team.test.ts checks them against the real types: a change to what
 // a Mac sends fails the typecheck until the demo follows.
 import { callId, type TeamView } from './open-kitchen.ts';
+import { cleanTeamRules, type AreaRules, type TeamRules } from './team-rules.ts';
 
 type Range = [number, number];
 /** A changed file as summaryChanges() sends it. */
@@ -35,7 +36,7 @@ export type DemoPerson = { id: string; name: string; role: Role; perms: Perm[]; 
   online: boolean; summary: DemoSummary | null; at: number | null; live: boolean; notCheckedSince: number | null };
 export type DemoTeam = TeamView & { status: 'member'; link: 'online'; linkAt: number; team: string; teamName: string; unsaved: boolean;
   me: { id: string; name: string; role: Role; perms: Perm[]; area: string | null; under: string | null };
-  lead: boolean; leadName: string; code: string | null; asked: string[]; areas: { id: string; name: string }[]; people: DemoPerson[];
+  lead: boolean; leadName: string; code: string | null; asked: string[]; areas: AreaRules[]; rules: TeamRules; people: DemoPerson[];
   pending: never[]; invites: never[] };
 
 const MIN = 60000, HOUR = 60 * MIN;
@@ -145,16 +146,24 @@ export function demoTeam(now: number): DemoTeam {
     nina: { [callId('failing', `mcp:nina-1:${REPO.Quillo}#428`, ago(233 - 4 * 20))]: ago(17) },
     ben: { [callId('failing', `mcp:ben-1:${REPO.Fernpay}#436`, ago(50 - 2 * 10))]: ago(25) },
   };
+  // The areas, as a lead sets them in Settings -> Rules (the mock Dan approved, 2026-11-13): Kai and Maya own the two
+  // products, Priya the code they share, which runs in French Brigade.
+  const OWNS: Record<string, string> = { kai: 'a-pay', maya: 'a-dispatch', priya: 'a-shared' };
+  const areas: AreaRules[] = [
+    { id: 'a-pay', name: 'Payments', projects: ['Fernpay'], mode: 'open', budget: 10 },
+    { id: 'a-dispatch', name: 'Dispatch', projects: ['Loopline'], mode: 'open', budget: 10 },
+    { id: 'a-shared', name: 'Shared code', projects: ['Fernpay', 'Loopline', 'Quillo'], mode: 'brigade', budget: 10 },
+  ];
   const people: DemoPerson[] = NAMES.map(([id, name]) => {
     const away = id === 'lee';
     const tickets = [...(story[id] ?? []), ...calm(id)];
-    return { id, name, role: 'engineer', perms: ['see'], area: null, under: under[id] ?? null,
+    return { id, name, role: OWNS[id] ? 'owner' : 'engineer', perms: ['see'], area: OWNS[id] ?? null, under: under[id] ?? null,
       online: !away, at: away ? ago(122) : ago(1), live: !away, notCheckedSince: away ? ago(112) : null,
       summary: { v: 1, tickets, more: 0, gh: login(id), bases: id === 'ravi' ? [ravisBase] : [], seen: seen[id] ?? {}, at: away ? ago(122) : ago(1), health: { ok: true, since: ago(600) } } };
   });
   const me = { id: 'me', name: 'Dana', role: 'lead' as const, perms: ['see', 'reply', 'projects', 'merge', 'invite', 'rules'] as Perm[], area: null, under: null };
   return {
-    status: 'member', link: 'online', linkAt: now - 5 * HOUR, team: 't-demo', teamName: 'Platform', unsaved: false, me, lead: true, leadName: 'Dana', code: null, asked: [], areas: [],
+    status: 'member', link: 'online', linkAt: now - 5 * HOUR, team: 't-demo', teamName: 'Platform', unsaved: false, me, lead: true, leadName: 'Dana', code: null, asked: [], areas, rules: cleanTeamRules(null),
     people: [{ ...me, online: true, summary: null, at: null, live: false, notCheckedSince: null }, ...people], pending: [], invites: [],
   };
 }

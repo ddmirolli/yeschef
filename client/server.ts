@@ -34,6 +34,7 @@ import { readRuns, dayStart, trackWaits, mayRunToday } from './you.ts';
 import { normalize as normalRules, change as changeRule } from './kitchen.ts';
 import { parseCalls, callKey, imagesIn, imageId, shotPath, isShot, SHOT_TYPES } from './calls.ts';
 import { act } from './actions.ts';
+import { areaScopes, callRules } from './team-rules.ts';
 import { refuse } from './guard.ts';
 import { BAR_CSS, BAR_HTML, SPRING, barCore, installBar } from './bar.ts';
 import { onTheme, miniCss, minis, MINI_CSS } from './theme.ts';
@@ -1050,6 +1051,17 @@ html .plate .plate-scroll.fade-end~.dock{box-shadow:0 -.5px 0 var(--sep)}
 #settings .kr-sw input:checked+i::after{transform:translateX(14px)}
 #settings .kr-sw input:focus-visible+i{outline:2px solid var(--accent);outline-offset:2px}
 #settings .kr-row.kr-off{opacity:.5}
+#settings .tr-area .kr-h h4{display:flex;align-items:center;gap:8px}
+#settings .tr-ic{width:18px;height:18px;flex:none;color:var(--label2)}
+#settings .tr-ic.fb{color:var(--accent)}
+#settings .tr-own{font-weight:400;font-size:13px;color:var(--label2)}
+#settings .tr-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+#settings .tr-chip{padding:2px 8px;border:0;border-radius:6px;background:transparent;color:var(--label2);font:12px/18px var(--sans);box-shadow:inset 0 0 0 .5px var(--sep);cursor:pointer}
+#settings .tr-chip[aria-pressed=true]{background:var(--fill);color:var(--label);box-shadow:none}
+#settings .tr-chip:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+#settings .tr-none{font-size:12px;color:var(--label2)}
+#settings .tr-sub{padding-left:40px}
+#settings .tr-sub .kr-l h4{font-weight:500}
 #settings .kr-notes{grid-template-columns:1fr}
 #settings .kr-notes textarea{width:100%;box-sizing:border-box;min-height:72px;padding:8px 10px;border:0;border-radius:8px;background:var(--card);color:var(--label);font:13px/1.45 var(--sans);box-shadow:inset 0 0 0 .5px var(--sep);resize:vertical}
 #settings .set-done span.bad{color:var(--red)}
@@ -1666,7 +1678,7 @@ const team = teamHost({
   run: async (input, prefix, extra) => {
     if (!status.ok) return { status: 503, text: 'Not checked: this board is not current.' };
     if (!canOperate) return { status: 403, text: 'Not run: this Yes Chef is signed in read only.' };
-    const out = await act({ board, t3: t3!, input, holds: extra?.holds || holds, answered: extra?.answered || answered, projects, rules, prefix });
+    const out = await act({ board, t3: t3!, input, holds: extra?.holds || holds, answered: extra?.answered || answered, projects, rules, scopes: scopesOf, prefix });
     audit({ at: new Date().toISOString(), kind: input.kind, thread: input.thread, login: 'teammate', status: out.status });
     if (out.status === 200) wake?.();
     return out;
@@ -1714,7 +1726,7 @@ async function runAct(input: Record<string, string>, line: AuditLine): Promise<A
   // A read-only sign-in holds no operate scope: T3 Code would refuse every action, so say why up front.
   if (!canOperate) { audit({ ...line, refused: 'read-only' }); return { status: 403, text: 'Yes Chef is signed in read only. To act, quit, start it again and approve a level that covers your threads.' }; }
   let out: ActResult;
-  try { out = await act({ board, t3: t3!, input, holds, answered, projects, rules }); }
+  try { out = await act({ board, t3: t3!, input, holds, answered, projects, rules, scopes: scopesOf }); }
   catch (err) {
     const ex = err as Fault;
     // T3 Code refused the sign-in itself (401) before any tool ran. The board no longer polls MCP, so this is
@@ -1762,9 +1774,13 @@ interface Routed { status: number; headers: Record<string, string>; body: string
 const diffs = createDiffs({ origin: ORIGIN, keys, project: () => projects[0]?.id ?? null });
 /** The PRs the Too big calls on the board name: the only ones /diff reads. */
 function bigPrs(): PrRef[] {
-  const ok = openKitchen(teamView(), { now: Date.now() });
+  const v = teamView();
+  const ok = openKitchen(v, { now: Date.now(), rules: callRules(v?.rules) });
   return ok.pass.filter((c) => c.kind === 'big').flatMap((c) => c.prs.map((pr) => ({ repo: pr.repo, n: pr.n })));
 }
+/** The areas a project (by name) is in, as rules keys: their overrides (Settings -> Rules, Applies to) reach the brief
+ *  and the Pass's checks. */
+function scopesOf(project: string): string[] { return areaScopes(team.view()?.areas, project); }
 /** The team as the screens read it (client/open-kitchen.ts TeamView), from the relay through the team client. */
 function teamView(): TeamView | null {
   const v = team.view();
@@ -1780,7 +1796,7 @@ function route(url: URL): Routed {
   const picked = pickedFrom(url.searchParams);
   // fx=WxH: the size the page has for You's chart, so the river fills it (client/flow.ts fitFrom).
   // Your team, from the relay (PR D): only for a member with someone below them (teamInputOf).
-  const app = (): string => renderApp({ board, picked, link, status, origin: ORIGIN, answered, projects, rules: rulesNow(), team: teamInputOf(teamView(), Date.now()), fit: fitFrom(url.searchParams), fold: url.searchParams.getAll('fold'), who: url.searchParams.get('who') });
+  const app = (): string => renderApp({ board, picked, link, status, origin: ORIGIN, answered, projects, rules: rulesNow(), team: teamInputOf(teamView(), Date.now()), lead: team.view()?.lead ? teamView() : null, scopes: scopesOf, fit: fitFrom(url.searchParams), fold: url.searchParams.getAll('fold'), who: url.searchParams.get('who') });
   const html = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' };
   const teamPage = team.route(url);
   if (teamPage) return teamPage;

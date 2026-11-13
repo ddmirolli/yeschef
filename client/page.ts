@@ -729,6 +729,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     // You, expanded: its columns come fresh when they change, and each keeps where you scrolled.
     swap('.you', fresh, '.you-b'); swapAny('.team-wait', fresh, '.head'); swapAny('.tboard', fresh, '.head', '.you-b, .ok-wrap'); swap('.head', fresh, '.head-b');
     swap('#yc-projects', fresh); swapAny('#yc-team', fresh, '#plates'); swap('#yc-rules-now', fresh); if (typeof krLive === 'function') krLive();
+    swapAny('#yc-team-rules', fresh, '#plates'); if (typeof trApply === 'function') trApply();
     // A card's "Not confirmed" line is the page's own. A list kept from the last refresh still has it, so it goes here,
     // and decorate() and markSent() put back the ones still true, as they did on a new copy.
     $$('.tile > .th.nc', app).forEach(function(m){ m.remove(); });
@@ -1036,7 +1037,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   function cycleTheme(){ setTheme(({ system: 'light', light: 'dark', dark: 'system' } as Record<string, string>)[prefs.theme] || 'system'); toast('Appearance: ' + THEME_NAME[prefs.theme], null, 2000); }
   // Settings has sections (Dan, 2026-11-07): Layout and Shortcuts. Cmd+, opens Layout; ? opens Shortcuts.
   function openSettings(tab?: string): void {
-    applyPrefs(); if (typeof krRender === 'function') { krProjects(); krLive(); krRender(); krSay(krErr, !!krErr); }
+    applyPrefs(); if (typeof krRender === 'function') { trApply(true); krProjects(); krLive(); krRender(); trShow(); krSay(krErr, !!krErr); }
     tab = tab || 'layout';
     // Each tab opens at its top.
     var was = $('#settings .set-tab[aria-current]'), panes = $('#settings .set-panes');
@@ -1085,14 +1086,51 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     });
     var m = $('#settings .kr-row[data-row=missing]'); if (m) m.classList.toggle('kr-off', val('screens') !== 'on');
   }
-  // "Applies to" follows T3's project list, which comes with each board refresh (PR-Agent on #49).
+  // "Applies to" follows T3's project list, which comes with each board refresh (PR-Agent on #49), and, for a lead, the
+  // team's areas: an area's own value reaches every project in it (client/kitchen.ts forProject).
   function krProjects(){
     var s = $<HTMLSelectElement>('#kr-scope'), src = $('#yc-projects'); if (!s || !src) return;
     var keep = s.value;
-    while (s.options.length > 1) s.options[1]!.parentNode!.removeChild(s.options[1]!);
+    while (s.children.length > 1) s.removeChild(s.lastElementChild!);
     $$('option', src).forEach(function(o){ s!.appendChild(o.cloneNode(true)); });
+    var ar = trParse().querySelector<HTMLSelectElement>('select[data-areas]');
+    if (ar && ar.options.length) {
+      var g = document.createElement('optgroup'); g.label = 'Areas';
+      $$('option', ar).forEach(function(o){ g.appendChild(o.cloneNode(true)); });
+      s.appendChild(g);
+    }
     s.value = keep; if (s.value !== keep) s.value = '';
   }
+  // The team's rows as the last refresh sent them (client/board.ts teamRulesRows), parsed off the page.
+  function trParse(): DocumentFragment { var t = $('#yc-team-rules'), tt = document.createElement('template'); tt.innerHTML = t ? t.textContent || '' : ''; return tt.content; }
+  // The team's Rules, for the lead (client/board.ts teamRulesRows): each refresh's markup fills #kr-team. A menu or a
+  // project there that has focus, or a save on its way, waits for the next refresh, so a choice never jumps back while
+  // you make it. They are the whole team's, so they show only for All projects.
+  var trDrawn: string | null = null, trBusy = 0;
+  function trApply(force?: boolean): void {
+    var box = $('#kr-team'); if (!box) return;
+    var t = $('#yc-team-rules'), html = t ? t.textContent || '' : '';
+    if (html === trDrawn) { trShow(); return; }
+    if (!force && (trBusy || box.contains(document.activeElement))) return;
+    // The areas' list is for "Applies to" (krProjects reads it from the markup), not for the pane.
+    trDrawn = html; box.innerHTML = html; $$('select[data-areas]', box).forEach(function(x){ x.parentNode!.removeChild(x); }); krProjects(); trShow();
+  }
+  function trShow(): void { var box = $('#kr-team'); if (box) box.hidden = !trDrawn || krScope() !== ''; }
+  // Each change goes to the roster at once; the refresh it brings draws the saved rows. A refused one draws them again.
+  function trSave(q: string): void {
+    krSay('Saving…'); trBusy++;
+    post('kind=team&nonce=' + encodeURIComponent(uuid()) + '&' + q).then(function(r){
+      trBusy--;
+      if (r[0] === 200) { krSay(String(r[1] || 'Saved.')); trApply(); } else { trDrawn = null; trApply(true); krSay(String(r[1] || 'Not saved.'), true); }
+    }, function(){ trBusy--; trDrawn = null; trApply(true); krSay('Not saved: Yes Chef did not answer.', true); });
+  }
+  function trSet(el: HTMLInputElement): void {
+    var enc = encodeURIComponent;
+    trSave(el.dataset.tr ? 'op=teamRule&key=' + enc(el.dataset.tr) + '&value=' + enc(el.type === 'checkbox' ? (el.checked ? 'on' : 'off') : el.value)
+      : 'op=areaRule&id=' + enc(el.dataset.taId || '') + '&field=' + enc(el.dataset.ta || '') + '&value=' + enc(el.value));
+  }
+  var trBox = $('#kr-team');
+  if (trBox) trBox.addEventListener('focusout', function(){ setTimeout(function(){ trApply(); }, 0); });
   // Its word shows in the footer, where "Saved on this Mac." sits; it goes back to that when Settings opens again.
   function krSay(t: string, bad?: boolean): void { var s = $('#settings .set-done span'); if (s) { s.textContent = t || 'Saved on this Mac.'; s.classList.toggle('bad', !!bad); } }
   // Sends one change at once, with keepalive, so nothing waits in the page when it closes (PR-Agent r7 on #49). Each
@@ -1141,10 +1179,17 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   window.addEventListener('pagehide', function(){ if (krNotesT) krNotes(); });
   setDlg.addEventListener('change', function(ev){
     var el = ev.target as HTMLInputElement | null; if (!KR || !el) return;
-    if (el.id === 'kr-scope') { krRender(); krSay(krErr, !!krErr); return; }
+    if (el.id === 'kr-scope') { krRender(); trShow(); krSay(krErr, !!krErr); return; }
+    if (el.dataset && (el.dataset.tr || el.dataset.ta)) { trSet(el); return; }
     if (!el.dataset || !el.dataset.kr) return;
     if (el.dataset.kr === 'notes') { krNotes(); return; }
     krSet(el.dataset.kr, el.type === 'checkbox' ? (el.checked ? 'on' : 'off') : el.value);
+  });
+  // A project in or out of an area: it shows at once and saves; a refused save draws the saved rows again.
+  setDlg.addEventListener('click', function(ev){
+    var c = (ev.target as Element).closest && (ev.target as Element).closest<HTMLElement>('[data-ta-proj]'); if (!c) return;
+    var on = c.getAttribute('aria-pressed') !== 'true'; c.setAttribute('aria-pressed', String(on));
+    trSave('op=areaRule&id=' + encodeURIComponent(c.dataset.taId || '') + '&field=project&value=' + encodeURIComponent(c.dataset.taProj || '') + '&on=' + (on ? '1' : '0'));
   });
   setDlg.addEventListener('click', function(ev){
     var b = (ev.target as Element).closest && (ev.target as Element).closest<HTMLElement>('[data-kr-reset]'), sc = krScope();

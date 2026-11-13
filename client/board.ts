@@ -9,6 +9,7 @@ import { brigadeItems, drawBrigade, groupOfIn, treeOf } from './brigade.ts';
 import type { Fit } from './flow.ts';
 import type { FlowItem, FlowStage } from './flow.ts';
 import { openKitchen, kitchenBoard, KINDS, may, areaOf, below } from './open-kitchen.ts';
+import { callRules, cleanAreaRules, cleanTeamRules, teamMode, CHOICES } from './team-rules.ts';
 import type { Call, Shot } from './calls.ts';
 import type { RunsEntry, WaitEntry } from './you.ts';
 import type { ChangedFile, CheckRun, Me, OpenKitchen, Person, PersonState, Side, TeamAsk, TeamCall, TeamChanges, TeamPr, TeamView } from './open-kitchen.ts';
@@ -38,11 +39,11 @@ export type Status = { ok: true; at: number; ms: number; error?: undefined } | {
 /** The user's team, for the view switch (client/team.ts). view: Team.view(), when the team connection gives one. */
 export interface TeamInput { view?: TeamView | null | undefined; now?: number | undefined; name?: string | null | undefined; below?: unknown; mode?: unknown }
 /** Your team as the app draws it from the relay (PR D): a member with someone below them gets the team view; anyone
- *  else sees only their own threads (viewMenu). Every area starts in Open kitchen (Dan, 2026-11-10, 3A) until Rules
- *  lets a lead move one to French Brigade. */
+ *  else sees only their own threads (viewMenu). Every area starts in Open kitchen (Dan, 2026-11-10, 3A); the view is
+ *  French Brigade once the lead moves any area there in Rules (client/team-rules.ts teamMode). */
 export function teamInputOf(view: TeamView | null | undefined, now: number): TeamInput | null {
   if (!view || view.status !== 'member' || !below(view).length) return null;
-  return { view, now, name: typeof view.teamName === 'string' && view.teamName ? view.teamName : null, mode: 'open' };
+  return { view, now, name: typeof view.teamName === 'string' && view.teamName ? view.teamName : null, mode: teamMode(Array.isArray(view.areas) ? view.areas : []) };
 }
 /** A pull request as a card shows it: one label for the same number in repositories of the same name. */
 export type ShownPr = PullRequestLink & { repositories: string[] };
@@ -477,7 +478,7 @@ function dock(k: Ticket, answered: ReadonlyMap<string, Answered>): string {
 }
 
 /** One ticket in full. The message and its screenshots read on the left (or above); the dock acts. */
-function plate(k: Ticket, link: (t: ThreadRow) => string, origin: string, answered: ReadonlyMap<string, Answered>, rules: unknown): string {
+function plate(k: Ticket, link: (t: ThreadRow) => string, origin: string, answered: ReadonlyMap<string, Answered>, rules: unknown, scopes: (project: string) => string[] = () => []): string {
   const parts: string[] = []; let handBack = '';
   if (k.asks.length && !k.yourTurn && k.lastWords) parts.push(`<div class="prose last full">${rich(k.lastWords, origin)}</div>`);
   for (const a of k.asks) {
@@ -552,7 +553,7 @@ function plate(k: Ticket, link: (t: ThreadRow) => string, origin: string, answer
   const shotsMissing = k.yourTurn && !k.asks.length && k.call && !k.cut && !answered.get(k.call.key)?.confirmed
     && missingShots(rules, k.thread.projectId, k.call, imagesIn(k.call.text).length
       // Shots sent in a later message count too: the same messages the attachments row reads (PR-Agent r4 on #49).
-      + (k.latestId && k.latestId !== k.call.itemId ? imagesIn(k.lastWords || '').length : 0));
+      + (k.latestId && k.latestId !== k.call.itemId ? imagesIn(k.lastWords || '').length : 0), scopes(k.project));
   const flag = shotsMissing ? `<p class="kr-flag"><span class="kr-k">No screenshots</span><span class="kr-t">This call asks about something you can see.</span>`
     + `<button type="button" class="btn quiet kr-ask" data-ask-shots="${e(ASK_SHOTS)}"><span class="bl">Ask for them</span></button></p>` : '';
   return `<article class="plate" id="${e(id)}" data-thread="${e(k.thread.threadId)}" data-latest="${e(k.latestId || '')}"${k.atPass ? ' data-at' : ''} aria-labelledby="${e(id)}-t">`
@@ -1041,7 +1042,8 @@ function okRows({ R, now, want, fold, name, people, plateOf, fit }: { R: Rows; n
 function teamParts(team: TeamInput, view: TeamView, icons: ReadonlyMap<string, string | null>, want: ReadonlySet<string> | null = null, menu = '', fold: ReadonlySet<string> = new Set(), fit: Fit | null = null, opened: string | null = null, menuBare = menu) {
   const brigade = team.mode === 'brigade';
   const now = typeof team.now === 'number' && Number.isFinite(team.now) ? team.now : Date.now();
-  const ok = openKitchen(view, { now });
+  // The team's thresholds, from the roster the lead signed (Settings -> Rules).
+  const ok = openKitchen(view, { now, rules: callRules(view.rules) });
   const me = view.me;
   const people = new Map<string, Person>(ok.people.map((p) => [p.id, p]));
   const name = (id: string) => people.get(id)?.name || 'Someone';
@@ -1179,6 +1181,10 @@ function viewMenu({ team, projs, picked, icons, ok, head = null, bare = false }:
 export interface RenderInput {
   board: Board; picked?: readonly string[] | null; link: (t: ThreadRow) => string; status: Status; origin: string;
   answered?: ReadonlyMap<string, Answered>; projects?: readonly Pick<Project, 'id' | 'title'>[]; rules?: unknown; team?: TeamInput | null;
+  /** The team as its lead sees it, for the team's rows in Settings -> Rules; null for anyone else. */
+  lead?: TeamView | null;
+  /** The areas a project (by name) is in, as rules keys ("area:<id>"): their overrides reach the Pass's checks. */
+  scopes?: ((project: string) => string[]) | null;
   /** The size the page has for You's chart (client/flow.ts fitFrom), or null to draw it at its own size. */
   fit?: Fit | null;
   /** The sub-leads whose groups Open kitchen's rows draw folded (?fold=<id>). */
@@ -1186,7 +1192,7 @@ export interface RenderInput {
   /** The person (or folded team) whose threads French Brigade draws opened (?who=<key>), or null for everyone. */
   who?: string | null;
 }
-export function renderApp({ board, picked = null, link, status, origin, answered = new Map(), projects = [], rules = null, team = null, fit = null, fold = null, who = null }: RenderInput): string {
+export function renderApp({ board, picked = null, link, status, origin, answered = new Map(), projects = [], rules = null, team = null, lead = null, scopes = null, fit = null, fold = null, who = null }: RenderInput): string {
   const want = picked && picked.length ? new Set(picked) : null;
   // Missing data renders "not checked": without a good poll, show no tickets at all, never an older board.
   const shown = status.ok ? board.tickets.filter((k) => !want || want.has(k.project)) : [];
@@ -1280,7 +1286,8 @@ export function renderApp({ board, picked = null, link, status, origin, answered
     + (team ? `<script type="application/json" id="yc-team">${JSON.stringify(T ? T.meta : { name: team.name || null, below: typeof team.below === 'number' ? team.below : null, mode: team.mode === 'open' || team.mode === 'brigade' ? team.mode : null }).replace(/</g, '\\u003c')}</script>` : '')
     // The saved rules ride each refresh, so a second window's Settings shows them (PR-Agent r3 on #49).
     + (rules ? `<script type="application/json" id="yc-rules-now">${JSON.stringify(rules).replace(/</g, '\\u003c')}</script>` : '')
-    + `<div id="plates" hidden>${T ? T.plates : ''}${shown.filter((k) => k.place !== 'Coordinators').map((k) => plate(k, link, origin, answered, rules)).join('')}</div>`;
+    + (lead ? teamRulesRows(lead, projects) : '')
+    + `<div id="plates" hidden>${T ? T.plates : ''}${shown.filter((k) => k.place !== 'Coordinators').map((k) => plate(k, link, origin, answered, rules, scopes || undefined)).join('')}</div>`;
 }
 
 // Settings -> Rules (Dan, 2026-11-08; Kitchen rules until 2026-11-10), laid out like T3 Code's settings: groups of rows, each a title and a
@@ -1303,6 +1310,59 @@ const KR_GROUPS: [string, KrRow[]][] = [
   ]],
 ];
 
+// The team's Rules (Dan, 2026-11-13, 2A on the mock): escalation, thresholds, model checks and areas, for the lead.
+// They travel in the roster the lead signs (client/team-rules.ts), so they come with each refresh as markup in a data
+// script the page puts into the pane (#kr-team), with the areas for "Applies to". The choices are the brief's proposed ones.
+const MINS = (m: number) => (m >= 60 ? `${m / 60} h` : `${m} min`);
+const TR_ROWS: [string, [key: string, title: string, line: string, kind: 'switch' | [value: string, label: string][]][]][] = [
+  ['Escalation', [['escalateMin', 'Reaches you after', 'A Stuck or Failing call its dev has not opened in this time comes to you.', CHOICES.escalateMin.map((m) => [String(m), MINS(m)])]]],
+  ['Thresholds', [
+    ['stuckMin', 'Stuck', 'A thread with no new message, commit or check for this long.', CHOICES.stuckMin.map((m) => [String(m), MINS(m)])],
+    ['waitMin', 'Waiting', 'An agent’s question that has waited this long for its dev.', CHOICES.waitMin.map((m) => [String(m), MINS(m)])],
+    ['failRuns', 'Failing', 'A pull request whose checks fail this many runs in a row.', CHOICES.failRuns.map((n) => [String(n), `${n} runs`])],
+    ['big', 'Too big', 'A pull request over this size. Lockfiles and generated files are left out.', CHOICES.big.map(([l, f]) => [`${l}:${f}`, `${l.toLocaleString('en-US')} lines or ${f} files`])],
+  ]],
+  ['Model checks', [
+    ['checks', 'Duplicate and Diverging', 'A model on your own quota compares plans that touch the same files or the same need. It shows its evidence and never blocks.', 'switch'],
+    ['comparesDay', 'Compares a day', 'At this many, Yes Chef stops comparing until tomorrow and says so in The Pass.', CHOICES.comparesDay.map((n) => [String(n), n ? String(n) : 'No limit'])],
+    ['dupAt', 'Duplicate at', 'How alike two plans must be before the call says Duplicate, not Diverging.', CHOICES.dupAt.map((n) => [String(n), `${n}% alike`])],
+  ]],
+];
+
+/** The team's rows in Settings -> Rules, for the lead: markup the page puts in the pane. view: the team as the lead
+ *  sees it; projects: T3's list, whose names an area can hold. */
+export function teamRulesRows(view: TeamView, projects: readonly Pick<Project, 'id' | 'title'>[] = []): string {
+  const t = cleanTeamRules(view.rules);
+  const val: Record<string, string> = { escalateMin: String(t.escalateMin), stuckMin: String(t.stuckMin), waitMin: String(t.waitMin),
+    failRuns: String(t.failRuns), big: `${t.bigLines}:${t.bigFiles}`, comparesDay: String(t.comparesDay), dupAt: String(t.dupAt) };
+  const sel = (attrs: string, label: string, opts: [string, string][], on: string) => `<select class="kr-sel" ${attrs} aria-labelledby="${label}">${opts.map(([v, l]) => `<option value="${e(v)}"${v === on ? ' selected' : ''}>${e(l)}</option>`).join('')}</select>`;
+  const row = ([key, title, line, kind]: [string, string, string, 'switch' | [string, string][]]) => `<div class="kr-row${(key === 'comparesDay' || key === 'dupAt') && !t.checks ? ' kr-off' : ''}" data-row="t-${key}"><div class="kr-l"><div class="kr-h"><h4 id="tr-${key}">${e(title)}</h4></div><p>${e(line)}</p></div>`
+    + `<div class="kr-c">${kind === 'switch' ? `<label class="kr-sw"><input type="checkbox" role="switch" data-tr="${key}" aria-labelledby="tr-${key}"${t.checks ? ' checked' : ''}><i></i></label>` : sel(`data-tr="${key}"`, `tr-${key}`, kind, val[key]!)}</div></div>`;
+  const people = Array.isArray(view.people) ? view.people as { id?: unknown; name?: unknown; role?: unknown; area?: unknown }[] : [];
+  const areas = (Array.isArray(view.areas) ? view.areas as { id?: unknown; name?: unknown; projects?: unknown; mode?: unknown; budget?: unknown }[] : [])
+    .filter((a): a is { id: string; name: string; projects?: unknown; mode?: unknown; budget?: unknown } => typeof a?.id === 'string' && typeof a.name === 'string').map((a) => ({ ...a, ...cleanAreaRules(a) }));
+  const names = [...new Set([...projects.map((p) => p.title).filter((x): x is string => typeof x === 'string' && !!x), ...areas.flatMap((a) => a.projects)])].sort((a, b) => a.localeCompare(b));
+  const area = (a: (typeof areas)[number]) => {
+    // The area's owner: its first Area owner, as the chart reads it (team-roster.ts chartUnder).
+    const owner = people.find((p) => p.role === 'owner' && p.area === a.id);
+    const who = owner && typeof owner.name === 'string' ? `${e(owner.name)} owns it` : 'No area owner';
+    const chips = names.map((n) => `<button type="button" class="tr-chip" data-ta-proj="${e(n)}" data-ta-id="${e(a.id)}" aria-pressed="${a.projects.includes(n)}">${e(n)}</button>`).join('');
+    const brig = a.mode === 'brigade';
+    return `<div class="kr-row tr-area" data-row="a-${e(a.id)}"><div class="kr-l"><div class="kr-h"><h4 id="ta-${e(a.id)}">${svg(brig ? 'toque' : 'skillet', brig ? 'ic tr-ic fb' : 'ic tr-ic')}${e(a.name)} <span class="tr-own">${who}</span></h4></div>`
+      + `<div class="tr-chips" role="group" aria-label="${e(a.name)}’s projects">${chips || '<span class="tr-none">No projects in T3 Code yet.</span>'}</div></div>`
+      + `<div class="kr-c">${sel(`data-ta="mode" data-ta-id="${e(a.id)}"`, `ta-${e(a.id)}`, [['open', 'Open kitchen'], ['brigade', 'French Brigade']], a.mode)}</div></div>`
+      + (brig ? `<div class="kr-row tr-sub" data-row="b-${e(a.id)}"><div class="kr-l"><div class="kr-h"><h4 id="tb-${e(a.id)}">Failed-change budget</h4></div><p>Over this share of failed changes this week, ${e(a.name)}’s pull requests come to you until it is back under.</p></div>`
+        + `<div class="kr-c">${sel(`data-ta="budget" data-ta-id="${e(a.id)}"`, `tb-${e(a.id)}`, CHOICES.budget.map((n) => [String(n), `${n}%`]), String(a.budget))}</div></div>` : '');
+  };
+  const areaRows = areas.length ? areas.map(area).join('')
+    : '<div class="kr-row" data-row="t-none"><div class="kr-l"><div class="kr-h"><h4>No areas yet</h4></div><p>Add areas on the Team page. Each starts in Open kitchen.</p></div></div>';
+  const scopes = areas.map((a) => `<option value="area:${e(a.id)}">${e(a.name)}</option>`).join('');
+  // Every name is escaped, so no "</script" can end it early; the replace is a second guard.
+  const html = `${TR_ROWS.map(([g, rows]) => `<h3 class="kgroup">${g}</h3><div class="kr-group">${rows.map(row).join('')}</div>`).join('')}`
+    + `<h3 class="kgroup">Areas</h3><div class="kr-group">${areaRows}</div><select data-areas hidden>${scopes}</select>`;
+  return `<script type="text/html" id="yc-team-rules">${html.replace(/<\/script/gi, '<\\/script')}</script>`;
+}
+
 /** The Rules pane. rules: the saved rules (client/kitchen.ts normalize); projects: T3's list, for "Applies to". */
 export function kitchenPane({ rules, projects = [], error = '' }: { rules: unknown; projects?: readonly Pick<Project, 'id' | 'title'>[]; error?: string }): string {
   const ctl = (key: string, kind: KrRow[3]) => kind === 'switch'
@@ -1316,6 +1376,8 @@ export function kitchenPane({ rules, projects = [], error = '' }: { rules: unkno
   const json = JSON.stringify(rules).replace(/</g, '\\u003c');
   return `<section class="set-pane" data-pane="rules"${error ? ` data-kr-error="${e(error)}"` : ''} hidden><div class="kr-top"><p class="kr-intro">Every thread Yes Chef starts gets these in its brief. The Pass checks the calls that come back.</p>${scope}</div>`
     + KR_GROUPS.map(([g, rows]) => `<h3 class="kgroup">${g}</h3><div class="kr-group">${rows.map(row).join('')}</div>`).join('')
+    // The team's Rules, for the lead: filled from each refresh's template (teamRulesRows), shown for All projects.
+    + '<div id="kr-team" hidden></div>'
     + `<h3 class="kgroup">House notes</h3><div class="kr-group"><div class="kr-row kr-notes" data-row="notes"><div class="kr-l"><div class="kr-h"><h4 id="kr-notes">Added to every brief</h4>`
     + `<button type="button" class="kr-reset" data-kr-reset="notes" title="Use the All projects value">Reset</button></div><p>Skills, test commands, anything else your agents should know.</p></div>`
     + `<textarea data-kr="notes" rows="3" maxlength="4000" aria-labelledby="kr-notes" placeholder="For example: run the tests with npm test before you hand back."></textarea></div></div>`

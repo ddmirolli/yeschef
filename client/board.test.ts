@@ -312,6 +312,53 @@ test('kitchen rules pane: T3 Code-style rows, every project in Applies to, and t
   assert.equal(JSON.parse(json).all.notes, '</script><b>x');
 });
 
+test('the team\'s Rules show for the lead only: saved values picked, each area with its owner, projects and mode, the budget only in French Brigade', async () => {
+  const { renderApp, teamRulesRows, kitchenPane } = await import('./board.ts');
+  const view = { status: 'member', lead: true, rules: { stuckMin: 60, bigLines: 1500, bigFiles: 60, checks: false, dupAt: 95 },
+    people: [{ id: 'i', name: 'Iris <Ng>', role: 'owner', area: 'a1' }, { id: 'k', name: 'Kai', role: 'engineer', area: 'a2' }],
+    areas: [{ id: 'a1', name: 'Payments', projects: ['Fernpay'], mode: 'open', budget: 10 }, { id: 'a2', name: '<Shared>', projects: ['Fernpay', 'Loopline'], mode: 'brigade', budget: 5 }] };
+  const h = teamRulesRows(view, [{ id: 'p1', title: 'Quillo' }, { id: 'p2', title: 'Fernpay' }]);
+  assert.match(h, /^<script type="text\/html" id="yc-team-rules">/);
+  for (const g of ['Escalation', 'Thresholds', 'Model checks', 'Areas']) assert.match(h, new RegExp(`<h3 class="kgroup">${g}</h3>`));
+  assert.match(h, /data-tr="stuckMin"[^>]*><option value="10">10 min<\/option><option value="20">20 min<\/option><option value="30">30 min<\/option><option value="60" selected>1 h<\/option>/);
+  assert.match(h, /<option value="1500:60" selected>1,500 lines or 60 files<\/option>/);
+  assert.match(h, /<option value="15" selected>15 min<\/option>/, 'a rule the roster leaves out is the default');
+  assert.match(h, /<option value="0">No limit<\/option>/);
+  assert.doesNotMatch(h, /data-tr="checks"[^>]* checked/, 'the model checks start off');
+  assert.match(h, /class="kr-row kr-off" data-row="t-comparesDay"/, 'their settings are dimmed while they are off');
+  // Areas: the owner by role, every project as a chip, the area's own pressed, names escaped.
+  assert.match(h, /Payments <span class="tr-own">Iris &lt;Ng&gt; owns it<\/span>/);
+  assert.match(h, /&lt;Shared&gt; <span class="tr-own">No area owner<\/span>/, 'an Engineer does not own an area');
+  const chips = (id: string) => [...h.matchAll(new RegExp(`data-ta-proj="([^"]+)" data-ta-id="${id}" aria-pressed="(true|false)"`, 'g'))].map((m) => `${m[1]}:${m[2]}`);
+  assert.deepEqual(chips('a1'), ['Fernpay:true', 'Loopline:false', 'Quillo:false']);
+  assert.deepEqual(chips('a2'), ['Fernpay:true', 'Loopline:true', 'Quillo:false']);
+  assert.match(h, /data-ta="mode" data-ta-id="a1"[^>]*><option value="open" selected>Open kitchen<\/option><option value="brigade">French Brigade<\/option>/);
+  assert.equal((h.match(/Failed-change budget/g) || []).length, 1, 'only the French Brigade area has a budget');
+  assert.match(h, /data-ta="budget" data-ta-id="a2"[^>]*>.*<option value="5" selected>5%<\/option>/);
+  // The areas for "Applies to".
+  assert.match(h, /<select data-areas hidden><option value="area:a1">Payments<\/option><option value="area:a2">&lt;Shared&gt;<\/option><\/select><\/script>$/);
+  // A name that tries to end the script early cannot.
+  assert.doesNotMatch(teamRulesRows({ ...view, areas: [{ id: 'x', name: '</script><b>' }] }).slice(0, -'</script>'.length), /<\/script/i);
+  // No areas yet: one row says where to add them.
+  assert.match(teamRulesRows({ ...view, areas: [] }), /No areas yet<\/h4><\/div><p>Add areas on the Team page\./);
+  // The page draws them only for the lead; the pane has their place, hidden until then.
+  const board = buildBoard({ projects: [], threads: [], questions: new Map() });
+  const base = { board, link, status: { ok: true as const, at: 0, ms: 1 }, origin: 'https://t3.example' };
+  assert.match(renderApp({ ...base, lead: view }), /<script type="text\/html" id="yc-team-rules">/);
+  assert.doesNotMatch(renderApp(base), /yc-team-rules/);
+  assert.match(kitchenPane({ rules: null }), /<div id="kr-team" hidden><\/div><h3 class="kgroup">House notes<\/h3>/);
+});
+
+test('the team\'s thresholds from the roster reach the Pass it draws: Stuck at 60 min drops a thread quiet for 38', async () => {
+  const { renderApp } = await import('./board.ts');
+  const { fixtureView } = await import('./open-kitchen.fixture.ts');
+  const now = Date.UTC(2026, 10, 10, 14, 3);
+  const board = buildBoard({ projects: [], threads: [], questions: new Map() });
+  const drawn = (rules?: object) => renderApp({ board, link, status: { ok: true as const, at: now, ms: 1 }, origin: 'https://t3.example', team: { view: { ...fixtureView(now), rules }, now, mode: 'open' } });
+  assert.equal((drawn().match(/>Stuck</g) || []).length, 3, 'the proposed 20 min: Omar\'s thread is Stuck');
+  assert.equal((drawn({ stuckMin: 60 }).match(/>Stuck</g) || []).length, 0);
+});
+
 test('each refresh carries the saved kitchen rules, as safe JSON, for a second window (PR-Agent r3 on #49)', async () => {
   const { renderApp } = await import('./board.ts');
   const board = buildBoard({ projects: [], threads: [], questions: new Map() });
