@@ -169,6 +169,22 @@ test('a failed read is tried again, a long thread is read to its end, and a stat
   assert.equal(got?.at, Date.parse(at(8)));
 });
 
+test('what a read stored before a later page failed still reaches the board', async () => {
+  const items = { a: [{ itemId: 'm0', type: 'user_message', text: 'x', updatedAt: at(5) },
+    { itemId: 't1', type: 'dynamic_tool', text: claudeItem('get_issue', { id: 'ENG-50' }, issue('ENG-50')), updatedAt: at(4) },
+    { itemId: 't2', type: 'dynamic_tool', text: claudeItem('get_issue', { id: 'ENG-51' }, issue('ENG-51')), updatedAt: at(3) }] };
+  const base = fakeT3(items);
+  const reads = createLinearReads({ call: async (name, args = {}) => {
+    if (args.itemId === 't2') throw new Error('T3 went away');
+    return base(name, args);
+  }, now: () => NOW });
+  let news = 0; reads.subscribe(() => { news++; });
+  reads.want([{ threadId: 'a', updatedAt: at(3), itemCount: 3 }]);
+  for (let i = 0; i < 8; i++) await settle();
+  assert.equal(reads.get('ENG-50')?.status, 'In Progress');
+  assert.equal(news, 1);
+});
+
 test('a thread untouched for a week is not read back from its start', async () => {
   const calls: unknown[][] = [];
   const reads = createLinearReads({ call: fakeT3({ old: [] }, calls), now: () => NOW });

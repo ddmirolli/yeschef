@@ -534,7 +534,7 @@ function plate(k: Ticket, link: (t: ThreadRow) => string, origin: string, answer
   // The Linear tickets beside them (Dan, 2026-11-13): the ones an agent read, from that read, with its age once it is
   // more than an hour old; one only named in a title or branch says "Not checked". Yes Chef never calls Linear itself.
   const linChips = (k.linear || []).slice(0, 3).map((l) => {
-    const tag = l.state === 'read' ? [l.status || 'No status', Date.now() - l.at > 3_600_000 ? since(new Date(l.at).toISOString()) : ''].filter(Boolean).join(' · ') : 'Not checked';
+    const tag = l.state === 'read' ? [l.status || 'Not checked', Date.now() - l.at > 3_600_000 ? since(new Date(l.at).toISOString()) : ''].filter(Boolean).join(' · ') : 'Not checked';
     const tip = l.state === 'read' ? `${l.title ? `${l.title}. ` : ''}Read in T3 ${since(new Date(l.at).toISOString())}.` : 'No agent has read this ticket in T3 yet.';
     const body = `<i></i>${e(l.id)}<span>${e(tag)}</span>`;
     return l.url ? `<a class="prc lin" href="${e(l.url)}" target="_blank" rel="noopener" title="${e(tip)}">${body}${svg('out')}</a>` : `<span class="prc lin" title="${e(tip)}">${body}</span>`;

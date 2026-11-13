@@ -147,10 +147,11 @@ export function createLinearReads({ call, now = Date.now, log = () => {}, days =
     return null;
   }
 
-  async function readThread(threadId: string): Promise<{ moved: boolean; more: boolean }> {
+  // progress.moved: something this read stored, kept even when a later page fails.
+  async function readThread(threadId: string, progress: { moved: boolean }): Promise<{ more: boolean }> {
     const f = followed.get(threadId);
-    if (!f) return { moved: false, more: false };
-    let moved = false, more = false, at = f.next, hold: number | null = null;
+    if (!f) return { more: false };
+    let more = false, at = f.next, hold: number | null = null;
     for (let i = 0; i < pages; i++) {
       const page = await call('t3_thread_read', { threadId, view: 'activity', afterPosition: at, limit: 100, maxCharsPerItem: 200 }) as ReadPage | null;
       const items = Array.isArray(page?.items) ? page!.items : [];
@@ -161,7 +162,7 @@ export function createLinearReads({ call, now = Date.now, log = () => {}, days =
         const text = await fullText(threadId, item.itemId);
         const when = Date.parse(item.updatedAt || '');
         const c = text ? linearCall(text, Number.isFinite(when) ? when : now()) : null;
-        if (c && keep(c, threadId)) moved = true;
+        if (c && keep(c, threadId)) progress.moved = true;
       }
       const before = at;
       if (typeof page?.nextPosition === 'number' && page.nextPosition > at) at = page.nextPosition;
@@ -169,19 +170,22 @@ export function createLinearReads({ call, now = Date.now, log = () => {}, days =
       if (!more) break;
     }
     f.next = hold ?? at;
-    return { moved, more: more && hold === null };
+    return { more: more && hold === null };
   }
 
   function pump(): void {
     while (!stopped && running < concurrency && queue.length) {
       const id = queue.shift()!; queued.delete(id); running++;
-      readThread(id).then(({ moved, more }) => {
-        if (moved) for (const fn of [...listeners]) { try { fn(); } catch (ex) { log(`a Linear listener failed: ${String(ex)}`); } }
+      const progress = { moved: false };
+      const tell = () => { if (progress.moved) for (const fn of [...listeners]) { try { fn(); } catch (ex) { log(`a Linear listener failed: ${String(ex)}`); } } };
+      readThread(id, progress).then(({ more }) => {
+        tell();
         // A long thread's pages ran out: read on from where this read stopped.
         if (more && !queued.has(id)) { queued.add(id); queue.push(id); }
       }, (ex: unknown) => {
         // A failed read is tried again at the next want, even if the thread has not moved.
         const f = followed.get(id); if (f) f.stamp = '';
+        tell();
         log(`Linear read of ${id} failed: ${String((ex as Error)?.message || ex).slice(0, 200)}`);
       })
         .finally(() => { running--; pump(); });
