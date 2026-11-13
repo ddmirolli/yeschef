@@ -167,7 +167,7 @@ export type DiffView =
   | { ok: true; style: string; sprite: string; files: (Omit<DrawnFile, 'code'>)[]; rest: boolean }
   | { ok: false; why: string };
 /** One file's code, or why there is none. */
-export type FileView = { ok: true; code: string } | { ok: false; why: string };
+export type FileView = { ok: true; code: string } | { ok: false; why: string; stale?: true };
 
 export interface DiffsOptions {
   origin: string;
@@ -228,8 +228,9 @@ export function createDiffs({ origin, keys, project, fetchImpl = fetch, now = Da
 
   /** A PR's drawn patch at the board's revision of it. A list is read again after a minute; a file comes from the
    *  read its list came from, so its code always matches the header it opens under. */
+  const keyOf = (pr: PrRef, rev: string | null): string => `${pr.repo.toLowerCase()}#${pr.n}@${rev ?? ''}`;
   function get(pr: PrRef, rev: string | null, pinned: boolean): Kept['got'] {
-    const key = `${pr.repo.toLowerCase()}#${pr.n}@${rev ?? ''}`, t = now();
+    const key = keyOf(pr, rev), t = now();
     const hit = kept.get(key);
     if (hit && (pinned || t - hit.at < LIMITS.keep)) return hit.got;
     const got = pull(pr);
@@ -248,6 +249,8 @@ export function createDiffs({ origin, keys, project, fetchImpl = fetch, now = Da
       return { ok: true, style: g.drawn.style, sprite: g.drawn.sprite, files: g.drawn.files.map(({ code: _, ...f }) => f), rest: g.rest };
     },
     async file(pr: PrRef, path: string, rev: string | null = null): Promise<FileView> {
+      // A read no longer kept gives no newer code under the old list: the page reads the list again.
+      if (!kept.has(keyOf(pr, rev))) return { ok: false, why: 'Its list was read too long ago', stale: true };
       const g = await get(pr, rev, true);
       if (!g.ok) return g;
       const f = g.drawn.files.find((x) => x.path === path);

@@ -114,6 +114,9 @@ test('reads are kept per revision; a file always comes from the read its list ca
   assert.equal(seen.length, 2);
   await diffs.view(pr, 'r1');
   assert.equal(seen.length, 3);
+  // A file whose list's read is no longer kept is not read anew: the page is told to read the list again.
+  assert.deepEqual(await diffs.file(pr, 'a.ts', 'gone'), { ok: false, why: 'Its list was read too long ago', stale: true });
+  assert.equal(seen.length, 3);
 });
 
 test('a key T3 refuses is dropped and a new one tried once; any other failure says why and is not kept', async () => {

@@ -28,7 +28,7 @@ interface Draft {
 }
 /** What /diff answers (client/diffs.ts): Too big's files, folded, or one file's code, or why there is none. */
 interface DiffFileRow { path: string; header: string }
-interface DiffReply { ok: boolean; why?: string; style?: string; sprite?: string; files?: DiffFileRow[]; rest?: boolean; code?: string }
+interface DiffReply { ok: boolean; why?: string; stale?: boolean; style?: string; sprite?: string; files?: DiffFileRow[]; rest?: boolean; code?: string }
 /** A draft as saved: it always has its time and the hand-back it was written against. */
 type SavedDraft = Draft & { at: number; latest: string };
 /** A form on the board, with what the script keeps on it: the launch it queued, and whether a draft is being put back. */
@@ -195,6 +195,8 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     var ld = document.createElement('p'); ld.className = 'ld'; ld.textContent = 'Loading'; f.appendChild(ld);
     fetch(host.dataset.src + '&f=' + encodeURIComponent(path), { cache: 'no-store' }).then(function(r){ return r.json() as Promise<DiffReply>; }).then(function(d){
       if (d && d.ok && typeof d.code === 'string') { ld.remove(); f!.insertAdjacentHTML('beforeend', d.code); }
+      // The server no longer keeps the read this list came from: read the list again, rather than mix two versions.
+      else if (d && d.stale) { var dp = host!.closest<HTMLElement>('.dp'); host!.remove(); if (dp) dpCode(dp); }
       else { ld.setAttribute('data-retry', ''); ld.textContent = 'Code: not checked. ' + ((d && d.why) || 'T3 Code gave no diff').replace(/\.?$/, '.'); }
     }, function(){ ld.setAttribute('data-retry', ''); ld.textContent = 'Code: not checked. Yes Chef could not reach the board server.'; });
   }
