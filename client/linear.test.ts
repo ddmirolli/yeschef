@@ -52,7 +52,7 @@ test('each field is checked once, here at the edge; anything else is dropped', (
 });
 
 // A stand-in for T3's t3_thread_read: activity pages with short text, and each item in full by its itemId.
-function fakeT3(threads: Record<string, { itemId: string; type: string; text: string; updatedAt: string }[]>, log: unknown[][] = []) {
+function fakeT3(threads: Record<string, { itemId: string; type: string; status?: string; text: string; updatedAt: string }[]>, log: unknown[][] = []) {
   return async (name: string, args: Record<string, unknown> = {}): Promise<unknown> => {
     log.push([name, args]);
     const items = threads[String(args.threadId)] ?? [];
@@ -127,6 +127,20 @@ test('a ticket a thread names in its title or branch is linked, read or "not che
   assert.equal(links[1]!.url, 'https://linear.app/acme/issue/ENG-647');
   // A key no read has shown is no ticket: "PR-12" and "UTF-8" stay text.
   assert.deepEqual(reads.forThreads([{ threadId: 'z', title: 'PR-12 and UTF-8', updatedAt: at(1) }]), []);
+});
+
+test('a Linear call still running is read again once it has finished', async () => {
+  const running = { itemId: 't1', type: 'dynamic_tool', status: 'running', text: JSON.stringify({ toolName: 'mcp__linear-server__get_issue', input: { id: 'ENG-30' } }, null, 2), updatedAt: at(3) };
+  const items: Record<string, { itemId: string; type: string; status?: string; text: string; updatedAt: string }[]> = {
+    a: [{ itemId: 'm0', type: 'user_message', text: 'x', updatedAt: at(4) }, running, { itemId: 'm1', type: 'assistant_message', text: 'reading', updatedAt: at(3) }] };
+  const reads = createLinearReads({ call: fakeT3(items), now: () => NOW });
+  reads.want([{ threadId: 'a', updatedAt: at(3), itemCount: 3 }]);
+  for (let i = 0; i < 5; i++) await settle();
+  assert.equal(reads.get('ENG-30'), null);
+  items.a![1] = { ...running, status: 'completed', text: claudeItem('get_issue', { id: 'ENG-30' }, issue('ENG-30')), updatedAt: at(2) };
+  reads.want([{ threadId: 'a', updatedAt: at(2), itemCount: 3 }]);
+  for (let i = 0; i < 5; i++) await settle();
+  assert.equal(reads.get('ENG-30')?.status, 'In Progress');
 });
 
 test('a thread untouched for a week is not read back from its start', async () => {

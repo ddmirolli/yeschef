@@ -86,7 +86,9 @@ interface Stored { fields: Map<keyof LinearIssue, { v: string; at: number; by: s
 interface Followed { stamp: string; next: number }
 /** A thread as the reader follows it: its id, title, branch, and what changes when it gets new items. */
 export interface LinearThread { threadId: string; title?: string | undefined; branch?: string | null | undefined; updatedAt: string; itemCount?: number | undefined }
-interface ReadPage { items?: { position?: number; itemId?: string; type?: string; text?: string; textTruncated?: boolean; nextTextOffset?: number | null; updatedAt?: string }[]; nextPosition?: number | null; hasMore?: boolean }
+// T3's item states before an item is done (OrchestrationV2TurnItemStatus): its output may not be there yet.
+const UNFINISHED = new Set(['idle', 'pending', 'running', 'waiting']);
+interface ReadPage { items?: { position?: number; itemId?: string; type?: string; status?: string; text?: string; textTruncated?: boolean; nextTextOffset?: number | null; updatedAt?: string }[]; nextPosition?: number | null; hasMore?: boolean }
 
 export interface LinearReadsOptions { call: T3Caller['call']; now?: () => number; log?: (line: string) => void; days?: number; concurrency?: number; pages?: number }
 export interface LinearReads {
@@ -148,12 +150,14 @@ export function createLinearReads({ call, now = Date.now, log = () => {}, days =
   async function readThread(threadId: string): Promise<boolean> {
     const f = followed.get(threadId);
     if (!f) return false;
-    let moved = false, at = f.next;
+    let moved = false, at = f.next, hold: number | null = null;
     for (let i = 0; i < pages; i++) {
       const page = await call('t3_thread_read', { threadId, view: 'activity', afterPosition: at, limit: 100, maxCharsPerItem: 200 }) as ReadPage | null;
       const items = Array.isArray(page?.items) ? page!.items : [];
       for (const item of items) {
         if (item.type !== 'dynamic_tool' || typeof item.itemId !== 'string' || !/"toolName":\s*"[^"]*linear[^"]*(get_issue|list_issues|save_issue)"/i.test(item.text || '')) continue;
+        // Still running: the next read starts just before it, once the thread moves again.
+        if (UNFINISHED.has(String(item.status))) { if (hold === null && typeof item.position === 'number') hold = Math.max(f.next, item.position - 1); continue; }
         const text = await fullText(threadId, item.itemId);
         const when = Date.parse(item.updatedAt || '');
         const c = text ? linearCall(text, Number.isFinite(when) ? when : now()) : null;
@@ -162,7 +166,7 @@ export function createLinearReads({ call, now = Date.now, log = () => {}, days =
       if (typeof page?.nextPosition === 'number' && page.nextPosition > at) at = page.nextPosition;
       if (!page?.hasMore) break;
     }
-    f.next = at;
+    f.next = hold ?? at;
     return moved;
   }
 
