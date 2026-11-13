@@ -6,6 +6,7 @@ import { clean, WELCOME_TTL } from './team-common.ts';
 import type { Grant, Role } from './roles.ts';
 import type { SignedRoster } from './seal.ts';
 import type { Area, Person, Reply, Team } from './team.ts';
+import { cleanAreaRules, cleanTeamRules, changeArea, changeTeamRule, type TeamRules } from './team-rules.ts';
 import type { InviteRow, PendingRow } from '../relay/room.ts';
 
 /** A member as the lead edits them: pushRoster's list. */
@@ -56,7 +57,7 @@ export const roster = {
     if (!body.members.some((x) => x.id === myId)) { this.end('removed'); return 'removed'; }
     const sharedBefore = this.me ? shares(this.me.role) : null;
     const key = await this.teamKey();
-    let detail: { people?: unknown; areas?: unknown } = {};
+    let detail: { people?: unknown; areas?: unknown; rules?: unknown } = {};
     if (key) { try { detail = await open(key, body.detail, aad.detail(this.state.team, body.ver)) as typeof detail; } catch { detail = {}; } }
     // The roster, its people and their grants change together, after the waits above, and never back to an older
     // version: an edit never reads a new version with the old grants.
@@ -67,6 +68,7 @@ export const roster = {
     if (this.state.unsent) { let u = null; try { u = JSON.parse(this.state.unsent.body).ver; } catch { u = null; } if (!((u as number) > body.ver)) { delete this.state.unsent; this.save(); } }
     // The areas and each member's area travel sealed in the roster the lead signs, as roles do: the relay never sees them.
     this.areas = readAreas(detail?.areas);
+    this.rules = cleanTeamRules(detail?.rules);
     const people = (detail?.people && typeof detail.people === 'object' ? detail.people : {}) as Record<string, Detail | undefined>;
     this.people = new Map(body.members.map((m): [string, Person] => {
       const d = people[m.id] || {};
@@ -134,15 +136,15 @@ export const roster = {
   async decline(m: string): Promise<Reply> { const r = await this.say({ t: 'decline', m }); if (r.t === 'ok') { this.pending.delete(m); this.emit('team'); } return r; },
 
   /** A new roster from the lead: people is the full list as Map id -> { sign, dh, name, role, perms, area }; areas is
-   *  the team's list of { id, name }. */
-  async pushRoster(people: Edits, areas?: Area[]): Promise<Reply> {
-    if (areas === undefined) areas = this.areas;
-    // One edit at a time, so two edits never sign two rosters with one version.
-    const next = this.rosterLock.then(() => this.pushRosterNow(people, areas));
+   *  the team's list of { id, name, projects, mode, budget }; rules, the team's Rules. Left out, each stays as it is. */
+  async pushRoster(people: Edits, areas?: Area[], rules?: TeamRules): Promise<Reply> {
+    // One edit at a time, so two edits never sign two rosters with one version. What it leaves out is read inside the
+    // lock, from the team as the edit before left it (PR-Agent r3 on #69).
+    const next = this.rosterLock.then(() => this.pushRosterNow(people, areas ?? this.areas, rules ?? this.rules));
     this.rosterLock = next.catch(() => {});
     return next;
   },
-  async pushRosterNow(people: Edits, areas: Area[]): Promise<Reply> {
+  async pushRosterNow(people: Edits, areas: Area[], rules: TeamRules): Promise<Reply> {
     if (!this.isLead) return { t: 'err', code: 'role', text: 'Only the lead can change the team.' };
     const stale: Reply = { t: 'err', code: 'stale', text: 'The team changed while you edited it. Look again and try once more.' };
     // A roster this Mac signed and the relay never confirmed goes again first: the lead never signs a second, different
@@ -164,7 +166,7 @@ export const roster = {
     const me = await this.member();
     const ver = this.roster!.ver + 1;
     const list = readAreas(areas);
-    const detail = { people: {} as Record<string, Detail>, areas: list };
+    const detail = { people: {} as Record<string, Detail>, areas: list, rules: cleanTeamRules(rules) };
     const members: { id: string; sign: string; dh: string; invite?: true }[] = [];
     const placed = new Map([...people].map(([id, p]): [string, Grant & { area: string | null }] => {
       const g = id === me.id ? grant('lead') : grant(p.role, p.perms);
@@ -270,7 +272,7 @@ export const roster = {
     if (!n) return { t: 'err', code: 'bad', text: 'Type a name for the area.' };
     if (this.areas.length >= AREA_MAX) return { t: 'err', code: 'full', text: `A team holds up to ${AREA_MAX} areas.` };
     if (this.areas.some((a) => a.name.toLowerCase() === n.toLowerCase())) return { t: 'err', code: 'bad', text: 'There is an area with that name.' };
-    return this.pushRoster(this.current(), [...this.areas, { id: newId(), name: n }]);
+    return this.pushRoster(this.current(), [...this.areas, { id: newId(), name: n, ...cleanAreaRules(null) }]);
   },
 
   /** The lead renames an area or takes it away. Its people stay on the team, with no area. */
@@ -282,6 +284,34 @@ export const roster = {
   async removeArea(id: string): Promise<Reply> {
     if (!this.areas.some((a) => a.id === id)) return { t: 'err', code: 'bad', text: 'That area is not on the team.' };
     return this.pushRoster(this.current(), this.areas.filter((a) => a.id !== id));
+  },
+
+  /** One Rules change, read and signed inside the roster lock from the team as the edit before it left it, so quick
+   *  changes in Settings build on each other instead of the second one finding the team changed (PR-Agent r1 on #69). */
+  async editRules(make: () => { areas?: Area[]; rules?: TeamRules; error?: string }): Promise<Reply> {
+    const next = this.rosterLock.then(() => {
+      const out = make();
+      if (out.error) return { t: 'err', code: 'bad', text: out.error } satisfies Reply;
+      return this.pushRosterNow(this.current(), out.areas ?? this.areas, out.rules ?? this.rules);
+    });
+    this.rosterLock = next.catch(() => {});
+    return next;
+  },
+  /** The lead changes one team Rule (Settings -> Rules): { key, value } as the page sends them. */
+  async setTeamRule(key: string, value: string): Promise<Reply> {
+    return this.editRules(() => {
+      const out = changeTeamRule(this.rules, key, value);
+      return out.rules ? { rules: out.rules } : { error: out.error || 'Not changed.' };
+    });
+  },
+  /** The lead changes an area's mode or budget, or puts a project in it or takes one out. */
+  async setArea(id: string, field: string, value: string, on?: boolean): Promise<Reply> {
+    return this.editRules(() => {
+      const a = this.areas.find((x) => x.id === id);
+      if (!a) return { error: 'That area is not on the team.' };
+      const next = changeArea(a, field, value, on).area;
+      return next ? { areas: this.areas.map((x) => (x.id === id ? next : x)) } : { error: changeArea(a, field, value, on).error || 'Not changed.' };
+    });
   },
 
   /** The links of the open invites this Mac can read, to show and copy again. */
@@ -300,13 +330,14 @@ export const roster = {
 } satisfies ThisType<Team>;
 
 const AREA_MAX = 20, AREA_NAME = 40;
-/** The areas from a roster, cleaned: ids, names, no repeats, at most AREA_MAX. */
+/** The areas from a roster, cleaned: ids, names, no repeats, at most AREA_MAX, each with its projects, mode and budget
+ *  (client/team-rules.ts). An area from a roster made before Rules is in Open kitchen with no projects. */
 function readAreas(list: unknown): Area[] {
   const out: Area[] = [], ids = new Set<string>();
-  for (const a of (Array.isArray(list) ? list : []) as ({ id?: unknown; name?: unknown } | null)[]) {
+  for (const a of (Array.isArray(list) ? list : []) as ({ id?: unknown; name?: unknown; projects?: unknown; mode?: unknown; budget?: unknown } | null)[]) {
     const name = clean(a?.name, AREA_NAME);
     if (!isId(a?.id) || !name || ids.has(a!.id)) continue;
-    ids.add(a!.id); out.push({ id: a!.id, name });
+    ids.add(a!.id); out.push({ id: a!.id, name, ...cleanAreaRules(a) });
     if (out.length >= AREA_MAX) break;
   }
   return out;

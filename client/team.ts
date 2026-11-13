@@ -11,6 +11,7 @@ import type { Member, RosterBody, SignedRoster } from './seal.ts';
 import { grant } from './roles.ts';
 import type { Perm, Role } from './roles.ts';
 import { clean, ASK_MS, ACT_TTL } from './team-common.ts';
+import { cleanTeamRules, type AreaRules, type TeamRules } from './team-rules.ts';
 import { connection, RETRY, PING_MS, PONG_MS } from './team-connection.ts';
 import { roster, KEY_ASK_MS, chartUnder, readUnderForTest } from './team-roster.ts';
 import { inbox, BOARD_FRESH_MS } from './team-inbox.ts';
@@ -43,7 +44,8 @@ export interface TeamState {
 }
 /** A member as the roster and its sealed detail give them. `under`: who they report to, or null (not checked). */
 export interface Person { id: string; sign: string; dh: string; invite: boolean; name: string; role: Role; perms: Perm[]; area: string | null; under: string | null }
-export interface Area { id: string; name: string }
+/** An area: its name, and what Rules gives it (client/team-rules.ts): its projects, its mode and its budget. */
+export type Area = AreaRules;
 /** An ask to join, opened by an inviter. */
 export interface Asking { m: string; invite: string; at: number; sign: string; dh: string; code: string; name: string; projects: string[] }
 /** An open invite this Mac can read: its secret makes the link. */
@@ -109,6 +111,8 @@ export type View = {
   status: TeamStatus; link: Link; linkAt: number; team: string; teamName: string; unsaved: boolean;
   me: { id: string | undefined; name: string; role: Role | null; perms: Perm[]; area: string | null; under: string | null };
   lead: boolean; leadName: string; code: string | null; asked: string[]; areas: Area[]; people: ViewPerson[];
+  /** The team's Rules from the roster the lead signed (client/team-rules.ts). */
+  rules: TeamRules;
   pending: Pick<Asking, 'm' | 'at' | 'code' | 'name' | 'projects'>[]; invites: Pick<HeldInvite, 'id' | 'until' | 'by'>[];
 };
 
@@ -204,6 +208,7 @@ export class Team {
   declare rosterSigned: SignedRoster | undefined;
   declare people: Map<string, Person>;
   declare areas: Area[];
+  declare rules: TeamRules;
   declare pending: Map<string, Asking>;
   declare invites: Map<string, HeldInvite>;
   declare approving: Map<string, number> | undefined;
@@ -253,7 +258,8 @@ export class Team {
     this.rosterLock = Promise.resolve(); // the lead's roster edits, one at a time
     this.roster = null;          // the verified roster body
     this.people = new Map();     // id -> { id, sign, dh, invite, name, role, perms, area, under }
-    this.areas = [];             // [{ id, name }] from the roster the lead signed: names only until Rules gives them projects
+    this.areas = [];             // [{ id, name, projects, mode, budget }] from the roster the lead signed
+    this.rules = cleanTeamRules(null); // the team's Rules from that roster: the defaults until the lead sets them
     this.pending = new Map();    // asks to join, for inviters: m -> { m, invite, at, name, projects }
     this.invites = new Map();    // id -> { id, until, by, secret }
     this.key = null;
@@ -315,7 +321,8 @@ export class Team {
       me: this.me ? { id: this.meId, name: this.me.name, role: this.me.role, perms: this.me.perms, area: this.me.area, under: this.me.under } : { id: this.meId, name: this.state.name, role: null, perms: [], area: null, under: null },
       lead: this.isLead, leadName: this.people.get(this.roster?.lead as string)?.name || this.state.leadName || '',
       code: this.state.status === 'pending' ? this.state.code || null : null, asked: this.state.projects || [],
-      areas: this.areas.map((a) => ({ ...a })),
+      areas: this.areas.map((a) => ({ ...a, projects: [...a.projects] })),
+      rules: { ...this.rules },
       people: [...this.people.values()].map((p) => ({ id: p.id, name: p.name, role: p.role, perms: p.perms, area: p.area, under: p.under, ...this.personView(p) })),
       pending: [...this.pending.values()].map(({ m, at, code, name, projects }) => ({ m, at, code, name, projects })),
       invites: [...this.invites.values()].map(({ id, until, by }) => ({ id, until, by })),

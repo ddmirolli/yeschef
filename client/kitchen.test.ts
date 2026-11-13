@@ -26,6 +26,23 @@ test('a project override wins over All projects; other rules inherit', () => {
   assert.equal(forProject(rules, 'other').reviewer, 'coderabbit');
 });
 
+test('an area\'s rules reach every project in it: project over its areas, a later area over an earlier one, all over All projects', () => {
+  const rules = { all: { reviewer: 'coderabbit', council: 'ask', browser: 'any' }, projects: { 'area:a1': { reviewer: 'pr-agent', browser: 'local' }, 'area:a2': { browser: 'browserbase' }, yc: { reviewer: 'none' } } };
+  assert.deepEqual(normalize(rules).projects['area:a1'], { reviewer: 'pr-agent', browser: 'local' }, 'an area keeps its key beside the projects');
+  const p = forProject(rules, 'yc', ['area:a1', 'area:a2']);
+  assert.equal(p.reviewer, 'none', 'the project\'s own value wins');
+  assert.equal(p.browser, 'browserbase', 'the later area wins');
+  assert.equal(p.council, 'ask');
+  assert.equal(forProject(rules, 'other', ['area:a1']).reviewer, 'pr-agent');
+  assert.equal(forProject(rules, 'other').reviewer, 'coderabbit', 'no areas: as before');
+  assert.match(brief(rules, 'other', ['area:a1']), /PR-Agent is the pull-request reviewer/);
+  assert.doesNotMatch(brief(rules, 'other'), /PR-Agent/);
+  // The Pass's screenshot check reads the area too.
+  const off = { all: { screens: 'on', missing: 'flag' }, projects: { 'area:a1': { missing: 'off' } } };
+  assert.equal(missingShots(off, 'p', call('Which layout?', 'A', 'B'), 0), true);
+  assert.equal(missingShots(off, 'p', call('Which layout?', 'A', 'B'), 0, ['area:a1']), false);
+});
+
 test('notes are kept, capped, and can be overridden per project', () => {
   const long = 'x'.repeat(MAX_NOTES + 50);
   assert.equal(normalize({ all: { notes: long } }).all.notes.length, MAX_NOTES);

@@ -11,6 +11,7 @@ import { act } from '../../demo/lib/actions.ts';
 import { normalize, change } from '../../demo/lib/kitchen.ts';
 import { readRuns, dayStart, trackWaits, mayRunToday } from '../../demo/lib/you.ts';
 import { demoTeam } from '../../demo/lib/demo-team.ts';
+import { changeArea, changeTeamRule } from '../../demo/lib/team-rules.ts';
 import type { RunsEntry, WaitEntry } from '../../demo/lib/you.ts';
 
 function requiredThread(thread: DemoThread | undefined): DemoThread {
@@ -251,7 +252,7 @@ export function createKitchen({ now = Date.now, where, shot, onChange = () => {}
       const params = new URLSearchParams(search), picked = pickedFrom(params);
       // As client/server.ts route() reads them, plus the team a real Mac gets from its team connection.
       return renderApp({ board, picked, link: () => 'https://t3.codes/', status: { ok: true, at: now(), ms: 4 },
-        origin: 'https://t3.codes', answered, projects, rules: { ...rules, rev }, fit: fitFrom(params),
+        origin: 'https://t3.codes', answered, projects, rules: { ...rules, rev }, fit: fitFrom(params), lead: crew,
         ...(mode && crew ? { team: { view: crew, now: now(), mode }, fold: params.getAll('fold'), who: params.get('who') } : {}) })
         .replace(/\/img\/([0-9a-f]{20})/g, (all, id) => (SHOTS.has(id) ? shot(SHOTS.get(id) ?? id) : all));
     },
@@ -262,6 +263,22 @@ export function createKitchen({ now = Date.now, where, shot, onChange = () => {}
     /** The app's /act, as client/server.ts runAct() handles it, for the desktop hook window.yeschef.act. */
     async act(body: string): Promise<[number, string]> {
       const input = Object.fromEntries(new URLSearchParams(body));
+      // The team's Rules, as the lead's roster carries them (client/teamhost.ts teamRule and areaRule).
+      if (input.kind === 'team' && crew && (input.op === 'teamRule' || input.op === 'areaRule')) {
+        if (input.op === 'teamRule') {
+          const out = changeTeamRule(crew.rules, String(input.key || ''), String(input.value ?? ''));
+          if (!out.rules) return [400, out.error || 'Not changed.'];
+          crew.rules = out.rules;
+        } else {
+          const i = crew.areas.findIndex((a) => a.id === input.id), a = crew.areas[i];
+          if (!a) return [400, 'That area is not on the team.'];
+          const out = changeArea(a, String(input.field || ''), String(input.value ?? ''), input.on === '1');
+          if (!out.area) return [400, out.error || 'Not changed.'];
+          crew.areas[i] = out.area;
+        }
+        onChange();
+        return [200, 'Saved. Your team has it.'];
+      }
       if (input.kind === 'rules') {
         const out = change(rules, { scope: String(input.scope || ''), key: String(input.key || ''), value: String(input.value ?? ''), reset: input.reset === '1' });
         if (!out.rules) return [400, out.error];

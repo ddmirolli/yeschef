@@ -6,7 +6,8 @@
 // or {"scroll":"#bill"} to bring an element to the top of the view, and {"shotOf":"#bill"} to save
 // that element alone as <label>-<scheme>-<width>-el.png (the marketing site); add "as":"name" to save it as
 // <label>-<scheme>-<width>-name.png instead, so one run can save several elements. {"fill":"<selector>","text":"..."}
-// types into a field. {"hover":"<selector>"} rests the pointer on an element (a tooltip).
+// types into a field. {"hover":"<selector>"} rests the pointer on an element (a tooltip). {"select":"<selector>","text":"<value>"}
+// picks an option in a menu (a native menu takes no keys in the cloud browser).
 // SHOOT_VIEWS picks other views than the four defaults, as scheme:width:height pairs, for example
 // SHOOT_VIEWS=light:2560:1440,dark:2560:1440 for a large display. SHOOT_SCALE=2 shoots a desktop view at 2x
 // (the site's phone screenshots of the app are 1440x900 at 2x). SHOOT_AT=<ISO time> stops the page's clock at that
@@ -15,7 +16,7 @@ import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
 
 /** One step of actions-json (see above). */
-interface Step { click?: string; scroll?: string; shotOf?: string; as?: string; hover?: string; press?: string; fill?: string; text?: string; wait?: number }
+interface Step { click?: string; scroll?: string; shotOf?: string; as?: string; hover?: string; press?: string; fill?: string; select?: string; text?: string; wait?: number }
 /** A view: colour scheme, width and height. */
 type View = [scheme: string, width: number, height: number];
 
@@ -83,6 +84,7 @@ for (const [scheme, w, h] of views) {
       if (a.hover) await page.hover(a.hover, { timeout: 10000 });
       if (a.press) await page.keyboard.press(a.press);
       if (a.fill) await page.fill(a.fill, a.text ?? '', { timeout: 10000 });
+      if (a.select) await page.selectOption(a.select, a.text ?? '', { timeout: 10000 });
       if (a.wait) await page.waitForTimeout(a.wait);
     }
     await page.waitForTimeout(500);

@@ -143,6 +143,45 @@ test('the app draws Your team from the relay: the lead once someone is below the
   lead.h.stop(); dev.h.stop();
 });
 
+test('the lead\'s Rules ride the signed roster to every Mac: thresholds, areas and their mode; nobody else can change them', async () => {
+  const { lead, dev, link } = await pair();
+  await dev.h.act({ op: 'join', link: nth(link.split('#'), 1), name: 'Ada Lovelace', shared: 'p-app' });
+  await until(() => lead.h.view()?.pending.length === 1, 'the ask');
+  assert.equal((await lead.h.act({ op: 'approve', m: nth(lead.h.view()!.pending, 0).m, role: 'engineer', perms: 'see' })).status, 200);
+  await until(() => dev.h.view()?.status === 'member', 'the dev in');
+  // A new team has the proposed rules, and an area made before Rules is in Open kitchen with no projects.
+  assert.deepEqual(dev.h.view()!.rules, { escalateMin: 15, stuckMin: 20, waitMin: 15, failRuns: 3, bigLines: 800, bigFiles: 30, checks: false, comparesDay: 50, dupAt: 90 });
+  assert.equal((await lead.h.act({ op: 'addArea', name: 'Shared code' })).status, 200);
+  const id = nth(lead.h.view()!.areas, 0).id;
+  assert.deepEqual(lead.h.view()!.areas, [{ id, name: 'Shared code', projects: [], mode: 'open', budget: 10 }]);
+  // The lead's changes, one at a time, as Settings sends them.
+  const said = await lead.h.act({ op: 'teamRule', key: 'stuckMin', value: '60' });
+  assert.deepEqual(said, { status: 200, text: 'Saved. Your team has it.' });
+  assert.equal((await lead.h.act({ op: 'teamRule', key: 'big', value: '1500:60' })).status, 200);
+  assert.equal((await lead.h.act({ op: 'areaRule', id, field: 'project', value: 'app', on: '1' })).status, 200);
+  assert.equal((await lead.h.act({ op: 'areaRule', id, field: 'mode', value: 'brigade' })).status, 200);
+  assert.equal((await lead.h.act({ op: 'areaRule', id, field: 'budget', value: '5' })).status, 200);
+  // A choice that is not one is refused and changes nothing.
+  assert.deepEqual(await lead.h.act({ op: 'teamRule', key: 'stuckMin', value: '25' }), { status: 400, text: 'That is not one of the choices.' });
+  assert.deepEqual(await lead.h.act({ op: 'areaRule', id: 'nope', field: 'mode', value: 'open' }), { status: 400, text: 'That area is not on the team.' });
+  // The dev's Mac reads them from the roster, so both raise the same calls at the same times.
+  await until(() => dev.h.view()?.rules.stuckMin === 60 && dev.h.view()?.areas[0]?.budget === 5, 'the rules at the dev');
+  assert.deepEqual(dev.h.view()!.rules, { ...lead.h.view()!.rules });
+  assert.equal(dev.h.view()!.rules.bigLines, 1500);
+  assert.deepEqual(dev.h.view()!.areas, [{ id, name: 'Shared code', projects: ['app'], mode: 'brigade', budget: 5 }]);
+  // Any other roster change keeps them: approving, renaming, a role.
+  assert.equal((await lead.h.act({ op: 'renameArea', id, name: 'Contracts' })).status, 200);
+  assert.equal(lead.h.view()!.rules.stuckMin, 60);
+  assert.deepEqual(lead.h.view()!.areas[0], { id, name: 'Contracts', projects: ['app'], mode: 'brigade', budget: 5 });
+  // The lead's view is French Brigade now that an area is (brief, "Mode per area", proposed).
+  assert.equal(teamInputOf(lead.h.view() as unknown as Parameters<typeof teamInputOf>[0], Date.now())?.mode, 'brigade');
+  // Only the lead signs the roster: a dev's change is refused, and the team's rules stay.
+  assert.deepEqual(await dev.h.act({ op: 'teamRule', key: 'stuckMin', value: '10' }), { status: 400, text: 'Only the lead can change the team.' });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(lead.h.view()!.rules.stuckMin, 60);
+  lead.h.stop(); dev.h.stop();
+});
+
 test('decline, then the dev\'s page says so and OK forgets the team on this Mac', async () => {
   const { lead, dev, link } = await pair();
   await dev.h.act({ op: 'join', link: nth(link.split('#'), 1), name: 'Ada', shared: '' });

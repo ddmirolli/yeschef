@@ -28,9 +28,11 @@ export function tomorrowMorning(now = new Date()): string {
 /** projects: T3's project list ({ id, title }); only a launch uses it, and only into one of these projects.
  *  rules: the rules (client/kitchen.ts); a launch carries the project's rules in its brief. */
 /** prefix: who the message is from. A teammate's action names the teammate and their role (client/roles.ts). */
-export async function act({ board, t3, input, now = new Date(), holds, answered, projects = [], rules = null, prefix = PREFIX }: {
+export async function act({ board, t3, input, now = new Date(), holds, answered, projects = [], rules = null, scopes = () => [], prefix = PREFIX }: {
   board: Board; t3: T3Caller; input: ActInput; now?: Date; holds?: Map<string, string> | undefined; answered?: Map<string, Answered> | undefined;
   projects?: readonly Pick<Project, 'id' | 'title'>[]; rules?: unknown; prefix?: string;
+  /** The areas a project (by name) is in, as rules keys: their overrides go in the brief too. */
+  scopes?: (project: string) => string[];
 }): Promise<ActResult> {
   const kind = String(input.kind || '');
   const thread = String(input.thread || '');
@@ -50,7 +52,7 @@ export async function act({ board, t3, input, now = new Date(), holds, answered,
     const title = (String(input.title || '').trim() || message.split('\n')[0]!).replace(/\s+/g, ' ').slice(0, MAX_TITLE);
     const workspaceStrategy = { type: input.workspace === 'root' ? 'root' : 'worktree' };
     // The project's rules go under the prompt (Dan, 2026-11-08), so the agent works the project's way.
-    const out = await t3.call('t3_thread_launch', { projectId: project.id, title, message: message + brief(rules, project.id), workspaceStrategy, clientRequestId: `pass-${nonce}` });
+    const out = await t3.call('t3_thread_launch', { projectId: project.id, title, message: message + brief(rules, project.id, project.title ? scopes(project.title) : []), workspaceStrategy, clientRequestId: `pass-${nonce}` });
     return { status: 200, text: `Launched “${title}” in ${project.title}${workspaceStrategy.type === 'worktree' ? ', in a new worktree' : ''}.`, thread: (out as { threadId?: string } | null)?.threadId || null };
   }
 

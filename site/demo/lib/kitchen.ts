@@ -98,10 +98,11 @@ export function normalize(raw: unknown): Rules {
   return { all: clean(r.all, true), projects };
 }
 
-/** The rules for one project: its overrides on top of "All projects". */
-export function forProject(rules: unknown, projectId?: string | null): FullRuleSet {
+/** The rules for one project: its overrides on top of its areas' ("area:<id>", in the team's order, a later area over an
+ *  earlier one), on top of "All projects". An area's overrides are kept under its key beside the projects'. */
+export function forProject(rules: unknown, projectId?: string | null, areas: readonly string[] = []): FullRuleSet {
   const r = normalize(rules);
-  return { ...r.all, ...(projectId && r.projects[projectId] || {}) };
+  return Object.assign({ ...r.all }, ...areas.map((a) => r.projects[a] || {}), projectId && r.projects[projectId] || {});
 }
 
 /** One change from Settings, applied to the current rules, so a stale page never puts back other rules
@@ -126,9 +127,9 @@ export function change(rules: unknown, { scope = '', key, value, reset = false }
   return { rules: r };
 }
 
-/** The lines a brief carries for one project, or '' when no rule adds one. */
-export function brief(rules: unknown, projectId?: string | null): string {
-  const p = forProject(rules, projectId);
+/** The lines a brief carries for one project, or '' when no rule adds one. areas: the project's areas' keys. */
+export function brief(rules: unknown, projectId?: string | null, areas: readonly string[] = []): string {
+  const p = forProject(rules, projectId, areas);
   const lines = KEYS.flatMap((k) => RULES[k].brief[p[k]] || []);
   const notes = String(p.notes || '').trim();
   if (!lines.length && !notes) return '';
@@ -146,8 +147,8 @@ export function visualCall(call: CallLike | null | undefined): boolean {
 }
 
 /** The Pass's check: a call about something you can see, with no screenshots, when this project flags that. */
-export function missingShots(rules: unknown, projectId: string | null | undefined, call: CallLike | null | undefined, imageCount: number): boolean {
-  const p = forProject(rules, projectId);
+export function missingShots(rules: unknown, projectId: string | null | undefined, call: CallLike | null | undefined, imageCount: number, areas: readonly string[] = []): boolean {
+  const p = forProject(rules, projectId, areas);
   return p.screens === 'on' && p.missing === 'flag' && imageCount === 0 && visualCall(call);
 }
 
