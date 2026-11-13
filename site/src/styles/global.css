@@ -603,6 +603,8 @@ kbd { display: inline-grid; place-items: center; min-width: 24px; height: 24px; 
 .how-foot kbd { min-width: 20px; height: 20px; font-size: 11px; }
 .act { display: inline-block; padding: 4px 10px; border-radius: 7px; border: 1px solid var(--border-strong); font-size: 12.5px; font-weight: 600; }
 .act-go { background: var(--pass-deep); border-color: transparent; color: #fff; }
+/* Not built yet: plain gray, never a warning hue. */
+.next { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border-strong); color: var(--fg-dim); font: 600 11.5px/1.5 var(--font-sans); font-style: normal; vertical-align: 1px; white-space: nowrap; }
 
 /* How to start: the steps, then two screens. */
 .start-shots { margin-top: 28px; }
