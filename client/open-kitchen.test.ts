@@ -275,6 +275,8 @@ test('the readers (Dan, 2026-11-12, 1A 2A 3A): fixes tried, the last message, no
   // The list takes focus, so the keys scroll it (PR-Agent r2 on #64).
   assert.match(dp, /<div class="dp-l" tabindex="0">/);
   assert.match(dp, /<a class="dp-i" href="https:\/\/github\.com\/acme\/fernpay\/pull\/440\/files" target="_blank" rel="noopener" title="Open the full diff on GitHub"/);
+  // T3's header switches, hidden until its code is drawn (the page shows them): all files, then test files, then GitHub.
+  assert.match(dp, /<i class="dp-sp"><\/i><button type="button" class="dp-i" data-dp-all hidden title="Expand all files" aria-label="Expand all files"><svg class="ic dp-ex"[^>]*><path d="m7 15 5 5 5-5"\/><path d="m7 9 5-5 5 5"\/><\/svg><svg class="ic dp-co"[^>]*><path d="m7 20 5-5 5 5"\/><path d="m7 4 5 5 5-5"\/><\/svg><\/button><button type="button" class="dp-i" data-dp-tests hidden aria-pressed="false" title="Hide test files" aria-label="Hide test files"><svg class="ic"[^>]*><path d="M10 2v2\.343"\/>[^]*?<\/svg><\/button><a class="dp-i"/);
   assert.doesNotMatch(dp, /data-dp-close|role="dialog"/, 'the panel sits beside the reader, so the bar\'s toggle closes it');
   assert.deepEqual([...dp.matchAll(/<span class="dir">([^<]*)<\/span><span class="fn">([^<]+)<\/span>/g)].map((m) => `${m[1]}${m[2]}`),
     ['apps/web/src/export/c.ts', 'packages/contracts/src/d.ts', 'packages/export/src/markdown/b.ts', 'packages/export/src/tables/a.ts', 'pnpm-lock.yaml']);

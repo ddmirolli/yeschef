@@ -50,7 +50,7 @@ function t3(answers: { status: number; body: unknown }[]) {
   return { seen, fetchImpl };
 }
 const drawn = (patch: string): Promise<Drawn> => Promise.resolve({ style: '<style></style>', sprite: '<svg></svg>',
-  files: patch.split('\n').filter(Boolean).map((line) => ({ path: line, prev: null, type: 'change', add: 1, del: 0, header: `<div>${line}</div>`, code: `<pre>${line}</pre>` })) });
+  files: patch.split('\n').filter(Boolean).map((line) => ({ path: line, prev: null, type: 'change', add: 1, del: 0, test: false, header: `<div>${line}</div>`, code: `<pre>${line}</pre>` })) });
 const keysOf = (tokens: string[]) => { let at = 0; const k = { dropped: 0, get: async () => tokens[at]!, drop: () => { at++; k.dropped++; } }; return k; };
 
 test('it asks T3 Code as its diff panel does: read-only key, the project, host github.com, then each page by cursor', async () => {
@@ -178,6 +178,13 @@ test('a patch is drawn with T3 Code\'s renderer and settings: headers folded wit
   // Code and paths are text: no tag from the patch survives.
   for (const html of [a!.header, a!.code]) assert.doesNotMatch(html, /<script|<img|<b>/);
   assert.match(a!.code, /&lt;script&gt;|&#x3C;script/);
+});
+
+test('each drawn file says whether T3 Code counts it a test file, for the panel\'s Hide test files', async () => {
+  const added = (path: string) => [`diff --git a/${path} b/${path}`, 'new file mode 100644', 'index 0000000..3333333', '--- /dev/null', `+++ b/${path}`, '@@ -0,0 +1 @@', '+export {};'];
+  const d = await drawPatch([...added('src/a.ts'), ...added('src/__tests__/a.test.ts'), ...added('src/__mocks__/fs.ts'), ''].join('\n'));
+  assert.deepEqual(d.files.map(({ path, test }) => ({ path, test })), [
+    { path: 'src/a.ts', test: false }, { path: 'src/__tests__/a.test.ts', test: true }, { path: 'src/__mocks__/fs.ts', test: true }]);
 });
 
 test('a cut T3 explains with withheld files leaves nothing to link to; a cut it does not explain links to the rest', async () => {
