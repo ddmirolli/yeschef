@@ -2,6 +2,19 @@
 
 Each Stable release has a section here, `## <version>`. `npm run release -- <version>` stops without one and uses it as the release notes on GitHub. Nightly releases need none.
 
+## 0.2.3
+
+- You, expanded: your threads flow through the stages as one chart, left to right. Each thread is its own strand, and each band stops at the stage it is in.
+- The header is the project picker, with icons only.
+- Your team now comes from the team relay: what each teammate's Yes Chef sends, live.
+- Your team, expanded: in Open kitchen, a row per person with their threads and the reviewers each PR waits on; in French Brigade, a chart of the team's threads by stage, grouped by feature (the Linear project of their tickets) or by person.
+- Act on a teammate's call from The Pass: Reply, Request changes, Rebase, Roll back, answer their question, or Hold. It goes to their Yes Chef, which checks your role and runs it through their own T3 Code sign-in, with your name on it.
+- It's fine clears a team call from every Pass that shows it, and records who cleared it and when.
+- Readers for your team's calls: the fixes tried, the last message, and the changed files. A PR that is too big opens its diff from T3 Code in a panel beside the reader, with T3 Code's switches to collapse all files and hide test files.
+- The reader shows the Linear tickets your agents read in T3 Code, from their own Linear calls. Yes Chef makes no Linear calls of its own.
+- Settings → Rules holds your team's rules: escalation, thresholds, model checks and areas.
+- Tested with T3 Code 0.1.7.
+
 ## 0.2.2
 
 - Invite your team: ⌘K, Invite your team. Make a team and send its link. Each dev who opens it asks to join, and you place them on the chart: Lead, Deputies, areas with their Area owners and Engineers, and Viewers. Drag an ask onto a slot, or click it. The same six digits show on their screen and beside their ask, so you add the right person.
