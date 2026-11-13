@@ -81,16 +81,27 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   function $<E extends Element = HTMLElement>(sel: string, el?: ParentNode | null): E | null { return (el || document).querySelector<E>(sel); }
   function $$<E extends Element = HTMLElement>(sel: string, el?: ParentNode | null): E[] { return Array.prototype.slice.call((el || document).querySelectorAll<E>(sel)); }
   function focusView(){ return state.view === 'pass'; }
-  // Too big's diff panel, T3 Code's right panel sheet: Open diff slides it in over the reader, and Close, a click beside
-  // it or Esc slides it out. Focus goes to its list, so the keys scroll it, and back to Open diff after. While it is
-  // open, the reader it covers is inert, so Tab skips it; the Pass beside it stays live.
+  // Too big's diff panel, T3 Code's inline right panel: the bar's toggle opens it beside the reader and closes it. Focus
+  // goes to its list, so the keys scroll it, and back to the toggle after.
   function dpSet(plate: Element, open: boolean, focus: boolean): void {
-    var dp = $('.dp', plate), b = $('[data-dp-open]', plate); if (!dp) return;
-    dp.classList.toggle('open', open); if (b) b.setAttribute('aria-expanded', String(open));
-    $$(':scope > :not(.dp)', plate).forEach(function(x){ x.inert = open; });
+    var b = $('[data-dp-toggle]', plate); if (!b || !$('.dp', plate)) return;
+    plate.classList.toggle('dp-on', open); b.setAttribute('aria-pressed', String(open));
     if (!focus) return;
-    var to = open ? $('.dp-l', dp) : b; if (to) to.focus({ preventScroll: true });
+    var to = open ? $('.dp-l', plate) : b; if (to) to.focus({ preventScroll: true });
   }
+  // Its left edge resizes it, as T3 Code's does (usePreviewPanelInlineSize.ts): at least 360 px, at most 70% of the
+  // window with 360 px left for the reader. One width for every Too big panel, kept through a reload.
+  function dpWidth(w: number): void { document.documentElement.style.setProperty('--dpw', Math.round(w) + 'px'); }
+  var dpw0 = Number(store('yc.dpw')); if (dpw0 >= 360) dpWidth(dpw0);
+  document.addEventListener('pointerdown', function(ev){
+    var h = ev.button === 0 && (ev.target as Element).closest ? (ev.target as Element).closest<HTMLElement>('.dp-rz') : null;
+    var dp = h && h.parentElement, plate = dp && dp.closest<HTMLElement>('.plate'); if (!h || !dp || !plate) return;
+    var x0 = ev.clientX, w0 = dp.getBoundingClientRect().width, w = w0, grip = h;
+    ev.preventDefault(); grip.setPointerCapture(ev.pointerId);
+    function move(m: PointerEvent): void { var max = Math.max(360, Math.min(window.innerWidth * 0.7, plate!.clientWidth - 360)); w = Math.min(max, Math.max(360, w0 + x0 - m.clientX)); dpWidth(w); }
+    function up(): void { grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', up); grip.removeEventListener('pointercancel', up); store('yc.dpw', String(Math.round(w))); }
+    grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', up); grip.addEventListener('pointercancel', up);
+  });
 
   // ----- Views -----
   function setView(v: string): void {
@@ -591,7 +602,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
         var s = $('.plate-scroll', mounted), d = $('.dock', mounted), top = s ? s.scrollTop : 0, dtop = d ? d.scrollTop : 0;
         $$<HTMLDetailsElement>('details.more', mounted).forEach(function(x, i){ var y = $$<HTMLDetailsElement>('details.more', p)[i]; if (y) y.open = x.open; });
         // So does Too big's diff panel, open at the same place in its list. (With focus in it, dirty() keeps the plate.)
-        var dpl = $('.dp.open .dp-l', mounted), dpTop = dpl ? dpl.scrollTop : 0;
+        var dpl = mounted.classList.contains('dp-on') ? $('.dp-l', mounted) : null, dpTop = dpl ? dpl.scrollTop : 0;
         if (dpl) dpSet(p, true, false);
         // The question card you were reading stays in front through a refresh.
         $$('form.act', mounted).forEach(function(x, i){ var y = $$('form.act', p)[i]; if (y && qAt(x) > 0) qShow(y, qAt(x)); });
@@ -1609,9 +1620,9 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     if (pk) { pickProject(pk); return; }
     var sc = t.closest<HTMLElement>('.vmenu .seg [data-scope]');
     if (sc) { setScope(sc.dataset.scope!); return; }
-    // Too big: Open diff slides the diff panel in; Close, or a click on the reader beside it, slides it out.
-    var dpo = t.closest('[data-dp-open], [data-dp-close]'), dpPlate = dpo && dpo.closest('.plate');
-    if (dpo && dpPlate) { dpSet(dpPlate, dpo.hasAttribute('data-dp-open'), true); return; }
+    // Too big: the bar's toggle opens the diff panel beside the reader, and closes it.
+    var dpo = t.closest('[data-dp-toggle]'), dpPlate = dpo && dpo.closest('.plate');
+    if (dpo && dpPlate) { dpSet(dpPlate, !dpPlate.classList.contains('dp-on'), true); return; }
     // The chart: a project opens its threads, ‹ All projects goes back. A thread's band carries data-plate, so a click
     // on it opens the ticket below, as its card does.
     // Your team, expanded: a sub-lead's name folds their team into one row and back.
@@ -1773,12 +1784,12 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     // A key an input method uses while it composes text (Japanese, Chinese) is the method's alone, as in the action bar:
     // Esc or ⌘↵ then never leaves, or sends half a word. Safari's last key of a composition reads as keyCode 229.
     if (ev.isComposing || ev.keyCode === 229) return;
-    // Too big's diff panel, while open, comes first: Esc closes it, as Esc closes T3 Code's sheet. With focus in it, a
-    // plain key is the browser's, so the arrows, Space and Page Down scroll its list and never move the Pass or page the
-    // reader it covers (PR-Agent r2 on #64). A key with ⌘, Ctrl or Alt still reaches the shortcuts (⌘K).
-    var dpOpen = mounted && $('.dp.open', mounted);
-    if (dpOpen && ev.key === 'Escape') { ev.preventDefault(); dpSet(mounted!, false, true); return; }
-    if (dpOpen && dpOpen.contains(document.activeElement) && !(ev.metaKey || ev.ctrlKey || ev.altKey)) return;
+    // Too big's diff panel, with focus in it, comes first: Esc closes it, back to its toggle, and a plain key is the
+    // browser's, so the arrows, Space and Page Down scroll its list and never move the Pass or page the reader (PR-Agent
+    // r2 on #64). A key with ⌘, Ctrl or Alt still reaches the shortcuts (⌘K).
+    var dpIn = mounted && mounted.classList.contains('dp-on') && document.activeElement && document.activeElement.closest('.dp');
+    if (dpIn && ev.key === 'Escape') { ev.preventDefault(); dpSet(mounted!, false, true); return; }
+    if (dpIn && !(ev.metaKey || ev.ctrlKey || ev.altKey)) return;
     if (!KST.changed) { onKey(ev); return; }
     var c = K.comboOf(ev), t = ev.target as Element | null;
     var typing = !!(t && t.closest && t.closest('textarea, input[type=text], input[type=search], [contenteditable]'));

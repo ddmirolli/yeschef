@@ -71,7 +71,7 @@ export function demoTeam(now: number): DemoTeam {
   // ---- The calls ----
   const mainRed = ago(141);
   const ravi = [t('mcp:ravi-1', 'Fernpay', 'Merged', 'Payout batch scheduler', { startedAt: ago(420),
-      prs: [pr('Fernpay', 431, 'merged', { mergedAt: mainRed, mergeSha: 'f431a0c' })] }),
+      prs: [pr('Fernpay', 431, 'merged', { mergedAt: mainRed, mergeSha: 'f431a0c', size: { files: 7, added: 186, removed: 24, at: mainRed } })] }),
     t('mcp:ravi-2', 'Fernpay', 'In progress', 'Fix the payout scheduler test', { working: 2, startedAt: ago(125), updatedAt: iso(2),
       last: 'The scheduler test assumed UTC midnight. Pinning the clock and rerunning the suite.' })];
   const ravisBase: DemoBase = { repo: REPO.Fernpay, branch: 'main', sha: 'f431a0c', title: 'Payout batch scheduler (#431)', committedAt: mainRed, result: 'failing',

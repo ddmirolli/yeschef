@@ -183,11 +183,11 @@ export const ICON = {
   // The modes (docs/icons/skillet.svg, toque.svg): Open kitchen and French Brigade. Filled parts take no stroke here,
   // because svg() strokes everything at 1.8.
   skillet: '<g transform="translate(8.98 10.62)"><circle r="3.50" fill="currentColor" fill-opacity=".28" stroke="none"/><circle r="5.1" stroke-width="1.0"/><g transform="rotate(30)"><path d="M-4.26 -2.8 L-6.98 -1.76 L-7.40 -1.15 L-7.40 1.15 L-6.98 1.76 L-4.26 2.8" stroke-width="0.75" stroke-linecap="butt" stroke-linejoin="miter"/><path d="M4.80 -0.8 L14.85 -1.1 L15.30 -0.65 L15.30 0.65 L14.85 1.1 L4.80 0.8 Z M13.25 0 a.5 .5 0 1 0 1 0 a.5 .5 0 1 0 -1 0 Z" fill="currentColor" fill-rule="evenodd" stroke="none"/></g></g>',
-  // T3 Code's lucide icons, for the team readers that copy its parts (Dan, 2026-11-12): a failed check, a file and
-  // Open diff.
+  // T3 Code's lucide icons, for the team readers that copy its parts (Dan, 2026-11-12): a failed check, a file, and
+  // the right panel toggle (PanelRightIcon, PanelLayoutControls.tsx) that opens Too big's diff panel.
   circleX: '<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
   file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>',
-  fileDiff: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M9 10h6"/><path d="M12 13V7"/><path d="M9 17h6"/>',
+  panelRight: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/>',
   toque: '<path d="M7.6 16.1V12.55A3.3 3.3 0 0 1 9.35 6.35A3.05 3.05 0 0 1 14.65 6.35A3.3 3.3 0 0 1 16.4 12.55V16.1" stroke-width="1.25" stroke-linecap="butt"/><path d="M10.55 12.1V15.3" stroke-width="0.75"/><path d="M13.45 12.1V15.3" stroke-width="0.75"/><path d="M6.9 17.75H17.1L16.10 19.15H7.90Z" fill="currentColor" stroke="none"/>',
 };
 type IconName = keyof typeof ICON;
@@ -584,6 +584,11 @@ const pos = (s: string | null): string => `${s}’s`;
 const teamPlateId = (c: { id: string }): string => 'p-' + createHash('sha1').update(`team:${c.id}`).digest('hex').slice(0, 12);
 // A teammate's PR link comes from their summary: only a GitHub pull request address opens.
 const prHref = (pr: TeamPr) => (/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/[0-9]+$/.test(pr?.url || '') ? pr.url : `https://github.com/${String(pr?.repo || '').split('/').map(encodeURIComponent).join('/')}/pull/${Number(pr?.n) || 0}`);
+/** A PR named in the reader's words links to it, so no chip repeats it (Dan, 2026-11-12: one place). The & guard skips
+ *  an escaped character such as &#39;. */
+const prLink = (pr: TeamPr, text: string): string => `<a class="prl" href="${e(prHref(pr))}" target="_blank" rel="noopener">${e(text)}</a>`;
+const prRef = (pr: TeamPr): RegExp => new RegExp(`(^|[^&\\w])#${Number(pr.n)}(?!\\d)`);
+const linkPrs = (html: string, prs: readonly TeamPr[]): string => prs.reduce((h, p) => h.replace(prRef(p), (_m, a: string) => `${a}${prLink(p, `#${Number(p.n)}`)}`), html);
 const teamPrChip = (pr: TeamPr): string => `<a class="prc t-${PR_TONE[pr.state ?? ''] || 'gray'}" href="${e(prHref(pr))}" target="_blank" rel="noopener"><i></i>${e(String(pr.repo).split('/').pop())}#${Number(pr.n)}<span>${e(pr.state)}</span>${svg('out')}</a>`;
 const kvs = (pairs: readonly (readonly [string, string, string?])[]): string => `<div class="tvis"><div class="kvs">${pairs.map(([k, v, cls]) => `<div class="kv"><span>${e(k)}</span><b${cls ? ` class="${cls}"` : ''}>${e(v)}</b></div>`).join('')}</div></div>`;
 const vlab = (left: string, right = '', tone = ''): string => `<div class="vl"><span>${left}</span>${right ? `<b${tone ? ` class="${tone}"` : ''}>${e(right)}</b>` : ''}</div>`;
@@ -602,16 +607,14 @@ const dstat = (a: number, d: number, row = false): string => {
   return `<span class="dst" role="group" aria-label="${a} additions, ${d} deletions">${row ? (d ? minus : '') + (a ? plus : '') : plus + minus}</span>`;
 };
 
-/** Too big (Dan, 2026-11-12: the side panel, not the inline card, so the reader stays short). The reader keeps T3 Code's
- *  changed-files header (ChangedFilesTree.tsx): the PR's size and Open diff. Open diff slides in T3 Code's right panel
- *  sheet (RightPanelSheet.tsx, DiffPanel.tsx) over the reader: Changes vs the PR's base, and a row per file, path first,
- *  removed then added lines. A summary carries no code, so a row has no diff to open; the panel links the full diff on
- *  GitHub. Lockfiles and generated files show faded, as the call's size leaves them out. */
-function changedFiles(size: { files: number; added: number; removed: number }, changes: TeamChanges | null, pr: TeamPr): { body: string; panel: string } {
+/** Too big's diff panel (Dan, 2026-11-12: "the same side panel code from T3 Code", resizing the reader, not over it).
+ *  T3 Code's inline right panel with its diff panel's header (PreviewPanelShell.tsx, DiffPanel.tsx): Changes vs the PR's
+ *  base and its counts, then a row per file, path first, removed then added lines. A summary carries no code, so a row
+ *  has no diff to open; the header links the full diff on GitHub. Lockfiles and generated files show faded, as the
+ *  call's size leaves them out. The toggle is the reader's (plateOf). */
+function diffPanel(size: { added: number; removed: number }, changes: TeamChanges | null, pr: TeamPr): { label: string; html: string } {
   const href = e(`${prHref(pr)}/files`);
   const stat = okCount(size.added) && okCount(size.removed) ? dstat(size.added, size.removed) : '';
-  const body = `<div class="tvis dpo"><span class="n">${e(plural(size.files, 'changed file'))}${stat}</span>`
-    + `<button type="button" class="dpo-b" data-dp-open aria-haspopup="dialog" aria-expanded="false">${svg('fileDiff')}Open diff</button></div>`;
   // By path, as git lists a diff's files.
   const files = (changes?.files ?? []).flatMap((f) => (typeof f.p === 'string' && f.p ? [{ ...f, p: f.p }] : [])).sort((x, y) => (x.p < y.p ? -1 : x.p > y.p ? 1 : 0));
   const row = (f: ChangedFile & { p: string }) => {
@@ -622,12 +625,10 @@ function changedFiles(size: { files: number; added: number; removed: number }, c
   const more = changes && okCount(changes.more) ? changes.more : 0;
   const list = changes ? files.map(row).join('') + (more ? `<a class="dpm" href="${href}" target="_blank" rel="noopener">${e(nf(more))} more ${more === 1 ? 'file' : 'files'} in the full diff</a>` : '')
     : `<p class="dpn">${NC_V}</p>`;
-  const panel = `<div class="dp" data-dp><div class="dp-bg" data-dp-close></div><section class="dp-p" role="dialog" aria-label="Changes in #${pr.n}">`
-    + `<header class="dp-h"><b>Changes</b>${pr.base ? `<span class="vs">vs</span><span class="base" title="${e(pr.base)}">${e(pr.base)}</span>` : ''}${stat}<i class="dp-sp"></i>`
-    + `<a class="dp-i" href="${href}" target="_blank" rel="noopener" title="Open the full diff on GitHub" aria-label="Open the full diff on GitHub">${svg('fileDiff')}</a>`
-    + `<button type="button" class="dp-i" data-dp-close title="Close" aria-label="Close">${svg('x')}</button></header>`
-    + `<div class="dp-l" tabindex="0">${list}</div></section></div>`;
-  return { body, panel };
+  const html = `<header class="dp-h"><b>Changes</b>${pr.base ? `<span class="vs">vs</span><span class="base" title="${e(pr.base)}">${e(pr.base)}</span>` : ''}${stat}<i class="dp-sp"></i>`
+    + `<a class="dp-i" href="${href}" target="_blank" rel="noopener" title="Open the full diff on GitHub" aria-label="Open the full diff on GitHub">${svg('out')}</a></header>`
+    + `<div class="dp-l" tabindex="0">${list}</div>`;
+  return { label: `Changes in #${Number(pr.n)}`, html };
 }
 /** Failing: the red runs in a row, newest first, each with the commit it ran on, as T3 Code's checks list draws a
  *  failed check. A run whose result is not failing is left out; a commit a summary does not name is Not checked. */
@@ -637,20 +638,15 @@ function fixesTried(runs: readonly CheckRun[], red: number): string {
   return `<div class="tvis">${vlab('Fixes tried')}${rows ? `<ul class="truns">${rows}</ul>` : `<p class="tmsg nc">${NC_V}</p>`}</div>`;
 }
 
-/** Who has seen the call, and why it reached you. Seen comes from each dev's own Yes Chef, in their summary. */
+/** Who has seen the call, in the reader's bar beside who it is about, so no name repeats (Dan, 2026-11-12: one place).
+ *  Seen comes from each dev's own Yes Chef, in their summary; Not seen is red (docs/pass-definitions-v1_0.md). Why it
+ *  reached you is left out: the call's kind and age already say it. */
 type Namer = (id: string) => string;
-function seenLine(c: TeamCall, name: Namer): string {
-  const seen = c.who.filter((id) => c.seen[id] != null), not = c.who.filter((id) => c.seen[id] == null);
-  const s = seen.map((id) => `${name(id)} at ${hm(c.seen[id])}`);
-  const r = c.reach;
-  const why = r.why === 'red' ? 'Red calls reach you at once.'
-    : r.why === 'quiet' ? `${and(c.quiet.map((q) => name(q.person)))} ${c.quiet.length > 1 ? 'are' : 'is'} not reporting, so it reached you at once.`
-    : r.why === 'runs' ? `It reached you at the ${r.runs}th failed run.`
-    : r.why === 'time' ? `It reached you after ${r.min} min.`
-    : r.why === 'unseen' ? `It reached you after ${r.min} min unseen.` : '';
-  const head = seen.length ? `<b class="ok">Seen</b> by ${e(and(s))}.${not.length ? ` ${e(and(not.map(name)))} ${not.length > 1 ? 'have' : 'has'} not seen it.` : ''}`
-    : `<b class="no">Not seen</b> by ${e(and(not.map(name)))}.`;
-  return `<p class="tseen">${head} ${e(why)}</p>`;
+function seenTag(c: TeamCall, name: Namer): string {
+  const not = c.who.filter((id) => c.seen[id] == null);
+  if (!c.who.length) return '';
+  if (!not.length) return `<span class="tsn">Seen${c.who.length === 1 ? ` ${hm(c.seen[c.who[0]!])}` : ''}</span>`;
+  return `<span class="tsn no">Not seen${not.length < c.who.length ? ` by ${e(and(not.map(name)))}` : ''}</span>`;
 }
 
 /** A dev who is not reporting: their data stops at their last report, and the reader says so before anything else. */
@@ -660,7 +656,7 @@ const quietBox = (c: TeamCall, name: Namer, now: number): string => c.quiet.map(
 /** The words and parts of each call: tile title and preview, the reader's lead, Suggested, its body and its actions.
  *  acts: [kind, word, tooltip], the first one blue. */
 /** A call's words and parts. acts: [kind, word, tooltip]; ask and rec only for a question. */
-interface Words { title: string; preview: string; lead: string; suggest: string; why: string; body: string; panel?: string;
+interface Words { title: string; preview: string; lead: string; suggest: string; body: string; panel?: { label: string; html: string };
   acts: [string, string, string][]; reply: string | null; ask?: TeamAsk; rec?: string | null }
 function callWords(c: TeamCall, { name, now, people }: { name: Namer; now: number; people: ReadonlyMap<string, Person> }): Words {
   const { kind, facts: f } = c, who = name(c.who[0] ?? '');
@@ -672,27 +668,25 @@ function callWords(c: TeamCall, { name, now, people }: { name: Namer; now: numbe
       const day = new Date(now); day.setHours(0, 0, 0, 0);
       const merges = f.mergedToday.filter((m) => m.at >= day.getTime() && m.at <= now);
       const cut = f.cause ? f.cause.pr.mergedAt : null;
-      const ribbon = merges.length ? `<div class="tvis">${vlab(`Your team’s merges to ${e(br)} today`, c.since != null ? `Red since ${hm(c.since)}` : 'Red', 'red')}`
+      const ribbon = merges.length ? `<div class="tvis">${vlab(`Your team’s merges to ${e(br)} today`)}`
         + `<div class="ribbon">${merges.map((m) => `<i${m.n === n ? ' class="r"' : cut != null && m.at > cut ? ' class="a"' : ''} title="#${m.n}, ${e(name(m.person))}, ${hm(m.at)}"></i>`).join('')}</div>`
         + `<div class="raxis"><span>${hm(merges[0]!.at)}</span>${f.cause ? `<span>#${n} at ${hm(cut)}</span>` : ''}<span>now</span></div>`
         + `<div class="wlg">${merges.some((m) => m.n !== n && (cut == null || m.at <= cut)) ? '<span><i class="g"></i>merged</span>' : ''}${f.cause ? `<span><i class="r"></i>#${n}, then red</span>` : ''}`
         + `${merges.some((m) => cut != null && m.at > cut) ? '<span><i class="a"></i>merged after it</span>' : ''}</div></div>` : '';
       const waits = f.waiting.length ? `<div class="tvis">${vlab(`Waiting on ${e(br)}`, `${plural(f.waiting.length, 'PR')} can’t merge`)}<div class="tprs">${f.waiting.map((w) => `<span class="tpr">${face(people.get(w.person), 'sm')}#${w.n}</span>`).join('')}</div></div>` : '';
       const size = f.cause?.pr.size;
-      const facts = kvs([
-        f.cause ? ['PR', `#${n} ${f.cause.ticket.title || ''}`.trim()] : ['Repo', f.repo],
-        ['By', f.cause ? `${pos(by)} agent, merged ${hm(cut)}` : NC_V],
+      // Only what the bar, title, lead and ribbon do not already say (Dan, 2026-11-12: one place): the red PR's thread
+      // and its size.
+      const facts = f.cause ? kvs([
+        ['Thread', f.cause.ticket.title || NC_V],
         ['Size', size && [size.files, size.added, size.removed].every(Number.isFinite) ? `${plural(size.files, 'file')}, +${nf(size.added)} −${nf(size.removed)}` : NC_V],
-        [f.failing.length > 1 ? 'Failing checks' : 'Failing check', f.failing.length ? f.failing.join(', ') : NC_V, 'mono'],
-      ]);
+      ]) : '';
       return {
         title: f.cause ? `${br} is red after #${n} merged` : `${br} is red in ${f.repo}`,
         preview: f.waiting.length ? `${plural(f.waiting.length, 'PR')} can’t merge until ${br} is green.` : `${br} has been red${c.since != null ? ` since ${hm(c.since)}` : ''}.`,
         lead: `${checks} ${f.failing.length > 1 ? 'have' : 'has'} failed on ${br}${c.since != null ? ` since ${hm(c.since)}` : ''}. `
           + (f.clean ? `#${n} is the first red commit, and nothing came after it.` : f.cause ? `#${n} is the first red commit. More came after it, so a roll back is not clean.` : 'No PR from your team is the first red commit.'),
         suggest: f.clean ? `Roll back #${n}` : f.cause ? `Ask ${by} to fix ${br}` : `Find what broke ${br}`,
-        why: f.clean ? `Roll back #${n}. Nothing came after it, so the revert is clean. ${pos(by)} thread keeps the work.`
-          : f.cause ? `Ask ${pos(by)} agent to fix ${br}. More came after #${n}, so a revert would not be clean.` : `Open ${pos(br)} failing check in ${f.repo} on GitHub. No PR from your team is the first red commit.`,
         body: ribbon + waits + facts,
         acts: f.clean ? [['rollback', 'Roll back', `Roll back: ${pos(by)} agent reverts #${n}`], ['reply', 'Reply', `Reply to ${pos(by)} agent`]]
           : f.cause ? [['reply', 'Reply', `Reply to ${pos(by)} agent`]] : [],
@@ -708,7 +702,7 @@ function callWords(c: TeamCall, { name, now, people }: { name: Namer; now: numbe
       const both = kpr && rpr;
       const card = (s: Side) => { const p = s.pr;
         return `<div class="tcard"><div class="h">${face(people.get(s.person))}${e(name(s.person))}<span class="lb"><i class="gd c-${DOT[s.ticket.place ?? ''] || 'gray'}"></i>${e(s.ticket.place || NC_V)}</span></div>`
-          + `<div class="t">${e(s.ticket.title || 'Untitled thread')}</div><div class="m">${e([p ? `PR #${p.n}` : 'No PR yet', s.ticket.working ? plural(s.ticket.working, 'agent') : '', s.ticket.startedAt != null ? `started ${hm(s.ticket.startedAt)}` : ''].filter(Boolean).join(', '))}</div></div>`; };
+          + `<div class="t">${e(s.ticket.title || 'Untitled thread')}</div><div class="m">${[p ? prLink(p, `PR #${p.n}`) : 'No PR yet', ...[s.ticket.working ? plural(s.ticket.working, 'agent') : '', s.ticket.startedAt != null ? `started ${hm(s.ticket.startedAt)}` : ''].filter(Boolean).map(e)].join(', ')}</div></div>`; };
       // The file's line map: each side's changed ranges, the shared lines boxed in red.
       const ends = [...top.a, ...top.b].map((r) => Math.max(r[0], r[1]));
       const L = Math.max(10, Math.ceil(Math.max(...ends) / 10) * 10);
@@ -728,7 +722,6 @@ function callWords(c: TeamCall, { name, now, people }: { name: Namer; now: numbe
         lead: `Both change ${lines.toLowerCase()} of ${top.path}. Whoever merges second redoes part of the work.`
           + (f.near ? ' They started from different points on the base, so the line numbers are near, not exact.' : ''),
         suggest: `Ask ${R} to rebase`,
-        why: `Ask ${R} to rebase${kpr ? ` on #${kpr.n}` : ''}. ${pos(K)} thread is ${String(f.keeper.ticket.place || 'further along').toLowerCase()} and further along.`,
         body: `<div class="duo">${card(A)}${card(B)}</div>` + map,
         acts: [['rebase', 'Rebase', `Rebase: ${pos(R)} agent rebases${kpr ? ` on #${kpr.n}` : ''}`], ['reply', 'Reply', `Reply to ${pos(R)} agent`]],
         reply: R,
@@ -742,7 +735,6 @@ function callWords(c: TeamCall, { name, now, people }: { name: Namer; now: numbe
         preview: c.since != null ? `${pos(who)} PR has been red since ${hm(c.since)}.` : `${pos(who)} PR keeps failing its checks.`,
         lead: `${f.ticket.title || 'The thread'}: ${f.redRuns} red runs in a row${c.since != null ? `, the first at ${hm(c.since)}` : ''}.`,
         suggest: 'Ask for a new approach',
-        why: `Request changes: ask ${pos(who)} agent for a new approach. ${f.redRuns} runs failed in a row.`,
         body: fixesTried(f.runs, f.redRuns),
         acts: [['refire', 'Changes', `Request changes: ${pos(who)} agent gets your note`], ['reply', 'Reply', `Reply to ${pos(who)} agent`]],
         reply: who,
@@ -753,7 +745,6 @@ function callWords(c: TeamCall, { name, now, people }: { name: Namer; now: numbe
         preview: `The thread runs, with nothing new since ${hm(c.since)}.`,
         lead: `${f.ticket.title || 'The thread'}. It is running, but it has sent no message, commit or check since ${hm(c.since)}.`,
         suggest: 'Ask for status',
-        why: `Reply: ask ${pos(who)} agent where it stands.`,
         // The agent's last message (Dan, 2026-11-12, 2A). No time beside it: a summary carries the message, not when it
         // came, and the lead already says since when nothing has.
         body: `<div class="tvis">${vlab('Last message')}<p class="tmsg${f.last ? '' : ' nc'}">${e(f.last || NC_V)}</p></div>`,
@@ -767,7 +758,6 @@ function callWords(c: TeamCall, { name, now, people }: { name: Namer; now: numbe
         preview: String(a.q || 'An agent asks a question.'),
         lead: `${f.ticket.title || 'The thread'} has waited on this since ${hm(c.since)}. It does nothing until someone answers.`,
         suggest: rec ? `Answer ${rec}` : 'Answer it',
-        why: rec ? `Answer ${rec}, the agent’s pick.` : 'Answer it, or reply with what the agent needs.',
         // The question and its options are the reader (Dan, 2026-11-12, 3A: no facts table).
         body: '',
         ask: a, rec,
@@ -782,8 +772,9 @@ function callWords(c: TeamCall, { name, now, people }: { name: Namer; now: numbe
         preview: 'The limit is 800 lines or 30 files.',
         lead: 'The limit is 800 lines or 30 files, with lockfiles left out.',
         suggest: 'Split it',
-        why: `Request changes: ask ${pos(who)} agent to split #${f.pr.n} into smaller PRs.`,
-        ...changedFiles(f.size, f.changes, f.pr),
+        // The files are in the diff panel; the title already gives the size (Dan, 2026-11-12: one place).
+        body: '',
+        panel: diffPanel(f.size, f.changes, f.pr),
         acts: [['refire', 'Changes', `Request changes: ${pos(who)} agent gets your note`], ['reply', 'Reply', `Reply to ${pos(who)} agent`]],
         reply: who,
       };
@@ -1047,13 +1038,23 @@ function teamParts(team: TeamInput, view: TeamView, icons: ReadonlyMap<string, s
     + `<span class="ct-top"><span class="proj">${pm(c.project)}<span class="pn">${e(c.project || 'Project')}</span></span><span class="mdl">${e(who(c))}</span>${age(c) ? `<span class="age">${age(c)}</span>` : ''}</span>`
     + `<span class="q">${e(w.title)}</span><span class="ct-pv">${e(w.preview)}</span>`
     + `<span class="lbs">${chip(KINDS[c.kind].word, KINDS[c.kind].tone)}<span class="lb tsg">Suggested: <b>${e(w.suggest)}</b></span></span></button>`;
-  const plateOf = ({ c, id, w }: Item) => `<article class="plate team-plate" id="${e(id)}" data-thread="${e(id)}" data-at aria-labelledby="${e(id)}-t">`
-    + `<div class="plate-bar"><span class="proj">${pm(c.project)}${e(c.project || 'Project')}</span><span class="stg"><i class="gd c-${KINDS[c.kind].tone}"></i>${e(KINDS[c.kind].word)}</span><span class="mdl">${e(who(c))}</span>`
-    + `<button type="button" class="close" data-close aria-label="Close"><kbd>esc</kbd>${svg('x')}</button></div>`
-    + `<div class="plate-main"><div class="plate-scroll" tabindex="-1"><header class="plate-head"><h2 class="plate-t" id="${e(id)}-t">${e(w.title)}</h2>`
-    + `<p class="lead"><span class="lead-q">${e(w.lead)}</span></p>${c.prs.length ? `<div class="pr-row">${c.prs.map(teamPrChip).join('')}</div>` : ''}</header>`
-    + `<section class="msg tv">${quietBox(c, name, now)}${seenLine(c, name)}${w.body}<div class="tsug"><b>Suggested</b><span>${e(w.why)}</span></div></section></div>`
-    + teamDock(c, w, me, id) + '</div>' + (w.panel ?? '') + '</article>';
+  // The reader says each thing once (Dan, 2026-11-12): who and whether they have seen it in the bar, a PR as a link
+  // where the words name it (a chip only for one they do not), and no Suggested box, since the blue action is the
+  // suggestion. Too big's toggle is T3 Code's right panel toggle, and its diff panel sits beside the reader.
+  const plateOf = ({ c, id, w }: Item) => {
+    const chips = c.prs.filter((p) => !prRef(p).test(w.title) && !w.body.includes(`href="${e(prHref(p))}"`));
+    const inner = quietBox(c, name, now) + w.body;
+    return `<article class="plate team-plate" id="${e(id)}" data-thread="${e(id)}" data-at aria-labelledby="${e(id)}-t">`
+      + `<div class="plate-bar"><span class="proj">${pm(c.project)}${e(c.project || 'Project')}</span><span class="stg"><i class="gd c-${KINDS[c.kind].tone}"></i>${e(KINDS[c.kind].word)}</span><span class="mdl">${e(who(c))}</span>${seenTag(c, name)}`
+      + (w.panel ? `<button type="button" class="dp-t" data-dp-toggle aria-controls="${e(id)}-dp" aria-pressed="false" title="Toggle diff panel" aria-label="Toggle diff panel">${svg('panelRight')}</button>` : '')
+      + `<button type="button" class="close" data-close aria-label="Close"><kbd>esc</kbd>${svg('x')}</button></div>`
+      + `<div class="plate-main"><div class="plate-scroll" tabindex="-1"><header class="plate-head"><h2 class="plate-t" id="${e(id)}-t">${linkPrs(e(w.title), c.prs)}</h2>`
+      + `<p class="lead"><span class="lead-q">${e(w.lead)}</span></p>${chips.length ? `<div class="pr-row">${chips.map(teamPrChip).join('')}</div>` : ''}</header>`
+      + `${inner ? `<section class="msg tv">${inner}</section>` : ''}</div>`
+      + teamDock(c, w, me, id) + '</div>'
+      + (w.panel ? `<section class="dp" id="${e(id)}-dp" aria-label="${e(w.panel.label)}"><div class="dp-rz" role="separator" aria-orientation="vertical" aria-label="Resize the diff panel"></div>${w.panel.html}</section>` : '')
+      + '</article>';
+  };
 
   // The groups, each dev once (open-kitchen.ts sets the order of precedence): Not reporting, In The Pass, Fixing an
   // alarm, On track; and Not checked for a dev whose Mac has not reported at all.

@@ -232,22 +232,25 @@ test('Your team draws The Pass’s calls, the rail card, the quiet line and a re
   // Each call says its word in its colour, and what Yes Chef suggests.
   assert.match(html, /<span class="chip c-red">Main broken<\/span><span class="lb tsg">Suggested: <b>Roll back #431<\/b>/);
   assert.match(html, /<span class="chip c-red">Overlap<\/span><span class="lb tsg">Suggested: <b>Ask Jon to rebase<\/b>/);
-  // Seen, and why it reached you.
-  assert.match(html, /<b class="ok">Seen<\/b> by Kai at [0-9:]+\. Jon has not seen it\. Red calls reach you at once\./);
-  assert.match(html, /<b class="no">Not seen<\/b> by Lee\. Lee is not reporting, so it reached you at once\./);
+  // Seen sits in the bar, after the people, and names only who has not seen it (Dan, 2026-11-12: one place).
+  assert.match(html, /<span class="mdl">Kai and Jon<\/span><span class="tsn no">Not seen by Jon<\/span>/);
+  assert.match(html, /<span class="mdl">Lee<\/span><span class="tsn no">Not seen<\/span>/);
+  assert.match(html, /<span class="mdl">Ravi<\/span><span class="tsn">Seen [0-9:]+<\/span>/);
+  // No Suggested box in the reader: the call's tile says it, and the blue button does it.
+  assert.doesNotMatch(html, /class="tsug"|class="tseen"/);
   assert.match(html, /<b>Not reporting since [0-9:]+\.<\/b>/);
   // Main broken: the team's merges today, the break in red; Overlap: the shared lines boxed.
   assert.match(html, /<div class="ribbon">(<i title="[^"]*"><\/i>){4}<i class="r" title="#431/);
   assert.match(html, /Lines 120 to 168, both/);
 });
 
-/** A call's reader, between Seen and Suggested, found by the word on its plate. */
+/** A call's reader, the part under its title, found by the word on its plate. */
 const plateWith = (html: string, word: string): string => nth(html.split('<article class="plate team-plate"').slice(1).filter((p) => p.includes(`</i>${word}</span>`)));
-const readerOf = (html: string, word: string): string => grab(plateWith(html, word), /<section class="msg tv">([^]*?)<div class="tsug">/, 1);
-/** Too big's side panel, the plate's last part. */
-const panelOf = (html: string, word: string): string => grab(plateWith(html, word), /<div class="dp" data-dp>([^]*?)<\/div><\/article>/, 1);
+const readerOf = (html: string, word: string): string => grab(plateWith(html, word), /<section class="msg tv">([^]*?)<\/section><\/div><aside class="dock/, 1);
+/** Too big's diff panel, the plate's last part, after its resize edge. */
+const panelOf = (html: string, word: string): string => grab(plateWith(html, word), /<section class="dp" id="p-[0-9a-f]{12}-dp" aria-label="Changes in #440"><div class="dp-rz" role="separator" aria-orientation="vertical" aria-label="Resize the diff panel"><\/div>([^]*?)<\/section><\/article>$/, 1);
 
-test('the readers (Dan, 2026-11-12, 1A 2A 3A): fixes tried, the last message, no Waiting table, T3 Code’s changed-files card', () => {
+test('the readers (Dan, 2026-11-12, 1A 2A 3A): fixes tried, the last message, no Waiting table, T3 Code’s diff panel', () => {
   const html = page({ view: viewL(), now: NOWL });
   // Failing: the red runs, newest first, each with its commit's title, short sha and time.
   const fail = readerOf(html, 'Failing');
@@ -258,24 +261,29 @@ test('the readers (Dan, 2026-11-12, 1A 2A 3A): fixes tried, the last message, no
   assert.match(readerOf(html, 'Stuck'), /<div class="tvis"><div class="vl"><span>Last message<\/span><\/div><p class="tmsg">Running the expiry migration/);
   // Waiting: the question is the reader; no facts table.
   assert.doesNotMatch(readerOf(html, 'Waiting'), /tvis/);
-  // Too big (Dan, 2026-11-12): the reader keeps one row, the PR's size and Open diff; the files wait in the side panel.
-  const big = readerOf(html, 'Too big');
-  assert.match(big, /^[^]*<div class="tvis dpo"><span class="n">41 changed files<span class="dst" role="group" aria-label="1079 additions, 161 deletions"><span class="a" aria-hidden="true">\+1\.1k<\/span><span class="d" aria-hidden="true">-161<\/span><\/span><\/span><button type="button" class="dpo-b" data-dp-open aria-haspopup="dialog" aria-expanded="false"><svg[^]*?<\/svg>Open diff<\/button><\/div>$/);
-  // T3 Code's right panel: Changes vs the base, the full diff on GitHub, Close, and a row per file in git's order, removed
+  // Too big (Dan, 2026-11-12): the title says the size and links the PR; the reader has no body, and the bar's toggle,
+  // T3 Code's PanelRight icon, opens the diff panel beside it.
+  const big = plateWith(html, 'Too big');
+  assert.doesNotMatch(big, /class="msg tv"|dpo|data-dp-open|prc/);
+  assert.match(big, /<h2 class="plate-t" id="p-[0-9a-f]{12}-t"><a class="prl" href="https:\/\/github\.com\/acme\/fernpay\/pull\/440" target="_blank" rel="noopener">#440<\/a> changes /);
+  assert.match(big, /<span class="tsn( no)?">[^<]*<\/span><button type="button" class="dp-t" data-dp-toggle aria-controls="(p-[0-9a-f]{12})-dp" aria-pressed="false" title="Toggle diff panel" aria-label="Toggle diff panel"><svg[^>]*><rect width="18" height="18" x="3" y="3" rx="2"\/><path d="M15 3v18"\/><\/svg><\/button><button type="button" class="close"/);
+  assert.equal(big.match(/aria-controls="(p-[0-9a-f]{12})-dp"/)?.[1], big.match(/<section class="dp" id="(p-[0-9a-f]{12})-dp"/)?.[1]);
+  // T3 Code's right panel: Changes vs the base, the full diff on GitHub, and a row per file in git's order, removed
   // lines first, the lockfile faded.
   const dp = panelOf(html, 'Too big');
-  assert.match(dp, /^<div class="dp-bg" data-dp-close><\/div><section class="dp-p" role="dialog" aria-label="Changes in #440"><header class="dp-h"><b>Changes<\/b><span class="vs">vs<\/span><span class="base" title="main">main<\/span><span class="dst"/);
+  assert.match(dp, /^<header class="dp-h"><b>Changes<\/b><span class="vs">vs<\/span><span class="base" title="main">main<\/span><span class="dst"/);
   // The list takes focus, so the keys scroll it (PR-Agent r2 on #64).
   assert.match(dp, /<div class="dp-l" tabindex="0">/);
   assert.match(dp, /<a class="dp-i" href="https:\/\/github\.com\/acme\/fernpay\/pull\/440\/files" target="_blank" rel="noopener" title="Open the full diff on GitHub"/);
-  assert.match(dp, /<button type="button" class="dp-i" data-dp-close title="Close" aria-label="Close">/);
+  assert.doesNotMatch(dp, /data-dp-close|role="dialog"/, 'the panel sits beside the reader, so the bar\'s toggle closes it');
   assert.deepEqual([...dp.matchAll(/<span class="dir">([^<]*)<\/span><span class="fn">([^<]+)<\/span>/g)].map((m) => `${m[1]}${m[2]}`),
     ['apps/web/src/export/c.ts', 'packages/contracts/src/d.ts', 'packages/export/src/markdown/b.ts', 'packages/export/src/tables/a.ts', 'pnpm-lock.yaml']);
   assert.match(dp, /<div class="dpr" title="packages\/export\/src\/tables\/a\.ts">[^]*?<span class="dst" role="group" aria-label="598 additions, 42 deletions"><span class="d" aria-hidden="true">-42<\/span><span class="a" aria-hidden="true">\+598<\/span>/);
   // A count of 0 is left out, as T3 Code's panel rows leave it out.
   assert.match(dp, /<div class="dpr x" title="pnpm-lock\.yaml">[^]*?<span class="dst" role="group" aria-label="2104 additions, 0 deletions"><span class="a" aria-hidden="true">\+2\.1k<\/span><\/span><\/div>/);
-  // Only Main broken keeps a facts table.
+  // Only Main broken keeps a facts table, and only what the bar, title, lead and ribbon do not say: the thread and size.
   assert.equal((html.match(/class="kvs"/g) || []).length, 1);
+  assert.deepEqual([...readerOf(html, 'Main broken').matchAll(/<div class="kv"><span>([^<]+)<\/span>/g)].map((m) => m[1]), ['Thread', 'Size']);
 });
 
 test('the readers say Not checked for what a summary does not say, and draw only real red runs', () => {
@@ -298,11 +306,12 @@ test('the readers say Not checked for what a summary does not say, and draw only
   assert.match(dp, /<a class="dpm" href="https:\/\/github\.com\/acme\/fernpay\/pull\/440\/files" target="_blank" rel="noopener">3 more files in the full diff<\/a>/);
   assert.match(dp, /<div class="dpr" title="packages\/export\/src\/tables\/&lt;i&gt;x\.ts">[^]*?<span class="fn">&lt;i&gt;x\.ts<\/span>/);
   assert.match(dp, /<span class="fn">b\.ts<\/span><\/span><\/div>/, 'a file with no count shows none');
-  // Files the Mac did not read: the reader keeps the PR's size, and the panel says Not checked.
+  // Files the Mac did not read: the title keeps the PR's size, and the panel says Not checked.
   iris.changes.state = 'reading';
   html = page({ view: v, now: NOWL });
-  assert.match(readerOf(html, 'Too big'), /<span class="n">41 changed files[^]*data-dp-open/);
-  assert.match(panelOf(html, 'Too big'), /<div class="dp-l" tabindex="0"><p class="dpn">Not checked<\/p><\/div><\/section>$/);
+  assert.match(plateWith(html, 'Too big'), /<\/a> changes [0-9,]+ lines in 41 files<\/h2>/);
+  assert.match(plateWith(html, 'Too big'), /data-dp-toggle/);
+  assert.match(panelOf(html, 'Too big'), /<div class="dp-l" tabindex="0"><p class="dpn">Not checked<\/p><\/div>$/);
   // A PR whose base the summary does not name shows no "vs".
   iris.changes.state = 'checked';
   who(v, 'iris').summary.tickets[0].prs[0].base = null;
@@ -486,7 +495,7 @@ test('review r5: done work is not an Overlap; the rebase target is the PR in the
   const ov = find(read(v).pass, 'overlap');
   assert.equal(ov.facts.keeper.pr?.n, 412);
   assert.deepEqual(ov.prs.map((p) => p.n), [412, 415]);
-  assert.match(page({ view: v, now: NOW }), /rebase on #412/);
+  assert.match(page({ view: v, now: NOW }), /data-what="Rebase: Jon’s agent rebases on #412"/);
   v = view();
   const b = who(v, 'ravi').summary.bases[0];
   b.branch = 'release@v2';
