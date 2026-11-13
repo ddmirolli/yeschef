@@ -82,14 +82,14 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   function $$<E extends Element = HTMLElement>(sel: string, el?: ParentNode | null): E[] { return Array.prototype.slice.call((el || document).querySelectorAll<E>(sel)); }
   function focusView(){ return state.view === 'pass'; }
   // Too big's diff panel, T3 Code's right panel sheet: Open diff slides it in over the reader, and Close, a click beside
-  // it or Esc slides it out. Focus goes into it, and back to Open diff after. While it is open, the reader it covers is
-  // inert, so Tab skips it; the Pass beside it stays live.
+  // it or Esc slides it out. Focus goes to its list, so the keys scroll it, and back to Open diff after. While it is
+  // open, the reader it covers is inert, so Tab skips it; the Pass beside it stays live.
   function dpSet(plate: Element, open: boolean, focus: boolean): void {
     var dp = $('.dp', plate), b = $('[data-dp-open]', plate); if (!dp) return;
     dp.classList.toggle('open', open); if (b) b.setAttribute('aria-expanded', String(open));
     $$(':scope > :not(.dp)', plate).forEach(function(x){ x.inert = open; });
     if (!focus) return;
-    var to = open ? $('.dp-p', dp) : b; if (to) to.focus({ preventScroll: true });
+    var to = open ? $('.dp-l', dp) : b; if (to) to.focus({ preventScroll: true });
   }
 
   // ----- Views -----
@@ -1648,8 +1648,6 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   sheet.addEventListener('close', function(){ var id = state.sel; if (!focusView()) { unmount(); state.sel = null; mark(); } var back = id && $('[data-plate="' + id + '"]:not(form)'); if (back) back.focus({ preventScroll: true }); });
   // The page's keys, as each command's default key reads (client/keys.ts). The router below sends every key here.
   function onKey(ev: PageKey): void {
-    // Esc closes Too big's diff panel first, as Esc closes T3 Code's sheet.
-    var dpOpen = mounted && $('.dp.open', mounted); if (dpOpen && ev.key === 'Escape') { ev.preventDefault(); dpSet(mounted!, false, true); return; }
     // Esc closes the menu and puts focus back on its chip, so the keys go on from there.
     var m = $<HTMLDetailsElement>('details.pmenu[open]'); if (m && ev.key === 'Escape') { var back = m.contains(document.activeElement) && $('summary', m); m.open = false; if (back) back.focus(); return; }
     // More, while open: Esc or . closes it, the arrows move between its rows, and Enter or Space presses the row in
@@ -1775,6 +1773,12 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     // A key an input method uses while it composes text (Japanese, Chinese) is the method's alone, as in the action bar:
     // Esc or ⌘↵ then never leaves, or sends half a word. Safari's last key of a composition reads as keyCode 229.
     if (ev.isComposing || ev.keyCode === 229) return;
+    // Too big's diff panel, while open, comes first: Esc closes it, as Esc closes T3 Code's sheet. With focus in it, a
+    // plain key is the browser's, so the arrows, Space and Page Down scroll its list and never move the Pass or page the
+    // reader it covers (PR-Agent r2 on #64). A key with ⌘, Ctrl or Alt still reaches the shortcuts (⌘K).
+    var dpOpen = mounted && $('.dp.open', mounted);
+    if (dpOpen && ev.key === 'Escape') { ev.preventDefault(); dpSet(mounted!, false, true); return; }
+    if (dpOpen && dpOpen.contains(document.activeElement) && !(ev.metaKey || ev.ctrlKey || ev.altKey)) return;
     if (!KST.changed) { onKey(ev); return; }
     var c = K.comboOf(ev), t = ev.target as Element | null;
     var typing = !!(t && t.closest && t.closest('textarea, input[type=text], input[type=search], [contenteditable]'));

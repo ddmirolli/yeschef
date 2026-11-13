@@ -1405,12 +1405,13 @@ html.s-team .bar .stats{display:none}
 .dp-bg{position:absolute;inset:0;background:color-mix(in srgb,var(--bg) 60%,transparent);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);opacity:0;transition:opacity .2s}
 .dp-p{position:absolute;top:0;right:0;bottom:0;display:flex;flex-direction:column;width:min(42vw,28rem);min-width:20rem;max-width:100%;border-left:.5px solid var(--sep);background:var(--card);box-shadow:var(--sh3);opacity:0;transform:translateX(32px);transition:opacity .2s ease-in-out,transform .2s ease-in-out}
 .dp.open .dp-bg,.dp.open .dp-p{opacity:1;transform:none}
-.dp-p:focus{outline:none}
 .dp-h{display:flex;align-items:center;gap:8px;flex:none;height:40px;padding:0 8px 0 16px;border-bottom:.5px solid var(--sep);font-size:13px}
-.dp-h .vs{color:var(--label2)}.dp-h .base{font:12px var(--mono)}
+.dp-h>:not(.base,.dp-sp){flex:none}.dp-h .vs{color:var(--label2)}
+.dp-h .base{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:12px var(--mono)}
 .dp-sp{flex:1}
 .dp-i{width:28px;padding:0}
 .dp-l{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0}
+.dp-l:focus{outline:none}.dp-l:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 .dpr{display:flex;align-items:center;gap:8px;height:32px;padding:0 16px;font-size:13px}
 .dpr>.ic{flex:none;width:14px;height:14px;color:var(--label2)}
 .dpr .pa{display:flex;flex:1;min-width:0;overflow:hidden;white-space:nowrap}

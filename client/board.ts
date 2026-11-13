@@ -622,11 +622,11 @@ function changedFiles(size: { files: number; added: number; removed: number }, c
   const more = changes && okCount(changes.more) ? changes.more : 0;
   const list = changes ? files.map(row).join('') + (more ? `<a class="dpm" href="${href}" target="_blank" rel="noopener">${e(nf(more))} more ${more === 1 ? 'file' : 'files'} in the full diff</a>` : '')
     : `<p class="dpn">${NC_V}</p>`;
-  const panel = `<div class="dp" data-dp><div class="dp-bg" data-dp-close></div><section class="dp-p" role="dialog" aria-label="Changes in #${pr.n}" tabindex="-1">`
-    + `<header class="dp-h"><b>Changes</b>${pr.base ? `<span class="vs">vs</span><span class="base">${e(pr.base)}</span>` : ''}${stat}<i class="dp-sp"></i>`
+  const panel = `<div class="dp" data-dp><div class="dp-bg" data-dp-close></div><section class="dp-p" role="dialog" aria-label="Changes in #${pr.n}">`
+    + `<header class="dp-h"><b>Changes</b>${pr.base ? `<span class="vs">vs</span><span class="base" title="${e(pr.base)}">${e(pr.base)}</span>` : ''}${stat}<i class="dp-sp"></i>`
     + `<a class="dp-i" href="${href}" target="_blank" rel="noopener" title="Open the full diff on GitHub" aria-label="Open the full diff on GitHub">${svg('fileDiff')}</a>`
     + `<button type="button" class="dp-i" data-dp-close title="Close" aria-label="Close">${svg('x')}</button></header>`
-    + `<div class="dp-l">${list}</div></section></div>`;
+    + `<div class="dp-l" tabindex="0">${list}</div></section></div>`;
   return { body, panel };
 }
 /** Failing: the red runs in a row, newest first, each with the commit it ran on, as T3 Code's checks list draws a

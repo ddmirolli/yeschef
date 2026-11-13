@@ -264,7 +264,9 @@ test('the readers (Dan, 2026-11-12, 1A 2A 3A): fixes tried, the last message, no
   // T3 Code's right panel: Changes vs the base, the full diff on GitHub, Close, and a row per file in git's order, removed
   // lines first, the lockfile faded.
   const dp = panelOf(html, 'Too big');
-  assert.match(dp, /^<div class="dp-bg" data-dp-close><\/div><section class="dp-p" role="dialog" aria-label="Changes in #440" tabindex="-1"><header class="dp-h"><b>Changes<\/b><span class="vs">vs<\/span><span class="base">main<\/span><span class="dst"/);
+  assert.match(dp, /^<div class="dp-bg" data-dp-close><\/div><section class="dp-p" role="dialog" aria-label="Changes in #440"><header class="dp-h"><b>Changes<\/b><span class="vs">vs<\/span><span class="base" title="main">main<\/span><span class="dst"/);
+  // The list takes focus, so the keys scroll it (PR-Agent r2 on #64).
+  assert.match(dp, /<div class="dp-l" tabindex="0">/);
   assert.match(dp, /<a class="dp-i" href="https:\/\/github\.com\/acme\/fernpay\/pull\/440\/files" target="_blank" rel="noopener" title="Open the full diff on GitHub"/);
   assert.match(dp, /<button type="button" class="dp-i" data-dp-close title="Close" aria-label="Close">/);
   assert.deepEqual([...dp.matchAll(/<span class="dir">([^<]*)<\/span><span class="fn">([^<]+)<\/span>/g)].map((m) => `${m[1]}${m[2]}`),
@@ -300,7 +302,7 @@ test('the readers say Not checked for what a summary does not say, and draw only
   iris.changes.state = 'reading';
   html = page({ view: v, now: NOWL });
   assert.match(readerOf(html, 'Too big'), /<span class="n">41 changed files[^]*data-dp-open/);
-  assert.match(panelOf(html, 'Too big'), /<div class="dp-l"><p class="dpn">Not checked<\/p><\/div><\/section>$/);
+  assert.match(panelOf(html, 'Too big'), /<div class="dp-l" tabindex="0"><p class="dpn">Not checked<\/p><\/div><\/section>$/);
   // A PR whose base the summary does not name shows no "vs".
   iris.changes.state = 'checked';
   who(v, 'iris').summary.tickets[0].prs[0].base = null;
