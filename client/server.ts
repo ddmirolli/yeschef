@@ -1429,6 +1429,15 @@ dialog.dp-sheet .dp-rz{display:none}
 .dp-i{display:inline-flex;align-items:center;justify-content:center;width:28px;height:24px;border-radius:6px;color:var(--label2)}
 .dp-i:hover{background:var(--fill);color:var(--label)}
 .dp-i .ic{width:13px;height:13px}
+/* T3's header switches (DiffPanel.tsx): ghost icon buttons, pressed when on; the chevrons show what a click does. */
+button.dp-i{padding:0;border:0;background:transparent;font:inherit;cursor:pointer}
+button.dp-i .ic{width:14px;height:14px}
+button.dp-i[aria-pressed=true]{background:var(--fill);color:var(--label)}
+button.dp-i:focus-visible,.dpt:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+[data-dp-all] .dp-co,[data-dp-all][data-open] .dp-ex{display:none}[data-dp-all][data-open] .dp-co{display:block}
+/* T3's PR code tab's "N test files hidden": a link-style button that shows them again. */
+.dpt{display:block;margin:4px 16px 0;padding:2px 0;border:0;background:none;font:12px var(--sans);color:var(--label2);cursor:pointer;text-underline-offset:4px}
+.dpt:hover{color:var(--label);text-decoration:underline}
 .dp-l{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0}
 .dp-l:focus{outline:none}.dp-l:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 /* The code, as T3 Code's diff panel draws it: @pierre/diffs's own styles in the host's shadow root, on the panel's

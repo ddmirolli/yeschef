@@ -27,7 +27,7 @@ interface Draft {
   latest?: string; at?: number; nonce?: string; kind?: string; sig?: string; sentBefore?: boolean; wroteBefore?: boolean;
 }
 /** What /diff answers (client/diffs.ts): Too big's files, folded, or one file's code, or why there is none. */
-interface DiffFileRow { path: string; header: string }
+interface DiffFileRow { path: string; header: string; test?: boolean }
 interface DiffReply { ok: boolean; why?: string; stale?: boolean; style?: string; sprite?: string; files?: DiffFileRow[]; rest?: boolean; code?: string }
 /** A draft as saved: it always has its time and the hand-back it was written against. */
 type SavedDraft = Draft & { at: number; latest: string };
@@ -123,7 +123,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   function dpSet(plate: Element, open: boolean, focus: boolean): void {
     var b = $('[data-dp-toggle]', plate), dp = dpOf(plate); if (!b || !dp) return;
     plate.classList.toggle('dp-on', open); b.setAttribute('aria-pressed', String(open));
-    if (open) { dpSized(plate as HTMLElement); dpCode(dp); }
+    if (open) { dpSized(plate as HTMLElement); dpCode(dp); dpSync(dp); }
     dpPlace(plate, dp, open);
     if (!focus) return;
     var to = open ? $('.dp-l', dp) : b; if (to) to.focus({ preventScroll: true });
@@ -146,6 +146,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   // in a shadow root so its styles stay there. Every file starts folded, as T3's does, and a file's code comes when it
   // opens. Without T3 Code the list from the teammate's summary stays, and says why there is no code.
   var DPV_CSS = ':host{display:block}.f[data-folded] pre,.f[data-folded] .ld{display:none}[data-diffs-header]{cursor:pointer}'
+    + ':host([data-hide-tests]) .f[data-test]{display:none}'
     + 'button[data-fold]{display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px;height:20px;margin-inline-start:-2px;padding:0;border:0;border-radius:4px;background:transparent;color:inherit;opacity:.8;cursor:pointer}'
     + 'button[data-fold]:hover{opacity:1;background:color-mix(in srgb,currentColor 10%,transparent)}button[data-fold] svg{width:16px;height:16px;transition:transform .12s}'
     + 'button[data-fold][aria-expanded=true] svg{transform:rotate(90deg)}button[data-fold]:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}'
@@ -163,7 +164,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
       if (!d || !d.ok || !d.files) { gone((d && d.why) || 'T3 Code gave no diff'); return; }
       var root = host.attachShadow({ mode: 'open' });
       root.innerHTML = (d.style || '') + '<style>' + DPV_CSS + '</style>' + (d.sprite || '')
-        + d.files.map(function(f){ return '<div class="f" data-folded data-path="' + escH(f.path) + '">' + f.header + '</div>'; }).join('');
+        + d.files.map(function(f){ return '<div class="f" data-folded data-path="' + escH(f.path) + '"' + (f.test ? ' data-test' : '') + '>' + f.header + '</div>'; }).join('');
       root.addEventListener('click', dpFold);
       var l = host.parentElement; if (!l) return;
       // T3's files take the place of the summary's list. Files GitHub withheld are in it, with their counts; only pages
@@ -176,16 +177,58 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
         a.textContent = 'More files in the full diff';
         l.appendChild(a);
       }
+      var dp0 = host.closest<HTMLElement>('.dp'); if (dp0) dpSync(dp0);
     }, function(){ gone('Yes Chef could not reach the board server'); });
   }
-  /** A file's header opens and folds it, as in T3's diff panel; its code comes the first time it opens. */
+  // T3's header switches (DiffPanel.tsx, PullRequestCodeTab.tsx; Dan, 2026-11-13, 1B), once its files are drawn.
+  // Expand all files while every shown file is folded, else Collapse all files. Hide test files only when there are
+  // test files, pressed while they are hidden: one setting for every panel, as T3 keeps one (useHideTestFiles). Hidden
+  // tests leave T3's "N test files hidden" at the top of the list, which shows them again.
+  var DP_HIDE_TESTS = 'yc.dpHideTests';
+  function dpSync(dp: HTMLElement): void {
+    var all = $<HTMLButtonElement>('[data-dp-all]', dp), tb = $<HTMLButtonElement>('[data-dp-tests]', dp), l = $('.dp-l', dp);
+    var host = l && $('.dpv', l), root = host && !host.hidden ? host.shadowRoot : null;
+    var files = root ? $$('.f', root) : [], tests = files.filter(function(f){ return f.hasAttribute('data-test'); });
+    var hide = tests.length > 0 && store(DP_HIDE_TESTS) === '1';
+    if (host) host.toggleAttribute('data-hide-tests', hide);
+    var shown = hide ? files.filter(function(f){ return !f.hasAttribute('data-test'); }) : files;
+    var anyOpen = shown.some(function(f){ return !f.hasAttribute('data-folded'); }), word = anyOpen ? 'Collapse all files' : 'Expand all files';
+    if (all) { all.hidden = !shown.length; all.toggleAttribute('data-open', anyOpen); all.title = word; all.setAttribute('aria-label', word); }
+    if (tb) { tb.hidden = !tests.length; tb.setAttribute('aria-pressed', String(hide)); tb.title = hide ? 'Show test files' : 'Hide test files'; }
+    var n = l && $<HTMLButtonElement>('.dpt', l);
+    if (!hide || !l) { if (n) n.remove(); return; }
+    if (!n) { n = document.createElement('button'); n.type = 'button'; n.className = 'dpt'; l.insertBefore(n, l.firstChild); }
+    n.textContent = tests.length + ' test ' + (tests.length === 1 ? 'file' : 'files') + ' hidden';
+  }
+  /** A switch's click: every shown file opens or folds, as T3's toggleAllFiles does, or test files hide or show. */
+  function dpSwitch(dp: HTMLElement, sw: HTMLElement): void {
+    var host = $('.dpv', dp), root = host && host.shadowRoot;
+    if (sw.hasAttribute('data-dp-all')) {
+      if (!host || !root) return;
+      var open = !sw.hasAttribute('data-open'), hiding = host.hasAttribute('data-hide-tests');
+      $$('.f', root).forEach(function(f){ if (!(hiding && f.hasAttribute('data-test'))) dpOpen(f, open); });
+      dpSync(dp); return;
+    }
+    store(DP_HIDE_TESTS, sw.hasAttribute('data-dp-tests') && sw.getAttribute('aria-pressed') !== 'true' ? '1' : '0');
+    dpSync(dp);
+    // The link goes once its tests show, so focus moves to the switch that hides them again.
+    if (sw.classList.contains('dpt')) { var tb = $('[data-dp-tests]', dp); if (tb) tb.focus(); }
+  }
+  /** A file's header opens and folds it, as in T3's diff panel, and the header's switches follow. */
   function dpFold(ev: Event): void {
     var t = ev.target as Element, head = t.closest && t.closest('[data-diffs-header]');
     if (!head || t.closest('a')) return;
-    var f = head.parentElement as HTMLElement | null, b = $<HTMLButtonElement>('button[data-fold]', head);
-    var host = (head.getRootNode() as ShadowRoot).host as HTMLElement | undefined;
-    if (!f || !b || !host) return;
-    var open = f.hasAttribute('data-folded'), path = f.dataset.path || '';
+    var f = head.parentElement as HTMLElement | null, host = (head.getRootNode() as ShadowRoot).host as HTMLElement | undefined;
+    if (!f || !host) return;
+    dpOpen(f, f.hasAttribute('data-folded'));
+    var dp = host.closest<HTMLElement>('.dp'); if (dp) dpSync(dp);
+  }
+  /** Opens or folds one drawn file, if it is not so already; its code comes the first time it opens. */
+  function dpOpen(f: HTMLElement, open: boolean): void {
+    var head = $('[data-diffs-header]', f), b = head && $<HTMLButtonElement>('button[data-fold]', head);
+    var host = (f.getRootNode() as ShadowRoot).host as HTMLElement | undefined;
+    if (!b || !host || f.hasAttribute('data-folded') !== open) return;
+    var path = f.dataset.path || '';
     f.toggleAttribute('data-folded', !open);
     b.setAttribute('aria-expanded', String(open)); b.setAttribute('aria-label', (open ? 'Collapse ' : 'Expand ') + path); b.title = open ? 'Collapse diff' : 'Expand diff';
     if (!open) return;
@@ -207,6 +250,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     if (!v.hidden) $$('.dpr, .dpm, .dpn', l).forEach(function(x){ x.remove(); });
     l.appendChild(v);
     $$('.dpm, .dpn-why', a!).forEach(function(x){ if (!v!.hidden || x.classList.contains('dpn-why')) l!.appendChild(x); });
+    dpSync(b);
   }
 
   // ----- Views -----
@@ -1733,6 +1777,9 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     // Too big: the bar's toggle opens the diff panel beside the reader, and closes it.
     var dpo = t.closest('[data-dp-toggle]'), dpPlate = dpo && dpo.closest('.plate');
     if (dpo && dpPlate) { dpSet(dpPlate, !dpPlate.classList.contains('dp-on'), true); return; }
+    // Its header's switches, and the "N test files hidden" line that shows them again (dpSync).
+    var dsw = t.closest<HTMLElement>('.dp [data-dp-all], .dp [data-dp-tests], .dp .dpt'), dsp = dsw && dsw.closest<HTMLElement>('.dp');
+    if (dsw && dsp) { dpSwitch(dsp, dsw); return; }
     // The chart: a project opens its threads, ‹ All projects goes back. A thread's band carries data-plate, so a click
     // on it opens the ticket below, as its card does.
     // Your team, expanded: a sub-lead's name folds their team into one row and back.

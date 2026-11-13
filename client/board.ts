@@ -188,6 +188,11 @@ export const ICON = {
   circleX: '<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
   file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>',
   panelRight: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/>',
+  // The diff panel header's switches (DiffPanel.tsx, PullRequestCodeTab.tsx), lucide-react 0.564.0 as T3 pins it:
+  // Expand all files, Collapse all files, and Hide test files.
+  chevronsUpDown: '<path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/>',
+  chevronsDownUp: '<path d="m7 20 5-5 5 5"/><path d="m7 4 5 5 5-5"/>',
+  flaskOff: '<path d="M10 2v2.343"/><path d="M14 2v6.343"/><path d="m2 2 20 20"/><path d="M20 20a2 2 0 0 1-2 2H6a2 2 0 0 1-1.755-2.96l5.227-9.563"/><path d="M6.453 15H15"/><path d="M8.5 2h7"/>',
   toque: '<path d="M7.6 16.1V12.55A3.3 3.3 0 0 1 9.35 6.35A3.05 3.05 0 0 1 14.65 6.35A3.3 3.3 0 0 1 16.4 12.55V16.1" stroke-width="1.25" stroke-linecap="butt"/><path d="M10.55 12.1V15.3" stroke-width="0.75"/><path d="M13.45 12.1V15.3" stroke-width="0.75"/><path d="M6.9 17.75H17.1L16.10 19.15H7.90Z" fill="currentColor" stroke="none"/>',
 };
 type IconName = keyof typeof ICON;
@@ -611,7 +616,8 @@ const dstat = (a: number, d: number, row = false): string => {
  *  T3 Code's inline right panel with its diff panel's header (PreviewPanelShell.tsx, DiffPanel.tsx): Changes vs the PR's
  *  base and its counts, then a row per file, path first, removed then added lines. A summary carries no code, so a row
  *  has no diff to open; the header links the full diff on GitHub. Lockfiles and generated files show faded, as the
- *  call's size leaves them out. The toggle is the reader's (plateOf). */
+ *  call's size leaves them out. The toggle is the reader's (plateOf). Once T3's code is drawn, the header shows T3's
+ *  switches (Dan, 2026-11-13, 1B): collapse or expand all files, and hide test files (the page sets them). */
 function diffPanel(size: { added: number; removed: number }, changes: TeamChanges | null, pr: TeamPr): { label: string; html: string; src: string } {
   const href = e(`${prHref(pr)}/files`);
   const stat = okCount(size.added) && okCount(size.removed) ? dstat(size.added, size.removed) : '';
@@ -626,6 +632,8 @@ function diffPanel(size: { added: number; removed: number }, changes: TeamChange
   const list = changes ? files.map(row).join('') + (more ? `<a class="dpm" href="${href}" target="_blank" rel="noopener">${e(nf(more))} more ${more === 1 ? 'file' : 'files'} in the full diff</a>` : '')
     : `<p class="dpn">${NC_V}</p>`;
   const html = `<header class="dp-h"><b>Changes</b>${pr.base ? `<span class="vs">vs</span><span class="base" title="${e(pr.base)}">${e(pr.base)}</span>` : ''}${stat}<i class="dp-sp"></i>`
+    + `<button type="button" class="dp-i" data-dp-all hidden title="Expand all files" aria-label="Expand all files">${svg('chevronsUpDown', 'ic dp-ex')}${svg('chevronsDownUp', 'ic dp-co')}</button>`
+    + `<button type="button" class="dp-i" data-dp-tests hidden aria-pressed="false" title="Hide test files" aria-label="Hide test files">${svg('flaskOff')}</button>`
     + `<a class="dp-i" href="${href}" target="_blank" rel="noopener" title="Open the full diff on GitHub" aria-label="Open the full diff on GitHub">${svg('out')}</a></header>`
     + `<div class="dp-l" tabindex="0">${list}</div>`;
   // The page reads the code from T3 Code when the panel opens (client/diffs.ts); until then, and without it, the list.

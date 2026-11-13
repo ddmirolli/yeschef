@@ -13,6 +13,7 @@ import * as HttpClientResponse from 'effect/http/HttpClientResponse';
 import { getResolvedOrResolveTheme, parsePatchFiles, registerCustomTheme, SVGSpriteSheet } from '@pierre/diffs';
 import type { DiffsTheme, FileDiffMetadata } from '@pierre/diffs';
 import { preloadFileDiff } from '@pierre/diffs/ssr';
+import { isTestChangedFile } from './changed-file-kind.ts';
 
 // ----- T3 Code's readable light theme (apps/web/src/lib/readableSyntaxTheme.ts, MIT) -----
 /** pierre-light with every syntax color darkened until it reads on every light code surface. */
@@ -64,8 +65,8 @@ export const DIFF_OPTIONS = {
 } as const;
 
 /** One file of the patch: its header (folded, with T3's chevron) and its code, apart, so the page sends the code only
- *  when a file opens. */
-export interface DrawnFile { path: string; prev: string | null; type: string; add: number; del: number; header: string; code: string }
+ *  when a file opens. `test` is T3's test file (changed-file-kind.ts), which the panel's switch can hide. */
+export interface DrawnFile { path: string; prev: string | null; type: string; add: number; del: number; test: boolean; header: string; code: string }
 /** A drawn patch: pierre's styles and icons once, then the files. */
 export interface Drawn { style: string; sprite: string; files: DrawnFile[] }
 
@@ -122,7 +123,7 @@ export async function drawPatch(patch: string, withheld: readonly Withheld[] = [
       header = header.replace(METADATA, `<div data-metadata="">${counts}<slot name="header-metadata"></slot>`);
       code = WITHHELD;
     }
-    return { path: fileDiff.name, prev: fileDiff.prevName ?? null, type: fileDiff.type, add, del, header, code };
+    return { path: fileDiff.name, prev: fileDiff.prevName ?? null, type: fileDiff.type, add, del, test: isTestChangedFile(fileDiff.name), header, code };
   });
   return { style, sprite: SVGSpriteSheet, files };
 }
