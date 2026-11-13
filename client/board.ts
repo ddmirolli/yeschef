@@ -850,7 +850,9 @@ function teamDock(c: TeamCall, w: Words, me: Me | null | undefined, id: string):
   // An answer carries the question and every option as the lead read them (team-inbox.ts optionsKey), so the dev's Mac
   // answers only that same question.
   const seen = w.ask ? hidden('q', w.ask.q ?? '') + hidden('opts', JSON.stringify((Array.isArray(w.ask.options) ? w.ask.options : []).map((o) => [o.k, o.t]))) : '';
-  const fields = (t && allowed.length ? hidden('nonce', randomUUID()) + hidden('to', t.to) + hidden('thread', t.thread) + (t.say ? hidden('say', t.say) : '') + seen : '') + (fine ? hidden('call', c.id) : '');
+  // Hold goes to the dev's thread too, so it carries the routing fields even when no other action is allowed: a role
+  // with Merge but not Reply on an Overlap has Hold and It's fine only (PR-Agent r2 on #75).
+  const fields = (t && (allowed.length || hold) ? hidden('nonce', randomUUID()) + hidden('to', t.to) + hidden('thread', t.thread) + (t.say ? hidden('say', t.say) : '') + seen : '') + (fine ? hidden('call', c.id) : '');
   return `<aside class="dock dock-plain" aria-label="Your move"><form class="act team-act" method="post" action="/act" data-plate="${e(id)}">${fields}${only}${ask}${note}${allowed.length || fine ? bar([...labelled, fine].filter(Boolean), [hold], rows) : ''}</form></aside>`;
 }
 

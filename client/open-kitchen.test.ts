@@ -392,6 +392,11 @@ test('team actions show by role and name whose thread they go to; a see-only Eng
   assert.doesNotMatch(dep, /value="(rollback|hold|refire|answer|fine)"/);
   assert.match(dep, /value="rebase" class="ab fill primary"/);
   assert.match(dep, /value="reply" class="ab"/);
+  // A role with Merge but not Reply: Hold on every call, each Hold form routed to the dev's thread (PR-Agent r2 on #75).
+  v.me = { id: 'me', name: 'Dana', role: 'owner', perms: ['see', 'merge'] };
+  const holds = (page({ view: v, now: NOW }).match(/<form class="act team-act"[^]*?<\/form>/g) ?? []).filter((f) => /value="hold"/.test(f));
+  assert.equal(holds.length, 6);
+  for (const f of holds) for (const field of ['nonce', 'to', 'thread', 'call']) assert.match(f, new RegExp(`name="${field}" value="[^"]+"`), field);
 });
 
 test('a teammate’s words are escaped, and only a GitHub PR address opens', () => {
