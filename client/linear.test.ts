@@ -70,8 +70,26 @@ test('a thread\'s feature is the project most of its read tickets are in; none r
   assert.equal(featureOf([{ state: 'not-checked', id: 'ENG-1', url: null }]), undefined);
   assert.equal(featureOf([r('ENG-1', null, null)]), null);
   assert.deepEqual(featureOf([r('ENG-1', 'A', 'a'), r('ENG-2', 'B', 'b'), r('ENG-3', 'B', 'b'), r('ENG-4', null, null)]), { id: 'b', name: 'B' });
+  // None in a project, and one ticket's project not read yet (a part read): not checked, never "No feature".
+  const part: LinearLink = { state: 'read', id: 'ENG-5', title: null, status: 'Done', statusType: null, url: null, assignee: null, at: 1, by: 'a' };
+  assert.equal(featureOf([r('ENG-1', null, null), part]), undefined);
+  assert.deepEqual(featureOf([r('ENG-1', 'A', 'a'), part]), { id: 'a', name: 'A' });
   // A tie: the first.
   assert.deepEqual(featureOf([r('ENG-1', 'A', 'a'), r('ENG-2', 'B', 'b')]), { id: 'a', name: 'A' });
+});
+
+test('a part read of a ticket leaves its project not read: no project keys, so the thread is not checked', async () => {
+  const items = {
+    a: [{ itemId: 'm0', type: 'user_message', text: 'look at ENG-7', updatedAt: at(25) },
+      { itemId: 't1', type: 'dynamic_tool', text: claudeItem('get_issue', { id: 'ENG-7' }, { id: 'ENG-7', status: 'Done' }), updatedAt: at(20) }],
+  };
+  const reads = createLinearReads({ call: fakeT3(items), now: () => NOW });
+  reads.want([{ threadId: 'a', updatedAt: at(20), itemCount: 2 }]);
+  for (let i = 0; i < 5; i++) await settle();
+  const got = reads.get('ENG-7')!;
+  assert.equal(got.status, 'Done');
+  assert.equal('project' in got || 'projectId' in got, false);
+  assert.equal(featureOf([{ state: 'read', ...got }]), undefined);
 });
 
 test('a ticket moved out of its project leaves it at the newer read', async () => {

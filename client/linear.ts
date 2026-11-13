@@ -14,8 +14,9 @@ export type LinearTool = 'get_issue' | 'list_issues' | 'save_issue';
 export interface LinearIssue {
   id: string; title: string | null; status: string | null; statusType: string | null; url: string | null;
   assignee: string | null;
-  /** The Linear project the ticket is in: French Brigade's feature (brief, "Feature": a Linear project by default). */
-  project: string | null; projectId: string | null;
+  /** The Linear project the ticket is in: French Brigade's feature (brief, "Feature": a Linear project by default).
+   *  null: in no project. Left out: not read yet (a part read says nothing about it). */
+  project?: string | null; projectId?: string | null;
   at: number; by: string;
 }
 /** A feature: a Linear project, by its id and name. */
@@ -76,14 +77,17 @@ export function featureOf(links: readonly LinearLink[] | null | undefined): Feat
   const read = (links || []).filter((l): l is Extract<LinearLink, { state: 'read' }> => l.state === 'read');
   if (!read.length) return undefined;
   const count = new Map<string, { f: Feature; n: number }>();
+  let unread = false;
   for (const l of read) {
+    if (l.project === undefined || l.projectId === undefined) { unread = true; continue; }
     if (!l.projectId || !l.project) continue;
     const had = count.get(l.projectId);
     if (had) had.n++; else count.set(l.projectId, { f: { id: l.projectId, name: l.project }, n: 1 });
   }
   let best: { f: Feature; n: number } | null = null;
   for (const c of count.values()) if (!best || c.n > best.n) best = c;
-  return best ? best.f : null;
+  // None in a project: "No feature" only when every ticket's project was read; else not checked (PR-Agent r1 on #76).
+  return best ? best.f : unread ? undefined : null;
 }
 
 /** The text of a tool's output: Claude's { content: [{ type: 'text', text }] }, Codex's [{ type: 'text', text }], or a string. */
@@ -227,8 +231,12 @@ export function createLinearReads({ call, now = Date.now, log = () => {}, days =
   const view = (id: string, s: Stored): LinearIssue => {
     const f = (k: keyof LinearIssue) => s.fields.get(k)?.v ?? null;
     const st = s.fields.get('status');
-    return { id, title: f('title'), status: f('status'), statusType: f('statusType'), url: f('url'), assignee: f('assignee'),
-      project: f('project') || null, projectId: f('projectId') || null, at: st?.at ?? s.at, by: st?.by ?? s.by };
+    const out: LinearIssue = { id, title: f('title'), status: f('status'), statusType: f('statusType'), url: f('url'), assignee: f('assignee'),
+      at: st?.at ?? s.at, by: st?.by ?? s.by };
+    // The project: '' is stored for a whole ticket in none (null here); never read, it is left out (not checked).
+    const p = s.fields.get('project')?.v, pid = s.fields.get('projectId')?.v;
+    if (p !== undefined && pid !== undefined) { out.project = p || null; out.projectId = pid || null; }
+    return out;
   };
 
   return {
