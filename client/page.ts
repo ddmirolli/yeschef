@@ -667,7 +667,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     if (p.contains(document.activeElement) && document.activeElement !== p) return true;
     // So does one whose diff panel is open as the sheet, with focus in it.
     var dps = dpDlg && dpDlg.open && dpOf(p); if (dps && dpDlg!.contains(dps) && dpDlg!.contains(document.activeElement)) return true;
-    if (p.querySelector('form.act[data-busy], form.act[data-touched]')) return true;
+    if (p.querySelector('form.act[data-busy], form.act[data-touched], form.act.q-ask.q-open')) return true;
     // An open More menu stays put: a refresh would close it under the pointer.
     if (openMenu(p)) return true;
     return $$<HTMLInputElement | HTMLTextAreaElement>('textarea, input[type=text]', p).some(function(x){ return x.value.trim(); });
@@ -947,7 +947,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   function pickNames(f: ParentNode): string {
     return $$('fieldset.q-set', f).map(function(fs){
       var c = $<HTMLInputElement>('input[type=radio]:checked', fs); if (!c) return null;
-      var x = c.value, t = /^c:/.test(c.name) && c.parentNode ? $('.opt-t', c.parentNode) : null;
+      var x = c.value, t = /^c:/.test(c.name) && c.parentNode ? $('.opt-h', c.parentNode) || $('.opt-t', c.parentNode) : null;
       if (t) { var b = $('b', t), rc = $('.rec', t); x = t.textContent; if (b) x = x.replace(b.textContent, ''); if (rc) x = x.replace(rc.textContent, ''); x = x.trim() || c.value; }
       x = x.replace(/ *[(]recommended[)] *$/i, '');
       if (x.length <= 32) return x;
@@ -1000,6 +1000,34 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     qShow(f, b.hasAttribute('data-qto') ? +b.dataset.qto! : qAt(f) + (+b.dataset.qgo!));
   });
   // The primary is the recommended action: with nothing picked, each decision takes the option the agent recommends.
+  // The answer sheet (Dan, 2026-11-14, Gmail): the options stay hidden until Respond, ⌘↵ or an option's letter. It
+  // slides up with A picked and open; the arrows move the pick, and only the picked option shows its explanation.
+  // ⌘↵ then sends the pick; Esc folds the sheet. Reply and Add a note open it on the note, with nothing picked.
+  var quietPick = false;
+  function pickQuiet(r: HTMLInputElement): void {
+    quietPick = true;
+    try { if (!r.checked) { r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true })); } } finally { quietPick = false; }
+    r.focus({ preventScroll: true });
+  }
+  function sheetOpen(f: Element | null | undefined): boolean { return !!f && (!f.classList.contains('q-ask') || f.classList.contains('q-open')); }
+  function openSheet(f: Element | null | undefined, noPick?: boolean): void {
+    if (!f || !f.classList.contains('q-ask') || f.classList.contains('q-open')) return;
+    f.classList.add('q-open');
+    var set = qSets(f).filter(function(fs){ return fs.classList.contains('q-on'); })[0] || qSets(f)[0];
+    var first = set && !set.disabled ? $<HTMLInputElement>('input[type=radio]:checked', set) || $<HTMLInputElement>('input[type=radio]', set) : null;
+    if (first && !noPick) pickQuiet(first);
+    yieldKey();
+  }
+  function closeSheet(f: Element | null | undefined): boolean {
+    if (!f || !f.classList.contains('q-open') || !f.classList.contains('q-ask') || (f as HTMLElement).dataset.busy || $('fieldset.q-set[disabled]', f)) return false;
+    f.classList.toggle('q-open', false);
+    var r = $<HTMLButtonElement>('[data-respond]', f); if (r && f.contains(document.activeElement)) r.focus({ preventScroll: true });
+    yieldKey(); return true;
+  }
+  document.addEventListener('click', function(ev){
+    var b = (ev.target as Element).closest && (ev.target as Element).closest<HTMLElement>('[data-respond]'); if (!b) return;
+    ev.preventDefault(); openSheet(b.closest('form.act'));
+  });
   function recPick(f: ParentNode): void { $$('fieldset.q-set:not([disabled])', f).forEach(function(fs){ if ($('input[type=radio]:checked', fs)) return; var r = $<HTMLInputElement>('input[data-rec]', fs); if (r) r.checked = true; }); }
   function primaryLabel(f: Element | null): void {
     var b = f && $('button.primary[value=call], button.primary[value=answer]', f); if (!b || !$('.bl', b)) return;
@@ -1269,7 +1297,9 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   function setDensity(d: string): void { prefs.density = d; store('yc.density', d); applyPrefs(); }
   setDlg.addEventListener('click', function(ev){ if (ev.target === setDlg || (ev.target as Element).closest('[data-settings-done]')) setDlg.close(); });
   // The note unfolds when asked for, and folds again once sent or left empty.
-  function noting(f: PageForm | null | undefined, on: boolean): void { if (!f) return; f.classList.toggle('noting', !!on); if (on && f.elements.note && f.elements.note.focus) f.elements.note.focus(); }
+  function noting(f: PageForm | null | undefined, on: boolean): void { if (!f) return; var slid = on && !sheetOpen(f); if (on) openSheet(f, true); f.classList.toggle('noting', !!on);
+    var nt = f.elements.note;
+    if (on && nt && nt.focus) { nt.focus({ preventScroll: slid }); if (slid) setTimeout(function(){ if (document.activeElement === nt) nt.scrollIntoView({ block: 'nearest' }); }, 320); } }
   // One intent per form: a click on Reply or Request changes with no note yet, or R / F, arms it; Cmd+Enter then sends it.
   function setIntent(f: PageForm | null | undefined, kind?: string | null): void {
     if (!f) return;
@@ -1421,7 +1451,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
         }
       }
       // The form is free again and holds no draft, so the next refresh can replace the ticket.
-      lock(f, false); delete f.dataset.touched; setIntent(f, null); noting(f, false); clearDraft(f);
+      lock(f, false); delete f.dataset.touched; setIntent(f, null); noting(f, false); clearDraft(f); f.classList.toggle('q-open', false);
       if (f.elements.note && f.elements.note.tagName === 'TEXTAREA') { f.elements.note.value = ''; grow(f.elements.note); }
       if (id === 'launch') { f.elements.prompt!.value = ''; f.elements.title!.value = ''; delete f.dataset.lost; }
       if (f.elements.nonce) f.elements.nonce.value = uuid();
@@ -1813,7 +1843,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     var fs = (ev.target as HTMLInputElement).closest<HTMLFieldSetElement>('fieldset.q-set'), pl = f.closest<Plate>('.plate'); if (fs && pl) pl._lastSet = fs;
     // A pick on a card brings the next unanswered one forward, a beat later so you see your pick land.
     // Your own answer stays in front: you still have to write it (PR-Agent r1 on #50).
-    if (fs && (ev.target as HTMLInputElement).type === 'radio' && qSets(f).length > 1) { qShow(f, qSets(f).indexOf(fs)); if (!(ev.target as HTMLInputElement).hasAttribute('data-custom')) setTimeout(function(){ if (fs!.classList.contains('q-on')) qNext(f!); }, 180); }
+    if (fs && (ev.target as HTMLInputElement).type === 'radio' && qSets(f).length > 1 && !quietPick) { qShow(f, qSets(f).indexOf(fs)); if (!(ev.target as HTMLInputElement).hasAttribute('data-custom')) setTimeout(function(){ if (fs!.classList.contains('q-on')) qNext(f!); }, 180); }
     // The blue button names the answer you picked, on an agent's call and on a T3 question alike (Astra).
     if ($('button.primary[value=call], button.primary[value=answer]', f)) primaryLabel(f);
     yieldKey();
@@ -1940,6 +1970,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter' && form) {
       ev.preventDefault();
       if (ev.repeat) return;
+      if (!form.dataset.intent && !sheetOpen(form)) { openSheet(form); return; }
       var want = form.dataset.intent, b = want ? $<HTMLButtonElement>('button[value="' + want + '"]', form) : $<HTMLButtonElement>('button.primary', form);
       if (!b && form.elements.note && form.elements.note.value && form.elements.note.value.trim() && !stale(form)) b = $<HTMLButtonElement>('button[value=reply]', form);
       if (!b && stale(form)) { say(form, 'You sent this note before the agent’s latest message, so it may have reached the agent. Send it again with Reply' + (keyLabel('ticket.reply') ? ' (' + keyLabel('ticket.reply') + ')' : '') + ', change it, or clear it.', 'bad'); return; }
@@ -1953,6 +1984,16 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
       return;
     }
     if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+    // In an open answer sheet the arrows move the pick, one option at a time, and stay on this question's card.
+    var so = (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') && mounted ? $('form.act.q-ask.q-open', mounted) : null;
+    if (so && !(ev.target as Element).closest('select, summary, [contenteditable], .abar')) {
+      var on = qSets(so)[qAt(so)], rs = on && !on.disabled ? $$<HTMLInputElement>('input[type=radio]', on) : [];
+      if (rs.length) {
+        ev.preventDefault();
+        var at = rs.findIndex(function(r){ return r.checked; }), nx = rs[Math.max(0, Math.min(rs.length - 1, at + (ev.key === 'ArrowDown' ? 1 : -1)))]!;
+        pickQuiet(nx); return;
+      }
+    }
     // Arrow keys on a focused option, button or menu belong to that control.
     var control = (ev.target as Element).closest && (ev.target as Element).closest('input, select, button, summary, [contenteditable]');
     if ((ev.key === 'ArrowDown' || ev.key === 'ArrowUp') && control) return;
@@ -1970,7 +2011,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     if (k === '?') { ev.preventDefault(); openSettings('keys'); return; }
     if (k === 'z') { var last = pendingSends[pendingSends.length - 1]; if (last) last.undo(); return; }
     if (k === 'v') { toggleView(); return; }
-    if (k === 'Escape') { if (sheet.open) sheet.close(); return; }
+    if (k === 'Escape') { if (mounted && $$('form.act.q-open', mounted).some(closeSheet)) return; if (sheet.open) sheet.close(); return; }
     if (k === 'o' && mounted) { var link = $('.plate-bar a[href]', mounted); if (link) link.click(); return; }
     if (!form) return;
     // . opens More, as in Gmail, with its first row in focus.
@@ -1982,7 +2023,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     if (/^[a-i]$/.test(k) && mounted && !ev.synthetic) {
       var ls = letterAt(ev.target as Element | null, k);
       if (ls && ls.held) { say(ls.held.closest('form.act'), 'This answer is waiting on its Retry, so a letter does not change it.', ''); return; }
-      if (ls) { ls.radio!.checked = true; ls.radio!.dispatchEvent(new Event('change', { bubbles: true })); return; }
+      if (ls) { var sf = ls.radio!.closest('form.act'); if (sf && !sheetOpen(sf)) openSheet(sf, true); ls.radio!.checked = true; ls.radio!.dispatchEvent(new Event('change', { bubbles: true })); ls.radio!.focus({ preventScroll: true }); return; }
     }
     // A key with no button here says why instead of doing nothing (Opus).
     // A T3 question has no Reply: point to answering it, or opening it in T3 Code (Astra).

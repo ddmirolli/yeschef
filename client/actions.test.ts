@@ -203,8 +203,8 @@ test('a finished Merged ticket offers Settle first, filled, and no Merge; the se
   const plate = html.slice(html.indexOf('<article class="plate"'));
   // No pill on a hand-back: the blue pill means a decision waits on you (Dan, 2026-11-08).
   assert.match(plate, /<p class="lead"><span class="lead-q">Try it where it shipped\. If it works, settle it\.<\/span><\/p>/);
-  // The title, the ask and the pull requests form the pinned head of the ticket (Dan, 2026-11-08).
-  assert.match(plate, /<header class="plate-head"><h2 class="plate-t"[^>]*>done<\/h2><p class="lead">[\s\S]*?<div class="pr-row">[\s\S]*?<\/header><section class="msg">/);
+  // Only the title pins; the ask and the pull requests scroll with the message (Dan, 2026-11-14, Gmail).
+  assert.match(plate, /<header class="plate-head"><h2 class="plate-t"[^>]*>done<\/h2><\/header><p class="lead">[\s\S]*?<div class="pr-row">[\s\S]*?<section class="msg">/);
   assert.ok(plate.indexOf('class="lead"') < plate.indexOf('class="pr-row"'));
   const t3 = spy();
   assert.equal((await act({ board: b, t3, input: { kind: 'go', thread: 'done', nonce: 'n' } })).status, 409);

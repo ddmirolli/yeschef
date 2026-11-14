@@ -203,7 +203,9 @@ test('a question the ticket itself asks leads its sheet; a station\'s question k
     T('self', { status: 'running' }), T('parent'), T('st', { parentThreadId: 'parent', status: 'running', title: 'Station one' })] });
   const html = renderApp({ board, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
   // The ticket's own question goes straight to the dock; a station's carries its name there and a link above.
-  assert.match(html, /<p class="dock-k"><span class="chip c-blue">1 question<\/span><\/p><form class="act"[^>]*>(<input[^>]*>){3}<fieldset/);
+  // Its options wait in the answer sheet, behind Respond (Dan, 2026-11-14, Gmail).
+  assert.match(html, /<aside class="dock" aria-label="Your answer"><form class="act q-ask"[^>]*>(<input[^>]*>){3}<div class="sheet"><div class="sheet-in"><fieldset/);
+  assert.match(html, /<button type="button" class="ab fill resp" data-respond>/);
   assert.match(html, /<b>Station one<\/b> is waiting on your answer\. <a href="https:\/\/t3\.example\/env\/st"/);
   assert.match(html, /<p class="dock-who">Station one asks<\/p>/);
   assert.match(html, /Hold and Settle come back once the question is answered\./);
@@ -260,8 +262,9 @@ test('a ticket at the pass reads like an email: project and model, the thread ti
   assert.match(card, /<span class="chip c-blue">2 questions<\/span><span class="lb"><i class="gd c-blue"><\/i>Ready to merge<\/span><span class="lb th pr-open"[^>]*><i><\/i>#12<\/span>/);
   // The question and its recommendation are the dock's, not the card's.
   assert.doesNotMatch(card, /Recommends|Centered/);
-  // The open ticket's title is the thread's; under it, only the count.
-  assert.match(html, /<h2 class="plate-t"[^>]*>Homepage hero<\/h2><p class="lead lead-n"><span class="chip c-blue lead-k">2 questions<\/span><\/p>/);
+  // The open ticket's title is the thread's, pinned alone; the count is the card's, not said again (Dan, 2026-11-14).
+  assert.match(html, /<header class="plate-head"><h2 class="plate-t"[^>]*>Homepage hero<\/h2><\/header>/);
+  assert.doesNotMatch(html, /lead-n/);
 });
 
 test('several questions show as cards, one at a time, each with its own legend (Dan, 2026-11-08)', () => {
@@ -269,7 +272,7 @@ test('several questions show as cards, one at a time, each with its own legend (
   const q2 = { id: 'q2', requestId: 'r1', question: 'Which day should it go out?', options: [{ label: 'Monday' }, { label: 'Friday' }] };
   const board = buildBoard({ projects: [], questions: new Map([['ask', [q1, q2]]]), threads: [T('ask', { status: 'running' })] });
   const html = renderApp({ board, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
-  assert.match(html, /<form class="act q-car"/);
+  assert.match(html, /<form class="act q-ask q-car"/);
   assert.match(html, /<span class="q-pos" aria-live="polite">1 of 2<\/span>/);
   assert.match(html, /<fieldset class="q-set q-on"><legend>Which layout\?<\/legend>/);
   assert.match(html, /<fieldset class="q-set"><legend>Which day should it go out\?<\/legend>/);
@@ -453,4 +456,13 @@ test('a reader shows its Linear tickets beside its pull requests: a read one wit
   const html = renderApp({ board, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
   assert.match(html, /<div class="pr-row"><a class="prc t-open"[^]*?<a class="prc lin" href="https:\/\/linear\.app\/acme\/issue\/ENG-12\/fix"[^>]*title="Fix &lt;b&gt;import&lt;\/b&gt;\. Read in T3 3 h ago\."><i><\/i>ENG-12<span>In Progress · 3 h ago<\/span>/);
   assert.match(html, /<span class="prc lin" title="No agent has read this ticket in T3 yet\."><i><\/i>ENG-13<span>Not checked<\/span><\/span>/);
+});
+
+test('an option shows its first sentence as its title, and the rest only while picked (Dan, 2026-11-14)', async () => {
+  const { optSplit } = await import('./board.ts');
+  assert.deepEqual(optSplit('Ship it now. The fix is small and CI is green.'), ['Ship it now.', 'The fix is small and CI is green.']);
+  assert.deepEqual(optSplit('Yes, merge once CI is green.'), ['Yes, merge once CI is green.', '']);
+  // A short lead like "a. b." or "v1.2" never splits mid-word.
+  assert.deepEqual(optSplit('Use v1.2 of the API'), ['Use v1.2 of the API', '']);
+  assert.deepEqual(optSplit('Hold? Wait for the carrier to answer first.'), ['Hold? Wait for the carrier to answer first.', '']);
 });

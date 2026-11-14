@@ -1110,9 +1110,9 @@ html .plate .plate-scroll.fade-end~.dock{box-shadow:0 -.5px 0 var(--sep)}
 /* No zoom on focus: iOS zooms fields under 16px (as .note textarea does above). This comes after the rules that size
    them: the new-ticket form, the Rules menus and House notes (PR-Agent r8 on #61). */
 /* The Pass's check: a visual call with no screenshots. */
-.plate-head .kr-flag{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0 0 12px;font-size:13px;color:var(--label2)}
-.plate-head .kr-flag .kr-k{padding:1px 8px;border-radius:999px;background:var(--orange-t);color:var(--orange);font:600 12px/20px var(--sans)}
-.plate-head .kr-flag .kr-ask{min-height:28px;padding:0 10px;font-size:13px}
+.plate .kr-flag{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0 0 12px;font-size:13px;color:var(--label2)}
+.plate .kr-flag .kr-k{padding:1px 8px;border-radius:999px;background:var(--orange-t);color:var(--orange);font:600 12px/20px var(--sans)}
+.plate .kr-flag .kr-ask{min-height:28px;padding:0 10px;font-size:13px}
 .launch .lf-rules{margin:-4px 0 0;font-size:12px}
 /* Tickets read like email (Dan, 2026-11-08): who (project, model), the T3 thread's title, one line of preview, labels. */
 .call-tile.mail{gap:3px}
@@ -1571,11 +1571,55 @@ html.s-team.v-kitchen .tboard{display:flex;flex-direction:column;grid-area:you;m
 .okk .sq.red{background:var(--red)}.okk .sq.amber{background:var(--orange)}.okk .sq.out{border:1.5px dashed var(--fx-a1)}
 .okk .sq.n1{background:var(--fx-a0)}.okk .sq.n2{background:var(--fx-a1)}.okk .sq.n3{background:var(--fx-a2)}
 `;
+/* ===== The answer sheet (Dan, 2026-11-14: read it like Gmail). The title stays pinned and the message scrolls; the
+   dock at the foot is the screenshots as small thumbnails over one row of buttons. The options wait behind Respond,
+   then slide up with A picked: only the picked option shows its explanation, and the arrows move the pick. ===== */
+const SHEET_CSS = `
+.dock .atts.att-row{display:flex;flex-wrap:nowrap;gap:6px;margin:0 0 10px;overflow-x:auto;scrollbar-width:none}
+.dock .atts.att-row::-webkit-scrollbar{display:none}
+.dock .atts.att-row .att{flex:0 1 auto;flex-direction:row;align-items:center;gap:8px;min-width:0;max-width:220px;padding:3px 10px 3px 3px;border-radius:8px;background:var(--fill)}
+.dock .atts.att-row .att:hover{background:var(--fill2)}
+.dock .atts.att-row .att-img{flex:none;width:40px;height:26px;aspect-ratio:auto;border-radius:5px}
+.dock .atts.att-row .att-cap{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--label)}
+.dock:has(form.q-open) .atts.att-row{display:none}
+html .plate .dock:has(form.q-open){max-height:76%}
+.dock form.act.q-ask{gap:0}
+.sheet{display:grid;grid-template-rows:0fr;transition:grid-template-rows .3s cubic-bezier(.2,.8,.2,1)}
+.sheet-in{display:flex;flex-direction:column;gap:12px;min-height:0;overflow:hidden;visibility:hidden;transition:visibility 0s .3s}
+form.q-open .sheet{grid-template-rows:1fr}
+/* The options stop at the reading width, as before (each was about 900 px wide at 2560). */
+form.q-ask .sheet-in>*{max-width:680px}
+/* The note scrolls clear of the button row that sticks over the dock's foot. */
+form.q-ask .note textarea{scroll-margin-bottom:64px}
+/* With Respond folded away, Send leads the row: its tooltip starts at its left edge, as the first button's does. */
+form.q-ask .abar>.resp+button .tip{left:0;transform:translateY(3px)}
+form.q-ask .abar>.resp+button:is(:hover,:focus-visible) .tip{transform:none}
+form.q-open .sheet-in{padding:2px 2px 12px;visibility:visible;transition:none}
+form.q-ask:not(.q-open) .abar button.primary:is([value=call],[value=answer]){display:none}
+form.q-ask.q-open .abar [data-respond]{display:none}
+/* Closed, the row is Respond and the quiet actions; Reply (a note with no answer) comes with the sheet, beside Send. */
+form.q-ask:not(.q-open) .abar button[value=reply]{display:none}
+/* Respond keeps its word in a narrow reader: it is the one blue action until the sheet opens. */
+@media (min-width:761px){ @container (max-width:560px){ .abar .ab.resp{width:auto;padding:0 14px 0 11px} .abar .ab.resp .bl{position:static;width:auto;height:auto;overflow:visible;clip-path:none;white-space:nowrap} } }
+html .plate .dock form.q-ask .q-set{display:flex;flex-direction:column;gap:2px;max-width:680px}
+html .plate .dock form.q-ask label.opt{display:flex;align-items:flex-start;gap:10px;min-height:0;padding:8px 10px;border-radius:8px;background:none;box-shadow:none;transition:background .2s}
+html .plate .dock form.q-ask label.opt:hover{background:var(--fill)}
+html .plate .dock form.q-ask label.opt:has(input:checked){background:var(--blue-t);box-shadow:none}
+form.q-ask label.opt input[type=radio]{margin-top:1px}
+form.q-ask .opt-t{flex:1;display:flex;flex-direction:column}
+form.q-ask .opt-h{font-weight:500;color:var(--label)}
+form.q-ask .opt-h .rec{margin-left:6px;vertical-align:1px}
+form.q-ask .opt-d{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .26s cubic-bezier(.2,.8,.2,1),margin .26s,opacity .2s}
+form.q-ask .opt-d>span{display:block;min-height:0;overflow:hidden;font-size:13px;line-height:1.4;color:var(--label2)}
+form.q-ask label.opt:has(input:checked) .opt-d{grid-template-rows:1fr;margin-top:3px;opacity:1}
+form.q-ask .q-why{margin:6px 10px 0;font-size:13px;color:var(--label2)}
+@media (prefers-reduced-motion:reduce){.sheet,.sheet-in,form.q-ask .opt-d{transition:none}}
+`;
 // Appearance (theme.ts): every dark and light rule also answers to the html element's data-theme.
 // The pictures in Settings → Layout and the ⌘K bar's Appearance and Density steps (theme.ts).
 const MINIS = minis();
 const tile = (name: string, value: keyof typeof MINIS, label: string): string => `<label class="look"><input type="radio" name="${name}" value="${value}" aria-label="${label}">${MINIS[value]}<span class="look-n">${label}</span></label>`;
-const STYLE = onScale(onTheme(CSS + APP_CSS + BAR_CSS + MINI_CSS) + miniCss(CSS + APP_CSS + BAR_CSS));
+const STYLE = onScale(onTheme(CSS + APP_CSS + BAR_CSS + MINI_CSS + SHEET_CSS) + miniCss(CSS + APP_CSS + BAR_CSS));
 
 
 const page = (body: string): string => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">

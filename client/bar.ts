@@ -353,7 +353,7 @@ export function installBar(app: BarApp, core: BarCore): BarApi | null {
   // An option's words, without its letter or its Recommended tag.
   function optText(r: HTMLInputElement): string {
     var o = r.parentNode && $('.opt-t', r.parentNode); if (!o) return r.value;
-    var c = o.cloneNode(true) as HTMLElement; $$('.okey, .rec, .muted', c).forEach(function (x) { x.remove(); });
+    var c = o.cloneNode(true) as HTMLElement; $$('.okey, .rec, .muted, .opt-d', c).forEach(function (x) { x.remove(); });
     return txt(c).replace(/^[a-z]\.\s*/i, '') || r.value;
   }
   // A button's own line after its name ("Settle: it leaves the pass" gives "It leaves the pass"), else nothing.

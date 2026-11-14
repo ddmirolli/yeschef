@@ -77,7 +77,7 @@ test('the sheet shows the screenshots, the links, the choices with the recommend
   assert.match(html, /<a href="https:\/\/mac\.example\.ts\.net:8443\/2026-11-02\/free-thumbs-dark\/index\.html" target="_blank"/);
   assert.match(html, /<a href="https:\/\/t3\.example\/5f0c2a1e-4b7d-4c3a-9e21-0d6b8a7c3f10\/mcp:c116042a-bb2b-4208-b853-8b83342a1245"[^>]*>ATC 10-28/);
   assert.match(html, /<button type="submit" name="kind" value="call" class="ab fill primary"/);
-  assert.match(html, /name="c:0" value="a" data-key="a" data-need data-rec><span class="opt-t"><b>a\.<\/b> Yes, merge once CI is green\. <span class="rec">Recommended<\/span>/);
+  assert.match(html, /name="c:0" value="a" data-key="a" data-need data-rec><span class="opt-t"><span class="opt-h"><b><span class="okey">a\.<\/span><\/b> Yes, merge once CI is green\. <span class="rec">Recommended<\/span><\/span><\/span>/);
   assert.match(html, /<b>Since then<\/b>.*Nothing to fix on #2151/s);
   // The call carries its own choices: no Merge or Request changes beside it. Reply, Hold, and Settle stay.
   assert.doesNotMatch(html, /value="go"|value="refire"/);
@@ -248,10 +248,11 @@ test('the message drops the option lines the dock already shows, and the card na
   const prose = html.slice(html.indexOf('<div class="prose last full">'), html.indexOf('</div>', html.indexOf('<div class="prose last full">')));
   assert.doesNotMatch(prose, /Yes, merge once CI is green/);
   assert.doesNotMatch(prose, /Change something first/);
-  // The question and the recommendation line are in the dock, not repeated in the message (Sol).
-  assert.doesNotMatch(prose, /Ship #2151\?/);
+  // The question stays in the message: its options wait behind Respond (Dan, 2026-11-14). The recommendation line is the
+  // dock's, not repeated in the message (Sol).
+  assert.match(prose, /Ship #2151\?/);
   assert.doesNotMatch(prose, /Recommend(ation)?:? \*?\*?a/i);
-  assert.match(html, /name="c:0" value="a"[^>]*><span class="opt-t"><b>a\.<\/b> Yes, merge once CI is green\./);
+  assert.match(html, /name="c:0" value="a"[^>]*><span class="opt-t"><span class="opt-h"><b><span class="okey">a\.<\/span><\/b> Yes, merge once CI is green\./);
   assert.match(html, /name="c:0" value="a" data-key="a" data-need data-rec>/);
 });
 
@@ -260,10 +261,11 @@ test('screenshots are attachments pinned under the title, at one size and labell
   const plate = html.slice(html.indexOf('<article class="plate"'));
   const prose = plate.slice(plate.indexOf('<div class="prose last full">'), plate.indexOf('</div>', plate.indexOf('<div class="prose last full">')));
   assert.doesNotMatch(prose, /<img|data-shot/);
-  // The title, the question count, then the attachments, then the message.
+  // Gmail (Dan, 2026-11-14): the title, the message, then the attachments as small thumbnails at the foot, over the buttons.
   const at = (re: RegExp) => plate.search(re);
-  assert.ok(at(/class="plate-t"/) < at(/class="lead/) && at(/class="lead/) < at(/class="atts"/) && at(/class="atts"/) < at(/class="prose last full"/));
-  assert.match(plate, /<p class="lead lead-n"><span class="chip c-blue lead-k">1 question<\/span><\/p>/);
+  assert.ok(at(/class="plate-t"/) < at(/class="prose last full"/) && at(/class="prose last full"/) < at(/class="atts att-row"/) && at(/class="atts att-row"/) < at(/class="abar"/));
+  assert.equal((plate.match(/class="atts/g) || []).length, 1);
+  assert.doesNotMatch(plate, /lead-n/);
 });
 
 test('PR-Agent r2 on #27: an option line that carries a screenshot keeps its words, and the screenshot is pinned', () => {
@@ -346,7 +348,7 @@ test('three decisions: the message keeps its prose, and each reason moves onto i
   assert.doesNotMatch(prose, /Recommendation/);
   assert.match(prose, /Your encryption question/);
   assert.match(prose, /Once you answer, I(?:'|&#39;|&#x27;)ll write the brief/);
-  assert.match(html, /<form class="act q-car"/);
+  assert.match(html, /<form class="act q-ask q-car"/);
   assert.match(html, /1 of 3/);
   assert.match(html, /<p class="q-why"><b>Recommendation:<\/b> a now\. Offer b to the team next week\.<\/p><\/fieldset><fieldset class="q-set"><legend>How much do we take from T3 Code\?/);
   assert.match(html, /<p class="q-why"><b>Recommendation:<\/b> a\. T3 Code uses it, and single sign-on and billing come with it later\.<\/p><\/fieldset>/);
