@@ -1,5 +1,6 @@
 // Dan's actions at the Pass, each a T3 tool call (Dan, 2026-11-06: "A", make it act).
 // Every action names a thread on the current board; anything else is refused. Sends queue and never interrupt.
+import { launchSettings } from './launcher.ts';
 import { brief } from './kitchen.ts';
 import type { Board } from './board.ts';
 import type { Project, T3Caller } from './contracts.ts';
@@ -42,7 +43,8 @@ export async function act({ board, t3, input, now = new Date(), holds, answered,
   if (!nonce) return { status: 400, text: 'Missing action id. Reload the Pass.' };
 
   // A new thread in T3 Code (Dan, 2026-11-07; since 2026-11-10 Cmd+T or Cmd+N, as Cmd+K is the action bar). Into a
-  // project T3 lists, with Dan's prompt; in a new worktree unless he chose the project checkout. The model and modes are T3's defaults for this sign-in.
+  // project T3 lists, with Dan's prompt; in a new worktree unless he chose the current checkout; on the model, effort and
+  // permissions he picked, else the project's defaults in T3 (Dan, 2026-11-14).
   if (kind === 'launch') {
     const project = projects.find((p) => p.id === String(input.project || ''));
     if (!project) return { status: 400, text: 'Pick a project T3 Code knows.' };
@@ -51,8 +53,11 @@ export async function act({ board, t3, input, now = new Date(), holds, answered,
     if (message.length > MAX_PROMPT) return { status: 400, text: 'That prompt is too long. Shorten it.' };
     const title = (String(input.title || '').trim() || message.split('\n')[0]!).replace(/\s+/g, ' ').slice(0, MAX_TITLE);
     const workspaceStrategy = { type: input.workspace === 'root' ? 'root' : 'worktree' };
+    // The model, effort and permissions picked in the launcher (client/launcher.ts); none picked is T3's project default.
+    const picked = launchSettings(input);
+    if ('error' in picked) return { status: 400, text: picked.error };
     // The project's rules go under the prompt (Dan, 2026-11-08), so the agent works the project's way.
-    const out = await t3.call('t3_thread_launch', { projectId: project.id, title, message: message + brief(rules, project.id, project.title ? scopes(project.title) : []), workspaceStrategy, clientRequestId: `pass-${nonce}` });
+    const out = await t3.call('t3_thread_launch', { projectId: project.id, title, message: message + brief(rules, project.id, project.title ? scopes(project.title) : []), workspaceStrategy, ...picked, clientRequestId: `pass-${nonce}` });
     return { status: 200, text: `Launched “${title}” in ${project.title}${workspaceStrategy.type === 'worktree' ? ', in a new worktree' : ''}.`, thread: (out as { threadId?: string } | null)?.threadId || null };
   }
 

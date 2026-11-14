@@ -273,6 +273,20 @@ test('a launch goes only into a project T3 lists, with the prompt, in a new work
   assert.equal(t3.sent(1).title, 'My title');
 });
 
+test('a launch carries the model, effort and permissions picked in the launcher, and none when none was picked', async () => {
+  const projects = [{ id: 'p1', title: 'Yes Chef' }];
+  const t3 = spy();
+  await act({ board: EMPTY, t3, projects, input: { kind: 'launch', nonce: 'm1', project: 'p1', prompt: 'Go', instance: 'codex', model: 'gpt-6.1-sol', effortId: 'reasoningEffort', effort: 'xhigh', runtime: 'auto-accept-edits' } });
+  assert.deepEqual(t3.sent(0).modelSelection, { instanceId: 'codex', model: 'gpt-6.1-sol', options: [{ id: 'reasoningEffort', value: 'xhigh' }] });
+  assert.equal(t3.sent(0).runtimeMode, 'auto-accept-edits');
+  await act({ board: EMPTY, t3, projects, input: { kind: 'launch', nonce: 'm2', project: 'p1', prompt: 'Go', instance: '', model: '', effortId: '', effort: '', runtime: '' } });
+  assert.equal('modelSelection' in t3.sent(1), false);
+  assert.equal('runtimeMode' in t3.sent(1), false);
+  const r = await act({ board: EMPTY, t3, projects, input: { kind: 'launch', nonce: 'm3', project: 'p1', prompt: 'Go', runtime: 'root' } });
+  assert.equal(r.status, 400);
+  assert.equal(t3.calls.length, 2);
+});
+
 test('Hold and Settle refuse a written note instead of dropping it (council 3, Opus)', async () => {
   for (const kind of ['hold', 'settle']) {
     const t3 = spy();

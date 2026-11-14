@@ -1,10 +1,12 @@
 /// <reference path="./bridge.ts" />
 // The board page's script (client/server.ts serves it). It runs in the browser, not in Node: page() in server.ts puts
-// passScript's source in a <script> after keysCore, barCore and installBar, so this module's scope is the page's scope.
-// Those three are imported here only so the page is typed against them; the page itself never imports anything.
+// passScript's source in a <script> after keysCore, barCore, installBar, launcherCore and installLauncher, so this module's
+// scope is the page's scope. Those are imported here only so the page is typed against them; the page never imports anything.
 import { barCore, installBar } from './bar.ts';
 import type { BarApi } from './bar.ts';
 import { keysCore } from './keys.ts';
+import { installLauncher, launcherCore } from './launcher.ts';
+import type { LauncherApi } from './launcher.ts';
 import type { Rules, RuleSet } from './kitchen.ts';
 import type { Command, FixedKey, KeyState } from './keys.ts';
 
@@ -19,7 +21,7 @@ interface PageFields extends HTMLFormControlsCollection {
 /** The new-thread form's fields: it always has these four (page() in client/server.ts). */
 interface LaunchFields extends PageFields { nonce: HTMLInputElement; project: HTMLSelectElement; prompt: HTMLTextAreaElement; title: HTMLInputElement }
 /** The new-thread form's fields, as a draft keeps them. */
-interface LaunchSnap { prompt: string; title: string; project: string; workspace: string; nonce?: string; sig?: string; at?: number }
+interface LaunchSnap { prompt: string; title: string; project: string; workspace: string; instance?: string; model?: string; effortId?: string; effort?: string; runtime?: string; nonce?: string; sig?: string; at?: number }
 /** A ticket form's draft, as snap() takes it and saveDraft keeps it: its note, picks and armed action, and its one-time
  *  id and kind once a send went on the way out. */
 interface Draft {
@@ -72,6 +74,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   var actedLatest: Record<string, string> = {}; // plate id -> the hand-back it had when sent: a newer hand-back brings it back at once (Opus)
   var mounted: Plate | null = null; // the ticket element now open in the reader or the sheet
   var bar: BarApi | null = null; // the Cmd+K action bar, once installed at the end
+  var lx: LauncherApi | null = null; // New thread's model picker, once installed at the end
   // Shortcuts (client/keys.ts, ⌘K bar PR 4): the keys in use, as Settings → Shortcuts set them. The browser keeps the
   // list under yc.keys; the Mac app keeps it in keybindings.json in its data folder and reads it at start and on focus.
   var K = keysCore(/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || ''));
@@ -1284,6 +1287,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     if (!f.elements.nonce.value) f.elements.nonce.value = uuid();
     say(f, f.dataset.sentSig ? 'Not confirmed: this thread may already have started. Check T3 Code; launching it unchanged is the same request.' : f.dataset.lost && sel.selectedIndex < 0 ? 'Pick a project. The one this draft was for is no longer in T3 Code.' : '', f.dataset.sentSig || f.dataset.lost ? 'bad' : '');
     if (!launchDlg.open) { launchDlg.showModal(); liftToast(); yieldKey(); }
+    if (lx) lx.open();
     f.elements.prompt.focus();
   }
   launchDlg.addEventListener('click', function(ev){ if (ev.target === launchDlg || ((ev.target as Element).closest && (ev.target as Element).closest('[data-launch-cancel]'))) launchDlg.close(); });
@@ -1755,7 +1759,9 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   // The new-thread form keeps its draft, and after a send its one-time id, across a reload (hill climb 2 r5, Sol).
   var LKEY = 'yc.launchDraft';
   // A draft keeps the project it was written for until you pick another, so a reload never fills in a different one.
-  function lsnap(f: LaunchForm): LaunchSnap { var w = $<HTMLInputElement>('input[name=workspace]:checked', f); return { prompt: f.elements.prompt.value, title: f.elements.title.value, project: f.elements.project.value || f.dataset.lost || '', workspace: w ? w.value : '' }; }
+  var LPICKS = ['instance', 'model', 'effortId', 'effort', 'runtime'] as const;
+  function lpick(f: LaunchForm, n: string): HTMLInputElement | null { return f.elements.namedItem(n) as HTMLInputElement | null; }
+  function lsnap(f: LaunchForm): LaunchSnap { var w = $<HTMLInputElement>('input[name=workspace]:checked', f), d: LaunchSnap = { prompt: f.elements.prompt.value, title: f.elements.title.value, project: f.elements.project.value || f.dataset.lost || '', workspace: w ? w.value : '' }; LPICKS.forEach(function(n){ var x = lpick(f, n); d[n] = x ? x.value : ''; }); return d; }
   function saveLaunch(f: LaunchForm, leaving?: boolean): void {
     var q = leaving && f._sent, d: LaunchSnap = q ? JSON.parse(JSON.stringify(q)) : lsnap(f), s = q ? JSON.stringify(q) : sig(f);
     if (!leaving && f.dataset.sentSig && s !== f.dataset.sentSig) freshNonce(f);
@@ -1774,6 +1780,8 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     if (d.project && $$<HTMLOptionElement>('option', f.elements.project).some(function(o){ return o.value === d!.project; })) { f.elements.project.value = d.project; delete f.dataset.lost; }
     else if (d.project) { f.elements.project.selectedIndex = -1; f.dataset.lost = d.project; }
     var w = d.workspace && $<HTMLInputElement>('input[name=workspace][value="' + d.workspace + '"]', f); if (w) w.checked = true;
+    LPICKS.forEach(function(n){ var x = lpick(f, n); if (x) x.value = d![n] || ''; });
+    if (lx) lx.sync();
     if (d.nonce && sig(f) === d.sig) { f.elements.nonce.value = d.nonce; f.dataset.sentSig = d.sig; f.dataset.sentKind = 'launch'; }
   }
   function saveDraft(f: PageForm, leaving?: boolean, kind?: string): void {
@@ -2260,6 +2268,8 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   fades();
   // The Cmd+K action bar (client/bar.ts). View: You and View: Team read and set the same scope as the footer
   // chip's switch; with no reports (#yc-team absent) views() says so and their rows stay hidden (Dan, 2026-11-10).
+  // New thread's picker (client/launcher.ts): T3 Code's model, effort and permissions controls.
+  lx = installLauncher({ $: $, $$: $$, store: store }, launcherCore());
   bar = installBar({
     $: $, $$: $$, store: store, forget: forget, state: state, prefs: prefs, reduce: reduce,
     mounted: function(){ return mounted; }, plateNode: plateNode, keyForm: keyForm, select: select, setFolder: setFolder, listKeyOf: listKeyOf,

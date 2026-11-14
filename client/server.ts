@@ -39,6 +39,7 @@ import { act } from './actions.ts';
 import { areaScopes, callRules } from './team-rules.ts';
 import { refuse } from './guard.ts';
 import { BAR_CSS, BAR_HTML, SPRING, barCore, installBar } from './bar.ts';
+import { LAUNCH_CSS, capsFrom, installLauncher, launchDialog, launcherCore } from './launcher.ts';
 import { onTheme, miniCss, minis, MINI_CSS } from './theme.ts';
 import { keysCore } from './keys.ts';
 import { passScript } from './page.ts';
@@ -697,21 +698,6 @@ dialog.sheet .plate-bar{padding-right:12px}
 .keylist dt{white-space:nowrap}.keylist dd{margin:0;color:var(--label2)}
 .keylist kbd{display:inline-block;min-width:20px;padding:0 5px;border-radius:5px;background:var(--fill);font:600 11px/20px var(--sans);text-align:center;color:var(--label)}
 #settings .set-done{margin:0;padding:12px 22px 14px;border-top:.5px solid var(--sep)}
-/* New thread in T3 Code. */
-#launch{width:min(620px,calc(100vw - 32px));padding:20px 22px 16px;border:0;border-radius:18px;background:var(--card);color:var(--label);box-shadow:var(--sh4)}
-#launch::backdrop{background:rgba(0,0,0,.36);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
-#launch h2{margin:0 0 14px;font-size:17px}
-#launch form{display:flex;flex-direction:column;gap:12px;margin:0}
-.lf{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:600;color:var(--label2)}
-.lf select,.lf textarea,.lf input{padding:9px 12px;border:0;border-radius:10px;background:var(--bg);color:var(--label);font:15px/1.4 var(--sans);box-shadow:inset 0 0 0 .5px var(--sep)}
-.lf textarea{min-height:140px;resize:vertical}
-.lf-ws{display:flex;flex-wrap:wrap;gap:6px 18px;margin:0;padding:0;border:0;font-size:14px}
-.lf-ws legend{width:100%;margin-bottom:6px;padding:0;font-size:13px;font-weight:600;color:var(--label2)}
-.lf-ws label{display:flex;align-items:center;gap:7px}
-.lf-ws input{accent-color:var(--accent)}
-#launch .acts .primary{flex:0 0 auto;min-width:140px}
-#launch .result:empty{display:none}
-.lf-note{margin:0;font-size:12px}
 /* ===== Hill climb round 1 (council: Opus, Fable, Sol, Astra) ===== */
 /* Names ellipsise instead of being cut; titles wrap anywhere; facts are spaced, never joined by dots. */
 .proj{min-width:0}
@@ -782,8 +768,6 @@ dialog.sheet{height:fit-content;max-height:min(920px,calc(100dvh - 48px))}
 .dock .btn.quiet.fill,.btn.quiet.fill{background:var(--accent);color:#fff}
 .btn.quiet.fill kbd{background:rgba(255,255,255,.22);color:#fff}
 /* Round 2 polish (council). */
-.lf .muted{font-weight:400}
-.lf select{-webkit-appearance:none;appearance:none;padding-right:36px;background:var(--bg) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='2'><path d='m6 9 6 6 6-6'/></svg>") no-repeat right 12px center/16px}
 .tile .tile-top .age{margin-left:auto;font-size:12px;color:var(--label2);white-space:nowrap}
 .tile .tile-top .age+.at-ic{margin-left:6px}
 .more-st{margin-top:8px}
@@ -833,9 +817,9 @@ dialog.sheet{height:fit-content;max-height:min(920px,calc(100dvh - 48px))}
 #settings .set-panes{grid-column:2;min-height:0;max-height:none;padding:20px 24px 8px}
 #settings .set-done{grid-column:2;padding:8px 24px 20px;border-top:0}
 /* Native controls, styled: round options, no resize grips, one chevron for every fold. */
-label.opt input[type=radio],.lf-ws input[type=radio]{-webkit-appearance:none;appearance:none;flex:none;width:18px;height:18px;margin:0;border-radius:50%;background:var(--card);box-shadow:inset 0 0 0 1.5px var(--label2);cursor:pointer;transition:box-shadow .15s}
-label.opt input[type=radio]:checked,.lf-ws input[type=radio]:checked{background:#fff;box-shadow:inset 0 0 0 5px var(--accent)}
-label.opt input[type=radio]:focus-visible,.lf-ws input[type=radio]:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+label.opt input[type=radio]{-webkit-appearance:none;appearance:none;flex:none;width:18px;height:18px;margin:0;border-radius:50%;background:var(--card);box-shadow:inset 0 0 0 1.5px var(--label2);cursor:pointer;transition:box-shadow .15s}
+label.opt input[type=radio]:checked{background:#fff;box-shadow:inset 0 0 0 5px var(--accent)}
+label.opt input[type=radio]:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .more>summary,.more-st>summary{display:flex;align-items:center;gap:6px;list-style:none}
 .more>summary::-webkit-details-marker,.more-st>summary::-webkit-details-marker{display:none}
 .more>summary::before,.more-st>summary::before{content:"";flex:none;width:12px;height:12px;background:currentColor;-webkit-mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='m9 6 6 6-6 6'/></svg>") center/contain no-repeat;mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='m9 6 6 6-6 6'/></svg>") center/contain no-repeat;transition:transform .2s}
@@ -1113,7 +1097,6 @@ html .plate .plate-scroll.fade-end~.dock{box-shadow:0 -.5px 0 var(--sep)}
 .plate .kr-flag{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0 0 12px;font-size:13px;color:var(--label2)}
 .plate .kr-flag .kr-k{padding:1px 8px;border-radius:999px;background:var(--orange-t);color:var(--orange);font:600 12px/20px var(--sans)}
 .plate .kr-flag .kr-ask{min-height:28px;padding:0 10px;font-size:13px}
-.launch .lf-rules{margin:-4px 0 0;font-size:12px}
 /* Tickets read like email (Dan, 2026-11-08): who (project, model), the T3 thread's title, one line of preview, labels. */
 .call-tile.mail{gap:3px}
 .call-tile.mail .ct-top{display:flex;align-items:center;gap:8px;min-width:0}
@@ -1619,7 +1602,7 @@ form.q-ask .q-why{margin:6px 10px 0;font-size:13px;color:var(--label2)}
 // The pictures in Settings → Layout and the ⌘K bar's Appearance and Density steps (theme.ts).
 const MINIS = minis();
 const tile = (name: string, value: keyof typeof MINIS, label: string): string => `<label class="look"><input type="radio" name="${name}" value="${value}" aria-label="${label}">${MINIS[value]}<span class="look-n">${label}</span></label>`;
-const STYLE = onScale(onTheme(CSS + APP_CSS + BAR_CSS + MINI_CSS + SHEET_CSS) + miniCss(CSS + APP_CSS + BAR_CSS));
+const STYLE = onScale(onTheme(CSS + APP_CSS + BAR_CSS + MINI_CSS + SHEET_CSS + LAUNCH_CSS) + miniCss(CSS + APP_CSS + BAR_CSS));
 
 
 const page = (body: string): string => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -1648,25 +1631,15 @@ ${kitchenPane({ rules, projects, error: rulesError })}
 <div class="kx-foot"><p class="kx-file">Your shortcuts, in the shape of T3 Code’s keybindings.json and with its rules: a key, a command, and when it applies.</p><span class="kx-btns"><button type="button" class="btn kx-b" data-kx-file hidden>Open the file</button><button type="button" class="btn kx-b" data-kx-resetall>Reset all</button></span><p class="kx-note" role="status" hidden></p></div></section>
 </div></div>
 <p class="set-done"><span role="status">Saved on this Mac.</span><button type="button" class="btn fill" data-settings-done><span class="bl">Done</span><kbd>esc</kbd></button></p></dialog>
-<dialog id="launch" aria-labelledby="launch-t"><form class="act launch" method="post" action="/act">
-<input type="hidden" name="nonce" value="">
-<h2 id="launch-t">New thread in T3 Code</h2>
-<label class="lf"><span>Project</span><select name="project" required></select></label>
-<label class="lf"><span>What should the agent do?</span><textarea name="prompt" rows="6" maxlength="60000" placeholder="The task, as you would write it in T3 Code"></textarea></label>
-<label class="lf"><span>Title <span class="muted">optional, else the first line</span></span><input type="text" name="title" maxlength="120"></label>
-<fieldset class="lf-ws"><legend>Workspace</legend>
-<label><input type="radio" name="workspace" value="worktree" checked> New worktree <span class="muted">its own branch and folder</span></label>
-<label><input type="radio" name="workspace" value="root"> Project checkout</label></fieldset>
-<div class="acts"><button type="submit" name="kind" value="launch" class="btn fill primary" data-what="the new thread"><span class="bl">Launch</span><kbd>⌘↵</kbd></button><button type="button" class="btn quiet" data-launch-cancel><span class="bl">Cancel</span><kbd>esc</kbd></button></div>
-<p class="result" role="status"></p>
-<p class="lf-note muted">T3 Code runs it with its default model, at the level you approved for the Yes Chef app. The project's rules go with it (Settings → Rules).</p>
-</form></dialog>
+${launchDialog()}
 ${BAR_HTML}
 <script>
 (function(){
   ${keysCore}
   ${barCore}
   ${installBar}
+  ${launcherCore}
+  ${installLauncher}
   (${passScript})(${JSON.stringify(MINIS)});
 })();
 </script></body></html>`;
@@ -1838,7 +1811,16 @@ function teamView(): TeamView | null {
 }
 /** A page, a file, or a PR's code: the code is the one answer that waits on T3 Code. */
 async function routeAny(url: URL): Promise<Routed> {
+  if (url.pathname === '/caps') return capsRoute();
   return (await diffRoute(url, { diffs, shown: bigPrs })) ?? route(url);
+}
+/** New thread's models (client/launcher.ts): T3 Code's providers, read when the dialog opens. A failed read says why,
+ *  and the launcher shows "not checked". */
+async function capsRoute(): Promise<Routed> {
+  const headers = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
+  if (!t3) return { status: 200, headers, body: JSON.stringify({ ok: false, why: 'Yes Chef is not signed in to T3 Code yet.' }) };
+  try { return { status: 200, headers, body: JSON.stringify(capsFrom(await tool('orchestrator_capabilities', {}))) }; }
+  catch (err) { return { status: 200, headers, body: JSON.stringify({ ok: false, why: 'T3 Code did not list its models (' + String((err as Fault).message).slice(0, 80) + ').' }) }; }
 }
 
 function route(url: URL): Routed {

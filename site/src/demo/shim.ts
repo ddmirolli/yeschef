@@ -72,8 +72,23 @@ async function demoDiff(q: URLSearchParams): Promise<Response> {
   const at = files.findIndex((f) => f.path === path);
   return at < 0 ? Response.json({ ok: false, why: 'This file is not in the PR now' }) : realFetch(`${name}/${at}.json`);
 }
+// New thread's models, as T3 Code's orchestrator_capabilities lists them (client/launcher.ts reads /caps).
+const EFFORT = ['low', 'medium', 'high', 'xhigh', 'max', 'ultrathink'];
+const REASONING = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
+const DEMO_CAPS = {
+  ok: true, ceiling: 'full-access',
+  providers: [
+    { id: 'claude', driver: 'claudeAgent', name: 'Claude', modes: null, models: [
+      ['claude-opus-5-5', 'Claude Opus 5.5', 'medium'], ['claude-fable-5-2', 'Claude Fable 5.2', 'medium'], ['claude-sonnet-5-5', 'Claude Sonnet 5.5', 'high'], ['claude-haiku-5-5', 'Claude Haiku 5.5', 'medium'],
+    ].map(([id, label, def]) => ({ id, label, effort: { id: 'effort', values: EFFORT, def } })) },
+    { id: 'codex', driver: 'codex', name: 'Codex', modes: null, models: [
+      ['gpt-6.1-sol', 'GPT-6.1 Sol', 'low'], ['gpt-6-astra', 'GPT-6 Astra', 'medium'], ['gpt-6.1-terra', 'GPT-6.1 Terra', 'low'],
+    ].map(([id, label, def]) => ({ id, label, effort: { id: 'reasoningEffort', values: REASONING, def } })) },
+  ],
+};
 window.fetch = async (input, init) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  if (url === '/caps') return Response.json(DEMO_CAPS);
   if (url.startsWith('/diff?')) return demoDiff(new URLSearchParams(url.slice(6)));
   if (/^\/app(\?|$)/.test(url)) {
     const kitchen = await ready;
