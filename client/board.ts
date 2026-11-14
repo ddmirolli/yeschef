@@ -390,8 +390,8 @@ const plainLine = (l: string): string => l.replace(/\*\*/g, '').replace(/^\s*(?:
 // "Recommendation: a now. Offer b to the team next week.": the words after the label, when they start with an option letter.
 const REC_LABEL = /^\s*(?:[-*]\s+)?\**recommend(?:ation|ed|s)?\**\s*:\**\s*/i;
 const recRest = (line: string): string | null => { if (!REC_LABEL.test(line)) return null; const r = line.replace(REC_LABEL, '').replace(/\*\*/g, '').trim(); return /^\(?[a-i]\b(?![a-z'])/i.test(r) ? r : null; };
-/** Each decision's recommendation, when it says more than its letter. The message drops the line, so its question's
- *  card shows it under the options (Dan, 2026-11-08: "Recommendation: a. T3 Code uses it" lost its reason). */
+/** Each decision's recommendation line, which the message drops. Its card showed the reason under the options (Dan,
+ *  2026-11-08) until the Recommended pill said it alone (Dan, 2026-11-14: "solved by the Recommended pill"). */
 function recNotes(call: CallMessage): { notes: string[]; used: Set<number> } {
   // Only the line the parser read each decision's recommendation from moves: never advice from another part of the
   // message (PR-Agent r1, r4, r5, r7 on #50).
@@ -411,6 +411,19 @@ const qNav = (n: number): string => n < 2 ? '' : `<div class="q-nav" role="group
   + `<button type="button" class="q-go" data-qgo="-1" aria-label="Previous question" disabled>${svg('chev')}</button><button type="button" class="q-go" data-qgo="1" aria-label="Next question">${svg('chev')}</button>`
   + `<span class="q-dots">${Array.from({ length: n }, (_, i) => `<button type="button" class="q-dot${i ? '' : ' on'}" data-qto="${i}" aria-label="Question ${i + 1}"></button>`).join('')}</span></div>`;
 const qOn = (n: number, i: number): string => (n > 1 && i === 0 ? ' q-on' : '');
+/** An option as the answer sheet shows it (Dan, 2026-11-14): its title, the first sentence, always; its explanation,
+ *  the rest, only while it is the one picked. */
+export const optSplit = (text: string): [string, string] => {
+  const m = /^(.{8,}?[.?!])\s+(\S[\s\S]*)$/.exec(String(text).trim());
+  return m ? [m[1]!, m[2]!] : [String(text).trim(), ''];
+};
+const optBody = (letter: string, title: string, rest: string, rec: boolean): string => `<span class="opt-t"><span class="opt-h"><b><span class="okey">${letter}.</span></b> ${title}${rec ? ' <span class="rec">Recommended</span>' : ''}</span>`
+  + (rest ? `<span class="opt-d"><span>${rest}</span></span>` : '') + '</span>';
+/** The options stay out of sight until Respond (Dan, 2026-11-14, Gmail): the sheet slides up over the foot of the
+ *  ticket, the first option picked and open. A retry keeps its sheet open: its answer is the one on screen. */
+// The answers that slide up on Respond. Not "sheet": the reader's own dialog is .sheet (PR-Agent r2 on #79).
+const sheet = (inner: string): string => `<div class="ans"><div class="ans-in">${inner}</div></div>`;
+const RESPOND = `<button type="button" class="ab fill resp" data-respond>${svg('reply')}<span class="bl">Respond</span>${tip('Show the answers', [['⌘↵', 'ticket.suggested']])}</button>`;
 
 /** A T3 question a station (or the ticket) is waiting on: its options, then Send. Hold and Settle wait for the answer. */
 const ASK_LATER = '<p class="mi-n" role="none">Hold and Settle come back once the question is answered.</p>';
@@ -419,14 +432,14 @@ function askDock(k: Ticket, a: Ask): string {
   for (const q of a.items) (byRequest.get(q.requestId) || byRequest.set(q.requestId, []).get(q.requestId)!).push(q);
   const self = a.thread.threadId === k.thread.threadId;
   const who = self ? '' : `<p class="dock-who">${e(a.thread.title || 'A station')} asks</p>`;
-  return [...byRequest.entries()].map(([request, qs]) => `<form class="act${qs.length > 1 ? ' q-car' : ''}" method="post" action="/act" data-plate="${e(plateId(k))}">${hidden('nonce', randomUUID())}${hidden('thread', a.thread.threadId)}${hidden('request', request)}${who}`
-    + qNav(qs.length) + qs.map((q, qi) => `<fieldset class="q-set${qOn(qs.length, qi)}"><legend>${e(q.question)}</legend>`
+  return [...byRequest.entries()].map(([request, qs]) => `<form class="act q-ask${qs.length > 1 ? ' q-car' : ''}" method="post" action="/act" data-plate="${e(plateId(k))}">${hidden('nonce', randomUUID())}${hidden('thread', a.thread.threadId)}${hidden('request', request)}${who}`
+    + sheet(qNav(qs.length) + qs.map((q, qi) => `<fieldset class="q-set${qOn(qs.length, qi)}"><legend>${e(q.question)}</legend>`
       + (q.options || []).map((o, n) => { const rec = /\s*\(recommended\)\s*$/i.test(o.label); const shown = o.label.replace(/\s*\(recommended\)\s*$/i, '');
-        return `<label class="opt"><input type="radio" name="q:${e(q.id)}" value="${e(o.label)}" data-key="${'abcdefghi'[n] || ''}"${rec ? ' data-rec' : ''}${q.required === false ? '' : ' data-need'}><span class="opt-t"><b><span class="okey">${'abcdefghi'[n] || ''}.</span> ${optText(shown)}</b>${rec ? ' <span class="rec">Recommended</span>' : ''}${o.description ? `<span class="muted"> ${e(o.description)}</span>` : ''}</span></label>`; }).join('')
+        return `<label class="opt"><input type="radio" name="q:${e(q.id)}" value="${e(o.label)}" data-key="${'abcdefghi'[n] || ''}"${rec ? ' data-rec' : ''}${q.required === false ? '' : ' data-need'}>${optBody('abcdefghi'[n] || '', optText(shown), o.description ? e(o.description) : '', rec)}</label>`; }).join('')
       + (q.allowCustomAnswer ? `<label class="opt"><input type="radio" name="q:${e(q.id)}" value="" data-custom><input type="text" class="custom" placeholder="Your own answer" maxlength="2000"></label>` : '')
-      + `</fieldset>`).join('')
+      + `</fieldset>`).join(''))
     // A T3 question has no Reply, and Hold and Settle wait for its answer: More says so.
-    + bar([btn('answer', ACT.send, true, ' data-what="your answer"')], [], [MORE_T3, ASK_LATER]) + '</form>').join('');
+    + bar([RESPOND, btn('answer', ACT.send, true, ' data-what="your answer"')], [], [MORE_T3, ASK_LATER]) + '</form>').join('');
 }
 
 /** What the agent asked in its own message: one choice per decision, the recommended one marked. */
@@ -440,17 +453,17 @@ function callDock(k: Ticket, call: CallMessage, done: Answered | undefined): str
   }
   // An unconfirmed send comes back filled in, under its first id, so a retry repeats those exact bytes and T3 keeps one.
   const retry = !!done && !done.confirmed;
-  const n = call.calls.length, why = recNotes(call).notes;
-  return formOpen(k, hidden('call', call.key), done && retry ? done.nonce : randomUUID()).replace('class="act"', `class="act${n > 1 ? ' q-car' : ''}"`)
+  const n = call.calls.length;
+  return formOpen(k, hidden('call', call.key), done && retry ? done.nonce : randomUUID()).replace('class="act"', `class="act q-ask${retry ? ' q-open' : ''}${n > 1 ? ' q-car' : ''}"`)
     + (retry ? `<p class="result bad">Not confirmed: your ${e(done.picks)} at ${e(done.at)} may not have reached T3. Check the thread in T3, or send the same answer again.</p>` : '')
-    + qNav(n) + call.calls.map((c, i) => `<fieldset class="q-set${qOn(n, i)}"${retry ? ' disabled' : ''}><legend>${e(c.question)}</legend>`
-      + c.options.map((o) => `<label class="opt"><input type="radio" name="c:${i}" value="${o.letter}" data-key="${o.letter}" data-need${o.letter === c.recommend ? ' data-rec' : ''}${retry && done?.letters?.[i] === o.letter ? ' checked' : ''}><span class="opt-t"><b>${o.letter}.</b> ${optText(o.text)}${o.letter === c.recommend ? ' <span class="rec">Recommended</span>' : ''}</span></label>`).join('')
-      + (why[i] ? `<p class="q-why"><b>Recommendation:</b> ${e(why[i])}</p>` : '') + `</fieldset>`).join('')
-    + (done && retry ? call.calls.map((c, i) => hidden(`c:${i}`, done.letters?.[i] || '')).join('') + hidden('note', done.note || '')
-      : noteField('optional with your answer, needed for Reply'))
+    + sheet(qNav(n) + call.calls.map((c, i) => `<fieldset class="q-set${qOn(n, i)}"${retry ? ' disabled' : ''}><legend>${e(c.question)}</legend>`
+      + c.options.map((o) => { const [h, d] = optSplit(o.text); return `<label class="opt"><input type="radio" name="c:${i}" value="${o.letter}" data-key="${o.letter}" data-need${o.letter === c.recommend ? ' data-rec' : ''}${retry && done?.letters?.[i] === o.letter ? ' checked' : ''}>${optBody(o.letter, optText(h), d ? optText(d) : '', o.letter === c.recommend)}</label>`; }).join('')
+      + `</fieldset>`).join('')
+    + (done && retry ? '' : noteField('optional with your answer, needed for Reply')))
+    + (done && retry ? call.calls.map((c, i) => hidden(`c:${i}`, done.letters?.[i] || '')).join('') + hidden('note', done.note || '') : '')
     // A retry sends the same answer again and nothing else, so its row has only that.
     + (retry ? bar([btn('call', ACT.again, true, ' data-what="the same answer again"')], [], [MORE_T3])
-      : bar([btn('call', ACT.send, true, ' data-what="your answer"'), reply], icons, rows)) + '</form>';
+      : bar([RESPOND, btn('call', ACT.send, true, ' data-what="your answer"'), reply], icons, rows)) + '</form>';
 }
 
 /** A ticket handed back with no decision asked: Merge or Approve (or Settle once merged) in blue, Changes with a note,
@@ -470,16 +483,16 @@ function turnDock(k: Ticket): string {
   return formOpen(k, hidden('pr', k.open.length ? 'open' : 'none')) + noteField(k.atPass && !k.cut ? 'needed for Request changes and Reply' : 'needed for Reply') + bar(labelled, icons, rows) + '</form>';
 }
 
-function dock(k: Ticket, answered: ReadonlyMap<string, Answered>): string {
+function dock(k: Ticket, answered: ReadonlyMap<string, Answered>, atts = ''): string {
   if (k.place === 'Coordinators') return '';
   if (k.asks.length) {
-    return `<aside class="dock" aria-label="Your answer"><p class="dock-k">${chip(qWord(questionCount(k)), 'blue')}</p>${k.asks.map((a) => a.items.length ? askDock(k, a) : `<p class="row-l">${e(a.thread.title || 'A station')} asks a question that did not load. Answer it in T3.</p>`).join('')}</aside>`;
+    return `<aside class="dock" aria-label="Your answer">${atts}${k.asks.map((a) => a.items.length ? askDock(k, a) : `<p class="row-l">${e(a.thread.title || 'A station')} asks a question that did not load. Answer it in T3.</p>`).join('')}</aside>`;
   }
   if (k.yourTurn && k.call && !k.cut) {
     const done = answered.get(k.call.key);
-    return `<aside class="dock${done?.confirmed ? ' dock-plain' : ''}" aria-label="Your call"><p class="dock-k">${chip(qWord(questionCount(k)), 'blue')}</p>${callDock(k, k.call, done)}</aside>`;
+    return `<aside class="dock${done?.confirmed ? ' dock-plain' : ''}" aria-label="Your call">${atts}${callDock(k, k.call, done)}</aside>`;
   }
-  return `<aside class="dock dock-plain" aria-label="Your move">${k.atPass ? `<p class="dock-k">${chip(k.place === 'Ready to merge' ? 'Your look' : k.place === 'Merged' ? 'Check it' : 'Your turn', 'blue')}</p>` : ''}${turnDock(k)}</aside>`;
+  return `<aside class="dock dock-plain" aria-label="Your move">${atts}${k.atPass ? `<p class="dock-k">${chip(k.place === 'Ready to merge' ? 'Your look' : k.place === 'Merged' ? 'Check it' : 'Your turn', 'blue')}</p>` : ''}${turnDock(k)}</aside>`;
 }
 
 /** One ticket in full. The message and its screenshots read on the left (or above); the dock acts. */
@@ -495,12 +508,12 @@ function plate(k: Ticket, link: (t: ThreadRow) => string, origin: string, answer
     const OPTLINE = /^\s*(?:[-*]\s+)?(?:\*\*)?\(?([a-zA-Z])[.)](?:\*\*)?\s+(\S.*?)\s*$/;
     // The dock also shows each question and the recommendation, so their scaffolding lines go too (hill climb r4,
     // Sol): "Decision for you", "1. Ship #2151?", "Recommendation: a.". Supporting prose stays.
-    const qs = k.call.calls.map((c) => plainLine(c.question).toLowerCase());
     const moved = recNotes(k.call).used;
     const scaffold = (line: string, n: number) => {
       const p = plainLine(line).toLowerCase();
       // A recommendation line goes too, with its reasons: the question's card shows them (Dan, 2026-11-08).
-      return /^(decisions?|your call)( for (you|dan))?$/.test(p) || qs.includes(p) || /^recommend(ation|ed|s)?:?\s*\(?[a-i]\)?\.?$/.test(p) || moved.has(n);
+      // The question stays in the message: its options wait behind Respond (Dan, 2026-11-14).
+      return /^(decisions?|your call)( for (you|dan))?$/.test(p) || /^recommend(ation|ed|s)?:?\s*\(?[a-i]\)?\.?$/.test(p) || moved.has(n);
     };
     // A line with a screenshot or a link stays, so neither is lost (PR-Agent r2 to r6 on #27). The dock links only an
     // option's GitHub PR URLs, so only an option line may drop for those; a question or recommendation line keeps them.
@@ -557,8 +570,8 @@ function plate(k: Ticket, link: (t: ThreadRow) => string, origin: string, answer
   // The title is the T3 thread's; the questions live in the dock, one card each (Dan, 2026-11-08). Under the title, only
   // the blue pill with how many wait on you.
   const nQ = questionCount(k);
-  const lead = nQ ? `<p class="lead lead-n"><span class="chip c-blue lead-k">${qWord(nQ)}</span></p>`
-    : handBack ? `<p class="lead"><span class="lead-q">${handBack}</span></p>` : '';
+  // Gmail (Dan, 2026-11-14): the subject and who it is from stay pinned; the question count is the card's, not repeated here.
+  const lead = !nQ && handBack ? `<p class="lead"><span class="lead-q">${handBack}</span></p>` : '';
   // Screenshots from every message the reader shows, pinned under the title (Dan, 2026-11-07).
   const atts = !parts.length ? '' : attachments(...(k.yourTurn && !k.asks.length && k.call ? [k.call.text, k.latestId && k.latestId !== k.call.itemId ? k.lastWords : ''] : [k.lastWords]));
   // Rules (Dan, 2026-11-08): a call about something you can see, with no screenshots, says so. The button
@@ -574,11 +587,12 @@ function plate(k: Ticket, link: (t: ThreadRow) => string, origin: string, answer
     + `<button type="button" class="close" data-close aria-label="Close"><kbd>esc</kbd>${svg('x')}</button></div>`
     // The title, the ask, the pull requests and the screenshots stay pinned while the message scrolls (Dan, 2026-11-08).
     + `<div class="plate-main"><div class="plate-scroll" tabindex="-1"><header class="plate-head"><h2 class="plate-t" id="${e(id)}-t">${e(k.thread.title)}</h2>`
-    + lead + flag + (prChips || linChips ? `<div class="pr-row">${prChips}${linChips}</div>` : '') + atts + status + '</header>'
+    + '</header>' + lead + flag + (prChips || linChips ? `<div class="pr-row">${prChips}${linChips}</div>` : '') + status
+    + (k.place === 'Coordinators' ? atts : '')
     + (parts.length ? `<section class="msg">${parts.join('')}</section>` : '')
     + (prs ? `<details class="more"><summary>More pull requests <span class="muted">${k.prs.length - 3}</span></summary><ul class="links">${prs}</ul></details>` : '')
     + (stations ? `<details class="more"${live ? ' open' : ''}><summary>Stations <span class="muted">${crew.length}</span></summary><ul class="links">${stations}</ul>${more}</details>` : '')
-    + `</div>${dock(k, answered)}</div></article>`;
+    + `</div>${dock(k, answered, atts.replace('class="atts"', 'class="atts att-row"'))}</div></article>`;
 }
 
 const plural = (n: number | null, one: string, many = one + 's'): string => `${n} ${n === 1 ? one : many}`;
@@ -1263,7 +1277,7 @@ function viewMenu({ team, projs, picked, icons, ok, head = null, bare = false }:
  *  and team.now, Your team draws its calls (Open kitchen); without a view it says "Not checked". */
 export interface RenderInput {
   board: Board; picked?: readonly string[] | null; link: (t: ThreadRow) => string; status: Status; origin: string;
-  answered?: ReadonlyMap<string, Answered>; projects?: readonly Pick<Project, 'id' | 'title'>[]; rules?: unknown; team?: TeamInput | null;
+  answered?: ReadonlyMap<string, Answered>; projects?: readonly Pick<Project, 'id' | 'title' | 'icon'>[]; rules?: unknown; team?: TeamInput | null;
   /** The team as its lead sees it, for the team's rows in Settings -> Rules; null for anyone else. */
   lead?: TeamView | null;
   /** The areas a project (by name) is in, as rules keys ("area:<id>"): their overrides reach the Pass's checks. */
@@ -1354,7 +1368,7 @@ export function renderApp({ board, picked = null, link, status, origin, answered
   // Your team is not built yet (Dan, 2026-11-10): with reports, its view says so instead of showing anything made up.
   const teamWait = team ? `<section class="team-wait" aria-label="Your team"><header class="you-h">${teamHead}</header><div class="tw-b"><p><b>${e(team.name || 'Your team')}</b></p><p class="muted">Not checked. Your team's view needs the team connection, which Yes Chef does not have yet.</p></div></section>` : '';
   const lamp = status.ok ? 'ok' : 'bad';
-  const projectOptions = `<select id="yc-projects" hidden>${[...projects].sort((a, b) => String(a.title).localeCompare(String(b.title))).map((p) => `<option value="${e(p.id)}">${e(p.title || 'Untitled')}</option>`).join('')}</select>`;
+  const projectOptions = `<select id="yc-projects" hidden>${[...projects].sort((a, b) => String(a.title).localeCompare(String(b.title))).map((p) => `<option value="${e(p.id)}" data-mark="${e(fanMark(p.title || 'Untitled', p.icon))}">${e(p.title || 'Untitled')}</option>`).join('')}</select>`;
   const detail = status.ok ? `T3 Code at ${new URL(origin).host}. Checked ${new Date(status.at).toLocaleTimeString()} (${status.ms} ms).` : '';
   // The project menu (or, with reports, the view switch), the connection and Settings sit at the foot of the stage
   // list (Dan, 2026-11-08), pinned to the bottom of the column with no rule above them: the space does the separating

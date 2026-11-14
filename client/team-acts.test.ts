@@ -57,6 +57,13 @@ test('incoming: Reply and Hold run as they are; Request changes goes as a messag
   assert.equal((incoming(board, { kind: 'ship', thread: 'th-c' }) as { status: number }).status, 409);
 });
 
+// New thread launches only in the signed-in user's own T3 Code, solo or on a team (Dan, 2026-11-14): no teammate, lead
+// or relay can start a thread on another dev's T3, either way through the relay.
+test('a launch never crosses the relay: the lead cannot send one and the dev\'s Mac refuses one', () => {
+  assert.equal((outgoing({ ...base, act: 'launch', prompt: 'x', project: 'p-1' }) as { status: number }).status, 400);
+  assert.equal((incoming(board, { kind: 'launch', prompt: 'x', project: 'p-1', nonce: 'n' }) as { status: number }).status, 400);
+});
+
 test('incoming: an answer finds the same question and option on the dev\'s board, else it is refused', () => {
   const qOpts = optionsKey([{ k: 'Postgres', t: 'The one we run' }, { k: 'SQLite', t: 'SQLite' }]);
   const cOpts = optionsKey([{ k: 'a', t: 'Yes' }, { k: 'b', t: 'No' }]);

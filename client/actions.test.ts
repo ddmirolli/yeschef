@@ -203,8 +203,8 @@ test('a finished Merged ticket offers Settle first, filled, and no Merge; the se
   const plate = html.slice(html.indexOf('<article class="plate"'));
   // No pill on a hand-back: the blue pill means a decision waits on you (Dan, 2026-11-08).
   assert.match(plate, /<p class="lead"><span class="lead-q">Try it where it shipped\. If it works, settle it\.<\/span><\/p>/);
-  // The title, the ask and the pull requests form the pinned head of the ticket (Dan, 2026-11-08).
-  assert.match(plate, /<header class="plate-head"><h2 class="plate-t"[^>]*>done<\/h2><p class="lead">[\s\S]*?<div class="pr-row">[\s\S]*?<\/header><section class="msg">/);
+  // Only the title pins; the ask and the pull requests scroll with the message (Dan, 2026-11-14, Gmail).
+  assert.match(plate, /<header class="plate-head"><h2 class="plate-t"[^>]*>done<\/h2><\/header><p class="lead">[\s\S]*?<div class="pr-row">[\s\S]*?<section class="msg">/);
   assert.ok(plate.indexOf('class="lead"') < plate.indexOf('class="pr-row"'));
   const t3 = spy();
   assert.equal((await act({ board: b, t3, input: { kind: 'go', thread: 'done', nonce: 'n' } })).status, 409);
@@ -271,6 +271,20 @@ test('a launch goes only into a project T3 lists, with the prompt, in a new work
   await act({ board: empty, t3, projects, input: { kind: 'launch', nonce: 'l2', project: 'p1', prompt: 'Look', title: 'My title', workspace: 'root' } });
   assert.deepEqual(t3.sent(1).workspaceStrategy, { type: 'root' });
   assert.equal(t3.sent(1).title, 'My title');
+});
+
+test('a launch carries the model, effort and permissions picked in the launcher, and none when none was picked', async () => {
+  const projects = [{ id: 'p1', title: 'Yes Chef' }];
+  const t3 = spy();
+  await act({ board: EMPTY, t3, projects, input: { kind: 'launch', nonce: 'm1', project: 'p1', prompt: 'Go', instance: 'codex', model: 'gpt-6.1-sol', effortId: 'reasoningEffort', effort: 'xhigh', runtime: 'auto-accept-edits' } });
+  assert.deepEqual(t3.sent(0).modelSelection, { instanceId: 'codex', model: 'gpt-6.1-sol', options: [{ id: 'reasoningEffort', value: 'xhigh' }] });
+  assert.equal(t3.sent(0).runtimeMode, 'auto-accept-edits');
+  await act({ board: EMPTY, t3, projects, input: { kind: 'launch', nonce: 'm2', project: 'p1', prompt: 'Go', instance: '', model: '', effortId: '', effort: '', runtime: '' } });
+  assert.equal('modelSelection' in t3.sent(1), false);
+  assert.equal('runtimeMode' in t3.sent(1), false);
+  const r = await act({ board: EMPTY, t3, projects, input: { kind: 'launch', nonce: 'm3', project: 'p1', prompt: 'Go', runtime: 'root' } });
+  assert.equal(r.status, 400);
+  assert.equal(t3.calls.length, 2);
 });
 
 test('Hold and Settle refuse a written note instead of dropping it (council 3, Opus)', async () => {

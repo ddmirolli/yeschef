@@ -39,6 +39,7 @@ import { act } from './actions.ts';
 import { areaScopes, callRules } from './team-rules.ts';
 import { refuse } from './guard.ts';
 import { BAR_CSS, BAR_HTML, SPRING, barCore, installBar } from './bar.ts';
+import { LAUNCH_CSS, capsFrom, installLauncher, launchDialog, launcherCore } from './launcher.ts';
 import { onTheme, miniCss, minis, MINI_CSS } from './theme.ts';
 import { keysCore } from './keys.ts';
 import { passScript } from './page.ts';
@@ -697,21 +698,6 @@ dialog.sheet .plate-bar{padding-right:12px}
 .keylist dt{white-space:nowrap}.keylist dd{margin:0;color:var(--label2)}
 .keylist kbd{display:inline-block;min-width:20px;padding:0 5px;border-radius:5px;background:var(--fill);font:600 11px/20px var(--sans);text-align:center;color:var(--label)}
 #settings .set-done{margin:0;padding:12px 22px 14px;border-top:.5px solid var(--sep)}
-/* New thread in T3 Code. */
-#launch{width:min(620px,calc(100vw - 32px));padding:20px 22px 16px;border:0;border-radius:18px;background:var(--card);color:var(--label);box-shadow:var(--sh4)}
-#launch::backdrop{background:rgba(0,0,0,.36);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
-#launch h2{margin:0 0 14px;font-size:17px}
-#launch form{display:flex;flex-direction:column;gap:12px;margin:0}
-.lf{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:600;color:var(--label2)}
-.lf select,.lf textarea,.lf input{padding:9px 12px;border:0;border-radius:10px;background:var(--bg);color:var(--label);font:15px/1.4 var(--sans);box-shadow:inset 0 0 0 .5px var(--sep)}
-.lf textarea{min-height:140px;resize:vertical}
-.lf-ws{display:flex;flex-wrap:wrap;gap:6px 18px;margin:0;padding:0;border:0;font-size:14px}
-.lf-ws legend{width:100%;margin-bottom:6px;padding:0;font-size:13px;font-weight:600;color:var(--label2)}
-.lf-ws label{display:flex;align-items:center;gap:7px}
-.lf-ws input{accent-color:var(--accent)}
-#launch .acts .primary{flex:0 0 auto;min-width:140px}
-#launch .result:empty{display:none}
-.lf-note{margin:0;font-size:12px}
 /* ===== Hill climb round 1 (council: Opus, Fable, Sol, Astra) ===== */
 /* Names ellipsise instead of being cut; titles wrap anywhere; facts are spaced, never joined by dots. */
 .proj{min-width:0}
@@ -782,8 +768,6 @@ dialog.sheet{height:fit-content;max-height:min(920px,calc(100dvh - 48px))}
 .dock .btn.quiet.fill,.btn.quiet.fill{background:var(--accent);color:#fff}
 .btn.quiet.fill kbd{background:rgba(255,255,255,.22);color:#fff}
 /* Round 2 polish (council). */
-.lf .muted{font-weight:400}
-.lf select{-webkit-appearance:none;appearance:none;padding-right:36px;background:var(--bg) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='2'><path d='m6 9 6 6 6-6'/></svg>") no-repeat right 12px center/16px}
 .tile .tile-top .age{margin-left:auto;font-size:12px;color:var(--label2);white-space:nowrap}
 .tile .tile-top .age+.at-ic{margin-left:6px}
 .more-st{margin-top:8px}
@@ -833,9 +817,9 @@ dialog.sheet{height:fit-content;max-height:min(920px,calc(100dvh - 48px))}
 #settings .set-panes{grid-column:2;min-height:0;max-height:none;padding:20px 24px 8px}
 #settings .set-done{grid-column:2;padding:8px 24px 20px;border-top:0}
 /* Native controls, styled: round options, no resize grips, one chevron for every fold. */
-label.opt input[type=radio],.lf-ws input[type=radio]{-webkit-appearance:none;appearance:none;flex:none;width:18px;height:18px;margin:0;border-radius:50%;background:var(--card);box-shadow:inset 0 0 0 1.5px var(--label2);cursor:pointer;transition:box-shadow .15s}
-label.opt input[type=radio]:checked,.lf-ws input[type=radio]:checked{background:#fff;box-shadow:inset 0 0 0 5px var(--accent)}
-label.opt input[type=radio]:focus-visible,.lf-ws input[type=radio]:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+label.opt input[type=radio]{-webkit-appearance:none;appearance:none;flex:none;width:18px;height:18px;margin:0;border-radius:50%;background:var(--card);box-shadow:inset 0 0 0 1.5px var(--label2);cursor:pointer;transition:box-shadow .15s}
+label.opt input[type=radio]:checked{background:#fff;box-shadow:inset 0 0 0 5px var(--accent)}
+label.opt input[type=radio]:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .more>summary,.more-st>summary{display:flex;align-items:center;gap:6px;list-style:none}
 .more>summary::-webkit-details-marker,.more-st>summary::-webkit-details-marker{display:none}
 .more>summary::before,.more-st>summary::before{content:"";flex:none;width:12px;height:12px;background:currentColor;-webkit-mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='m9 6 6 6-6 6'/></svg>") center/contain no-repeat;mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='m9 6 6 6-6 6'/></svg>") center/contain no-repeat;transition:transform .2s}
@@ -963,9 +947,10 @@ textarea{resize:none!important}
 @media (min-width:761px){
   :is(.v-pass,.v-kitchen) .stagenav{overflow:visible}
   :is(.v-pass,.v-kitchen) .nav-scroll{display:flex;flex-direction:column;gap:2px;flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
-  :is(.v-pass,.v-kitchen) .nav-foot{display:flex;flex-direction:column;gap:10px;margin:auto 0 0;padding-top:12px}
+  /* The project selector, Live and Settings are one set of boxes: 36 px tall, 10 px corners, 8 px apart (Dan, 2026-11-13). */
+  :is(.v-pass,.v-kitchen) .nav-foot{display:flex;flex-direction:column;gap:8px;margin:auto 0 0;padding-top:12px}
   :is(.v-pass,.v-kitchen) .nav-foot .pmenu{margin:0}
-  :is(.v-pass,.v-kitchen) .nav-foot .pmenu summary{width:100%}
+  :is(.v-pass,.v-kitchen) .nav-foot .pmenu summary{width:100%;min-height:36px;border-radius:10px}
   :is(.v-pass,.v-kitchen) .nav-foot .pmenu summary>span:first-of-type:not(.vi){flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* The stage list scrolls in a short window, so its project menu is a fixed layer that placeNavMenu sets by its button. */
   :is(.v-pass,.v-kitchen) .nav-foot .pmenu-l{position:fixed;top:auto;right:auto;bottom:auto;left:auto;overflow-y:auto;overscroll-behavior:contain}
@@ -1109,10 +1094,9 @@ html .plate .plate-scroll.fade-end~.dock{box-shadow:0 -.5px 0 var(--sep)}
 /* No zoom on focus: iOS zooms fields under 16px (as .note textarea does above). This comes after the rules that size
    them: the new-ticket form, the Rules menus and House notes (PR-Agent r8 on #61). */
 /* The Pass's check: a visual call with no screenshots. */
-.plate-head .kr-flag{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0 0 12px;font-size:13px;color:var(--label2)}
-.plate-head .kr-flag .kr-k{padding:1px 8px;border-radius:999px;background:var(--orange-t);color:var(--orange);font:600 12px/20px var(--sans)}
-.plate-head .kr-flag .kr-ask{min-height:28px;padding:0 10px;font-size:13px}
-.launch .lf-rules{margin:-4px 0 0;font-size:12px}
+.plate .kr-flag{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0 0 12px;font-size:13px;color:var(--label2)}
+.plate .kr-flag .kr-k{padding:1px 8px;border-radius:999px;background:var(--orange-t);color:var(--orange);font:600 12px/20px var(--sans)}
+.plate .kr-flag .kr-ask{min-height:28px;padding:0 10px;font-size:13px}
 /* Tickets read like email (Dan, 2026-11-08): who (project, model), the T3 thread's title, one line of preview, labels. */
 .call-tile.mail{gap:3px}
 .call-tile.mail .ct-top{display:flex;align-items:center;gap:8px;min-width:0}
@@ -1145,8 +1129,6 @@ form.q-car .q-set:not(.q-on){display:none!important}
 .q-dot{width:8px;height:8px;padding:0;border:0;border-radius:50%;background:var(--fill);box-shadow:inset 0 0 0 1px var(--label2);opacity:.6;cursor:pointer}
 .q-dot.done{background:var(--accent);box-shadow:none;opacity:1}
 .q-dot.on{opacity:1;outline:2px solid var(--accent);outline-offset:2px}
-.q-why{grid-column:1/-1;margin:2px 0 0;font-size:13px;line-height:1.4;color:var(--label2)}
-.q-why b{color:var(--label);font-weight:600}
 /* ===== The action bar (Dan, 2026-11-10; mock v1, calls 1a, 2a and 3a). One row at the open ticket's foot in every
    view, the same at 1440 and 2560: the blue action, Changes and Reply as an icon and a word, Hold and Settle as icons
    after a thin divider, then More. Keys show only in tooltips, on hover or keyboard focus. ===== */
@@ -1570,11 +1552,55 @@ html.s-team.v-kitchen .tboard{display:flex;flex-direction:column;grid-area:you;m
 .okk .sq.red{background:var(--red)}.okk .sq.amber{background:var(--orange)}.okk .sq.out{border:1.5px dashed var(--fx-a1)}
 .okk .sq.n1{background:var(--fx-a0)}.okk .sq.n2{background:var(--fx-a1)}.okk .sq.n3{background:var(--fx-a2)}
 `;
+/* ===== The answer sheet (Dan, 2026-11-14: read it like Gmail). The title stays pinned and the message scrolls; the
+   dock at the foot is the screenshots as small thumbnails over one row of buttons. The options wait behind Respond,
+   then slide up with A picked: only the picked option shows its explanation, and the arrows move the pick. ===== */
+const SHEET_CSS = `
+.dock .atts.att-row{display:flex;flex-wrap:nowrap;gap:6px;margin:0 0 10px;overflow-x:auto;scrollbar-width:none}
+.dock .atts.att-row::-webkit-scrollbar{display:none}
+.dock .atts.att-row .att{flex:0 1 auto;flex-direction:row;align-items:center;gap:8px;min-width:0;max-width:220px;padding:3px 10px 3px 3px;border-radius:8px;background:var(--fill)}
+.dock .atts.att-row .att:hover{background:var(--fill2)}
+.dock .atts.att-row .att-img{flex:none;width:40px;height:26px;aspect-ratio:auto;border-radius:5px}
+.dock .atts.att-row .att-cap{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--label)}
+.dock:has(form.q-open) .atts.att-row{display:none}
+html .plate .dock:has(form.q-open){max-height:76%}
+.dock form.act.q-ask{gap:0}
+.ans{display:grid;grid-template-rows:0fr;transition:grid-template-rows .3s cubic-bezier(.2,.8,.2,1)}
+.ans-in{display:flex;flex-direction:column;gap:12px;min-height:0;overflow:hidden;visibility:hidden;transition:visibility 0s .3s}
+form.q-open .ans{grid-template-rows:1fr}
+/* The options stop at the reading width, as before (each was about 900 px wide at 2560). */
+form.q-ask .ans-in>*{max-width:680px}
+/* The note scrolls clear of the button row that sticks over the dock's foot. */
+form.q-ask .note textarea{scroll-margin-bottom:64px}
+/* With Respond folded away, Send leads the row: its tooltip starts at its left edge, as the first button's does. */
+form.q-ask .abar>.resp+button .tip{left:0;transform:translateY(3px)}
+form.q-ask .abar>.resp+button:is(:hover,:focus-visible) .tip{transform:none}
+form.q-open .ans-in{padding:2px 2px 12px;visibility:visible;transition:none}
+form.q-ask:not(.q-open) .abar button.primary:is([value=call],[value=answer]){display:none}
+form.q-ask.q-open .abar [data-respond]{display:none}
+/* Closed, the row is Respond and the quiet actions; Reply (a note with no answer) comes with the sheet, beside Send. */
+form.q-ask:not(.q-open) .abar button[value=reply]{display:none}
+/* Respond keeps its word in a narrow reader: it is the one blue action until the sheet opens. */
+@media (min-width:761px){ @container (max-width:560px){ .abar .ab.resp{width:auto;padding:0 14px 0 11px} .abar .ab.resp .bl{position:static;width:auto;height:auto;overflow:visible;clip-path:none;white-space:nowrap} } }
+html .plate .dock form.q-ask .q-set{display:flex;flex-direction:column;gap:2px;max-width:680px}
+html .plate .dock form.q-ask label.opt{display:flex;align-items:flex-start;gap:10px;min-height:0;padding:6px 10px;border-radius:8px;background:none;box-shadow:none;transition:background .2s}
+html .plate .dock form.q-ask label.opt:hover{background:var(--fill)}
+html .plate .dock form.q-ask label.opt:has(input:checked){background:var(--blue-t);box-shadow:none}
+form.q-ask label.opt input[type=radio]{margin-top:1px}
+form.q-ask .opt-t{flex:1;display:flex;flex-direction:column}
+/* The answers read at the Pass column's sizes (Dan, 2026-11-14): the title as a tile's title, the paragraph as its preview line. */
+form.q-ask .opt-h,form.q-ask .opt-h b{font-weight:600;line-height:1.3;color:var(--label)}
+form.q-ask .opt-h .rec{margin-left:6px;vertical-align:1px}
+form.q-ask .opt-d{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .26s cubic-bezier(.2,.8,.2,1),margin .26s,opacity .2s}
+form.q-ask .opt-d>span{display:block;min-height:0;overflow:hidden;font-size:13px;font-weight:400;line-height:1.35;color:var(--label2)}
+form.q-ask label.opt:has(input:checked) .opt-d{grid-template-rows:1fr;margin-top:2px;opacity:1}
+@media (prefers-reduced-motion:reduce){.ans,.ans-in,form.q-ask .opt-d{transition:none}}
+`;
 // Appearance (theme.ts): every dark and light rule also answers to the html element's data-theme.
 // The pictures in Settings → Layout and the ⌘K bar's Appearance and Density steps (theme.ts).
 const MINIS = minis();
 const tile = (name: string, value: keyof typeof MINIS, label: string): string => `<label class="look"><input type="radio" name="${name}" value="${value}" aria-label="${label}">${MINIS[value]}<span class="look-n">${label}</span></label>`;
-const STYLE = onScale(onTheme(CSS + APP_CSS + BAR_CSS + MINI_CSS) + miniCss(CSS + APP_CSS + BAR_CSS));
+const STYLE = onScale(onTheme(CSS + APP_CSS + BAR_CSS + MINI_CSS + SHEET_CSS + LAUNCH_CSS) + miniCss(CSS + APP_CSS + BAR_CSS));
 
 
 const page = (body: string): string => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -1603,25 +1629,15 @@ ${kitchenPane({ rules, projects, error: rulesError })}
 <div class="kx-foot"><p class="kx-file">Your shortcuts, in the shape of T3 Code’s keybindings.json and with its rules: a key, a command, and when it applies.</p><span class="kx-btns"><button type="button" class="btn kx-b" data-kx-file hidden>Open the file</button><button type="button" class="btn kx-b" data-kx-resetall>Reset all</button></span><p class="kx-note" role="status" hidden></p></div></section>
 </div></div>
 <p class="set-done"><span role="status">Saved on this Mac.</span><button type="button" class="btn fill" data-settings-done><span class="bl">Done</span><kbd>esc</kbd></button></p></dialog>
-<dialog id="launch" aria-labelledby="launch-t"><form class="act launch" method="post" action="/act">
-<input type="hidden" name="nonce" value="">
-<h2 id="launch-t">New thread in T3 Code</h2>
-<label class="lf"><span>Project</span><select name="project" required></select></label>
-<label class="lf"><span>What should the agent do?</span><textarea name="prompt" rows="6" maxlength="60000" placeholder="The task, as you would write it in T3 Code"></textarea></label>
-<label class="lf"><span>Title <span class="muted">optional, else the first line</span></span><input type="text" name="title" maxlength="120"></label>
-<fieldset class="lf-ws"><legend>Workspace</legend>
-<label><input type="radio" name="workspace" value="worktree" checked> New worktree <span class="muted">its own branch and folder</span></label>
-<label><input type="radio" name="workspace" value="root"> Project checkout</label></fieldset>
-<div class="acts"><button type="submit" name="kind" value="launch" class="btn fill primary" data-what="the new thread"><span class="bl">Launch</span><kbd>⌘↵</kbd></button><button type="button" class="btn quiet" data-launch-cancel><span class="bl">Cancel</span><kbd>esc</kbd></button></div>
-<p class="result" role="status"></p>
-<p class="lf-note muted">T3 Code runs it with its default model, at the level you approved for the Yes Chef app. The project's rules go with it (Settings → Rules).</p>
-</form></dialog>
+${launchDialog()}
 ${BAR_HTML}
 <script>
 (function(){
   ${keysCore}
   ${barCore}
   ${installBar}
+  ${launcherCore}
+  ${installLauncher}
   (${passScript})(${JSON.stringify(MINIS)});
 })();
 </script></body></html>`;
@@ -1744,7 +1760,7 @@ async function runAct(input: Record<string, string>, line: AuditLine): Promise<A
     // T3 Code checks its limits before it changes anything: a typed denial means nothing happened.
     if (/capability_denied/.test(ex.message)) {
       audit({ ...line, refused: 'capability_denied' });
-      return { status: 403, text: 'T3 Code refused: this thread runs at a higher level than Yes Chef was approved for. Nothing was sent.' };
+      return { status: 403, text: input.kind === 'launch' ? 'T3 Code refused: those permissions are more than Yes Chef was approved for. Nothing was started.' : 'T3 Code refused: this thread runs at a higher level than Yes Chef was approved for. Nothing was sent.' };
     }
     // T3 may have taken the action before the reply failed: say "not confirmed", never "nothing changed".
     audit({ ...line, unconfirmed: String(ex.message).slice(0, 200) });
@@ -1793,7 +1809,16 @@ function teamView(): TeamView | null {
 }
 /** A page, a file, or a PR's code: the code is the one answer that waits on T3 Code. */
 async function routeAny(url: URL): Promise<Routed> {
+  if (url.pathname === '/caps') return capsRoute();
   return (await diffRoute(url, { diffs, shown: bigPrs })) ?? route(url);
+}
+/** New thread's models (client/launcher.ts): T3 Code's providers, read when the dialog opens. A failed read says why,
+ *  and the launcher shows "not checked". */
+async function capsRoute(): Promise<Routed> {
+  const headers = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
+  if (!t3) return { status: 200, headers, body: JSON.stringify({ ok: false, why: 'Yes Chef is not signed in to T3 Code yet.' }) };
+  try { return { status: 200, headers, body: JSON.stringify(capsFrom(await tool('orchestrator_capabilities', {}))) }; }
+  catch (err) { return { status: 200, headers, body: JSON.stringify({ ok: false, why: 'T3 Code did not list its models (' + String((err as Fault).message).slice(0, 80) + ').' }) }; }
 }
 
 function route(url: URL): Routed {
