@@ -34,7 +34,8 @@ import { createInterface } from 'node:readline';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CHANNELS, channelOf } from './channels.ts';
+import { CHANNELS, channelOf, isChannel } from './channels.ts';
+import type { ChannelName } from './channels.ts';
 import { TESTED_T3, findT3, older, t3Answers } from './t3.ts';
 import type { FoundT3 } from './t3.ts';
 import { canUpdateInPlace, createUpdates, feedOverride, menuFor, moveCard, visibleCard } from './updates.ts';
@@ -59,14 +60,14 @@ const STARTED = Date.now();
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CAPTURE = process.argv.includes('--capture');
 // One version, from package.json: the About panel, the menu and the name T3 Code lists under Sharing & access.
-// A Nightly version (0.2.1-nightly.20261110.1) makes this copy "Yes Chef (Nightly)", with its own icon (channels.ts).
+// A Nightly version (0.2.1-nightly.20261110.1) is the same app with the Nightly icon (channels.ts).
 const VERSION = app.getVersion();
 const CHANNEL = channelOf(VERSION);
 const NAME = CHANNELS[CHANNEL].name;
 const CLIENT_NAME = `${NAME} ${VERSION}`;
 const FEED = feedOverride(process.env.YESCHEF_UPDATE_FEED);
 if (process.env.YESCHEF_UPDATE_FEED && !FEED) console.error('YESCHEF_UPDATE_FEED ignored: it must be http on 127.0.0.1 or localhost.');
-const DRILL = CAPTURE && FEED && (['restart', 'quit', 'quit-now'] as (string | undefined)[]).includes(process.env.YESCHEF_UPDATE_DRILL) ? process.env.YESCHEF_UPDATE_DRILL : '';
+const DRILL = CAPTURE && FEED && (['restart', 'quit', 'quit-now', 'switch'] as (string | undefined)[]).includes(process.env.YESCHEF_UPDATE_DRILL) ? process.env.YESCHEF_UPDATE_DRILL : '';
 // T3 Code's address, set once T3 Code answers there (waitForT3). The saved sign-in is tied to it.
 let T3: string | null = null;
 
@@ -345,7 +346,31 @@ let offerMove = false;
 const updateWatchers = new Set<(state: UpdateState) => void>();
 function currentCard(): Card | null {
   if (offerMove) return moveCard(NAME);
-  return updates ? visibleCard(updates.state, { name: NAME, current: VERSION, inPlace: IN_PLACE }) : null;
+  return updates ? visibleCard(updates.state, { name: NAME, current: VERSION, inPlace: IN_PLACE, channel: updates.channel }) : null;
+}
+// The update track the user picked (Update Track, below), kept in the data folder as T3 Code keeps its update channel.
+// No file, or anything but the two words, is the running build's own track. A capture without a data folder keeps none.
+const channelFile = () => join(app.getPath('userData'), 'update-channel');
+function savedChannel(): ChannelName | null {
+  if (!KEEP) return null;
+  try { const c = readFileSync(channelFile(), 'utf8').trim(); return isChannel(c) ? c : null; } catch { return null; }
+}
+function saveChannel(c: ChannelName): void {
+  if (!KEEP) return;
+  try { mkdirSync(app.getPath('userData'), { recursive: true }); writeFileSync(channelFile(), c + '\n', { mode: 0o600 }); }
+  catch (e) { console.error(`Update track not saved: ${(e as Error).message}`); }
+}
+/** Update Track: switch after the user confirms, as T3 Code's "Switch to Nightly?" (UpdateTrackSwitchDialog). */
+function pickTrack(next: ChannelName): void {
+  if (!updates || next === updates.channel) { buildMenu(); return; }
+  const label = CHANNELS[next].label, own = next === CHANNEL;
+  const answer = dialog.showMessageBoxSync(win!, {
+    type: 'question', message: `Switch to ${label}?`, buttons: [`Switch to ${label}`, 'Cancel'], defaultId: 0, cancelId: 1,
+    detail: own
+      ? `${NAME} stays on ${VERSION} and takes ${label} updates from now on.`
+      : `${NAME} downloads the newest ${label} build and restarts with it. Your sign-in, rules and settings stay. If ${NAME} does not reopen after it restarts, open it again.`,
+  });
+  if (answer !== 0 || !updates.setChannel(next)) buildMenu();
 }
 function showCard() { if (win && !win.isDestroyed()) win.webContents.send('yeschef:card', currentCard()); }
 function updateChanged(state: UpdateState) {
@@ -437,8 +462,12 @@ function moveToApplications(): boolean {
 }
 function updateItems(): MenuItemConstructorOptions[] {
   const state: UpdateState = updates ? updates.state : { status: 'off', message: CAPTURE ? 'Updates are off in a capture.' : 'Updates work only in a built Yes Chef.' };
-  return menuFor(state, { name: NAME, inPlace: IN_PLACE })
+  const items = menuFor(state, { name: NAME, inPlace: IN_PLACE })
     .map(({ id, ...item }) => (id ? { ...item, click: () => (id === 'move' ? moveToApplications() : updates?.act(id)) } : item) as MenuItemConstructorOptions);
+  // Update Track, beside the update items as T3 Code keeps it beside Check for Updates: Stable or Nightly.
+  const on = updates ? updates.channel : CHANNEL, can = !!updates && updates.canSwitch();
+  const track = (c: ChannelName): MenuItemConstructorOptions => ({ label: CHANNELS[c].label, type: 'radio', checked: on === c, enabled: can, click: () => pickTrack(c) });
+  return [...items, { label: 'Update Track', submenu: [track('latest'), track('nightly')] }];
 }
 
 // The standard Mac menus, plus Sign Out of T3 Code: it deletes the saved sign-in and quits, so the
@@ -595,7 +624,7 @@ async function main() {
   });
   // Updates: off in a capture, unless it is the update drill. The first check runs 15 s after start, T3 Code or not.
   if (!CAPTURE || DRILL) {
-    updates = createUpdates({ updater: updater!, squirrel, app, version: VERSION, feed: FEED, inPlace: IN_PLACE, onChange: updateChanged });
+    updates = createUpdates({ updater: updater!, squirrel, app, version: VERSION, channel: savedChannel(), saveChannel, feed: FEED, inPlace: IN_PLACE, onChange: updateChanged });
     buildMenu();
   }
   offerMove = app.isPackaged && !CAPTURE && !app.isInApplicationsFolder() && !existsSync(moveFile());
@@ -669,6 +698,19 @@ async function drill() {
     return true;
   })()`);
   try {
+    // `switch`: Update Track to the other track, as a user picks it in the menu and confirms. The switch downloads
+    // and installs by itself; Squirrel.Mac then puts the other track's build where this copy was.
+    if (DRILL === 'switch') {
+      const to: ChannelName = CHANNEL === 'nightly' ? 'latest' : 'nightly';
+      updater!.autoRunAppAfterInstall = false;
+      await new Promise((r) => setTimeout(r, 2000));
+      if (!updates!.setChannel(to)) throw new Error('the track did not change');
+      console.log(`Drill: switched to ${CHANNELS[to].label} ${since()}. Menu: ${menu()}`);
+      const ready = await until('ready', 180000);
+      console.log(`Drill: ${ready.version} downloaded and checked ${since()}; installing.`);
+      setTimeout(() => { console.error('Drill failed: the app did not quit within 60 s.'); stopServer(); app.exit(1); }, 60000);
+      return;
+    }
     const offered = await until('available', 60000);
     console.log(`Drill: ${offered.version} found ${since()}. Menu: ${menu()}`);
     await capture('update-available.png');

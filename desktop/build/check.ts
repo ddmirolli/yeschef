@@ -3,8 +3,8 @@
 //   npm run check -- "<path>/Yes Chef.app" [--release]
 //   npm run check -- <path>/Yes-Chef-<version>-arm64.dmg [--release]
 //
-// A DMG is checked itself, then mounted read-only and the one app inside it checked (Yes Chef.app, or
-// Yes Chef (Nightly).app). hdiutil's output, and its deprecation warning on macOS 27, are not shown. --release adds the checks only a
+// A DMG is checked itself, then mounted read-only and the one app inside it checked (Yes Chef.app, for
+// Stable and Nightly alike). hdiutil's output, and its deprecation warning on macOS 27, are not shown. --release adds the checks only a
 // notarized Developer ID build passes: the Developer ID authority, Gatekeeper and the stapled tickets.
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';

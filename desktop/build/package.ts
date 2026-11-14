@@ -11,8 +11,8 @@
 //   --version <version>          build that version instead of package.json's: 0.2.0 for Stable, or
 //                                0.2.1-nightly.20261110.1 for Nightly (desktop/channels.ts). `npm run release` passes it.
 //
-// The version picks the channel. A Nightly build is its own app, "Yes Chef (Nightly)", with its own bundle ID, icon
-// (build/icon-nightly.png) and feed file (nightly-mac.yml), so it never shares Stable's data, Keychain item or updates.
+// The version picks the channel. A Nightly build is the same app as Stable (one name and bundle ID, so each can update
+// into the other when the user switches track) with its own icon (build/icon-nightly.png) and feed file (nightly-mac.yml).
 //
 // Every build flips the fuses (build/release.ts), then signs every helper, framework and the app, inside out, with the
 // hardened runtime and build/entitlements.mac.plist. `app` signs with Developer ID if this Mac has it, else Apple

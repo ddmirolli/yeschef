@@ -11,7 +11,7 @@ The Pass in its own window, signed in to the T3 Code on this Mac.
 
 ## Install or update
 
-Install Yes Chef from https://yeschef.codes/download (Stable), or Yes Chef (Nightly) from the newest Nightly release. Each one updates itself from GitHub Releases ("Updates", below).
+Install Yes Chef from https://yeschef.codes/download. Stable and Nightly are one app: pick the track in the Yes Chef menu, Update Track ("Stable and Nightly", below). It updates itself from GitHub Releases ("Updates", below).
 
 Releases are the only way an app reaches a Mac someone uses (Dan, 2026-11-12). A local build carries `package.json`'s version (0.1.0), so put over a released app it shows the wrong version and offers the newest Stable as an update that would take code away. A task lands without installing: it checks the build in `out/builder` with `--capture` on a copy of the data folder ("Development", below), and main reaches Dan's Mac through the next Nightly.
 
@@ -61,7 +61,7 @@ The way T3 Code does them (`docs/desktop-release-plan-v0_1.md`, section 6; `upda
 - Nothing installs on quit unless you choose it. When the download is checked, the card offers Restart, or When I Quit. After When I Quit, a quit waits a moment (at most 30 seconds) while Squirrel.Mac takes the update, so it installs.
 - The feed is GitHub Releases on `ddmirolli/yeschef` (`app-update.yml` in the app). The check is the only call the app makes to us, and it sends no per-install ID.
 - What electron-updater sends with an update and each download tick crosses an Effect Schema, as in T3 Code. An update without a version Yes Chef can read is never offered or marked ready: a check by hand or a download shows the error, a background check stays quiet. A download tick it cannot read leaves the bar where it was.
-- Squirrel.Mac installs only a bundle signed by the same team with the same bundle ID, so an update can never cross from one channel to the other.
+- Squirrel.Mac installs only a bundle signed by the same team with the same bundle ID. Stable and Nightly share one bundle ID, so each can replace the other when the user switches track.
 - It cannot replace a copy on a disk image or a translocated copy. On the first start outside Applications, the card offers to move the app there (`app.moveToApplicationsFolder()`). An answer either way is kept in the data folder (`move-offered`); after that, an update card still offers the move.
 - No port: electron-updater 6.8.9 hands the downloaded ZIP to Squirrel.Mac through an HTTP server on `127.0.0.1`. Yes Chef replaces that one step (`fileHandoff` in `updates.ts`): it writes a feed file next to the checked ZIP and points Squirrel.Mac at it with a `file://` URL. A test fails if an electron-updater upgrade renames that step; without it, updates turn off rather than open a port.
 
@@ -70,13 +70,15 @@ The way T3 Code does them (`docs/desktop-release-plan-v0_1.md`, section 6; `upda
 | | Stable | Nightly |
 | --- | --- | --- |
 | Version | `0.2.0` | `0.2.1-nightly.20261110.1`: the patch after the newest Stable, the UTC day, the run |
-| App | Yes Chef | Yes Chef (Nightly), with its own icon (`build/icon-nightly.png`) |
-| Bundle ID | `codes.yeschef.desktop` | `codes.yeschef.desktop.nightly` |
-| Data folder, Keychain item | `Yes Chef`, "Yes Chef Safe Storage" | `Yes Chef (Nightly)`, "Yes Chef (Nightly) Safe Storage" |
+| App | Yes Chef | Yes Chef, with the Nightly icon (`build/icon-nightly.png`) |
+| Bundle ID | `codes.yeschef.desktop` | The same |
+| Data folder, Keychain item | `Yes Chef`, "Yes Chef Safe Storage" | The same |
 | GitHub release | Latest, tag `v0.2.0`, feed `latest-mac.yml` | Prerelease, tag `v0.2.1-nightly.20261110.1`, feed `nightly-mac.yml` |
 | Takes updates from | Stable releases only | Nightly releases only |
 
-The two install side by side and share nothing. T3 Code keeps one bundle ID for both and switches channels in its settings; Yes Chef has no channel switch, so two apps cost nothing. The tags must be semver (`v<version>`): electron-updater reads a Nightly's channel from its tag.
+They are one app, as in T3 Code (Dan, 2026-11-14). The track starts as the installed build's own. Yes Chef menu, Update Track, Stable or Nightly, asks "Switch to Nightly?", saves the pick (`update-channel` in the data folder), downloads the newest build of that track, even an older version, and restarts into it. Sign-in, rules and settings stay, because the data folder is the same. Picking the installed build's own track again only changes which updates it takes. The tags must be semver (`v<version>`): electron-updater reads a Nightly's channel from its tag.
+
+A Mac that has the old separate "Yes Chef (Nightly).app" (bundle ID `codes.yeschef.desktop.nightly`, before 2026-11-14) keeps it until it is deleted: it cannot update into the one-app builds. Install a Nightly DMG over Yes Chef.app, or switch track in Yes Chef, then delete the old app.
 
 ## Release
 
@@ -147,5 +149,7 @@ An update end to end on this Mac, with no GitHub release:
 4. Start the older copy hidden, on its own data folder:
    `YESCHEF_USER_DATA=<temp data> YESCHEF_CAPTURE_DIR=<temp out> YESCHEF_UPDATE_FEED=http://127.0.0.1:8771/ YESCHEF_UPDATE_DRILL=restart "<copy>/Contents/MacOS/Yes Chef" --capture`
 5. The first check comes after 15 seconds. The drill clicks the card's own buttons (Download, then Restart; `quit` clicks When I Quit, waits for Squirrel.Mac and quits; `quit-now` quits right after When I Quit), saves `update-available.png` and `update-ready.png`, and quits. Squirrel.Mac then puts the newer version where the copy was. It does not reopen it, because a reopened copy would start without the test's data folder.
+
+For a track switch, build one Stable and one Nightly (`--version 0.0.9` and `--version 0.0.10-nightly.20261114.1`), serve the other track's files and start with `YESCHEF_UPDATE_DRILL=switch`: after 2 seconds it switches to the other track, as Update Track does, and the switch downloads and installs on its own.
 
 `YESCHEF_UPDATE_FEED` takes only `http` on `127.0.0.1` or `localhost`. Squirrel.Mac and electron-updater leave their caches in `~/Library/Caches` (`codes.yeschef.desktop.ShipIt`, `yeschef-desktop-updater`, and the Nightly ones); delete them after a drill.

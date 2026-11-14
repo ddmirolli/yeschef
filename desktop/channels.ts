@@ -1,11 +1,11 @@
 // Yes Chef's two release channels and their versions (docs/desktop-release-plan-v0_1.md, sections 5 and 6).
 // Plain Node, no Electron: the app (main.ts, updates.ts) and the build scripts (build/*.ts) share it.
 //
-// Stable and Nightly are two apps. Nightly has its own name, bundle ID, icon and package name, so it never shares
-// Stable's data folder, Keychain item ("<name> Safe Storage") or update cache, and an update for one can never
-// install over the other: Squirrel.Mac only installs a bundle that meets the running app's code requirement, which
-// names its bundle ID. (T3 Code keeps one bundle ID for both and switches channels in its settings. Yes Chef has
-// no channel switch, so two IDs cost nothing.)
+// Stable and Nightly are one app, as in T3 Code (Dan, 2026-11-14: "copy and build that in ours"): one name, bundle ID,
+// data folder, Keychain item and update cache, and a Nightly build differs only by its icon and its version. Settings
+// for the track live in the app menu (Update Track); switching downloads the other track's newest build and restarts
+// into it (updates.ts setChannel). Squirrel.Mac installs only a bundle that meets the running app's code requirement,
+// which names the bundle ID and the team, so one bundle ID is what lets the two builds replace each other.
 
 // The update feed: GitHub Releases on the public source repo, as T3 Code's (ruling, 2026-11-09).
 export const FEED = { provider: 'github', owner: 'ddmirolli', repo: 'yeschef' } as const;
@@ -14,9 +14,11 @@ export const FEED = { provider: 'github', owner: 'ddmirolli', repo: 'yeschef' } 
 /** One channel's app: its name, bundle ID, package name and icon. */
 export interface Channel { label: string; name: string; appId: string; pkg: string; icon: string }
 export type ChannelName = 'latest' | 'nightly';
+/** True for a saved track: only these two words. */
+export const isChannel = (v: unknown): v is ChannelName => v === 'latest' || v === 'nightly';
 export const CHANNELS: Record<ChannelName, Channel> = {
   latest: { label: 'Stable', name: 'Yes Chef', appId: 'codes.yeschef.desktop', pkg: 'yeschef-desktop', icon: 'icon.png' },
-  nightly: { label: 'Nightly', name: 'Yes Chef (Nightly)', appId: 'codes.yeschef.desktop.nightly', pkg: 'yeschef-desktop-nightly', icon: 'icon-nightly.png' },
+  nightly: { label: 'Nightly', name: 'Yes Chef', appId: 'codes.yeschef.desktop', pkg: 'yeschef-desktop', icon: 'icon-nightly.png' },
 };
 
 const STABLE = /^(\d+)\.(\d+)\.(\d+)$/;

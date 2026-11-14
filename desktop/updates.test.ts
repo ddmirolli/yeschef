@@ -7,10 +7,11 @@ import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { CHANNELS, FEED, channelOf, compareVersions, isReleaseVersion, nextNightly, tagOf, utcDay } from './channels.ts';
+import { CHANNELS, FEED, channelOf, isChannel, compareVersions, isReleaseVersion, nextNightly, tagOf, utcDay } from './channels.ts';
 import {
   CHECK_EVERY_MS, FIRST_CHECK_MS, NO_ID, STAGE_WAIT_MS, canUpdateInPlace, cardFor, createUpdates, feedOverride, fileHandoff, menuFor, moveCard, shortError, visibleCard,
 } from './updates.ts';
+import type { ChannelName } from './channels.ts';
 import type { Card, CardContext, Logger, Squirrel, Timers, UpdateState, Updater } from './updates.ts';
 import { nth } from '../client/test/expect.ts';
 
@@ -53,14 +54,15 @@ function fakeTimers() {
   return t;
 }
 const quiet = { info() {}, warn() {}, error() {}, debug() {} };
-function setup<U extends EventEmitter = FakeUpdater>({ version = '0.2.0', packaged = true, feed = null as string | null, updater = new FakeUpdater() as unknown as U, log = quiet as Logger }: {
-  version?: string; packaged?: boolean; feed?: string | null; updater?: U; log?: Logger;
+function setup<U extends EventEmitter = FakeUpdater>({ version = '0.2.0', packaged = true, feed = null as string | null, updater = new FakeUpdater() as unknown as U, log = quiet as Logger, channel = null as ChannelName | null }: {
+  version?: string; packaged?: boolean; feed?: string | null; updater?: U; log?: Logger; channel?: ChannelName | null;
 } = {}) {
   const squirrel = fakeSquirrel();
   const timers = fakeTimers();
   const seen: UpdateState[] = [];
-  const updates = createUpdates({ updater: updater as unknown as Updater, squirrel: squirrel as unknown as Squirrel, app: { isPackaged: packaged }, version, feed, log, timers, onChange: (s) => seen.push(s) });
-  return { updates, updater, squirrel, timers, seen };
+  const saved: ChannelName[] = [];
+  const updates = createUpdates({ updater: updater as unknown as Updater, squirrel: squirrel as unknown as Squirrel, app: { isPackaged: packaged }, version, channel, saveChannel: (c) => saved.push(c), feed, log, timers, onChange: (s) => seen.push(s) });
+  return { updates, updater, squirrel, timers, seen, saved };
 }
 const ctx = { name: 'Yes Chef', current: '0.2.0' };
 /** The card the window shows for a state, or the test fails. */
@@ -382,14 +384,14 @@ test('a copy outside Applications is offered the move instead of a download', ()
   assert.match(card.body, /only from Applications/);
   assert.deepEqual(card.buttons.map((b) => b.id), ['later', 'move']);
   assert.deepEqual(menuFor({ status: 'available', version: '0.2.1' }, { ...ctx, inPlace: false }), [{ id: 'move', label: 'Move to Applications to Update' }]);
-  assert.deepEqual(moveCard('Yes Chef (Nightly)').buttons.map((b) => [b.id, b.label]), [['stay', 'Not Now'], ['move', 'Move']]);
-  assert.equal(moveCard('Yes Chef (Nightly)').title, 'Move Yes Chef (Nightly) to Applications?');
+  assert.deepEqual(moveCard('Yes Chef').buttons.map((b) => [b.id, b.label]), [['stay', 'Not Now'], ['move', 'Move']]);
+  assert.equal(moveCard('Yes Chef').title, 'Move Yes Chef to Applications?');
 });
 
 test('the cards name the channel the app is on', () => {
-  const nightly = { name: 'Yes Chef (Nightly)', current: '0.2.1-nightly.20261110.1' };
+  const nightly = { name: 'Yes Chef', current: '0.2.1-nightly.20261110.1' };
   assert.equal(must(cardFor({ status: 'current', manual: true }, nightly)).body, 'You have 0.2.1-nightly.20261110.1, the newest Nightly version.');
-  assert.equal(must(cardFor({ status: 'ready', version: '0.2.1-nightly.20261110.2' }, nightly)).title, 'Yes Chef (Nightly) 0.2.1-nightly.20261110.2 is ready');
+  assert.equal(must(cardFor({ status: 'ready', version: '0.2.1-nightly.20261110.2' }, nightly)).title, 'Yes Chef 0.2.1-nightly.20261110.2 is ready');
   // Background results show no card; only a check by hand does.
   assert.equal(cardFor({ status: 'current' }, nightly), null);
   assert.equal(cardFor({ status: 'error', message: 'x' }, nightly), null);
@@ -410,13 +412,142 @@ test('errors become one short line', () => {
   assert.equal(shortError(null), 'unknown error');
 });
 
-test('Stable and Nightly are two apps that share nothing', () => {
+test('Stable and Nightly are one app, as in T3 Code: only the icon differs', () => {
   const [s, n] = [CHANNELS.latest, CHANNELS.nightly];
-  for (const key of ['name', 'appId', 'pkg', 'icon'] as const) assert.notEqual(s[key], n[key], key);
+  for (const key of ['name', 'appId', 'pkg'] as const) assert.equal(s[key], n[key], key);
+  assert.notEqual(s.icon, n.icon);
   assert.equal(s.name, 'Yes Chef');
-  assert.equal(n.name, 'Yes Chef (Nightly)');
-  assert.equal(s.appId, 'codes.yeschef.desktop', 'Stable keeps the bundle ID the installed app has');
+  assert.equal(s.appId, 'codes.yeschef.desktop', 'both keep the bundle ID the installed app has, so Squirrel.Mac lets one replace the other');
   assert.deepEqual(FEED, { provider: 'github', owner: 'ddmirolli', repo: 'yeschef' });
+  assert.ok(isChannel('latest') && isChannel('nightly'));
+  for (const v of ['stable', 'Nightly', '', null, 1]) assert.equal(isChannel(v), false, String(v));
+});
+
+// The track switch, as T3 Code's (apps/desktop/src/updates/DesktopUpdates.ts setChannel; Dan, 2026-11-14).
+test('the saved track wins over the build\'s own, and only leaving the build\'s own track allows an older version', () => {
+  const { updates, updater } = setup({ version: '0.2.4-nightly.20261114.1', channel: 'latest' });
+  assert.equal(updates.channel, 'latest');
+  assert.equal(updater.channel, 'latest');
+  assert.equal(updater.allowPrerelease, false);
+  assert.equal(updater.allowDowngrade, true, 'a Nightly build on the Stable track takes the older Stable');
+  const own = setup({ version: '0.2.3', channel: 'latest' });
+  assert.equal(own.updater.allowDowngrade, false);
+});
+
+test('switching track saves it, checks the other track, downloads its newest build and restarts into it', async () => {
+  const { updates, updater, saved } = setup({ version: '0.2.3' });
+  assert.equal(updates.canSwitch(), true);
+  assert.equal(updates.setChannel('nightly'), true);
+  assert.deepEqual(saved, ['nightly']);
+  assert.equal(updates.channel, 'nightly');
+  assert.equal(updater.channel, 'nightly');
+  assert.equal(updater.allowPrerelease, true);
+  assert.equal(updater.allowDowngrade, true);
+  assert.equal(updates.state.status, 'checking');
+  assert.equal(shown(updates.state).title, 'Switching to Nightly…');
+  // The fake's check ends at once, so its events come before the tick, as electron-updater's come before its promise.
+  updater.emit('update-available', { version: '0.2.4-nightly.20261114.1' });
+  await tick();
+  assert.equal(updater.checks, 1);
+  assert.equal(updater.downloads, 1, 'a switch downloads without a second click');
+  assert.equal(updates.canSwitch(), false, 'no second switch while one downloads');
+  assert.equal(updates.setChannel('latest'), false);
+  updater.emit('update-downloaded', { version: '0.2.4-nightly.20261114.1' });
+  assert.equal(updater.installs, 1, 'a switch restarts into the build it downloaded');
+});
+
+test('back to Stable from a Nightly build takes the older Stable', async () => {
+  const { updates, updater } = setup({ version: '0.2.4-nightly.20261114.1' });
+  updates.setChannel('latest');
+  assert.equal(updater.allowDowngrade, true);
+  assert.equal(updater.allowPrerelease, false);
+  updater.emit('update-available', { version: '0.2.3' });
+  updater.emit('update-downloaded', { version: '0.2.3' });
+  assert.equal(updater.installs, 1);
+});
+
+test('a switch with no build on the other track says so and keeps the choice', async () => {
+  const { updates, updater, saved } = setup({ version: '0.2.3' });
+  updates.setChannel('nightly');
+  updater.emit('update-not-available', { version: '0.2.3' });
+  assert.equal(updates.state.status, 'error');
+  assert.equal(shown(updates.state).body, 'There is no Nightly build to switch to yet. Try again in a few minutes.');
+  assert.deepEqual(saved, ['nightly']);
+  assert.equal(updater.downloads, 0);
+});
+
+test('a switch that fails stops with its error; picking the own track again reinstalls nothing', async () => {
+  const { updates, updater, saved } = setup({ version: '0.2.3' });
+  updates.setChannel('nightly');
+  updater.emit('error', new Error('net::ERR_INTERNET_DISCONNECTED'));
+  assert.equal(updates.state.status, 'error');
+  assert.equal(updates.state.manual, true);
+  updates.setChannel('latest');
+  assert.deepEqual(saved, ['nightly', 'latest']);
+  assert.equal(updater.allowDowngrade, false);
+  assert.equal(updates.state.status, 'idle', 'the own track is a quiet check, no card');
+  await tick();
+  updater.emit('update-not-available', { version: '0.2.3' });
+  assert.equal(updates.state.status, 'idle');
+  assert.equal(updater.downloads + updater.installs, 0);
+});
+
+test('only a build of the saved track is offered or installed', async () => {
+  const { updates, updater } = setup({ version: '0.2.3', channel: 'nightly' });
+  updates.check({ manual: true });
+  updater.emit('update-available', { version: '0.2.4' });
+  assert.equal(updates.state.status, 'current', 'a Stable release on the Nightly track is no update');
+  const other = setup({ version: '0.2.3' });
+  other.updates.setChannel('nightly');
+  other.updater.emit('update-available', { version: '0.2.4-nightly.20261114.1' });
+  other.updater.emit('update-downloaded', { version: '0.2.4' });
+  assert.equal(other.updater.installs, 0);
+  assert.match(must(other.updates.state.message), /not a Nightly build\. Nothing was installed\./);
+});
+
+test('a switch asked for during a background check starts when that check ends', async () => {
+  const updater = new FakeUpdater();
+  let end = () => {};
+  updater.checkForUpdates = function () { this.checks++; return new Promise((r) => { end = () => r(null); }); };
+  const { updates, timers } = setup({ version: '0.2.3', updater });
+  nth(timers.timeouts).fn();
+  await tick();
+  assert.equal(updater.checks, 1);
+  assert.equal(updates.setChannel('nightly'), true);
+  assert.equal(updates.channel, 'latest', 'the running check answers for Stable');
+  updater.emit('update-not-available', { version: '0.2.3' });
+  assert.equal(updates.channel, 'nightly');
+  end();
+  await tick(); await tick();
+  assert.equal(updater.checks, 2);
+  assert.equal(updates.state.status, 'checking');
+});
+
+test('a switch whose check ends with no answer stops, and a later check does not download for it', async () => {
+  const { updates, updater } = setup({ version: '0.2.3' });
+  updates.setChannel('nightly');
+  await tick();
+  assert.equal(updates.state.status, 'idle');
+  updates.check();
+  updater.emit('update-available', { version: '0.2.4-nightly.20261114.1' });
+  assert.equal(updates.state.status, 'available');
+  assert.equal(updater.downloads, 0);
+});
+
+test('no switch while an update waits for the quit, or while updates are off', () => {
+  const { updates, updater } = setup({ version: '0.2.3' });
+  updates.check({ manual: true });
+  updater.emit('update-available', { version: '0.2.4' });
+  updates.download();
+  updater.emit('update-downloaded', { version: '0.2.4' });
+  updates.installOnQuit();
+  assert.equal(updates.canSwitch(), false);
+  const off = setup({ packaged: false });
+  assert.equal(off.updates.canSwitch(), false);
+});
+
+test('the up-to-date card names the saved track', () => {
+  assert.equal(must(cardFor({ status: 'current', manual: true }, { ...ctx, channel: 'nightly' })).body, 'You have 0.2.0, the newest Nightly version.');
 });
 
 test('versions: the two release forms only, and the channel each names', () => {

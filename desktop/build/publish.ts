@@ -227,7 +227,7 @@ export function ghArgs(plan: Pick<Plan, 'channel' | 'tag' | 'commit' | 'version'
 /** The release notes: Stable's CHANGELOG entry and the Nightly it ships; for Nightly, the commit. */
 export function releaseNotes(plan: Pick<Plan, 'channel' | 'commit' | 'notes' | 'from'>): string {
   return plan.channel === 'nightly'
-    ? `Nightly build of ${plan.commit.slice(0, 12)}. Yes Chef (Nightly) is its own app: it updates only to newer Nightly builds and keeps its own data.\n`
+    ? `Nightly build of ${plan.commit.slice(0, 12)}. Stable and Nightly are one app: pick the track in the Yes Chef menu, Update Track.\n`
     : `${plan.notes}\n\nBuilt from ${plan.from} (${plan.commit.slice(0, 12)}), the Nightly build it ships.\n`;
 }
 
