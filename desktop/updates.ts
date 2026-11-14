@@ -175,9 +175,16 @@ export function cardFor(state: UpdateState, ctx: CardContext): Card | null {
         buttons: [{ id: 'on-quit', label: 'When I Quit' }, { id: 'restart', label: 'Restart', primary: true }] };
     case 'checking':
       return state.manual ? { id: 'checking', title: state.switching ? `Switching to ${CHANNELS[state.switching].label}…` : 'Checking for updates…', body: '', buttons: [] } : null;
-    case 'current':
-      return state.manual ? { id: 'current', title: `${name} is up to date`, body: `You have ${current}, the newest ${CHANNELS[ctx.channel || channelOf(current)].label} version.`,
-        buttons: [{ id: 'ok', label: 'OK', primary: true }] } : null;
+    case 'current': {
+      if (!state.manual) return null;
+      const own = channelOf(current), track = ctx.channel || own;
+      // On a track the running build is not from (a switch that stopped), nothing says this build is that track's newest
+      // (PR-Agent r2 on #82).
+      if (track !== own) return { id: 'current', title: `No ${CHANNELS[track].label} build yet`, body: `You have ${current}, a ${CHANNELS[own].label} build.`,
+        buttons: [{ id: 'ok', label: 'OK', primary: true }] };
+      return { id: 'current', title: `${name} is up to date`, body: `You have ${current}, the newest ${CHANNELS[track].label} version.`,
+        buttons: [{ id: 'ok', label: 'OK', primary: true }] };
+    }
     case 'error':
       return state.manual ? { id: 'error', title: `Could not update ${name}`, body: state.message || '', buttons: [{ id: 'ok', label: 'OK', primary: true }] } : null;
     default:
@@ -229,7 +236,8 @@ export function createUpdates({ updater, squirrel, app, version, channel: saved 
   let poller: unknown = null;
   const set = (next: UpdateState) => { state = next; onChange(state); };
   const api: Updates = {
-    get channel() { return channel; },
+    // The user's pick: a switch that waits for a running check shows already (PR-Agent r2 on #82).
+    get channel() { return queued || channel; },
     get state() { return state; },
     check, download, install, installOnQuit, hide, whenStaged, canSwitch, setChannel,
     act(id) { const acts: Record<string, () => void> = { check: () => check({ manual: true }), download, restart: install, 'on-quit': installOnQuit, later: hide, ok: hide }; return acts[id]?.(); },
@@ -346,14 +354,16 @@ export function createUpdates({ updater, squirrel, app, version, channel: saved 
     if (feed) updater.setFeedURL({ provider: 'generic', url: feed, channel: next });
   }
   function canSwitch(): boolean {
-    return state.status !== 'off' && doing !== 'download' && doing !== 'install' && state.status !== 'downloading' && !state.onQuit;
+    // Squirrel.Mac cannot replace a copy outside Applications: the move comes first (PR-Agent r2 on #82).
+    return inPlace && state.status !== 'off' && doing !== 'download' && doing !== 'install' && state.status !== 'downloading' && !state.onQuit;
   }
   /** The track switch (T3 Code's setChannel): saved first, so a switch that stops part way keeps the user's choice. */
   function setChannel(next: ChannelName): boolean {
     if (!canSwitch()) return false;
     // A check that runs now would answer for the old track, and electron-updater hands a new check that same check's
     // promise until it ends, even after its events: the switch starts when that promise ends (PR-Agent r1 on #82).
-    if (checking) { queued = next; return true; }
+    // Picking the followed track again while one waits cancels the waiting one.
+    if (checking) { queued = next === channel ? null : next; return true; }
     switchTo(next);
     return true;
   }

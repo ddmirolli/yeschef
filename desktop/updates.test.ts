@@ -527,14 +527,15 @@ test('a switch asked for during a background check starts when that check\'s pro
   await tick();
   assert.equal(updater.checks, 1);
   assert.equal(updates.setChannel('nightly'), true);
-  assert.equal(updates.channel, 'latest', 'the running check answers for Stable');
+  assert.equal(updater.channel, 'latest', 'the running check answers for Stable');
+  assert.equal(updates.channel, 'nightly', 'the menu shows the pick at once');
   // Its event comes before its promise ends: a check started now would get that same, Stable, promise.
   updater.emit('update-not-available', { version: '0.2.3' });
   await tick();
-  assert.equal(updates.channel, 'latest');
+  assert.equal(updater.channel, 'latest');
   end();
   await tick(); await tick();
-  assert.equal(updates.channel, 'nightly');
+  assert.equal(updater.channel, 'nightly');
   assert.equal(updater.checks, 2, 'the Nightly track gets a check of its own');
   assert.equal(updates.state.status, 'checking');
   updater.emit('update-available', { version: '0.2.4-nightly.20261114.1' });
@@ -556,6 +557,31 @@ test('a track picked during a switch\'s check wins: the first switch downloads n
   assert.equal(updates.channel, 'latest');
   assert.equal(updater.allowDowngrade, false);
   assert.equal(updater.downloads + updater.installs, 0);
+});
+
+test('picking the running track again cancels a switch that waits for a check (PR-Agent r2 on #82)', async () => {
+  const { updater, end } = coalescing();
+  const { updates, timers, saved } = setup({ version: '0.2.3', updater });
+  nth(timers.timeouts).fn();
+  await tick();
+  updates.setChannel('nightly');
+  updates.setChannel('latest');
+  assert.equal(updates.channel, 'latest');
+  updater.emit('update-not-available', { version: '0.2.3' });
+  end();
+  await tick(); await tick();
+  assert.deepEqual(saved, []);
+  assert.equal(updater.channel, 'latest');
+  assert.equal(updater.checks, 1);
+});
+
+test('no switch from a copy outside Applications: the move comes first (PR-Agent r2 on #82)', () => {
+  const squirrel = fakeSquirrel();
+  const updater = new FakeUpdater();
+  const updates = createUpdates({ updater: updater as unknown as Updater, squirrel: squirrel as unknown as Squirrel, app: { isPackaged: true }, version: '0.2.3', inPlace: false, log: quiet, timers: fakeTimers() });
+  assert.equal(updates.canSwitch(), false);
+  assert.equal(updates.setChannel('nightly'), false);
+  assert.equal(updater.channel, 'latest');
 });
 
 test('a stopped switch can be tried again on the same track', async () => {
@@ -592,8 +618,11 @@ test('no switch while an update waits for the quit, or while updates are off', (
   assert.equal(off.updates.canSwitch(), false);
 });
 
-test('the up-to-date card names the saved track', () => {
-  assert.equal(must(cardFor({ status: 'current', manual: true }, { ...ctx, channel: 'nightly' })).body, 'You have 0.2.0, the newest Nightly version.');
+test('the up-to-date card names the track, and never calls a Stable build the newest Nightly (PR-Agent r2 on #82)', () => {
+  assert.equal(must(cardFor({ status: 'current', manual: true }, { ...ctx, current: '0.2.1-nightly.20261110.1', channel: 'nightly' })).body, 'You have 0.2.1-nightly.20261110.1, the newest Nightly version.');
+  const stopped = must(cardFor({ status: 'current', manual: true }, { ...ctx, channel: 'nightly' }));
+  assert.equal(stopped.title, 'No Nightly build yet');
+  assert.equal(stopped.body, 'You have 0.2.0, a Stable build.');
 });
 
 test('versions: the two release forms only, and the channel each names', () => {
