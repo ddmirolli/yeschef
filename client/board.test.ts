@@ -204,7 +204,7 @@ test('a question the ticket itself asks leads its sheet; a station\'s question k
   const html = renderApp({ board, link, status: { ok: true, at: 0, ms: 1 }, origin: 'https://t3.example' });
   // The ticket's own question goes straight to the dock; a station's carries its name there and a link above.
   // Its options wait in the answer sheet, behind Respond (Dan, 2026-11-14, Gmail).
-  assert.match(html, /<aside class="dock" aria-label="Your answer"><form class="act q-ask"[^>]*>(<input[^>]*>){3}<div class="sheet"><div class="sheet-in"><fieldset/);
+  assert.match(html, /<aside class="dock" aria-label="Your answer"><form class="act q-ask"[^>]*>(<input[^>]*>){3}<div class="ans"><div class="ans-in"><fieldset/);
   assert.match(html, /<button type="button" class="ab fill resp" data-respond>/);
   assert.match(html, /<b>Station one<\/b> is waiting on your answer\. <a href="https:\/\/t3\.example\/env\/st"/);
   assert.match(html, /<p class="dock-who">Station one asks<\/p>/);

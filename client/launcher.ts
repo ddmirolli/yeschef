@@ -418,9 +418,15 @@ export function installLauncher(app: LauncherApp, core: LauncherCore): LauncherA
     fetch('/caps', { headers: { accept: 'application/json' } }).then(function(r){ return r.json(); }).then(function(c){
       caps = c && typeof c === 'object' ? c : { ok: false, why: 'T3 Code did not answer.' };
     }, function(){ caps = { ok: false, why: 'T3 Code did not answer.' }; }).then(function(){
+      // A launch sent but not confirmed keeps what it sent, and its id, so sending it again is the same request to T3,
+      // never a second thread (PR-Agent r2 on #79). Its own fields are what T3 may already have.
+      if (form.dataset.sentSig) { draw(); return; }
       // A pick T3 no longer lists goes back to the project default, which the trigger then names, rather than being
       // sent anyway; so do permissions past the approval, or any while it is unknown (PR-Agent r1 on #79).
-      if (caps && caps.ok && F('model').value && !modelOf(provider(F('instance').value), F('model').value)) { setPick('', '', ''); app.store(KEY, 'null'); }
+      var pm = caps && caps.ok && F('model').value ? modelOf(provider(F('instance').value), F('model').value) : null;
+      if (caps && caps.ok && F('model').value && !pm) { setPick('', '', ''); app.store(KEY, 'null'); }
+      // An effort the model no longer offers, or under another option id, goes back to its default (PR-Agent r2 on #79).
+      else if (pm && (pm.effort ? !!F('effort').value && (pm.effort.id !== F('effortId').value || pm.effort.values.indexOf(F('effort').value) < 0) : !!(F('effortId').value || F('effort').value))) setPick(F('instance').value, F('model').value, F('effort').value);
       var r = F('runtime').value; if (r && core.modesFor(caps && caps.ok ? caps.ceiling || null : null, provider(F('instance').value)).indexOf(r) < 0) { F('runtime').value = ''; form.dispatchEvent(new Event('input', { bubbles: true })); }
       // Nothing picked yet: the last model you picked, if T3 still lists it.
       if (!F('model').value && caps && caps.ok) {

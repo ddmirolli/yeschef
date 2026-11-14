@@ -421,7 +421,8 @@ const optBody = (letter: string, title: string, rest: string, rec: boolean): str
   + (rest ? `<span class="opt-d"><span>${rest}</span></span>` : '') + '</span>';
 /** The options stay out of sight until Respond (Dan, 2026-11-14, Gmail): the sheet slides up over the foot of the
  *  ticket, the first option picked and open. A retry keeps its sheet open: its answer is the one on screen. */
-const sheet = (inner: string): string => `<div class="sheet"><div class="sheet-in">${inner}</div></div>`;
+// The answers that slide up on Respond. Not "sheet": the reader's own dialog is .sheet (PR-Agent r2 on #79).
+const sheet = (inner: string): string => `<div class="ans"><div class="ans-in">${inner}</div></div>`;
 const RESPOND = `<button type="button" class="ab fill resp" data-respond>${svg('reply')}<span class="bl">Respond</span>${tip('Show the answers', [['⌘↵', 'ticket.suggested']])}</button>`;
 
 /** A T3 question a station (or the ticket) is waiting on: its options, then Send. Hold and Settle wait for the answer. */

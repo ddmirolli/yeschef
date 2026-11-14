@@ -1567,17 +1567,17 @@ const SHEET_CSS = `
 .dock:has(form.q-open) .atts.att-row{display:none}
 html .plate .dock:has(form.q-open){max-height:76%}
 .dock form.act.q-ask{gap:0}
-.sheet{display:grid;grid-template-rows:0fr;transition:grid-template-rows .3s cubic-bezier(.2,.8,.2,1)}
-.sheet-in{display:flex;flex-direction:column;gap:12px;min-height:0;overflow:hidden;visibility:hidden;transition:visibility 0s .3s}
-form.q-open .sheet{grid-template-rows:1fr}
+.ans{display:grid;grid-template-rows:0fr;transition:grid-template-rows .3s cubic-bezier(.2,.8,.2,1)}
+.ans-in{display:flex;flex-direction:column;gap:12px;min-height:0;overflow:hidden;visibility:hidden;transition:visibility 0s .3s}
+form.q-open .ans{grid-template-rows:1fr}
 /* The options stop at the reading width, as before (each was about 900 px wide at 2560). */
-form.q-ask .sheet-in>*{max-width:680px}
+form.q-ask .ans-in>*{max-width:680px}
 /* The note scrolls clear of the button row that sticks over the dock's foot. */
 form.q-ask .note textarea{scroll-margin-bottom:64px}
 /* With Respond folded away, Send leads the row: its tooltip starts at its left edge, as the first button's does. */
 form.q-ask .abar>.resp+button .tip{left:0;transform:translateY(3px)}
 form.q-ask .abar>.resp+button:is(:hover,:focus-visible) .tip{transform:none}
-form.q-open .sheet-in{padding:2px 2px 12px;visibility:visible;transition:none}
+form.q-open .ans-in{padding:2px 2px 12px;visibility:visible;transition:none}
 form.q-ask:not(.q-open) .abar button.primary:is([value=call],[value=answer]){display:none}
 form.q-ask.q-open .abar [data-respond]{display:none}
 /* Closed, the row is Respond and the quiet actions; Reply (a note with no answer) comes with the sheet, beside Send. */
@@ -1596,7 +1596,7 @@ form.q-ask .opt-d{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-
 form.q-ask .opt-d>span{display:block;min-height:0;overflow:hidden;font-size:13px;line-height:1.4;color:var(--label2)}
 form.q-ask label.opt:has(input:checked) .opt-d{grid-template-rows:1fr;margin-top:3px;opacity:1}
 form.q-ask .q-why{margin:6px 10px 0;font-size:13px;color:var(--label2)}
-@media (prefers-reduced-motion:reduce){.sheet,.sheet-in,form.q-ask .opt-d{transition:none}}
+@media (prefers-reduced-motion:reduce){.ans,.ans-in,form.q-ask .opt-d{transition:none}}
 `;
 // Appearance (theme.ts): every dark and light rule also answers to the html element's data-theme.
 // The pictures in Settings → Layout and the ⌘K bar's Appearance and Density steps (theme.ts).
