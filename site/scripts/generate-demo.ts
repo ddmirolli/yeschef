@@ -118,7 +118,8 @@ export function createLive({ onChange }) {
     .replace('<title>Yes Chef</title>', '<title>Yes Chef demo</title>');
   // Open in T3 goes to T3 Code's site: the made-up threads are nowhere in T3 Code.
   html = html.replace(/href="https:\/\/t3\.codes\/demo\/demo-\d+"/g, 'href="https://t3.codes/"');
-  for (const [id, dir] of Object.entries(DIRS)) html = html.replaceAll(`/icon/${encodeURIComponent(id)}"`, `icons/${dir}.svg"`);
+  // A mark inside an attribute (New thread's project list, data-mark) has its quote escaped.
+  for (const [id, dir] of Object.entries(DIRS)) html = html.replaceAll(`/icon/${encodeURIComponent(id)}"`, `icons/${dir}.svg"`).replaceAll(`/icon/${encodeURIComponent(id)}&quot;`, `icons/${dir}.svg&quot;`);
   for (const name of ['payouts-before', 'payouts-after']) html = html.replaceAll(`/img/${imageId(`/demo/${name}.png`)}"`, `img/${name}-dark.png"`);
 
   // 4. Checks: everything was found, and the browser's first render matches the server's board.

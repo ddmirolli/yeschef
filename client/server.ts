@@ -1129,8 +1129,6 @@ form.q-car .q-set:not(.q-on){display:none!important}
 .q-dot{width:8px;height:8px;padding:0;border:0;border-radius:50%;background:var(--fill);box-shadow:inset 0 0 0 1px var(--label2);opacity:.6;cursor:pointer}
 .q-dot.done{background:var(--accent);box-shadow:none;opacity:1}
 .q-dot.on{opacity:1;outline:2px solid var(--accent);outline-offset:2px}
-.q-why{grid-column:1/-1;margin:2px 0 0;font-size:13px;line-height:1.4;color:var(--label2)}
-.q-why b{color:var(--label);font-weight:600}
 /* ===== The action bar (Dan, 2026-11-10; mock v1, calls 1a, 2a and 3a). One row at the open ticket's foot in every
    view, the same at 1440 and 2560: the blue action, Changes and Reply as an icon and a word, Hold and Settle as icons
    after a thin divider, then More. Keys show only in tooltips, on hover or keyboard focus. ===== */
@@ -1585,17 +1583,17 @@ form.q-ask:not(.q-open) .abar button[value=reply]{display:none}
 /* Respond keeps its word in a narrow reader: it is the one blue action until the sheet opens. */
 @media (min-width:761px){ @container (max-width:560px){ .abar .ab.resp{width:auto;padding:0 14px 0 11px} .abar .ab.resp .bl{position:static;width:auto;height:auto;overflow:visible;clip-path:none;white-space:nowrap} } }
 html .plate .dock form.q-ask .q-set{display:flex;flex-direction:column;gap:2px;max-width:680px}
-html .plate .dock form.q-ask label.opt{display:flex;align-items:flex-start;gap:10px;min-height:0;padding:8px 10px;border-radius:8px;background:none;box-shadow:none;transition:background .2s}
+html .plate .dock form.q-ask label.opt{display:flex;align-items:flex-start;gap:10px;min-height:0;padding:6px 10px;border-radius:8px;background:none;box-shadow:none;transition:background .2s}
 html .plate .dock form.q-ask label.opt:hover{background:var(--fill)}
 html .plate .dock form.q-ask label.opt:has(input:checked){background:var(--blue-t);box-shadow:none}
 form.q-ask label.opt input[type=radio]{margin-top:1px}
 form.q-ask .opt-t{flex:1;display:flex;flex-direction:column}
-form.q-ask .opt-h{font-weight:500;color:var(--label)}
+/* The answers read at the Pass column's sizes (Dan, 2026-11-14): the title as a tile's title, the paragraph as its preview line. */
+form.q-ask .opt-h,form.q-ask .opt-h b{font-weight:600;line-height:1.3;color:var(--label)}
 form.q-ask .opt-h .rec{margin-left:6px;vertical-align:1px}
 form.q-ask .opt-d{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .26s cubic-bezier(.2,.8,.2,1),margin .26s,opacity .2s}
-form.q-ask .opt-d>span{display:block;min-height:0;overflow:hidden;font-size:13px;line-height:1.4;color:var(--label2)}
-form.q-ask label.opt:has(input:checked) .opt-d{grid-template-rows:1fr;margin-top:3px;opacity:1}
-form.q-ask .q-why{margin:6px 10px 0;font-size:13px;color:var(--label2)}
+form.q-ask .opt-d>span{display:block;min-height:0;overflow:hidden;font-size:13px;font-weight:400;line-height:1.35;color:var(--label2)}
+form.q-ask label.opt:has(input:checked) .opt-d{grid-template-rows:1fr;margin-top:2px;opacity:1}
 @media (prefers-reduced-motion:reduce){.ans,.ans-in,form.q-ask .opt-d{transition:none}}
 `;
 // Appearance (theme.ts): every dark and light rule also answers to the html element's data-theme.

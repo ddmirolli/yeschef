@@ -390,8 +390,8 @@ const plainLine = (l: string): string => l.replace(/\*\*/g, '').replace(/^\s*(?:
 // "Recommendation: a now. Offer b to the team next week.": the words after the label, when they start with an option letter.
 const REC_LABEL = /^\s*(?:[-*]\s+)?\**recommend(?:ation|ed|s)?\**\s*:\**\s*/i;
 const recRest = (line: string): string | null => { if (!REC_LABEL.test(line)) return null; const r = line.replace(REC_LABEL, '').replace(/\*\*/g, '').trim(); return /^\(?[a-i]\b(?![a-z'])/i.test(r) ? r : null; };
-/** Each decision's recommendation, when it says more than its letter. The message drops the line, so its question's
- *  card shows it under the options (Dan, 2026-11-08: "Recommendation: a. T3 Code uses it" lost its reason). */
+/** Each decision's recommendation line, which the message drops. Its card showed the reason under the options (Dan,
+ *  2026-11-08) until the Recommended pill said it alone (Dan, 2026-11-14: "solved by the Recommended pill"). */
 function recNotes(call: CallMessage): { notes: string[]; used: Set<number> } {
   // Only the line the parser read each decision's recommendation from moves: never advice from another part of the
   // message (PR-Agent r1, r4, r5, r7 on #50).
@@ -453,12 +453,12 @@ function callDock(k: Ticket, call: CallMessage, done: Answered | undefined): str
   }
   // An unconfirmed send comes back filled in, under its first id, so a retry repeats those exact bytes and T3 keeps one.
   const retry = !!done && !done.confirmed;
-  const n = call.calls.length, why = recNotes(call).notes;
+  const n = call.calls.length;
   return formOpen(k, hidden('call', call.key), done && retry ? done.nonce : randomUUID()).replace('class="act"', `class="act q-ask${retry ? ' q-open' : ''}${n > 1 ? ' q-car' : ''}"`)
     + (retry ? `<p class="result bad">Not confirmed: your ${e(done.picks)} at ${e(done.at)} may not have reached T3. Check the thread in T3, or send the same answer again.</p>` : '')
     + sheet(qNav(n) + call.calls.map((c, i) => `<fieldset class="q-set${qOn(n, i)}"${retry ? ' disabled' : ''}><legend>${e(c.question)}</legend>`
       + c.options.map((o) => { const [h, d] = optSplit(o.text); return `<label class="opt"><input type="radio" name="c:${i}" value="${o.letter}" data-key="${o.letter}" data-need${o.letter === c.recommend ? ' data-rec' : ''}${retry && done?.letters?.[i] === o.letter ? ' checked' : ''}>${optBody(o.letter, optText(h), d ? optText(d) : '', o.letter === c.recommend)}</label>`; }).join('')
-      + (why[i] ? `<p class="q-why"><b>Recommendation:</b> ${e(why[i])}</p>` : '') + `</fieldset>`).join('')
+      + `</fieldset>`).join('')
     + (done && retry ? '' : noteField('optional with your answer, needed for Reply')))
     + (done && retry ? call.calls.map((c, i) => hidden(`c:${i}`, done.letters?.[i] || '')).join('') + hidden('note', done.note || '') : '')
     // A retry sends the same answer again and nothing else, so its row has only that.
@@ -1277,7 +1277,7 @@ function viewMenu({ team, projs, picked, icons, ok, head = null, bare = false }:
  *  and team.now, Your team draws its calls (Open kitchen); without a view it says "Not checked". */
 export interface RenderInput {
   board: Board; picked?: readonly string[] | null; link: (t: ThreadRow) => string; status: Status; origin: string;
-  answered?: ReadonlyMap<string, Answered>; projects?: readonly Pick<Project, 'id' | 'title'>[]; rules?: unknown; team?: TeamInput | null;
+  answered?: ReadonlyMap<string, Answered>; projects?: readonly Pick<Project, 'id' | 'title' | 'icon'>[]; rules?: unknown; team?: TeamInput | null;
   /** The team as its lead sees it, for the team's rows in Settings -> Rules; null for anyone else. */
   lead?: TeamView | null;
   /** The areas a project (by name) is in, as rules keys ("area:<id>"): their overrides reach the Pass's checks. */
@@ -1368,7 +1368,7 @@ export function renderApp({ board, picked = null, link, status, origin, answered
   // Your team is not built yet (Dan, 2026-11-10): with reports, its view says so instead of showing anything made up.
   const teamWait = team ? `<section class="team-wait" aria-label="Your team"><header class="you-h">${teamHead}</header><div class="tw-b"><p><b>${e(team.name || 'Your team')}</b></p><p class="muted">Not checked. Your team's view needs the team connection, which Yes Chef does not have yet.</p></div></section>` : '';
   const lamp = status.ok ? 'ok' : 'bad';
-  const projectOptions = `<select id="yc-projects" hidden>${[...projects].sort((a, b) => String(a.title).localeCompare(String(b.title))).map((p) => `<option value="${e(p.id)}">${e(p.title || 'Untitled')}</option>`).join('')}</select>`;
+  const projectOptions = `<select id="yc-projects" hidden>${[...projects].sort((a, b) => String(a.title).localeCompare(String(b.title))).map((p) => `<option value="${e(p.id)}" data-mark="${e(fanMark(p.title || 'Untitled', p.icon))}">${e(p.title || 'Untitled')}</option>`).join('')}</select>`;
   const detail = status.ok ? `T3 Code at ${new URL(origin).host}. Checked ${new Date(status.at).toLocaleTimeString()} (${status.ms} ms).` : '';
   // The project menu (or, with reports, the view switch), the connection and Settings sit at the foot of the stage
   // list (Dan, 2026-11-08), pinned to the bottom of the column with no rule above them: the space does the separating

@@ -181,7 +181,7 @@ export function launchDialog(): string {
 <div class="lx-pop lx-pick" data-lx-pop="pick" role="dialog" aria-label="Model and effort" hidden><div class="lx-rail" role="tablist" aria-label="Providers" aria-orientation="vertical"></div><div class="lx-col lx-models" role="listbox" aria-label="Models"></div><div class="lx-col lx-effs" role="listbox" aria-label="Effort"></div></div>
 </div>
 <div class="lx-strip">
-<label class="lx-ctl lx-proj">${c.icon(c.LUCIDE.project)}<select name="project" required aria-label="Project"></select>${chev}</label>
+<label class="lx-ctl lx-proj"><span class="lx-pj">${c.icon(c.LUCIDE.project)}</span><select name="project" required aria-label="Project"></select>${chev}</label>
 <span class="lx-anchor"><button type="button" class="lx-ctl" data-lx-open="ws" aria-haspopup="menu" aria-expanded="false"><span class="lx-wsi">${c.icon(c.LUCIDE.folderGit)}</span><span class="lx-wsl">New worktree</span>${chev}</button>
 <div class="lx-pop lx-menu" data-lx-pop="ws" role="menu" aria-label="Workspace" hidden>
 <p class="lx-mh">Workspace</p>
@@ -217,6 +217,8 @@ export const LAUNCH_CSS = `
 .lx-ctl:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 .lx-i{width:14px;height:14px;flex:none}
 .lx-strip .lx-i{width:12px;height:12px}
+.lx-pj{display:inline-flex;flex:none}
+.lx-pj .pm{width:14px;height:14px;border-radius:4px;font-size:9px}
 .lx-chev{width:12px;height:12px;flex:none;opacity:.7}
 .lx-proj{position:relative}
 .lx-proj select{appearance:none;-webkit-appearance:none;max-width:220px;padding:0;border:0;background:none;color:inherit;font:inherit;cursor:pointer;outline:none;text-overflow:ellipsis}
@@ -302,6 +304,9 @@ export function installLauncher(app: LauncherApp, core: LauncherCore): LauncherA
     var ef = $('.lx-ef', trigger)!, v = F('effort').value, g = m && m.effort && v ? core.glyph(m.effort.values, v) : null;
     ef.innerHTML = g ? core.glyphSvg(g) : v ? '<span>' + core.esc(core.word(v)) + '</span>' : '';
     trigger.setAttribute('aria-label', 'Model: ' + label + (v ? ', effort ' + core.word(v) : ''));
+    // The project's mark from T3, as T3's own project picker shows it (Dan, 2026-11-14); a folder until one is picked.
+    var sel = form.elements.namedItem('project') as HTMLSelectElement | null, so = sel && sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex] : null;
+    $('.lx-pj', dlg)!.innerHTML = so && so.dataset.mark ? so.dataset.mark : core.icon(core.LUCIDE.project);
     // The workspace and the permissions name what they will send.
     var ws = $<HTMLInputElement>('input[name=workspace]:checked', form), root = !!ws && ws.value === 'root';
     $('.lx-wsl', dlg)!.textContent = root ? 'Current checkout' : 'New worktree';
@@ -391,6 +396,7 @@ export function installLauncher(app: LauncherApp, core: LauncherCore): LauncherA
   form.addEventListener('change', function(ev){
     var t = ev.target as HTMLInputElement;
     if (t.name === 'workspace') { draw(); closePops(true); }
+    if (t.name === 'project') draw();
   });
   // Esc closes the open picker or menu first, then the dialog.
   dlg.addEventListener('cancel', function(ev){ if (popped()) { ev.preventDefault(); closePops(true); } });
