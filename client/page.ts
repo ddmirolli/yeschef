@@ -132,6 +132,19 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   DP_SHEET.addEventListener('change', function(){ if (mounted && mounted.classList.contains('dp-on')) dpSet(mounted, true, false); });
   // Its left edge resizes it, as T3 Code's does (usePreviewPanelInlineSize.ts): 540 px at first, at least 360, at most
   // 70% of the window with 360 left for the reader. Each ticket keeps its own width, as T3 keeps one per thread.
+  // A dialog opened with the pointer hands focus back to its button with no ring when it closes, however it closes
+  // (Dan, 2026-11-13: Settings kept a blue ring after Esc). One opened from the keyboard keeps the ring.
+  var byPointer = false;
+  document.addEventListener('pointerdown', function(){ byPointer = true; }, true);
+  document.addEventListener('keydown', function(){ byPointer = false; }, true);
+  [setDlg, launchDlg].forEach(function(d){
+    var pointerOpened = false;
+    new MutationObserver(function(){ if (d.open) pointerOpened = byPointer; }).observe(d, { attributes: true, attributeFilter: ['open'] });
+    d.addEventListener('close', function(){
+      if (!pointerOpened) return; pointerOpened = false;
+      setTimeout(function(){ var a = document.activeElement as HTMLElement | null; if (a && a.matches('button, summary, a')) a.blur(); }, 0);
+    });
+  });
   function dpSized(plate: HTMLElement): void { var w = Number(store('yc.dpw:' + plate.id)); if (w >= 360) plate.style.setProperty('--dpw', Math.round(w) + 'px'); }
   document.addEventListener('pointerdown', function(ev){
     var h = ev.button === 0 && (ev.target as Element).closest ? (ev.target as Element).closest<HTMLElement>('.dp-rz') : null;

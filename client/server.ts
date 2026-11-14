@@ -963,9 +963,10 @@ textarea{resize:none!important}
 @media (min-width:761px){
   :is(.v-pass,.v-kitchen) .stagenav{overflow:visible}
   :is(.v-pass,.v-kitchen) .nav-scroll{display:flex;flex-direction:column;gap:2px;flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
-  :is(.v-pass,.v-kitchen) .nav-foot{display:flex;flex-direction:column;gap:10px;margin:auto 0 0;padding-top:12px}
+  /* The project selector, Live and Settings are one set of boxes: 36 px tall, 10 px corners, 8 px apart (Dan, 2026-11-13). */
+  :is(.v-pass,.v-kitchen) .nav-foot{display:flex;flex-direction:column;gap:8px;margin:auto 0 0;padding-top:12px}
   :is(.v-pass,.v-kitchen) .nav-foot .pmenu{margin:0}
-  :is(.v-pass,.v-kitchen) .nav-foot .pmenu summary{width:100%}
+  :is(.v-pass,.v-kitchen) .nav-foot .pmenu summary{width:100%;min-height:36px;border-radius:10px}
   :is(.v-pass,.v-kitchen) .nav-foot .pmenu summary>span:first-of-type:not(.vi){flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* The stage list scrolls in a short window, so its project menu is a fixed layer that placeNavMenu sets by its button. */
   :is(.v-pass,.v-kitchen) .nav-foot .pmenu-l{position:fixed;top:auto;right:auto;bottom:auto;left:auto;overflow-y:auto;overscroll-behavior:contain}
