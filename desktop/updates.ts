@@ -362,8 +362,9 @@ export function createUpdates({ updater, squirrel, app, version, channel: saved 
     if (!canSwitch()) return false;
     // A check that runs now would answer for the old track, and electron-updater hands a new check that same check's
     // promise until it ends, even after its events: the switch starts when that promise ends (PR-Agent r1 on #82).
-    // Picking the followed track again while one waits cancels the waiting one.
-    if (checking) { queued = next === channel ? null : next; return true; }
+    // Picking the followed track again while another waits cancels that one; with none waiting it is a retry of a
+    // stopped switch, so it waits like any other (PR-Agent r3 on #82).
+    if (checking) { queued = queued && next === channel ? null : next; return true; }
     switchTo(next);
     return true;
   }

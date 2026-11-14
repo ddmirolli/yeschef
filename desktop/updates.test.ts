@@ -575,6 +575,21 @@ test('picking the running track again cancels a switch that waits for a check (P
   assert.equal(updater.checks, 1);
 });
 
+test('retrying a stopped switch during a background check still switches (PR-Agent r3 on #82)', async () => {
+  const { updater, end } = coalescing();
+  const { updates, timers } = setup({ version: '0.2.3', channel: 'nightly', updater });
+  nth(timers.timeouts).fn();
+  await tick();
+  updates.setChannel('nightly');
+  updater.emit('update-not-available', { version: '0.2.3' });
+  end();
+  await tick(); await tick();
+  assert.equal(updates.state.switching, 'nightly');
+  assert.equal(updater.checks, 2);
+  updater.emit('update-available', { version: '0.2.4-nightly.20261114.1' });
+  assert.equal(updater.downloads, 1);
+});
+
 test('no switch from a copy outside Applications: the move comes first (PR-Agent r2 on #82)', () => {
   const squirrel = fakeSquirrel();
   const updater = new FakeUpdater();
