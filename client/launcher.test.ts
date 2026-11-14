@@ -68,7 +68,9 @@ test('the effort glyph is T3’s: named levels are words, the rest are rising ba
 test('permissions never go past what Yes Chef was approved for, or what the provider runs', () => {
   const c = launcherCore();
   assert.deepEqual(c.modesFor('auto', null), ['approval-required', 'auto-accept-edits', 'auto']);
-  assert.deepEqual(c.modesFor(null, null), c.ORDER);
+  // Before T3 says the approved level, only the project default is offered (PR-Agent r1 on #79).
+  assert.deepEqual(c.modesFor(null, null), []);
+  assert.deepEqual(c.modesFor('full-access', null), c.ORDER);
   assert.deepEqual(c.modesFor('full-access', { modes: ['approval-required', 'full-access'] }), ['approval-required', 'full-access']);
   assert.equal(c.MODES['approval-required']!.label, 'Supervised');
 });

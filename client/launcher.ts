@@ -153,9 +153,10 @@ export function launcherCore() {
   }
   // The trigger's name for a model: T3 drops the brand the provider mark already shows ("Claude Opus 5.5" reads "Opus 5.5").
   function short(label: string): string { return label.replace(/^Claude\s+/, ''); }
-  /** The modes a launch may ask for: no more than Yes Chef was approved for, and only those the provider runs. */
+  /** The modes a launch may ask for: no more than Yes Chef was approved for, and only those the provider runs. An
+   *  approval not read yet allows none: only the project default (PR-Agent r1 on #79). */
   function modesFor(ceiling: string | null, provider: { modes: string[] | null } | null): string[] {
-    var top = ceiling ? ORDER.indexOf(ceiling) : ORDER.length - 1;
+    var top = ceiling ? ORDER.indexOf(ceiling) : -1;
     return ORDER.filter(function(m, i){ return i <= top && (!provider || !provider.modes || provider.modes.indexOf(m) >= 0); });
   }
   return { WORDS: WORDS, MODES: MODES, LUCIDE: LUCIDE, ORDER: ORDER, icon: icon, mark: mark, esc: esc, word: word, glyph: glyph, heights: heights, glyphSvg: glyphSvg, short: short, modesFor: modesFor };
@@ -326,7 +327,8 @@ export function installLauncher(app: LauncherApp, core: LauncherCore): LauncherA
     if (!provider(shownProvider)) shownProvider = provider(cur) ? cur : ps[0]!.id;
     rail.innerHTML = ps.map(function(p){ return '<button type="button" role="tab" data-lx-prov="' + core.esc(p.id) + '" aria-selected="' + (p.id === shownProvider) + '" title="' + core.esc(p.name) + '" aria-label="' + core.esc(p.name) + '">' + core.mark(p.driver, p.name) + '</button>'; }).join('');
     var p = provider(shownProvider)!;
-    models.innerHTML = '<p class="lx-mh">' + core.esc(p.name) + '</p>' + p.models.map(function(m){
+    // Project default first, so a pick can always go back to T3's own choice for the project (PR-Agent r1 on #79).
+    models.innerHTML = row('data-lx-model=""', '<span>Project default</span>', !F('model').value) + '<p class="lx-mh">' + core.esc(p.name) + '</p>' + p.models.map(function(m){
       return row('data-lx-model="' + core.esc(m.id) + '"', '<span>' + core.esc(m.label) + '</span>', cur === p.id && F('model').value === m.id);
     }).join('');
     var m = modelOf(provider(cur), F('model').value);
@@ -337,8 +339,9 @@ export function installLauncher(app: LauncherApp, core: LauncherCore): LauncherA
   }
   function drawPerm(): void {
     var modes = core.modesFor(caps && caps.ok ? caps.ceiling || null : null, provider(F('instance').value)), r = F('runtime').value;
+    var why = !caps ? 'Reading the level Yes Chef was approved for…' : !caps.ok || !caps.ceiling ? 'Others: not checked. T3 Code did not say the level Yes Chef was approved for.' : '';
     permPop.innerHTML = '<p class="lx-mh">Permissions</p>' + row('data-lx-mode="" role="menuitemradio"', '<span class="lx-two"><b>Project default</b><small>What T3 Code starts this project with.</small></span>', !r) +
-      modes.map(function(k){ var md = core.MODES[k]!; return row('data-lx-mode="' + k + '" role="menuitemradio"', core.icon(md.icon) + '<span class="lx-two"><b>' + md.label + '</b><small>' + md.d + '</small></span>', r === k); }).join('');
+      (why ? '<p class="lx-none">' + why + '</p>' : '') + modes.map(function(k){ var md = core.MODES[k]!; return row('data-lx-mode="' + k + '" role="menuitemradio"', core.icon(md.icon) + '<span class="lx-two"><b>' + md.label + '</b><small>' + md.d + '</small></span>', r === k); }).join('');
     $$('.lx-row', permPop).forEach(function(b){ b.removeAttribute('aria-selected'); });
   }
   function pops(): HTMLElement[] { return $$<HTMLElement>('[data-lx-pop]', dlg); }
@@ -376,6 +379,7 @@ export function installLauncher(app: LauncherApp, core: LauncherCore): LauncherA
     var pv = t.closest<HTMLElement>('[data-lx-prov]');
     if (pv) { shownProvider = pv.dataset.lxProv!; drawPick(); var fm = $<HTMLElement>('[data-lx-model]', models); if (fm) fm.focus(); return; }
     var mb = t.closest<HTMLElement>('[data-lx-model]');
+    if (mb && !mb.dataset.lxModel) { setPick('', '', ''); app.store(KEY, 'null'); closePops(true); return; }
     if (mb) { setPick(shownProvider, mb.dataset.lxModel!, F('effort').value, true); var fe = $<HTMLElement>('[aria-checked=true][data-lx-eff]', effs) || $<HTMLElement>('[data-lx-eff]', effs); if (fe) fe.focus(); else { closePops(true); } return; }
     var eb = t.closest<HTMLElement>('[data-lx-eff]');
     if (eb) { setPick(F('instance').value, F('model').value, eb.dataset.lxEff!, true); closePops(); trigger.focus(); return; }
@@ -414,6 +418,10 @@ export function installLauncher(app: LauncherApp, core: LauncherCore): LauncherA
     fetch('/caps', { headers: { accept: 'application/json' } }).then(function(r){ return r.json(); }).then(function(c){
       caps = c && typeof c === 'object' ? c : { ok: false, why: 'T3 Code did not answer.' };
     }, function(){ caps = { ok: false, why: 'T3 Code did not answer.' }; }).then(function(){
+      // A pick T3 no longer lists goes back to the project default, which the trigger then names, rather than being
+      // sent anyway; so do permissions past the approval, or any while it is unknown (PR-Agent r1 on #79).
+      if (caps && caps.ok && F('model').value && !modelOf(provider(F('instance').value), F('model').value)) { setPick('', '', ''); app.store(KEY, 'null'); }
+      var r = F('runtime').value; if (r && core.modesFor(caps && caps.ok ? caps.ceiling || null : null, provider(F('instance').value)).indexOf(r) < 0) { F('runtime').value = ''; form.dispatchEvent(new Event('input', { bubbles: true })); }
       // Nothing picked yet: the last model you picked, if T3 still lists it.
       if (!F('model').value && caps && caps.ok) {
         var last: { inst?: string; model?: string; effort?: string } | null = null; try { last = JSON.parse(app.store(KEY) || 'null'); } catch (x) { last = null; }

@@ -1993,7 +1993,8 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     }
     if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
     // In an open answer sheet the arrows move the pick, one option at a time, and stay on this question's card.
-    var so = (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') && mounted ? $('form.act.q-ask.q-open', mounted) : null;
+    // The sheet you are in, else the open ticket's first open one: a ticket can hold more than one (PR-Agent r1 on #79).
+    var so = (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') && mounted ? ((ev.target as Element).closest && (ev.target as Element).closest<HTMLFormElement>('form.act.q-ask.q-open')) || $('form.act.q-ask.q-open', mounted) : null;
     if (so && !(ev.target as Element).closest('select, summary, [contenteditable], .abar')) {
       var on = qSets(so)[qAt(so)], rs = on && !on.disabled ? $$<HTMLInputElement>('input[type=radio]', on) : [];
       if (rs.length) {
@@ -2019,7 +2020,8 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
     if (k === '?') { ev.preventDefault(); openSettings('keys'); return; }
     if (k === 'z') { var last = pendingSends[pendingSends.length - 1]; if (last) last.undo(); return; }
     if (k === 'v') { toggleView(); return; }
-    if (k === 'Escape') { if (mounted && $$('form.act.q-open', mounted).some(closeSheet)) return; if (sheet.open) sheet.close(); return; }
+    // Esc folds an open answer sheet first, and only that: the narrow reader is a dialog Esc would close too (PR-Agent r1 on #79).
+    if (k === 'Escape') { if (mounted && $$('form.act.q-open', mounted).some(closeSheet)) { ev.preventDefault(); return; } if (sheet.open) sheet.close(); return; }
     if (k === 'o' && mounted) { var link = $('.plate-bar a[href]', mounted); if (link) link.click(); return; }
     if (!form) return;
     // . opens More, as in Gmail, with its first row in focus.
