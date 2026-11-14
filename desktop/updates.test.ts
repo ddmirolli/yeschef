@@ -482,6 +482,7 @@ test('a switch that fails stops with its error; picking the own track again rein
   updater.emit('error', new Error('net::ERR_INTERNET_DISCONNECTED'));
   assert.equal(updates.state.status, 'error');
   assert.equal(updates.state.manual, true);
+  await tick();
   updates.setChannel('latest');
   assert.deepEqual(saved, ['nightly', 'latest']);
   assert.equal(updater.allowDowngrade, false);
@@ -505,22 +506,67 @@ test('only a build of the saved track is offered or installed', async () => {
   assert.match(must(other.updates.state.message), /not a Nightly build\. Nothing was installed\./);
 });
 
-test('a switch asked for during a background check starts when that check ends', async () => {
+/** electron-updater's check: while one runs, a new call gets the same promise, even after its events. */
+function coalescing() {
   const updater = new FakeUpdater();
+  let pending: Promise<unknown> | null = null;
   let end = () => {};
-  updater.checkForUpdates = function () { this.checks++; return new Promise((r) => { end = () => r(null); }); };
+  updater.checkForUpdates = function () {
+    if (pending) return pending;
+    this.checks++;
+    pending = new Promise((r) => { end = () => { pending = null; r(null); }; });
+    return pending;
+  };
+  return { updater, end: () => end() };
+}
+
+test('a switch asked for during a background check starts when that check\'s promise ends (PR-Agent r1 on #82)', async () => {
+  const { updater, end } = coalescing();
   const { updates, timers } = setup({ version: '0.2.3', updater });
   nth(timers.timeouts).fn();
   await tick();
   assert.equal(updater.checks, 1);
   assert.equal(updates.setChannel('nightly'), true);
   assert.equal(updates.channel, 'latest', 'the running check answers for Stable');
+  // Its event comes before its promise ends: a check started now would get that same, Stable, promise.
   updater.emit('update-not-available', { version: '0.2.3' });
-  assert.equal(updates.channel, 'nightly');
+  await tick();
+  assert.equal(updates.channel, 'latest');
   end();
   await tick(); await tick();
-  assert.equal(updater.checks, 2);
+  assert.equal(updates.channel, 'nightly');
+  assert.equal(updater.checks, 2, 'the Nightly track gets a check of its own');
   assert.equal(updates.state.status, 'checking');
+  updater.emit('update-available', { version: '0.2.4-nightly.20261114.1' });
+  assert.equal(updater.downloads, 1);
+});
+
+test('a track picked during a switch\'s check wins: the first switch downloads nothing (PR-Agent r1 on #82)', async () => {
+  const { updater, end } = coalescing();
+  const { updates, saved } = setup({ version: '0.2.3', updater });
+  updates.setChannel('nightly');
+  await tick();
+  assert.equal(updates.canSwitch(), true);
+  updates.setChannel('latest');
+  updater.emit('update-available', { version: '0.2.4-nightly.20261114.1' });
+  assert.equal(updater.downloads, 0);
+  end();
+  await tick(); await tick();
+  assert.deepEqual(saved, ['nightly', 'latest']);
+  assert.equal(updates.channel, 'latest');
+  assert.equal(updater.allowDowngrade, false);
+  assert.equal(updater.downloads + updater.installs, 0);
+});
+
+test('a stopped switch can be tried again on the same track', async () => {
+  const { updates, updater } = setup({ version: '0.2.3' });
+  updates.setChannel('nightly');
+  updater.emit('update-not-available', { version: '0.2.3' });
+  assert.equal(updates.state.status, 'error');
+  await tick();
+  assert.equal(updates.setChannel('nightly'), true);
+  assert.equal(updates.state.status, 'checking');
+  assert.equal(updates.state.switching, 'nightly');
 });
 
 test('a switch whose check ends with no answer stops, and a later check does not download for it', async () => {

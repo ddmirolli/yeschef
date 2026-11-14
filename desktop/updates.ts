@@ -257,11 +257,11 @@ export function createUpdates({ updater, squirrel, app, version, channel: saved 
     // that ran on the track before a switch, or a feed that lists the other track, offers nothing.
     if (channelOf(found) !== channel) { log.info?.(`Update ${found} ignored: not on the ${CHANNELS[channel].label} track.`); return nothingFound(manual); }
     // A background check that finds the version the card already offers keeps the card as it is (hidden or not).
-    if (!manual && state.status === 'available' && state.version === found) return settle();
+    if (!manual && state.status === 'available' && state.version === found) return;
     set({ status: 'available', version: found, manual, ...(switching ? { switching } : {}) });
-    // A switch takes what it found at once: the user asked for it in the menu.
-    if (switching) download();
-    settle();
+    // A switch takes what it found at once: the user asked for it in the menu. Not when the user has picked another
+    // track since: that pick runs when this check ends (PR-Agent r1 on #82).
+    if (switching && !queued) download();
   });
   updater.on('update-not-available', () => nothingFound(doing === 'check'));
   updater.on('download-progress', (raw: unknown) => {
@@ -281,7 +281,7 @@ export function createUpdates({ updater, squirrel, app, version, channel: saved 
     if (channelOf(info.value.version) !== channel) {
       switching = null;
       set({ status: 'error', manual: true, message: `Yes Chef downloaded ${info.value.version}, which is not a ${CHANNELS[channel].label} build. Nothing was installed.` });
-      return settle();
+      return;
     }
     set({ status: 'ready', version: info.value.version, manual: true, ...(switching ? { switching } : {}) });
     // A switch restarts into the build it downloaded.
@@ -335,7 +335,6 @@ export function createUpdates({ updater, squirrel, app, version, channel: saved 
       set({ status: 'error', manual: true, message: `There is no ${label} build to switch to yet. Try again in a few minutes.` });
     } else if (manual) set({ status: 'current', manual: true });
     else if (state.status === 'checking' || state.status === 'error') set({ status: 'idle' });
-    settle();
   }
   /** Point electron-updater at a track. Its channel setter also allows downgrades, so allowDowngrade is set after it:
    *  only a track other than the running build's own may offer an older version (T3 Code: "Only leaving the running
@@ -352,8 +351,9 @@ export function createUpdates({ updater, squirrel, app, version, channel: saved 
   /** The track switch (T3 Code's setChannel): saved first, so a switch that stops part way keeps the user's choice. */
   function setChannel(next: ChannelName): boolean {
     if (!canSwitch()) return false;
-    // A check that runs now would answer for the old track: the switch starts when it ends.
-    if (doing === 'check' || doing === 'poll') { queued = next; return true; }
+    // A check that runs now would answer for the old track, and electron-updater hands a new check that same check's
+    // promise until it ends, even after its events: the switch starts when that promise ends (PR-Agent r1 on #82).
+    if (checking) { queued = next; return true; }
     switchTo(next);
     return true;
   }
@@ -367,9 +367,9 @@ export function createUpdates({ updater, squirrel, app, version, channel: saved 
     if (switching) { set({ status: 'checking', manual: true, switching }); check({ manual: true }); }
     else check();
   }
-  /** After a check ends: a switch asked for while it ran starts now. */
+  /** After a check's promise ends (check, below): a switch asked for while it ran starts now. */
   function settle(): void {
-    if (!queued || doing) return;
+    if (!queued || doing || checking) return;
     const next = queued;
     queued = null;
     switchTo(next);
@@ -429,9 +429,9 @@ export function createUpdates({ updater, squirrel, app, version, channel: saved 
     doing = null;
     log.error?.(`Update ${was || 'check'} failed: ${shortError(e)}`);
     // A switch that fails stops: the saved track stays, and Update Track tries it again.
-    if (switching && was !== 'poll') { switching = null; set({ status: 'error', message: shortError(e), manual: true }); settle(); return; }
+    if (switching && was !== 'poll') { switching = null; set({ status: 'error', message: shortError(e), manual: true }); return; }
     // A background check that fails (offline, GitHub busy) stays quiet and tries again in 4 minutes.
-    if (was === 'poll' || was === null) { if (state.status === 'checking') set({ status: 'idle' }); settle(); return; }
+    if (was === 'poll' || was === null) { if (state.status === 'checking') set({ status: 'idle' }); return; }
     set({ status: 'error', message: shortError(e), manual: true });
   }
 }

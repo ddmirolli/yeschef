@@ -362,7 +362,9 @@ function saveChannel(c: ChannelName): void {
 }
 /** Update Track: switch after the user confirms, as T3 Code's "Switch to Nightly?" (UpdateTrackSwitchDialog). */
 function pickTrack(next: ChannelName): void {
-  if (!updates || next === updates.channel) { buildMenu(); return; }
+  // The saved track again is a no-op, unless a switch to it stopped (no build yet, offline): then it is the retry
+  // (PR-Agent r1 on #82).
+  if (!updates || (next === updates.channel && next === CHANNEL)) { buildMenu(); return; }
   const label = CHANNELS[next].label, own = next === CHANNEL;
   const answer = dialog.showMessageBoxSync(win!, {
     type: 'question', message: `Switch to ${label}?`, buttons: [`Switch to ${label}`, 'Cancel'], defaultId: 0, cancelId: 1,
