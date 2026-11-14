@@ -1527,7 +1527,7 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   function settledUnconfirmed(id: string): void {
     if (unconfirmed[id] && unconfirmed[id]!.form) unconfirmed[id]!.form.classList.remove('held');
     delete unconfirmed[id]; var rb =document.querySelector('#' + CSS.escape(id) + ' .retry'); if (rb) rb.remove();
-    if (id === 'launch') { var lb = $('#launch button[value=launch] .bl'); if (lb) lb.textContent = 'Launch'; }
+    if (id === 'launch') { var lb = $('#launch button[value=launch] .bl'); if (lb) lb.textContent = ''; }
     yieldKey();
   }
   function retry(id: string): void {

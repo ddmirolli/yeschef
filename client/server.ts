@@ -1762,7 +1762,7 @@ async function runAct(input: Record<string, string>, line: AuditLine): Promise<A
     // T3 Code checks its limits before it changes anything: a typed denial means nothing happened.
     if (/capability_denied/.test(ex.message)) {
       audit({ ...line, refused: 'capability_denied' });
-      return { status: 403, text: 'T3 Code refused: this thread runs at a higher level than Yes Chef was approved for. Nothing was sent.' };
+      return { status: 403, text: input.kind === 'launch' ? 'T3 Code refused: those permissions are more than Yes Chef was approved for. Nothing was started.' : 'T3 Code refused: this thread runs at a higher level than Yes Chef was approved for. Nothing was sent.' };
     }
     // T3 may have taken the action before the reply failed: say "not confirmed", never "nothing changed".
     audit({ ...line, unconfirmed: String(ex.message).slice(0, 200) });
