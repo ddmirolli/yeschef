@@ -243,12 +243,9 @@ test('topLevel reads electron-builder\'s simple YAML', () => {
 
 test('the app\'s update settings must name the source repo, its channel and its own cache', () => {
   assert.deepEqual(appUpdateProblems(APP_UPDATE, STABLE_BUILD), []);
-  // A Nightly build that kept Stable's cache or channel would share Stable's updates.
-  const nightly = { ...STABLE_BUILD, pkg: 'yeschef-desktop-nightly', channel: 'nightly' };
-  assert.deepEqual(appUpdateProblems(APP_UPDATE, nightly), [
-    'updaterCacheDirName is yeschef-desktop-updater, should be yeschef-desktop-nightly-updater',
-    'channel is latest, should be nightly',
-  ]);
+  // A Nightly build is the same app (one cache), but its feed starts on the Nightly channel.
+  const nightly = { ...STABLE_BUILD, channel: 'nightly' };
+  assert.deepEqual(appUpdateProblems(APP_UPDATE, nightly), ['channel is latest, should be nightly']);
   assert.deepEqual(appUpdateProblems(APP_UPDATE.replace('repo: yeschef', 'repo: agent-brigade'), STABLE_BUILD), ['repo is agent-brigade, should be yeschef']);
   assert.match(appUpdateProblems('', STABLE_BUILD).join(), /provider is missing/);
 });
@@ -318,7 +315,7 @@ test('the release carries the DMG, the ZIP, its blockmap and the channel\'s feed
   assert.deepEqual(releaseFiles('0.2.0'), ['Yes-Chef-0.2.0-arm64.dmg', 'Yes-Chef-0.2.0-arm64.zip', 'Yes-Chef-0.2.0-arm64.zip.blockmap', 'latest-mac.yml']);
   assert.deepEqual(releaseFiles('0.2.1-nightly.20261112.1').slice(-1), ['nightly-mac.yml']);
   assert.equal(releaseTitle('0.2.0'), 'Yes Chef 0.2.0');
-  assert.equal(releaseTitle('0.2.1-nightly.20261112.1'), 'Yes Chef (Nightly) 0.2.1-nightly.20261112.1');
+  assert.equal(releaseTitle('0.2.1-nightly.20261112.1'), 'Yes Chef 0.2.1-nightly.20261112.1');
 });
 
 test('the draft must hold exactly the built files, fully uploaded', () => {
@@ -332,7 +329,7 @@ test('the draft must hold exactly the built files, fully uploaded', () => {
 test('gh makes a draft at the built commit, then publishes Nightly as a prerelease and Stable as latest', () => {
   const nightly = ghArgs({ tag: 'v0.2.1-nightly.20261112.1', version: '0.2.1-nightly.20261112.1', channel: 'nightly', commit: 'abc123' }, 'notes.md');
   assert.deepEqual(nightly.create, ['release', 'create', 'v0.2.1-nightly.20261112.1', '--repo', 'ddmirolli/yeschef', '--draft', '--target', 'abc123',
-    '--title', 'Yes Chef (Nightly) 0.2.1-nightly.20261112.1', '--notes-file', 'notes.md', '--prerelease']);
+    '--title', 'Yes Chef 0.2.1-nightly.20261112.1', '--notes-file', 'notes.md', '--prerelease']);
   assert.deepEqual(nightly.publish, ['release', 'edit', 'v0.2.1-nightly.20261112.1', '--repo', 'ddmirolli/yeschef', '--draft=false', '--prerelease', '--latest=false']);
   const stable = ghArgs({ tag: 'v0.2.1', version: '0.2.1', channel: 'latest', commit: 'def456' }, 'notes.md');
   assert.deepEqual(stable.create.slice(-4), ['--title', 'Yes Chef 0.2.1', '--notes-file', 'notes.md']);
@@ -519,7 +516,7 @@ test('--ci runs only where GitHub Actions says it runs, and drops only the termi
 });
 
 // A Nightly as the Plan job plans it, and the build's plan file for it.
-const PLANNED = { version: '0.2.1-nightly.20261112.1', channel: 'nightly', tag: 'v0.2.1-nightly.20261112.1', from: null, due: true, commit: 'a'.repeat(40), title: 'Yes Chef (Nightly) 0.2.1-nightly.20261112.1', repo: 'ddmirolli/yeschef', plannedAt: '2026-11-12T08:23:00.000Z' };
+const PLANNED = { version: '0.2.1-nightly.20261112.1', channel: 'nightly', tag: 'v0.2.1-nightly.20261112.1', from: null, due: true, commit: 'a'.repeat(40), title: 'Yes Chef 0.2.1-nightly.20261112.1', repo: 'ddmirolli/yeschef', plannedAt: '2026-11-12T08:23:00.000Z' };
 const builtFiles = (version: string) => releaseFiles(version).map((name) => ({ name, path: name, size: 1, sha512: 'x' }));
 const BUILT = { ...PLANNED, built: '2026-11-12T08:40:00.000Z', files: builtFiles(PLANNED.version) };
 

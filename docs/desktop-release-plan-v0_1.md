@@ -95,7 +95,7 @@ Read in T3 Code's source (origin/main 3fa57b92a2, 2026-11-08): `apps/desktop/src
 | When it checks | 15 seconds after start, then every 4 minutes | The same |
 | Download | Never on its own (`autoDownload` off). The user starts it | The same |
 | Install | Never on quit (`autoInstallOnAppQuit` off). The user clicks restart | The same |
-| Channels | Stable and Nightly. Nightly is a prerelease with its own app name and icon | Stable and Nightly, "Yes Chef (Nightly)" |
+| Channels | Stable and Nightly, one app. Nightly is a prerelease with its own icon. Update track in Settings, with a switch that installs the other track's build | The same. Update Track in the Yes Chef menu |
 | What reaches Stable | Only a build Nightly users already ran | The same |
 | Release drafts | Kept as a draft until every file is attached | The same |
 | Where releases build | GitHub Actions | GitHub Actions, macOS arm64 only (section 7; Dan, 2026-11-10) |
@@ -105,7 +105,7 @@ Read in T3 Code's source (origin/main 3fa57b92a2, 2026-11-08): `apps/desktop/src
 
 Built in PR C (`desktop/updates.ts`, `desktop/channels.ts`; checked on this Mac on 2026-11-10 with dry-run builds and a feed on `127.0.0.1`):
 
-- **Two apps, not one.** Nightly is "Yes Chef (Nightly)", bundle ID `codes.yeschef.desktop.nightly`, with its own icon, data folder, Keychain item and update cache. T3 Code keeps one bundle ID and switches channels in its settings; Yes Chef has no channel switch. Squirrel.Mac installs only a bundle with the running app's bundle ID and team, so an update cannot cross channels.
+- **One app, as T3 Code (Dan, 2026-11-14; was two apps until then).** Stable and Nightly share the name, bundle ID `codes.yeschef.desktop`, data folder, Keychain item and update cache; a Nightly build has its own icon. Update Track in the Yes Chef menu saves the track, downloads that track's newest build (even an older version) and restarts into it, as T3 Code's track switch does. Squirrel.Mac installs only a bundle with the running app's bundle ID and team, so one bundle ID is what lets the builds replace each other. The old "Yes Chef (Nightly).app" (`codes.yeschef.desktop.nightly`) cannot update into these builds.
 - **No port.** electron-updater 6.8.9 hands the downloaded ZIP to Squirrel.Mac through a short-lived HTTP server on `127.0.0.1`, which Dan's no-port rule (2026-11-08) does not allow. Yes Chef replaces that step with a feed file and a `file://` URL. A test fails if an upgrade renames the step, and without it updates turn off.
 - **The prompt.** A card at the bottom right of the window, over the board or a waiting page, and the same actions in the Yes Chef menu.
 

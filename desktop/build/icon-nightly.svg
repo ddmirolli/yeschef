@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <!-- The Yes Chef (Nightly) Dock icon: the Stable icon's cloche (icon.svg), same size and place, on a night tile with
-       three stars, so the two apps never look alike in the Dock. Rendered to icon-nightly.png at 1024 with
+  <!-- The Nightly build's Dock icon: the Stable icon's cloche (icon.svg), same size and place, on a night tile with
+       three stars, so a Nightly build never looks like Stable in the Dock. Rendered to icon-nightly.png at 1024 with
        `rsvg-convert -w 1024 -h 1024 icon-nightly.svg -o icon-nightly.png`. -->
   <defs>
     <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">

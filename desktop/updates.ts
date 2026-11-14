@@ -4,7 +4,11 @@
 //   - The first check runs 15 seconds after start, then one every 4 minutes.
 //   - Nothing downloads on its own (autoDownload off) and nothing installs on quit (autoInstallOnAppQuit off).
 //     The user starts the download, then picks Restart, or When I Quit, which is the only way install on quit turns on.
-//   - Stable takes only Stable releases; Nightly only Nightly releases (channels.ts). Never an older version.
+//   - Stable takes only Stable releases; Nightly only Nightly releases (channels.ts). Never an older version on its
+//     own track. The track is the user's choice (Update Track in the app menu), saved, as T3 Code's update channel;
+//     until one is saved it is the running build's own. Switching track (setChannel) checks the other track, takes
+//     its newest build even when that is an older version, downloads it and restarts into it, as T3 Code's track
+//     switch does (apps/desktop/src/updates/DesktopUpdates.ts setChannel; Dan, 2026-11-14).
 //
 // No Electron import here: main.ts passes in electron-updater's autoUpdater, Electron's own (Squirrel.Mac) autoUpdater
 // and the app, so the rules below run under vitest with stand-ins (desktop/updates.test.ts).
@@ -31,13 +35,15 @@ const UNREADABLE = 'The update server sent an answer Yes Chef cannot read.';
 export type UpdateStatus = 'off' | 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'current' | 'error';
 export interface UpdateState {
   status: UpdateStatus; version?: string | undefined; percent?: number; manual?: boolean; hidden?: boolean; onQuit?: boolean; message?: string;
+  /** While a track switch runs: the track it switches to. */
+  switching?: ChannelName;
 }
 export interface CardButton { id: string; label: string; primary?: boolean }
 /** The update card's copy. The preload draws it. */
 export interface Card { id: string; version?: string | undefined; title: string; body: string; progress?: number; buttons: CardButton[] }
 export interface MenuItem { id?: string; label: string; enabled?: boolean; toolTip?: string | undefined }
 /** What the card and the menu read besides the state. */
-export interface CardContext { name: string; current?: string; inPlace?: boolean }
+export interface CardContext { name: string; current?: string; inPlace?: boolean; channel?: ChannelName }
 
 /** electron-updater's autoUpdater, as this file uses it (a MacUpdater; the tests pass a stand-in). */
 export interface Updater {
@@ -73,8 +79,13 @@ export interface Timers {
   clearInterval(timer: unknown): void;
 }
 export interface Updates {
-  channel: ChannelName;
+  /** The saved track: the one checks follow. */
+  readonly channel: ChannelName;
   readonly state: UpdateState;
+  /** Whether the track can change now: not while updates are off, an update downloads, or one waits for the quit. */
+  canSwitch(): boolean;
+  /** Save the track and, when it is not the running build's own, download that track's newest build and restart into it. */
+  setChannel(next: ChannelName): boolean;
   check(options?: { manual?: boolean }): void;
   download(): void;
   install(): void;
@@ -146,7 +157,8 @@ export function shortError(e: unknown): string {
  * `version` on one line in the title (a Nightly version would break at its hyphen).
  * `current` is the running version; `inPlace` is canUpdateInPlace for this copy.
  */
-export function cardFor(state: UpdateState, { name, current, inPlace = true }: CardContext): Card | null {
+export function cardFor(state: UpdateState, ctx: CardContext): Card | null {
+  const { name, current, inPlace = true } = ctx;
   const v = state.version;
   switch (state.status) {
     case 'available':
@@ -162,10 +174,17 @@ export function cardFor(state: UpdateState, { name, current, inPlace = true }: C
       return state.onQuit ? null : { id: 'ready', version: v, title: `${name} ${v} is ready`, body: `Restart ${name} to finish the update.`,
         buttons: [{ id: 'on-quit', label: 'When I Quit' }, { id: 'restart', label: 'Restart', primary: true }] };
     case 'checking':
-      return state.manual ? { id: 'checking', title: 'Checking for updates…', body: '', buttons: [] } : null;
-    case 'current':
-      return state.manual ? { id: 'current', title: `${name} is up to date`, body: `You have ${current}, the newest ${CHANNELS[channelOf(current)].label} version.`,
-        buttons: [{ id: 'ok', label: 'OK', primary: true }] } : null;
+      return state.manual ? { id: 'checking', title: state.switching ? `Switching to ${CHANNELS[state.switching].label}…` : 'Checking for updates…', body: '', buttons: [] } : null;
+    case 'current': {
+      if (!state.manual) return null;
+      const own = channelOf(current), track = ctx.channel || own;
+      // On a track the running build is not from (a switch that stopped), nothing says this build is that track's newest
+      // (PR-Agent r2 on #82).
+      if (track !== own) return { id: 'current', title: `No ${CHANNELS[track].label} build yet`, body: `You have ${current}, a ${CHANNELS[own].label} build.`,
+        buttons: [{ id: 'ok', label: 'OK', primary: true }] };
+      return { id: 'current', title: `${name} is up to date`, body: `You have ${current}, the newest ${CHANNELS[track].label} version.`,
+        buttons: [{ id: 'ok', label: 'OK', primary: true }] };
+    }
     case 'error':
       return state.manual ? { id: 'error', title: `Could not update ${name}`, body: state.message || '', buttons: [{ id: 'ok', label: 'OK', primary: true }] } : null;
     default:
@@ -199,11 +218,16 @@ export function menuFor(state: UpdateState, { name, inPlace = true }: CardContex
  *   feed      feedOverride(process.env.YESCHEF_UPDATE_FEED), or null for the GitHub feed in app-update.yml
  *   onChange  called with each new state; the card and the menu follow it
  */
-export function createUpdates({ updater, squirrel, app, version, feed = null, inPlace = true, log = console, onChange = () => {}, timers = globalThis }: {
+export function createUpdates({ updater, squirrel, app, version, channel: saved = null, saveChannel = () => {}, feed = null, inPlace = true, log = console, onChange = () => {}, timers = globalThis }: {
   updater: Updater; squirrel: Squirrel; app: { isPackaged: boolean }; version: string; feed?: string | null; inPlace?: boolean;
+  /** The saved track, or null for the running build's own; saveChannel keeps a new choice (main.ts, in the data folder). */
+  channel?: ChannelName | null; saveChannel?: (channel: ChannelName) => void;
   log?: Logger; onChange?: (state: UpdateState) => void; timers?: Timers;
 }): Updates {
-  const channel = channelOf(version);
+  const own = channelOf(version);
+  let channel: ChannelName = saved || own;
+  let switching: ChannelName | null = null; // a switch that runs: it downloads what it finds and restarts into it
+  let queued: ChannelName | null = null; // a switch asked for while a check ran: electron-updater would answer it with that check
   let state: UpdateState = { status: 'idle' };
   let doing: 'check' | 'poll' | 'download' | 'install' | null = null; // while one runs; a background check is 'poll'
   let checking: object | null = null; // the check that runs now, so its end is told apart from a later one's
@@ -212,9 +236,10 @@ export function createUpdates({ updater, squirrel, app, version, feed = null, in
   let poller: unknown = null;
   const set = (next: UpdateState) => { state = next; onChange(state); };
   const api: Updates = {
-    channel,
+    // The user's pick: a switch that waits for a running check shows already (PR-Agent r2 on #82).
+    get channel() { return queued || channel; },
     get state() { return state; },
-    check, download, install, installOnQuit, hide, whenStaged,
+    check, download, install, installOnQuit, hide, whenStaged, canSwitch, setChannel,
     act(id) { const acts: Record<string, () => void> = { check: () => check({ manual: true }), download, restart: install, 'on-quit': installOnQuit, later: hide, ok: hide }; return acts[id]?.(); },
     stop() { timers.clearTimeout(timer); timers.clearInterval(poller); },
   };
@@ -225,31 +250,28 @@ export function createUpdates({ updater, squirrel, app, version, feed = null, in
   updater.logger = log;
   updater.autoDownload = false;
   updater.autoInstallOnAppQuit = false;
-  // The channel setter also allows downgrades; nothing here may go back a version, so allowDowngrade is set after it.
-  updater.channel = channel;
-  updater.allowDowngrade = false;
-  updater.allowPrerelease = channel === 'nightly';
   updater.requestHeaders = { 'x-user-staging-id': NO_ID };
-  if (feed) updater.setFeedURL({ provider: 'generic', url: feed, channel });
+  follow(channel);
 
-  updater.on('checking-for-update', () => { if (doing === 'check') set({ status: 'checking', manual: true }); });
+  updater.on('checking-for-update', () => { if (doing === 'check') set({ status: 'checking', manual: true, ...(switching ? { switching } : {}) }); });
   updater.on('update-available', (raw: unknown) => {
     const info = readUpdateInfo(raw);
     // Never offered without a version: a check by hand shows the error, a background check stays quiet (failed).
     if (Option.isNone(info)) return failed(new Error(UNREADABLE));
-    const { version } = info.value;
+    const { version: found } = info.value;
     const manual = doing === 'check';
     doing = null;
+    // Only a build of the saved track is offered, as T3 Code ignores an update outside the selected channel: a check
+    // that ran on the track before a switch, or a feed that lists the other track, offers nothing.
+    if (channelOf(found) !== channel) { log.info?.(`Update ${found} ignored: not on the ${CHANNELS[channel].label} track.`); return nothingFound(manual); }
     // A background check that finds the version the card already offers keeps the card as it is (hidden or not).
-    if (!manual && state.status === 'available' && state.version === version) return;
-    set({ status: 'available', version, manual });
+    if (!manual && state.status === 'available' && state.version === found) return;
+    set({ status: 'available', version: found, manual, ...(switching ? { switching } : {}) });
+    // A switch takes what it found at once: the user asked for it in the menu. Not when the user has picked another
+    // track since: that pick runs when this check ends (PR-Agent r1 on #82).
+    if (switching && !queued) download();
   });
-  updater.on('update-not-available', () => {
-    const manual = doing === 'check';
-    doing = null;
-    if (manual) set({ status: 'current', manual: true });
-    else if (state.status === 'checking' || state.status === 'error') set({ status: 'idle' });
-  });
+  updater.on('update-not-available', () => nothingFound(doing === 'check'));
   updater.on('download-progress', (raw: unknown) => {
     const progress = readProgress(raw);
     // As in T3 Code: a tick that cannot be read is logged and the bar keeps its place until the next one.
@@ -262,7 +284,16 @@ export function createUpdates({ updater, squirrel, app, version, feed = null, in
     // Never ready on the version the card offered before: the download's own version, or the error.
     if (Option.isNone(info)) return failed(new Error(UNREADABLE));
     doing = null;
-    set({ status: 'ready', version: info.value.version, manual: true });
+    // Never installs a build of the other track: a download the saved track no longer wants (T3 Code installs only a
+    // build its track switch accepts).
+    if (channelOf(info.value.version) !== channel) {
+      switching = null;
+      set({ status: 'error', manual: true, message: `Yes Chef downloaded ${info.value.version}, which is not a ${CHANNELS[channel].label} build. Nothing was installed.` });
+      return;
+    }
+    set({ status: 'ready', version: info.value.version, manual: true, ...(switching ? { switching } : {}) });
+    // A switch restarts into the build it downloaded.
+    if (switching) install();
   });
   updater.on('error', failed);
 
@@ -295,10 +326,64 @@ export function createUpdates({ updater, squirrel, app, version, feed = null, in
       .finally(() => {
         if (checking !== mine) return;
         checking = null;
-        if (doing !== 'check' && doing !== 'poll') return;
+        if (doing !== 'check' && doing !== 'poll') return settle();
         doing = null;
+        // No answer at all: a switch that asked stops, so a later background check never downloads on its behalf.
+        switching = null;
         if (state.status === 'checking') set({ status: 'idle' });
+        settle();
       });
+  }
+  /** A check that found no build of the saved track. A switch says so and keeps the saved track, so it can be tried again. */
+  function nothingFound(manual: boolean): void {
+    doing = null;
+    if (switching) {
+      const label = CHANNELS[switching].label;
+      switching = null;
+      set({ status: 'error', manual: true, message: `There is no ${label} build to switch to yet. Try again in a few minutes.` });
+    } else if (manual) set({ status: 'current', manual: true });
+    else if (state.status === 'checking' || state.status === 'error') set({ status: 'idle' });
+  }
+  /** Point electron-updater at a track. Its channel setter also allows downgrades, so allowDowngrade is set after it:
+   *  only a track other than the running build's own may offer an older version (T3 Code: "Only leaving the running
+   *  build's track can need an older release"). */
+  function follow(next: ChannelName): void {
+    updater.channel = next;
+    updater.allowDowngrade = next !== own;
+    updater.allowPrerelease = next === 'nightly';
+    if (feed) updater.setFeedURL({ provider: 'generic', url: feed, channel: next });
+  }
+  function canSwitch(): boolean {
+    // Squirrel.Mac cannot replace a copy outside Applications: the move comes first (PR-Agent r2 on #82).
+    return inPlace && state.status !== 'off' && doing !== 'download' && doing !== 'install' && state.status !== 'downloading' && !state.onQuit;
+  }
+  /** The track switch (T3 Code's setChannel): saved first, so a switch that stops part way keeps the user's choice. */
+  function setChannel(next: ChannelName): boolean {
+    if (!canSwitch()) return false;
+    // A check that runs now would answer for the old track, and electron-updater hands a new check that same check's
+    // promise until it ends, even after its events: the switch starts when that promise ends (PR-Agent r1 on #82).
+    // Picking the followed track again while another waits cancels that one; with none waiting it is a retry of a
+    // stopped switch, so it waits like any other (PR-Agent r3 on #82).
+    if (checking) { queued = queued && next === channel ? null : next; return true; }
+    switchTo(next);
+    return true;
+  }
+  function switchTo(next: ChannelName): void {
+    channel = next;
+    saveChannel(next);
+    follow(next);
+    // Back to the running build's own track, nothing reinstalls: picking it again undoes a switch that stopped part way.
+    switching = next === own ? null : next;
+    set({ status: 'idle' });
+    if (switching) { set({ status: 'checking', manual: true, switching }); check({ manual: true }); }
+    else check();
+  }
+  /** After a check's promise ends (check, below): a switch asked for while it ran starts now. */
+  function settle(): void {
+    if (!queued || doing || checking) return;
+    const next = queued;
+    queued = null;
+    switchTo(next);
   }
   function download(): void {
     if (state.status !== 'available' || doing) return;
@@ -354,6 +439,8 @@ export function createUpdates({ updater, squirrel, app, version, feed = null, in
     const was = doing;
     doing = null;
     log.error?.(`Update ${was || 'check'} failed: ${shortError(e)}`);
+    // A switch that fails stops: the saved track stays, and Update Track tries it again.
+    if (switching && was !== 'poll') { switching = null; set({ status: 'error', message: shortError(e), manual: true }); return; }
     // A background check that fails (offline, GitHub busy) stays quiet and tries again in 4 minutes.
     if (was === 'poll' || was === null) { if (state.status === 'checking') set({ status: 'idle' }); return; }
     set({ status: 'error', message: shortError(e), manual: true });
