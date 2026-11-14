@@ -154,9 +154,10 @@ export function launcherCore() {
   // The trigger's name for a model: T3 drops the brand the provider mark already shows ("Claude Opus 5.5" reads "Opus 5.5").
   function short(label: string): string { return label.replace(/^Claude\s+/, ''); }
   /** The modes a launch may ask for: no more than Yes Chef was approved for, and only those the provider runs. An
-   *  approval not read yet allows none: only the project default (PR-Agent r1 on #79). */
+   *  approval not read yet, or T3 not answering, allows only Supervised, the least access, which no approval is below:
+   *  a Supervised pick stays rather than falling back to a project default that may run with more (Dan, 2026-11-14, 1A). */
   function modesFor(ceiling: string | null, provider: { modes: string[] | null } | null): string[] {
-    var top = ceiling ? ORDER.indexOf(ceiling) : -1;
+    var top = ceiling ? ORDER.indexOf(ceiling) : 0;
     return ORDER.filter(function(m, i){ return i <= top && (!provider || !provider.modes || provider.modes.indexOf(m) >= 0); });
   }
   return { WORDS: WORDS, MODES: MODES, LUCIDE: LUCIDE, ORDER: ORDER, icon: icon, mark: mark, esc: esc, word: word, glyph: glyph, heights: heights, glyphSvg: glyphSvg, short: short, modesFor: modesFor };
@@ -346,7 +347,9 @@ export function installLauncher(app: LauncherApp, core: LauncherCore): LauncherA
     var modes = core.modesFor(caps && caps.ok ? caps.ceiling || null : null, provider(F('instance').value)), r = F('runtime').value;
     var why = !caps ? 'Reading the level Yes Chef was approved for…' : !caps.ok || !caps.ceiling ? 'Others: not checked. T3 Code did not say the level Yes Chef was approved for.' : '';
     permPop.innerHTML = '<p class="lx-mh">Permissions</p>' + row('data-lx-mode="" role="menuitemradio"', '<span class="lx-two"><b>Project default</b><small>What T3 Code starts this project with.</small></span>', !r) +
-      (why ? '<p class="lx-none">' + why + '</p>' : '') + modes.map(function(k){ var md = core.MODES[k]!; return row('data-lx-mode="' + k + '" role="menuitemradio"', core.icon(md.icon) + '<span class="lx-two"><b>' + md.label + '</b><small>' + md.d + '</small></span>', r === k); }).join('');
+      modes.map(function(k){ var md = core.MODES[k]!; return row('data-lx-mode="' + k + '" role="menuitemradio"', core.icon(md.icon) + '<span class="lx-two"><b>' + md.label + '</b><small>' + md.d + '</small></span>', r === k); }).join('') +
+      // Under Supervised, which is always offered: the levels above it wait for T3 to say the approval.
+      (why ? '<p class="lx-none">' + why + '</p>' : '');
     $$('.lx-row', permPop).forEach(function(b){ b.removeAttribute('aria-selected'); });
   }
   function pops(): HTMLElement[] { return $$<HTMLElement>('[data-lx-pop]', dlg); }

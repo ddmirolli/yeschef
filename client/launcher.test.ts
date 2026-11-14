@@ -68,8 +68,10 @@ test('the effort glyph is T3’s: named levels are words, the rest are rising ba
 test('permissions never go past what Yes Chef was approved for, or what the provider runs', () => {
   const c = launcherCore();
   assert.deepEqual(c.modesFor('auto', null), ['approval-required', 'auto-accept-edits', 'auto']);
-  // Before T3 says the approved level, only the project default is offered (PR-Agent r1 on #79).
-  assert.deepEqual(c.modesFor(null, null), []);
+  // Before T3 says the approved level, or when it does not answer, only Supervised: a Supervised pick is kept, never
+  // loosened to the project default (Dan, 2026-11-14, 1A). Nothing above it is offered (PR-Agent r1 on #79).
+  assert.deepEqual(c.modesFor(null, null), ['approval-required']);
+  assert.deepEqual(c.modesFor(null, { modes: ['full-access'] }), []);
   assert.deepEqual(c.modesFor('full-access', null), c.ORDER);
   assert.deepEqual(c.modesFor('full-access', { modes: ['approval-required', 'full-access'] }), ['approval-required', 'full-access']);
   assert.equal(c.MODES['approval-required']!.label, 'Supervised');
