@@ -133,13 +133,20 @@ test('a refresh leaves a list alone when it draws the same; a changed one comes 
 
 test('Settings sits in the middle of the window and never runs past it; each tab scrolls inside (Dan, 2026-11-10)', () => {
   const src = servedSource();
-  assert.match(src, /^#settings\[open\]\{display:grid;grid-template-columns:168px minmax\(0,1fr\);grid-template-rows:minmax\(0,1fr\) auto;height:min\(720px,calc\(100dvh - 32px\)\);max-height:calc\(100dvh - 32px\);margin:auto\}$/m);
+  assert.match(src, /^#settings\[open\]\{display:grid;grid-template-columns:168px minmax\(0,1fr\);grid-template-rows:minmax\(0,1fr\) auto;height:min\(720px,calc\(100dvh - 32px\)\);max-height:calc\(100dvh - 32px\);margin:auto;overflow:hidden\}$/m);
   assert.match(src, /^#settings \.set-panes\{grid-column:2;min-height:0;max-height:none;/m);
   assert.match(src, /^\.set-panes\{[^}]*overflow-y:auto\}$/m);
   // Nothing pins it to the top of the window.
   assert.doesNotMatch(src, /#settings(\[open\])?\{[^}]*(margin-top|margin:\d|top:)/);
   // A tab opens at its top.
   assert.match(src, /if \(panes && \(!setDlg\.open \|\| !was \|\| was\.dataset\.tab !== tab\)\) panes\.scrollTop = 0;/);
+});
+
+test('Only the Settings panes scroll: Shortcuts stops at its end, the dialog never scrolls (Dan, 2026-11-14)', () => {
+  const src = servedSource();
+  // The hidden live line (.kx-live) is absolute: against the dialog it sat ~1900 px down and the dialog scrolled to it.
+  assert.match(src, /#settings\[open\]\{display:grid;[^}]*;overflow:hidden\}/);
+  assert.match(src, /#settings \.set-panes\{grid-column:2;[^}]*;position:relative;overscroll-behavior:contain\}/);
 });
 
 test('Settings → About copies T3 Code: Version, Update track, and a Switch to … ? dialog; only the Mac app shows it (Dan, 2026-11-14)', () => {
