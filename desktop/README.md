@@ -11,7 +11,7 @@ The Pass in its own window, signed in to the T3 Code on this Mac.
 
 ## Install or update
 
-Install Yes Chef from https://yeschef.codes/download. Stable and Nightly are one app: pick the track in the Yes Chef menu, Update Track ("Stable and Nightly", below). It updates itself from GitHub Releases ("Updates", below).
+Install Yes Chef from https://yeschef.codes/download. Stable and Nightly are one app: pick the track in Settings, About, Update track ("Stable and Nightly", below). It updates itself from GitHub Releases ("Updates", below).
 
 Releases are the only way an app reaches a Mac someone uses (Dan, 2026-11-12). A local build carries `package.json`'s version (0.1.0), so put over a released app it shows the wrong version and offers the newest Stable as an update that would take code away. A task lands without installing: it checks the build in `out/builder` with `--capture` on a copy of the data folder ("Development", below), and main reaches Dan's Mac through the next Nightly.
 
@@ -76,7 +76,7 @@ The way T3 Code does them (`docs/desktop-release-plan-v0_1.md`, section 6; `upda
 | GitHub release | Latest, tag `v0.2.0`, feed `latest-mac.yml` | Prerelease, tag `v0.2.1-nightly.20261110.1`, feed `nightly-mac.yml` |
 | Takes updates from | Stable releases only | Nightly releases only |
 
-They are one app, as in T3 Code (Dan, 2026-11-14). The track starts as the installed build's own. Yes Chef menu, Update Track, Stable or Nightly, asks "Switch to Nightly?", saves the pick (`update-channel` in the data folder), downloads the newest build of that track, even an older version, and restarts into it. Sign-in, rules and settings stay, because the data folder is the same. Picking the installed build's own track again only changes which updates it takes. The tags must be semver (`v<version>`): electron-updater reads a Nightly's channel from its tag.
+They are one app, as in T3 Code (Dan, 2026-11-14). The track starts as the installed build's own. Settings, About, Update track, Stable or Nightly, asks "Switch to Nightly?" (T3 Code's Settings, About, Update track and its `desktop:update-*` IPC channels; here `yeschef:updates`), saves the pick (`update-channel` in the data folder), downloads the newest build of that track, even an older version, and restarts into it. Sign-in, rules and settings stay, because the data folder is the same. Picking the installed build's own track again only changes which updates it takes. The tags must be semver (`v<version>`): electron-updater reads a Nightly's channel from its tag.
 
 A Mac that has the old separate "Yes Chef (Nightly).app" (bundle ID `codes.yeschef.desktop.nightly`, before 2026-11-14) keeps it until it is deleted: it cannot update into the one-app builds. Install a Nightly DMG over Yes Chef.app, or switch track in Yes Chef, then delete the old app.
 
@@ -150,6 +150,6 @@ An update end to end on this Mac, with no GitHub release:
    `YESCHEF_USER_DATA=<temp data> YESCHEF_CAPTURE_DIR=<temp out> YESCHEF_UPDATE_FEED=http://127.0.0.1:8771/ YESCHEF_UPDATE_DRILL=restart "<copy>/Contents/MacOS/Yes Chef" --capture`
 5. The first check comes after 15 seconds. The drill clicks the card's own buttons (Download, then Restart; `quit` clicks When I Quit, waits for Squirrel.Mac and quits; `quit-now` quits right after When I Quit), saves `update-available.png` and `update-ready.png`, and quits. Squirrel.Mac then puts the newer version where the copy was. It does not reopen it, because a reopened copy would start without the test's data folder.
 
-For a track switch, build one Stable and one Nightly (`--version 0.0.9` and `--version 0.0.10-nightly.20261114.1`), serve the other track's files and start with `YESCHEF_UPDATE_DRILL=switch`: after 2 seconds it switches to the other track, as Update Track does, and the switch downloads and installs on its own.
+For a track switch, build one Stable and one Nightly (`--version 0.0.9` and `--version 0.0.10-nightly.20261114.1`), serve the other track's files and start with `YESCHEF_UPDATE_DRILL=switch`: after 2 seconds it opens Settings, About, picks the other track in Update track and clicks Switch, saves `switch-about.png` and `switch-dialog.png`, and the switch downloads and installs on its own.
 
 `YESCHEF_UPDATE_FEED` takes only `http` on `127.0.0.1` or `localhost`. Squirrel.Mac and electron-updater leave their caches in `~/Library/Caches` (`codes.yeschef.desktop.ShipIt`, `yeschef-desktop-updater`, and the Nightly ones); delete them after a drill.

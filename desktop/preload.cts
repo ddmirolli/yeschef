@@ -17,7 +17,17 @@ contextBridge.exposeInMainWorld('yeschef', {
     write: (list: unknown) => ipcRenderer.invoke('yeschef:keys', { op: 'write', list }),
     open: () => ipcRenderer.invoke('yeschef:keys', { op: 'open' }),
   },
+  // Settings → About: the version, the update track and the switch, as T3 Code's desktop:update-* IPC channels
+  // (apps/desktop/src/ipc/methods/updates.ts). The app pushes each change on 'yeschef:updates'.
+  updates: {
+    get: () => ipcRenderer.invoke('yeschef:updates', { op: 'get' }),
+    act: (id: unknown) => ipcRenderer.invoke('yeschef:updates', { op: 'act', id: String(id) }),
+    setChannel: (channel: unknown) => ipcRenderer.invoke('yeschef:updates', { op: 'set', channel: String(channel) }),
+    onState: (listener: unknown) => { onUpdate = typeof listener === 'function' ? (listener as (info: unknown) => void) : null; },
+  },
 });
+let onUpdate: ((info: unknown) => void) | null = null;
+ipcRenderer.on('yeschef:updates', (_event: IpcRendererEvent, info: unknown) => { try { onUpdate?.(info); } catch { /* the page's own error */ } });
 
 // The app's own card (desktop/updates.ts): an update, or the one-time offer to move to Applications. The app sends
 // its text; this draws it over whatever page the window shows (the board, or a waiting page) and sends back which

@@ -142,6 +142,18 @@ test('Settings sits in the middle of the window and never runs past it; each tab
   assert.match(src, /if \(panes && \(!setDlg\.open \|\| !was \|\| was\.dataset\.tab !== tab\)\) panes\.scrollTop = 0;/);
 });
 
+test('Settings → About copies T3 Code: Version, Update track, and a Switch to … ? dialog; only the Mac app shows it (Dan, 2026-11-14)', () => {
+  const src = servedSource();
+  assert.match(src, /<button type="button" class="set-tab" data-tab="about" hidden>About<\/button>/);
+  assert.match(src, /<h4 id="ab-ver">Version <code class="ab-v"><\/code><\/h4>/);
+  assert.match(src, /<h4 id="ab-track">Update track<\/h4>/);
+  assert.match(src, /<select class="kr-sel" data-ab-track aria-labelledby="ab-track"><option value="latest">Stable<\/option><option value="nightly">Nightly<\/option><\/select>/);
+  assert.match(src, /<dialog class="ask" id="track-sw"/);
+  // The tab shows only when the app's bridge reads the updater; the web prototype has none.
+  assert.match(src, /var UPD = window\.yeschef && window\.yeschef\.updates && typeof window\.yeschef\.updates\.get === 'function'/);
+  assert.match(src, /'If Yes Chef does not reopen after it restarts, open it again\.'/);
+});
+
 test('the code names no one\'s address, relay or files', () => {
   const lines = servedSource().split('\n').filter((l) => /t3coderelay|\.ts\.net|pass\.allow/.test(l));
   assert.deepEqual(lines, []);
