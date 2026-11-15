@@ -5,7 +5,7 @@
 //   - Nothing downloads on its own (autoDownload off) and nothing installs on quit (autoInstallOnAppQuit off).
 //     The user starts the download, then picks Restart, or When I Quit, which is the only way install on quit turns on.
 //   - Stable takes only Stable releases; Nightly only Nightly releases (channels.ts). Never an older version on its
-//     own track. The track is the user's choice (Update Track in the app menu), saved, as T3 Code's update channel;
+//     own track. The track is the user's choice (Settings, About, Update track), saved, as T3 Code's update channel;
 //     until one is saved it is the running build's own. Switching track (setChannel) checks the other track, takes
 //     its newest build even when that is an older version, downloads it and restarts into it, as T3 Code's track
 //     switch does (apps/desktop/src/updates/DesktopUpdates.ts setChannel; Dan, 2026-11-14).
@@ -439,7 +439,7 @@ export function createUpdates({ updater, squirrel, app, version, channel: saved 
     const was = doing;
     doing = null;
     log.error?.(`Update ${was || 'check'} failed: ${shortError(e)}`);
-    // A switch that fails stops: the saved track stays, and Update Track tries it again.
+    // A switch that fails stops: the saved track stays, and picking it again in Update track tries it again.
     if (switching && was !== 'poll') { switching = null; set({ status: 'error', message: shortError(e), manual: true }); return; }
     // A background check that fails (offline, GitHub busy) stays quiet and tries again in 4 minutes.
     if (was === 'poll' || was === null) { if (state.status === 'checking') set({ status: 'idle' }); return; }

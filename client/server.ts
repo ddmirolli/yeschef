@@ -698,6 +698,16 @@ dialog.sheet .plate-bar{padding-right:12px}
 .keylist dt{white-space:nowrap}.keylist dd{margin:0;color:var(--label2)}
 .keylist kbd{display:inline-block;min-width:20px;padding:0 5px;border-radius:5px;background:var(--fill);font:600 11px/20px var(--sans);text-align:center;color:var(--label)}
 #settings .set-done{margin:0;padding:12px 22px 14px;border-top:.5px solid var(--sep)}
+/* Settings → About and its switch dialog (T3 Code's About and UpdateTrackSwitchDialog). */
+#settings .ab-v{margin-left:6px;font:500 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--label2)}
+#settings .ab-d.bad{color:var(--red)}
+#settings .ab-td .lnk{padding:0;border:0;background:none;color:var(--link);font:inherit;cursor:pointer}
+dialog.ask{width:420px;max-width:calc(100vw - 32px);padding:22px 24px 18px;border:0;border-radius:18px;background:var(--card);color:var(--label);box-shadow:var(--sh4)}
+dialog.ask::backdrop{background:rgba(0,0,0,.36);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
+dialog.ask h2{margin:0;font-size:17px}
+dialog.ask p{margin:8px 0 0;font-size:13.5px;line-height:1.45;color:var(--label2)}
+dialog.ask .ask-n:empty{display:none}
+dialog.ask .ask-btns{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
 /* ===== Hill climb round 1 (council: Opus, Fable, Sol, Astra) ===== */
 /* Names ellipsise instead of being cut; titles wrap anywhere; facts are spaced, never joined by dots. */
 .proj{min-width:0}
@@ -1603,6 +1613,18 @@ const tile = (name: string, value: keyof typeof MINIS, label: string): string =>
 const STYLE = onScale(onTheme(CSS + APP_CSS + BAR_CSS + MINI_CSS + SHEET_CSS + LAUNCH_CSS) + miniCss(CSS + APP_CSS + BAR_CSS));
 
 
+// Settings → About, as T3 Code's About: the version with Check for Updates, and the update track (Dan, 2026-11-14:
+// "go into settings of YC, select to run the nightly instead of stable, and then have the app quit and relaunch as
+// nightly"). Only the Mac app shows it: the page unhides the tab when the app's bridge has updates (client/page.ts).
+const ABOUT_PANE = `<section class="set-pane" data-pane="about" hidden><div class="kr-group">
+<div class="kr-row" data-row="version"><div class="kr-l"><h4 id="ab-ver">Version <code class="ab-v"></code></h4><p class="ab-d" role="status">Current version of the application.</p></div>
+<div class="kr-c"><button type="button" class="btn" data-ab-act="check">Check for Updates</button></div></div>
+<div class="kr-row" data-row="track"><div class="kr-l"><h4 id="ab-track">Update track</h4><p class="ab-td">Nightly is the newest build of main. Switching downloads that track’s newest build and restarts Yes Chef.</p></div>
+<div class="kr-c"><select class="kr-sel" data-ab-track aria-labelledby="ab-track"><option value="latest">Stable</option><option value="nightly">Nightly</option></select></div></div>
+</div></section>`;
+// T3 Code's UpdateTrackSwitchDialog: "Switch to Nightly?", what happens, and its Mac note.
+const TRACK_DIALOG = `<dialog class="ask" id="track-sw" aria-labelledby="tsw-t" aria-describedby="tsw-b"><h2 id="tsw-t"></h2><p id="tsw-b"></p><p class="ask-n"></p>
+<div class="ask-btns"><button type="button" class="btn" data-tsw="cancel">Cancel</button><button type="button" class="btn fill" data-tsw="go"></button></div></dialog>`;
 const page = (body: string): string => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark"><title>Yes Chef</title>
 <script>(function(){var c='v-pass d-default';try{var s=localStorage;c=(s.getItem('yc.view')==='kitchen'?'v-kitchen':'v-pass')+' d-'+({comfortable:1,compact:1}[s.getItem('yc.density')]?s.getItem('yc.density'):'default');var t=s.getItem('yc.theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}document.documentElement.className=c})()</script><style>${STYLE}</style></head><body class="pass-app"><section class="only-phone" aria-labelledby="op-t"><span class="op-logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON.cloche}</svg></span><h1 id="op-t">Yes Chef runs on your Mac</h1><a class="btn fill" href="https://yeschef.codes/download" target="_top" rel="noopener">Get the Mac app</a><p>Or open this page on a computer.</p></section><main id="app">${body}</main>
@@ -1613,7 +1635,8 @@ const page = (body: string): string => `<!doctype html><html lang="en"><head><me
 <nav class="set-nav" aria-label="Settings sections"><h2 id="settings-t">Settings</h2>
 <button type="button" class="set-tab" data-tab="layout" aria-current="true">Layout</button>
 <button type="button" class="set-tab" data-tab="rules">Rules</button>
-<button type="button" class="set-tab" data-tab="keys">Shortcuts</button></nav>
+<button type="button" class="set-tab" data-tab="keys">Shortcuts</button>
+<button type="button" class="set-tab" data-tab="about" hidden>About</button></nav>
 <div class="set-panes">
 <section class="set-pane" data-pane="layout">
 <fieldset class="looks"><legend>Appearance</legend>
@@ -1627,9 +1650,11 @@ ${kitchenPane({ rules, projects, error: rulesError })}
 <section class="set-pane" data-pane="keys" hidden><div class="kx-top"><label class="kx-q"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><input type="search" id="kx-q" placeholder="Search shortcuts" aria-label="Search shortcuts" autocomplete="off" spellcheck="false"></label></div>
 <div id="kx-list"></div><p class="kx-live" role="status" aria-live="polite"></p>
 <div class="kx-foot"><p class="kx-file">Your shortcuts, in the shape of T3 Code’s keybindings.json and with its rules: a key, a command, and when it applies.</p><span class="kx-btns"><button type="button" class="btn kx-b" data-kx-file hidden>Open the file</button><button type="button" class="btn kx-b" data-kx-resetall>Reset all</button></span><p class="kx-note" role="status" hidden></p></div></section>
+${ABOUT_PANE}
 </div></div>
 <p class="set-done"><span role="status">Saved on this Mac.</span><button type="button" class="btn fill" data-settings-done><span class="bl">Done</span><kbd>esc</kbd></button></p></dialog>
 ${launchDialog()}
+${TRACK_DIALOG}
 ${BAR_HTML}
 <script>
 (function(){

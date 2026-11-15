@@ -2,8 +2,8 @@
 // Plain Node, no Electron: the app (main.ts, updates.ts) and the build scripts (build/*.ts) share it.
 //
 // Stable and Nightly are one app, as in T3 Code (Dan, 2026-11-14: "copy and build that in ours"): one name, bundle ID,
-// data folder, Keychain item and update cache, and a Nightly build differs only by its icon and its version. Settings
-// for the track live in the app menu (Update Track); switching downloads the other track's newest build and restarts
+// data folder, Keychain item and update cache, and a Nightly build differs only by its icon and its version. The user
+// picks the track in Settings, About, Update track, as in T3 Code; switching downloads the other track's newest build and restarts
 // into it (updates.ts setChannel). Squirrel.Mac installs only a bundle that meets the running app's code requirement,
 // which names the bundle ID and the team, so one bundle ID is what lets the two builds replace each other.
 

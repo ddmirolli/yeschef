@@ -42,6 +42,7 @@ import { canUpdateInPlace, createUpdates, feedOverride, menuFor, moveCard, visib
 import type { Card, UpdateState, UpdateStatus, Updates } from './updates.ts';
 import { ensureKeybindings, readKeybindings, syncKeybindings, writeKeybindings } from './keybindings.ts';
 import type { SignedIn } from '../client/t3mcp.ts';
+import type { SwitchReply, UpdateInfo } from '../client/bridge.ts';
 
 /** The sign-in main keeps: T3 Code's address, the sign-in the board server got, and when it lapses (ms). */
 interface SavedSignIn { origin: string | null; auth: SignedIn; expiresAt: number }
@@ -348,7 +349,7 @@ function currentCard(): Card | null {
   if (offerMove) return moveCard(NAME);
   return updates ? visibleCard(updates.state, { name: NAME, current: VERSION, inPlace: IN_PLACE, channel: updates.channel }) : null;
 }
-// The update track the user picked (Update Track, below), kept in the data folder as T3 Code keeps its update channel.
+// The update track the user picked (Settings → About), kept in the data folder as T3 Code keeps its update channel.
 // No file, or anything but the two words, is the running build's own track. A capture without a data folder keeps none.
 const channelFile = () => join(app.getPath('userData'), 'update-channel');
 function savedChannel(): ChannelName | null {
@@ -360,24 +361,42 @@ function saveChannel(c: ChannelName): void {
   try { mkdirSync(app.getPath('userData'), { recursive: true }); writeFileSync(channelFile(), c + '\n', { mode: 0o600 }); }
   catch (e) { console.error(`Update track not saved: ${(e as Error).message}`); }
 }
-/** Update Track: switch after the user confirms, as T3 Code's "Switch to Nightly?" (UpdateTrackSwitchDialog). */
-function pickTrack(next: ChannelName): void {
-  // The saved track again is a no-op, unless a switch to it stopped (no build yet, offline): then it is the retry
-  // (PR-Agent r1 on #82).
-  if (!updates || (next === updates.channel && next === CHANNEL)) { buildMenu(); return; }
-  const label = CHANNELS[next].label, own = next === CHANNEL;
-  const answer = dialog.showMessageBoxSync(win!, {
-    type: 'question', message: `Switch to ${label}?`, buttons: [`Switch to ${label}`, 'Cancel'], defaultId: 0, cancelId: 1,
-    detail: own
-      ? `${NAME} stays on ${VERSION} and takes ${label} updates from now on.`
-      : `${NAME} downloads the newest ${label} build and restarts with it. Your sign-in, rules and settings stay. If ${NAME} does not reopen after it restarts, open it again.`,
+/** Settings → About's view of the updater (client/bridge.ts UpdateInfo), as T3 Code's DesktopUpdateState. */
+function updateInfo(): UpdateInfo {
+  const s = updates?.state;
+  const off = CAPTURE ? 'Updates are off in a capture.' : 'Updates work only in a built Yes Chef.';
+  return {
+    version: VERSION, own: CHANNEL, channel: updates ? updates.channel : CHANNEL,
+    enabled: !!s && s.status !== 'off', canSwitch: !!updates && updates.canSwitch(),
+    status: s ? s.status : 'off', available: s?.version ?? null, percent: s?.percent ?? null, switching: s?.switching ?? null,
+    message: !s ? off : s.message ?? null,
+  };
+}
+/**
+ * A track switch from Settings → About, as T3 Code's setUpdateChannel: it answers once the other track's build is found
+ * and downloading (the app then restarts into it on its own), or with why it stopped. Back to the running build's own
+ * track nothing reinstalls, so it answers at once.
+ */
+function switchTrack(next: ChannelName): Promise<SwitchReply> {
+  if (!updates) return Promise.resolve({ error: updateInfo().message || 'Updates are off.' });
+  if (!IN_PLACE) return Promise.resolve({ error: `Move ${NAME} to Applications first: it cannot replace itself where it is.` });
+  if (!updates.setChannel(next)) return Promise.resolve({ error: `${NAME} cannot switch while an update downloads or waits for the quit.` });
+  if (next === CHANNEL) return Promise.resolve({ ok: true });
+  return new Promise((resolve) => {
+    const done = (reply: SwitchReply) => { updateWatchers.delete(watch); clearTimeout(timer); resolve(reply); };
+    const watch = (s: UpdateState) => {
+      if (s.switching && (s.status === 'available' || s.status === 'downloading' || s.status === 'ready')) done({ ok: true });
+      else if (s.status === 'error') done({ error: s.message || 'The switch stopped.' });
+    };
+    const timer = setTimeout(() => done({ error: 'The update server did not answer. Try again in a few minutes.' }), 120000);
+    updateWatchers.add(watch);
   });
-  if (answer !== 0 || !updates.setChannel(next)) buildMenu();
 }
 function showCard() { if (win && !win.isDestroyed()) win.webContents.send('yeschef:card', currentCard()); }
 function updateChanged(state: UpdateState) {
   showCard();
   buildMenu();
+  if (win && !win.isDestroyed()) win.webContents.send('yeschef:updates', updateInfo());
   for (const watch of [...updateWatchers]) watch(state);
 }
 // Only the main frame of this app's own window, on the board or a waiting page, reads the card or clicks it.
@@ -418,6 +437,18 @@ ipcMain.handle('yeschef:keys', async (event, req: unknown) => {
     const failed = await shell.openPath(keysFile());
     return failed ? { error: failed } : { ok: true };
   }
+  return { error: 'Yes Chef does not know that request.' };
+});
+// Settings → About (as T3 Code's desktop:update-get-state, -check, -download, -install and -set-channel): only the board
+// page in this window, as for Shortcuts.
+ipcMain.handle('yeschef:updates', async (event, req: unknown): Promise<UpdateInfo | SwitchReply> => {
+  let fromBoard = false;
+  try { const frame = event.senderFrame; fromBoard = !!win && event.sender === win.webContents && !!frame && frame.parent === null && isBoard(frame.url); } catch { fromBoard = false; }
+  if (!fromBoard) return { error: 'Updates are changed only from the Yes Chef board window.' };
+  const ask = req && typeof req === 'object' ? req as { op?: unknown; id?: unknown; channel?: unknown } : {};
+  if (ask.op === 'get') return updateInfo();
+  if (ask.op === 'act' && (ask.id === 'check' || ask.id === 'download' || ask.id === 'restart')) { updates?.act(ask.id); return updateInfo(); }
+  if (ask.op === 'set' && isChannel(ask.channel)) return switchTrack(ask.channel);
   return { error: 'Yes Chef does not know that request.' };
 });
 // null asks for the card showing now; { card, button } is a click, which counts only on a button of that card.
@@ -464,12 +495,9 @@ function moveToApplications(): boolean {
 }
 function updateItems(): MenuItemConstructorOptions[] {
   const state: UpdateState = updates ? updates.state : { status: 'off', message: CAPTURE ? 'Updates are off in a capture.' : 'Updates work only in a built Yes Chef.' };
-  const items = menuFor(state, { name: NAME, inPlace: IN_PLACE })
+  // The update track is in Settings → About, as in T3 Code, whose menu has only Check for Updates.
+  return menuFor(state, { name: NAME, inPlace: IN_PLACE })
     .map(({ id, ...item }) => (id ? { ...item, click: () => (id === 'move' ? moveToApplications() : updates?.act(id)) } : item) as MenuItemConstructorOptions);
-  // Update Track, beside the update items as T3 Code keeps it beside Check for Updates: Stable or Nightly.
-  const on = updates ? updates.channel : CHANNEL, can = !!updates && updates.canSwitch();
-  const track = (c: ChannelName): MenuItemConstructorOptions => ({ label: CHANNELS[c].label, type: 'radio', checked: on === c, enabled: can, click: () => pickTrack(c) });
-  return [...items, { label: 'Update Track', submenu: [track('latest'), track('nightly')] }];
 }
 
 // The standard Mac menus, plus Sign Out of T3 Code: it deletes the saved sign-in and quits, so the
@@ -700,14 +728,32 @@ async function drill() {
     return true;
   })()`);
   try {
-    // `switch`: Update Track to the other track, as a user picks it in the menu and confirms. The switch downloads
-    // and installs by itself; Squirrel.Mac then puts the other track's build where this copy was.
+    // `switch`: Settings → About → Update track to the other track, then Switch in the dialog, as a user does. The
+    // switch downloads and installs by itself; Squirrel.Mac then puts the other track's build where this copy was.
     if (DRILL === 'switch') {
       const to: ChannelName = CHANNEL === 'nightly' ? 'latest' : 'nightly';
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      const page = (js: string) => win!.webContents.executeJavaScript(js) as Promise<boolean>;
       updater!.autoRunAppAfterInstall = false;
-      await new Promise((r) => setTimeout(r, 2000));
-      if (!updates!.setChannel(to)) throw new Error('the track did not change');
-      console.log(`Drill: switched to ${CHANNELS[to].label} ${since()}. Menu: ${menu()}`);
+      await wait(2000);
+      if (!(await page(`(function () {
+        var s = document.querySelector('[data-settings]'); if (!s) return false; s.click();
+        var tab = document.querySelector('#settings .set-tab[data-tab=about]'); if (!tab || tab.hidden) return false; tab.click();
+        return true;
+      })()`))) throw new Error('no About tab in Settings');
+      await wait(800);
+      await capture('switch-about.png');
+      if (!(await page(`(function () {
+        var sel = document.querySelector('#settings [data-ab-track]'); if (!sel || sel.disabled) return false;
+        sel.value = ${JSON.stringify(to)}; sel.dispatchEvent(new Event('change', { bubbles: true }));
+        var d = document.getElementById('track-sw'); return !!(d && d.open);
+      })()`))) throw new Error('the Update track menu did not open the Switch dialog');
+      await wait(500);
+      await capture('switch-dialog.png');
+      if (!(await page(`(function () {
+        var go = document.querySelector('#track-sw [data-tsw=go]'); if (!go) return false; go.click(); return true;
+      })()`))) throw new Error('no Switch button in the dialog');
+      console.log(`Drill: picked ${CHANNELS[to].label} in Settings → About and confirmed ${since()}.`);
       const ready = await until('ready', 180000);
       console.log(`Drill: ${ready.version} downloaded and checked ${since()}; installing.`);
       setTimeout(() => { console.error('Drill failed: the app did not quit within 60 s.'); stopServer(); app.exit(1); }, 60000);

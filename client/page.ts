@@ -8,6 +8,7 @@ import { keysCore } from './keys.ts';
 import { installLauncher, launcherCore } from './launcher.ts';
 import type { LauncherApi } from './launcher.ts';
 import type { Rules, RuleSet } from './kitchen.ts';
+import type { UpdateInfo } from './bridge.ts';
 import type { Command, FixedKey, KeyState } from './keys.ts';
 
 // The page script's own types. Node strips them with the rest, so they cost the served page nothing.
@@ -1300,6 +1301,98 @@ export function passScript(MINI: Readonly<Record<string, string>>): void {
   // The action bar's Density rows set it the way Settings does.
   function setDensity(d: string): void { prefs.density = d; store('yc.density', d); applyPrefs(); }
   setDlg.addEventListener('click', function(ev){ if (ev.target === setDlg || (ev.target as Element).closest('[data-settings-done]')) setDlg.close(); });
+
+  // ----- Settings → About: T3 Code's About, Version and Update track (Dan, 2026-11-14) -----
+  // Only in the Mac app: its bridge reads the updater and switches the track (desktop/main.ts, yeschef:updates, as T3
+  // Code's desktop:update-* channels). The web prototype has no About tab.
+  var UPD = window.yeschef && window.yeschef.updates && typeof window.yeschef.updates.get === 'function' ? window.yeschef.updates : null;
+  var abInfo: UpdateInfo | null = null, tswTo: 'latest' | 'nightly' | null = null, tswBusy = false;
+  var trackDlg = document.getElementById('track-sw') as HTMLDialogElement | null;
+  var TRACK: Record<string, string> = { latest: 'Stable', nightly: 'Nightly' };
+  function abRender(): void {
+    var i = abInfo; if (!i) return;
+    var v = $('#settings .ab-v'), d = $('#settings .ab-d'), td = $('#settings .ab-td');
+    var btn = $<HTMLButtonElement>('#settings [data-ab-act]'), sel = $<HTMLSelectElement>('#settings [data-ab-track]');
+    if (v) v.textContent = i.version;
+    // A switch that stopped leaves this copy off the saved track: T3 Code's row says so and offers the switch again.
+    var offTrack = i.enabled && i.channel !== i.own && !i.switching;
+    var to = i.switching ? TRACK[i.switching] : '', ver = i.available || '', pct = i.percent != null ? ' (' + Math.round(i.percent) + '%)' : '';
+    var act = i.status === 'available' ? 'download' : i.status === 'ready' ? 'restart' : 'check';
+    if (btn) {
+      btn.dataset.abAct = act;
+      btn.textContent = act === 'download' ? 'Download' : act === 'restart' ? 'Restart' : i.status === 'checking' ? 'Checking…' : i.status === 'downloading' ? 'Downloading…' : i.status === 'current' && !offTrack ? 'Up to Date' : 'Check for Updates';
+      btn.disabled = !i.enabled || i.status === 'checking' || i.status === 'downloading' || !!i.switching;
+    }
+    if (d) {
+      d.textContent = !i.enabled ? (i.message || 'Updates are off.')
+        : i.switching && i.status === 'checking' ? 'Switching to ' + to + '…'
+        : i.status === 'downloading' ? (i.switching ? 'Switching to ' + to + ': downloading ' : 'Downloading ') + ver + pct + '.'
+        : i.status === 'ready' ? (i.switching ? 'Switching to ' + to + ': restarting.' : ver + ' is ready. Restart to finish the update.')
+        : i.status === 'available' ? 'Update available: ' + ver + '.'
+        : i.status === 'error' ? (i.message || 'The update check failed.')
+        : 'Current version of the application.';
+      d.classList.toggle('bad', i.enabled && i.status === 'error');
+    }
+    if (sel) { sel.value = tswTo || i.channel; sel.disabled = !i.canSwitch || tswBusy; }
+    if (td) {
+      td.textContent = '';
+      if (!offTrack) td.textContent = 'Nightly is the newest build of main. Switching downloads that track’s newest build and restarts Yes Chef.';
+      else {
+        var again = document.createElement('button');
+        again.type = 'button'; again.className = 'lnk'; again.dataset.abRetry = ''; again.disabled = !i.canSwitch;
+        again.textContent = 'Switch to ' + TRACK[i.channel];
+        td.append('This copy is still ' + TRACK[i.own] + ' ' + i.version + '. ', again);
+      }
+    }
+  }
+  function abTake(r: unknown): void { if (r && typeof r === 'object' && 'version' in r) { abInfo = r as UpdateInfo; abRender(); } }
+  function abLoad(): void { if (UPD) UPD.get().then(abTake, function(){}); }
+  // T3 Code's UpdateTrackSwitchDialog: "Switch to Nightly?", what happens, its Mac note, and Checking… while the app
+  // looks for the build. Found, the dialog closes: the app downloads it and restarts into it on its own.
+  function tswOpen(to: 'latest' | 'nightly'): void {
+    if (!trackDlg || !abInfo || !UPD) return;
+    var label = TRACK[to]!, moves = to !== abInfo.own, go = $<HTMLButtonElement>('[data-tsw=go]', trackDlg);
+    tswTo = to; tswBusy = false;
+    $('#tsw-t', trackDlg)!.textContent = 'Switch to ' + label + '?';
+    $('#tsw-b', trackDlg)!.textContent = moves ? 'Yes Chef downloads the newest ' + label + ' build and restarts with it. Your sign-in, rules and settings stay.'
+      : 'Yes Chef stays on ' + abInfo.version + ' and takes ' + label + ' updates from now on.';
+    $('.ask-n', trackDlg)!.textContent = moves ? 'If Yes Chef does not reopen after it restarts, open it again.' : '';
+    if (go) { go.textContent = 'Switch to ' + label; go.disabled = false; }
+    var cancel = $<HTMLButtonElement>('[data-tsw=cancel]', trackDlg); if (cancel) cancel.disabled = false;
+    trackDlg.showModal();
+    abRender();
+  }
+  if (UPD && trackDlg) {
+    var abTab = $('#settings .set-tab[data-tab=about]'); if (abTab) abTab.hidden = false;
+    UPD.onState(abTake);
+    abLoad();
+    var tsw = trackDlg;
+    // Esc waits while the app looks for the build, as T3 Code's dialog stays open while it checks.
+    tsw.addEventListener('cancel', function(ev){ if (tswBusy) ev.preventDefault(); });
+    tsw.addEventListener('close', function(){ tswTo = null; tswBusy = false; abRender(); });
+    tsw.addEventListener('click', function(ev){
+      var b = (ev.target as Element).closest && (ev.target as Element).closest<HTMLButtonElement>('[data-tsw]'); if (!b || tswBusy) return;
+      if (b.dataset.tsw === 'cancel') { tsw.close(); return; }
+      var to = tswTo; if (!to || !UPD) return;
+      tswBusy = true; b.textContent = 'Checking…'; b.disabled = true; abRender();
+      var cancel = $<HTMLButtonElement>('[data-tsw=cancel]', tsw); if (cancel) cancel.disabled = true;
+      var fail = function(why: string){ toast('Could not switch to ' + TRACK[to!] + '. ' + why, null, 8000, true); };
+      UPD.setChannel(to).then(function(r){ tswBusy = false; tsw.close(); if (!r || r.error) fail(r && r.error || ''); abLoad(); },
+        function(){ tswBusy = false; tsw.close(); fail(''); abLoad(); });
+    });
+    setDlg.addEventListener('change', function(ev){
+      var sel = ev.target as HTMLSelectElement; if (!sel.matches || !sel.matches('[data-ab-track]') || !abInfo) return;
+      var to: 'latest' | 'nightly' = sel.value === 'nightly' ? 'nightly' : 'latest';
+      if (to !== abInfo.channel) tswOpen(to); else abRender();
+    });
+    setDlg.addEventListener('click', function(ev){
+      var t = ev.target as Element; if (!t.closest) return;
+      if (t.closest('.set-tab[data-tab=about]')) abLoad();
+      if (t.closest('[data-ab-retry]') && abInfo) tswOpen(abInfo.channel);
+      var a = t.closest<HTMLButtonElement>('[data-ab-act]');
+      if (a && UPD) { var id = a.dataset.abAct; if (id === 'check' || id === 'download' || id === 'restart') UPD.act(id).then(abTake, function(){}); }
+    });
+  }
   // The note unfolds when asked for, and folds again once sent or left empty.
   function noting(f: PageForm | null | undefined, on: boolean): void { if (!f) return; var slid = on && !sheetOpen(f); if (on) openSheet(f, true); f.classList.toggle('noting', !!on);
     var nt = f.elements.note;
