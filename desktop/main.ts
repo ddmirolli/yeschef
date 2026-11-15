@@ -374,7 +374,8 @@ function updateInfo(): UpdateInfo {
 }
 /**
  * A track switch from Settings → About, as T3 Code's setUpdateChannel: it answers once the other track's build is found
- * and downloading (the app then restarts into it on its own), or with why it stopped. Back to the running build's own
+ * and downloading (the app then restarts into it on its own), or with why it stopped. After two minutes it answers
+ * ok while the switch goes on. Back to the running build's own
  * track nothing reinstalls, so it answers at once.
  */
 function switchTrack(next: ChannelName): Promise<SwitchReply> {
@@ -388,7 +389,9 @@ function switchTrack(next: ChannelName): Promise<SwitchReply> {
       if (s.switching && (s.status === 'available' || s.status === 'downloading' || s.status === 'ready')) done({ ok: true });
       else if (s.status === 'error') done({ error: s.message || 'The switch stopped.' });
     };
-    const timer = setTimeout(() => done({ error: 'The update server did not answer. Try again in a few minutes.' }), 120000);
+    // A slow server closes the dialog but never calls the switch failed: it goes on, Settings → About says
+    // "Switching to …", and only an update error stops it (PR-Agent r1 on #83).
+    const timer = setTimeout(() => done({ ok: true }), 120000);
     updateWatchers.add(watch);
   });
 }
