@@ -821,10 +821,10 @@ dialog.sheet{height:fit-content;max-height:min(920px,calc(100dvh - 48px))}
 /* Settings sits in the middle of the window, as T3 Code's dialogs do (16 px clear on every side), and never runs past
    its edge (Dan, 2026-11-10). It keeps one height for every tab, so switching never moves it; the tab scrolls inside,
    with a fade at its foot while more waits below. */
-#settings[open]{display:grid;grid-template-columns:168px minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto;height:min(720px,calc(100dvh - 32px));max-height:calc(100dvh - 32px);margin:auto}
+#settings[open]{display:grid;grid-template-columns:168px minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto;height:min(720px,calc(100dvh - 32px));max-height:calc(100dvh - 32px);margin:auto;overflow:hidden}
 #settings .set-wrap{display:contents}
 #settings .set-nav{grid-row:1/3;border-radius:16px 0 0 16px}
-#settings .set-panes{grid-column:2;min-height:0;max-height:none;padding:20px 24px 8px}
+#settings .set-panes{grid-column:2;min-height:0;max-height:none;padding:20px 24px 8px;position:relative;overscroll-behavior:contain}
 #settings .set-done{grid-column:2;padding:8px 24px 20px;border-top:0}
 /* Native controls, styled: round options, no resize grips, one chevron for every fold. */
 label.opt input[type=radio]{-webkit-appearance:none;appearance:none;flex:none;width:18px;height:18px;margin:0;border-radius:50%;background:var(--card);box-shadow:inset 0 0 0 1.5px var(--label2);cursor:pointer;transition:box-shadow .15s}
